@@ -6,12 +6,12 @@
 - [x] Task: Set up CI/CD configuration (e.g., GitHub Actions) for linting and testing. 0b2669a
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Project Scaffolding' (Protocol in workflow.md) dbce0d8
 
-## Phase 2: Core Architecture Design
-- [ ] Task: Define foundational traits for the memory pipeline in a `core` module.
-    - [ ] Write unit tests for trait definitions (mock implementations).
-    - [ ] Implement traits: `Ingestor`, `Processor`, `Storage`, `Retriever`.
-- [ ] Task: Design the `Pipeline` orchestrator to manage module interactions.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Core Architecture Design' (Protocol in workflow.md)
+## Phase 2: Core Architecture Design [checkpoint: 882c4ee]
+- [x] Task: Define foundational traits for the memory pipeline in a `core` module. f1e1b22
+    - [x] Write unit tests for trait definitions (mock implementations).
+    - [x] Implement traits: `Ingestor`, `Processor`, `Storage`, `Retriever`.
+- [x] Task: Design the `Pipeline` orchestrator to manage module interactions. 099fde9
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Core Architecture Design' (Protocol in workflow.md) 882c4ee
 
 ## Phase 3: CLI Entry Point
 - [ ] Task: Implement basic CLI structure with `clap` subcommands.
