@@ -3,7 +3,7 @@
 ## Phase 1: Project Scaffolding
 - [x] Task: Initialize Rust project with `cargo init`. 738bcb2
 - [x] Task: Configure `Cargo.toml` with initial dependencies (`clap`, `serde`, `tracing`). d90e222
-- [ ] Task: Set up CI/CD configuration (e.g., GitHub Actions) for linting and testing.
+- [x] Task: Set up CI/CD configuration (e.g., GitHub Actions) for linting and testing. 0b2669a
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Project Scaffolding' (Protocol in workflow.md)
 
 ## Phase 2: Core Architecture Design
