@@ -59,6 +59,37 @@ impl Pipeline {
     }
 }
 
+pub struct PlaceholderPipeline;
+
+#[async_trait]
+impl Ingestor for PlaceholderPipeline {
+    async fn ingest(&self, content: &str) -> Result<String> {
+        Ok(content.to_string())
+    }
+}
+
+#[async_trait]
+impl Processor for PlaceholderPipeline {
+    async fn process(&self, input: &str) -> Result<String> {
+        Ok(format!("processed: {}", input))
+    }
+}
+
+#[async_trait]
+impl Storage for PlaceholderPipeline {
+    async fn store(&self, id: &str, data: &str) -> Result<()> {
+        println!("Storing id='{}', data='{}'", id, data);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Retriever for PlaceholderPipeline {
+    async fn retrieve(&self, id: &str) -> Result<String> {
+        Ok(format!("retrieved: {}", id))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

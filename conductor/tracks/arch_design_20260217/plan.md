@@ -14,6 +14,6 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Core Architecture Design' (Protocol in workflow.md) 882c4ee
 
 ## Phase 3: CLI Entry Point
-- [ ] Task: Implement basic CLI structure with `clap` subcommands.
-- [ ] Task: Connect CLI commands to placeholder architecture modules.
+- [x] Task: Implement basic CLI structure with `clap` subcommands. 80b6d82
+- [x] Task: Connect CLI commands to placeholder architecture modules. 903db03
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: CLI Entry Point' (Protocol in workflow.md)
