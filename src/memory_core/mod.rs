@@ -3,27 +3,37 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use tracing::info;
 
+/// Trait for ingesting raw content into the memory system.
 #[async_trait]
 pub trait Ingestor: Send + Sync {
+    /// Ingests the provided content and returns a processed string.
     async fn ingest(&self, content: &str) -> Result<String>;
 }
 
+/// Trait for processing ingested content (e.g., summarization, embedding).
 #[async_trait]
 pub trait Processor: Send + Sync {
+    /// Processes the input string and returns a refined result.
     async fn process(&self, input: &str) -> Result<String>;
 }
 
+/// Trait for storing processed memory data.
 #[async_trait]
 pub trait Storage: Send + Sync {
+    /// Stores the data under the given ID.
     async fn store(&self, id: &str, data: &str) -> Result<()>;
 }
 
+/// Trait for retrieving stored memory data.
 #[async_trait]
 pub trait Retriever: Send + Sync {
+    /// Retrieves the data associated with the given ID.
     async fn retrieve(&self, id: &str) -> Result<String>;
 }
 
+/// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
 pub struct Pipeline {
     ingestor: Box<dyn Ingestor>,
     processor: Box<dyn Processor>,
@@ -32,6 +42,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
+    /// Creates a new Pipeline with the provided components.
     pub fn new(
         ingestor: Box<dyn Ingestor>,
         processor: Box<dyn Processor>,
@@ -46,6 +57,7 @@ impl Pipeline {
         }
     }
 
+    /// Runs the full pipeline: ingest -> process -> store.
     pub async fn run(&self, content: &str, id: Option<&str>) -> Result<String> {
         let id = id.unwrap_or("latest");
         let ingested = self.ingestor.ingest(content).await?;
@@ -54,11 +66,13 @@ impl Pipeline {
         Ok(id.to_string())
     }
 
+    /// Retrieves data from storage via the retriever.
     pub async fn retrieve(&self, id: &str) -> Result<String> {
         self.retriever.retrieve(id).await
     }
 }
 
+/// A placeholder implementation of the memory pipeline for development and testing.
 pub struct PlaceholderPipeline;
 
 #[async_trait]
@@ -78,7 +92,7 @@ impl Processor for PlaceholderPipeline {
 #[async_trait]
 impl Storage for PlaceholderPipeline {
     async fn store(&self, id: &str, data: &str) -> Result<()> {
-        println!("Storing id='{}', data='{}'", id, data);
+        info!("Storing id='{}', data='{}'", id, data);
         Ok(())
     }
 }

@@ -1,24 +1,24 @@
 use clap::{Parser, Subcommand};
 
+/// The main CLI entry point for the romega memory system.
 #[derive(Parser)]
 #[command(name = "romega")]
 #[command(about = "A modular memory system", long_about = None)]
 pub struct Cli {
+    /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Commands,
 }
 
+/// Available subcommands for the memory pipeline.
 #[derive(Subcommand)]
 pub enum Commands {
-    Ingest {
-        content: String,
-    },
-    Process {
-        content: String,
-    },
-    Retrieve {
-        id: String,
-    },
+    /// Ingests raw content into the system.
+    Ingest { content: String },
+    /// Processes content through the pipeline (alias for run in current model).
+    Process { content: String },
+    /// Retrieves a stored memory by its ID.
+    Retrieve { id: String },
 }
 
 #[cfg(test)]

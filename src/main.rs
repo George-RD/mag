@@ -1,6 +1,7 @@
 use clap::Parser;
 use cli::{Cli, Commands};
 use memory_core::{Pipeline, PlaceholderPipeline};
+use tracing::info;
 
 mod cli;
 mod memory_core;
@@ -21,23 +22,23 @@ async fn main() -> anyhow::Result<()> {
 
     match &cli.command {
         Commands::Ingest { content } => {
-            println!("Ingesting content: {}", content);
+            info!("Ingesting content: {}", content);
             let id = pipeline.run(content, None).await?;
-            println!("Successfully processed and stored with ID: {}", id);
+            info!("Successfully processed and stored with ID: {}", id);
         }
         Commands::Process { content } => {
             // In the current simple model, process is part of the run pipeline.
             // This command might just test the processing step individually later,
             // but for now we can treat it similarly or just log it.
-            println!("Processing content directly: {}", content);
+            info!("Processing content directly: {}", content);
             // Example: Just run the pipeline for now as "process" implies the whole flow in this context
             let id = pipeline.run(content, None).await?;
-            println!("Result ID: {}", id);
+            info!("Result ID: {}", id);
         }
         Commands::Retrieve { id } => {
-            println!("Retrieving ID: {}", id);
+            info!("Retrieving ID: {}", id);
             let result = pipeline.retrieve(id).await?;
-            println!("Retrieved content: {}", result);
+            info!("Retrieved content: {}", result);
         }
     }
 
