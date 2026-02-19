@@ -39,16 +39,19 @@ async fn main() -> anyhow::Result<()> {
             info!(content_len = content.len(), "Ingesting content");
             let id = pipeline.run(content, None).await?;
             info!(memory_id = %id, "Successfully processed and stored");
+            println!("{}", json!({ "id": id }));
         }
         Commands::Process { content } => {
             info!(content_len = content.len(), "Processing content directly");
             let id = pipeline.run(content, None).await?;
             info!(memory_id = %id, "Process command stored result");
+            println!("{}", json!({ "id": id }));
         }
         Commands::Retrieve { id } => {
             info!(memory_id = %id, "Retrieving memory");
             let result = pipeline.retrieve(id).await?;
             info!(memory_id = %id, content_len = result.len(), "Retrieved memory");
+            println!("{}", json!({ "id": id, "content": result }));
         }
         Commands::Search { query, limit } => {
             info!(
@@ -58,9 +61,11 @@ async fn main() -> anyhow::Result<()> {
             );
             let results = pipeline.search(query, *limit).await?;
             info!(result_count = results.len(), "Search completed");
-            for result in &results {
-                println!("{}", json!({ "id": result.id, "content": result.content }));
-            }
+            let payload: Vec<_> = results
+                .into_iter()
+                .map(|result| json!({ "id": result.id, "content": result.content }))
+                .collect();
+            println!("{}", json!({ "results": payload }));
         }
         Commands::Serve => {
             info!("Starting MCP server over stdio");
