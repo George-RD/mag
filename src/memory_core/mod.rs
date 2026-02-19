@@ -5,6 +5,15 @@ use uuid::Uuid;
 
 pub mod storage;
 
+/// Search result item returned by memory queries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchResult {
+    /// Memory identifier.
+    pub id: String,
+    /// Stored memory content.
+    pub content: String,
+}
+
 /// Trait for ingesting raw content into the memory system.
 #[async_trait]
 pub trait Ingestor: Send + Sync {
@@ -33,12 +42,20 @@ pub trait Retriever: Send + Sync {
     async fn retrieve(&self, id: &str) -> Result<String>;
 }
 
+/// Trait for searching stored memory data.
+#[async_trait]
+pub trait Searcher: Send + Sync {
+    /// Searches for memories matching the query string.
+    async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>>;
+}
+
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
 pub struct Pipeline {
     ingestor: Box<dyn Ingestor>,
     processor: Box<dyn Processor>,
     storage: Box<dyn Storage>,
     retriever: Box<dyn Retriever>,
+    searcher: Box<dyn Searcher>,
 }
 
 impl Pipeline {
@@ -48,12 +65,14 @@ impl Pipeline {
         processor: Box<dyn Processor>,
         storage: Box<dyn Storage>,
         retriever: Box<dyn Retriever>,
+        searcher: Box<dyn Searcher>,
     ) -> Self {
         Self {
             ingestor,
             processor,
             storage,
             retriever,
+            searcher,
         }
     }
 
@@ -71,6 +90,11 @@ impl Pipeline {
     /// Retrieves data from storage via the retriever.
     pub async fn retrieve(&self, id: &str) -> Result<String> {
         self.retriever.retrieve(id).await
+    }
+
+    /// Searches for stored memories matching the provided query.
+    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+        self.searcher.search(query, limit).await
     }
 }
 
@@ -103,6 +127,16 @@ impl Storage for PlaceholderPipeline {
 impl Retriever for PlaceholderPipeline {
     async fn retrieve(&self, id: &str) -> Result<String> {
         Ok(format!("retrieved: {}", id))
+    }
+}
+
+#[async_trait]
+impl Searcher for PlaceholderPipeline {
+    async fn search(&self, query: &str, _limit: usize) -> Result<Vec<SearchResult>> {
+        Ok(vec![SearchResult {
+            id: "placeholder".to_string(),
+            content: format!("search result for: {query}"),
+        }])
     }
 }
 
@@ -141,6 +175,16 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl Searcher for MockPipeline {
+        async fn search(&self, query: &str, _limit: usize) -> Result<Vec<SearchResult>> {
+            Ok(vec![SearchResult {
+                id: "result-1".to_string(),
+                content: format!("match: {query}"),
+            }])
+        }
+    }
+
     struct FailingIngestor;
 
     #[async_trait]
@@ -164,6 +208,7 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.run("hello", Some("custom_id")).await;
@@ -174,6 +219,7 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_run_default_id() {
         let pipeline = Pipeline::new(
+            Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
@@ -193,6 +239,7 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.retrieve("test_id").await;
@@ -207,10 +254,27 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.run("hello", None).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Ingestion failed");
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_search_success() {
+        let pipeline = Pipeline::new(
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+        );
+
+        let results = pipeline.search("needle", 5).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "result-1");
+        assert_eq!(results[0].content, "match: needle");
     }
 }

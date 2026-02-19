@@ -12,7 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
-use crate::memory_core::{Retriever, Storage};
+use crate::memory_core::{Retriever, Searcher, Storage};
 
 #[derive(Clone)]
 pub struct McpMemoryServer {
@@ -44,6 +44,12 @@ struct StoreRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RetrieveRequest {
     id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SearchRequest {
+    query: String,
+    limit: Option<usize>,
 }
 
 #[tool_router]
@@ -85,6 +91,33 @@ impl McpMemoryServer {
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": params.0.id, "content": content }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_search",
+        description = "Search stored memories by query string"
+    )]
+    async fn memory_search(
+        &self,
+        params: Parameters<SearchRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = params.0.limit.unwrap_or(10);
+        let results = self
+            .storage
+            .search(&params.0.query, limit)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("failed to search memories: {e}"), None)
+            })?;
+
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|r| json!({ "id": r.id, "content": r.content }))
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "results": payload }).to_string(),
         )]))
     }
 

@@ -2,6 +2,7 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{Pipeline, PlaceholderPipeline};
+use serde_json::json;
 use tracing::info;
 
 mod cli;
@@ -30,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
         Box::new(PlaceholderPipeline),
         Box::new(sqlite_storage.clone()),
         Box::new(sqlite_storage),
+        Box::new(mcp_storage.clone()),
     );
 
     match &cli.command {
@@ -47,6 +49,18 @@ async fn main() -> anyhow::Result<()> {
             info!(memory_id = %id, "Retrieving memory");
             let result = pipeline.retrieve(id).await?;
             info!(memory_id = %id, content_len = result.len(), "Retrieved memory");
+        }
+        Commands::Search { query, limit } => {
+            info!(
+                query_len = query.len(),
+                limit = *limit,
+                "Searching memories"
+            );
+            let results = pipeline.search(query, *limit).await?;
+            info!(result_count = results.len(), "Search completed");
+            for result in &results {
+                println!("{}", json!({ "id": result.id, "content": result.content }));
+            }
         }
         Commands::Serve => {
             info!("Starting MCP server over stdio");

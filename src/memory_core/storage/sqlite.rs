@@ -8,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::memory_core::{Retriever, Storage};
+use crate::memory_core::{Retriever, SearchResult, Searcher, Storage};
 
 /// Controls how the SQLite storage backend is initialized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,6 +243,58 @@ impl Retriever for SqliteStorage {
     }
 }
 
+#[async_trait]
+impl Searcher for SqliteStorage {
+    async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let escaped = query
+            .to_lowercase()
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
+        let effective_limit = i64::try_from(limit).context("search limit exceeds i64")?;
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, content
+                     FROM memories
+                     WHERE lower(content) LIKE ?1 ESCAPE '\\'
+                     ORDER BY last_accessed_at DESC
+                     LIMIT ?2",
+                )
+                .context("failed to prepare search query")?;
+
+            let rows = stmt
+                .query_map(params![pattern, effective_limit], |row| {
+                    Ok(SearchResult {
+                        id: row.get(0)?,
+                        content: row.get(1)?,
+                    })
+                })
+                .context("failed to execute search query")?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.context("failed to decode search row")?);
+            }
+
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
 /// Ensures the parent directory of `path` exists, creating it recursively if needed.
 fn initialize_parent_dir(path: &Path) -> Result<()> {
     let parent = path
@@ -299,7 +351,7 @@ fn default_db_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_core::{Retriever, Storage};
+    use crate::memory_core::{Retriever, Searcher, Storage};
 
     #[test]
     fn test_new_with_path_creates_parent_and_db() {
@@ -409,5 +461,52 @@ mod tests {
             .unwrap();
 
         assert_eq!(stored_rel_type, "links_to");
+    }
+
+    #[tokio::test]
+    async fn test_search_matches_content_case_insensitive() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("s1", "Rust memory store").await.unwrap();
+        storage.store("s2", "another note").await.unwrap();
+
+        let results = storage.search("MEMORY", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "s1");
+        assert_eq!(results[0].content, "Rust memory store");
+    }
+
+    #[tokio::test]
+    async fn test_search_treats_like_wildcards_as_literals() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("p1", "value 100% done").await.unwrap();
+        storage.store("p2", "value 1000 done").await.unwrap();
+
+        let results = storage.search("100%", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "p1");
+    }
+
+    #[tokio::test]
+    async fn test_search_with_zero_limit_returns_no_results() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("z1", "zero limit candidate").await.unwrap();
+
+        let results = storage.search("zero", 0).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_escapes_underscore_and_backslash_literals() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("u1", r"file_a\b").await.unwrap();
+        storage.store("u2", r"fileXab").await.unwrap();
+
+        let underscore_results = storage.search("file_a", 10).await.unwrap();
+        assert_eq!(underscore_results.len(), 1);
+        assert_eq!(underscore_results[0].id, "u1");
+
+        let backslash_results = storage.search(r"a\b", 10).await.unwrap();
+        assert_eq!(backslash_results.len(), 1);
+        assert_eq!(backslash_results[0].id, "u1");
     }
 }

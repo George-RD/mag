@@ -31,6 +31,12 @@ pub enum Commands {
     Process { content: String },
     /// Retrieves a stored memory by its ID.
     Retrieve { id: String },
+    /// Searches stored memories by query string.
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
     /// Starts the MCP server over stdio transport.
     Serve,
 }
@@ -66,6 +72,19 @@ mod tests {
         match cli.command {
             Commands::Retrieve { id } => assert_eq!(id, "123"),
             _ => panic!("Expected Retrieve command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_search_command() {
+        let args = vec!["romega", "search", "hello", "--limit", "3"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Search { query, limit } => {
+                assert_eq!(query, "hello");
+                assert_eq!(limit, 3);
+            }
+            _ => panic!("Expected Search command"),
         }
     }
 
