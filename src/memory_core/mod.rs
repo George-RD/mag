@@ -1,9 +1,9 @@
-// TODO: Remove allow(dead_code) once the architecture is fully integrated in Phase 3.
-#![allow(dead_code)]
-
 use anyhow::Result;
 use async_trait::async_trait;
 use tracing::info;
+use uuid::Uuid;
+
+pub mod storage;
 
 /// Trait for ingesting raw content into the memory system.
 #[async_trait]
@@ -59,11 +59,13 @@ impl Pipeline {
 
     /// Runs the full pipeline: ingest -> process -> store.
     pub async fn run(&self, content: &str, id: Option<&str>) -> Result<String> {
-        let id = id.unwrap_or("latest");
+        let id = id
+            .map(std::string::ToString::to_string)
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         let ingested = self.ingestor.ingest(content).await?;
         let processed = self.processor.process(&ingested).await?;
-        self.storage.store(id, &processed).await?;
-        Ok(id.to_string())
+        self.storage.store(&id, &processed).await?;
+        Ok(id)
     }
 
     /// Retrieves data from storage via the retriever.
@@ -92,7 +94,7 @@ impl Processor for PlaceholderPipeline {
 #[async_trait]
 impl Storage for PlaceholderPipeline {
     async fn store(&self, id: &str, data: &str) -> Result<()> {
-        info!("Storing id='{}', data='{}'", id, data);
+        info!(memory_id = %id, content_len = data.len(), "Storing placeholder payload");
         Ok(())
     }
 }
@@ -180,7 +182,8 @@ mod tests {
 
         let result = pipeline.run("hello", None).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "latest");
+        let id = result.unwrap();
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, InitModeArg};
+use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{Pipeline, PlaceholderPipeline};
 use tracing::info;
 
@@ -12,33 +13,34 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    // Construct the pipeline with placeholder modules for now
+    let storage_mode = match cli.init_mode {
+        InitModeArg::Default => InitMode::Default,
+        InitModeArg::Advanced => InitMode::Advanced,
+    };
+    let sqlite_storage = SqliteStorage::new(storage_mode)?;
+
     let pipeline = Pipeline::new(
         Box::new(PlaceholderPipeline),
         Box::new(PlaceholderPipeline),
-        Box::new(PlaceholderPipeline),
-        Box::new(PlaceholderPipeline),
+        Box::new(sqlite_storage.clone()),
+        Box::new(sqlite_storage),
     );
 
     match &cli.command {
         Commands::Ingest { content } => {
-            info!("Ingesting content: {}", content);
+            info!(content_len = content.len(), "Ingesting content");
             let id = pipeline.run(content, None).await?;
-            info!("Successfully processed and stored with ID: {}", id);
+            info!(memory_id = %id, "Successfully processed and stored");
         }
         Commands::Process { content } => {
-            // In the current simple model, process is part of the run pipeline.
-            // This command might just test the processing step individually later,
-            // but for now we can treat it similarly or just log it.
-            info!("Processing content directly: {}", content);
-            // Example: Just run the pipeline for now as "process" implies the whole flow in this context
+            info!(content_len = content.len(), "Processing content directly");
             let id = pipeline.run(content, None).await?;
-            info!("Result ID: {}", id);
+            info!(memory_id = %id, "Process command stored result");
         }
         Commands::Retrieve { id } => {
-            info!("Retrieving ID: {}", id);
+            info!(memory_id = %id, "Retrieving memory");
             let result = pipeline.retrieve(id).await?;
-            info!("Retrieved content: {}", result);
+            info!(memory_id = %id, content_len = result.len(), "Retrieved memory");
         }
     }
 

@@ -1,10 +1,22 @@
 use clap::{Parser, Subcommand};
 
+/// CLI representation of the storage initialization mode.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InitModeArg {
+    /// Standard initialization with default database path.
+    Default,
+    /// Reserved for future advanced configuration.
+    Advanced,
+}
+
 /// The main CLI entry point for the romega memory system.
 #[derive(Parser)]
 #[command(name = "romega")]
 #[command(about = "A modular memory system", long_about = None)]
 pub struct Cli {
+    #[arg(long, value_enum, default_value_t = InitModeArg::Default, global = true)]
+    pub init_mode: InitModeArg,
+
     /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Commands,
@@ -53,5 +65,25 @@ mod tests {
             Commands::Retrieve { id } => assert_eq!(id, "123"),
             _ => panic!("Expected Retrieve command"),
         }
+    }
+
+    #[test]
+    fn test_cli_default_init_mode() {
+        let args = vec!["romega", "ingest", "test content"];
+        let cli = Cli::parse_from(args);
+        assert_eq!(cli.init_mode, InitModeArg::Default);
+    }
+
+    #[test]
+    fn test_cli_advanced_init_mode() {
+        let args = vec![
+            "romega",
+            "--init-mode",
+            "advanced",
+            "ingest",
+            "test content",
+        ];
+        let cli = Cli::parse_from(args);
+        assert_eq!(cli.init_mode, InitModeArg::Advanced);
     }
 }

@@ -4,4 +4,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-No active tracks.
+- [ ] **Track: SQLite Storage Backend**
+*Link: [./tracks/sqlite_storage_20260218/](./tracks/sqlite_storage_20260218/)*
