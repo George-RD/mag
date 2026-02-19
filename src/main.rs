@@ -5,11 +5,16 @@ use memory_core::{Pipeline, PlaceholderPipeline};
 use tracing::info;
 
 mod cli;
+mod mcp_server;
 mod memory_core;
+
+use mcp_server::McpMemoryServer;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     let cli = Cli::parse();
 
@@ -18,6 +23,7 @@ async fn main() -> anyhow::Result<()> {
         InitModeArg::Advanced => InitMode::Advanced,
     };
     let sqlite_storage = SqliteStorage::new(storage_mode)?;
+    let mcp_storage = sqlite_storage.clone();
 
     let pipeline = Pipeline::new(
         Box::new(PlaceholderPipeline),
@@ -41,6 +47,10 @@ async fn main() -> anyhow::Result<()> {
             info!(memory_id = %id, "Retrieving memory");
             let result = pipeline.retrieve(id).await?;
             info!(memory_id = %id, content_len = result.len(), "Retrieved memory");
+        }
+        Commands::Serve => {
+            info!("Starting MCP server over stdio");
+            McpMemoryServer::new(mcp_storage).serve_stdio().await?;
         }
     }
 

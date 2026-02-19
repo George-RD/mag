@@ -1,0 +1,36 @@
+# SOURCE MAP
+
+## OVERVIEW
+`src/` contains executable runtime paths: CLI dispatch, MCP server, and trait-driven memory core.
+
+## STRUCTURE
+```text
+src/
+├── main.rs               # Process entrypoint and command dispatch
+├── cli.rs                # Clap command surface
+├── mcp_server.rs         # MCP stdio server + tool handlers
+└── memory_core/
+    ├── mod.rs            # Core traits + Pipeline orchestration
+    └── storage/
+        ├── mod.rs        # Storage exports
+        └── sqlite.rs     # SQLite implementation
+```
+
+## WHERE TO LOOK
+| Task | File | Notes |
+|---|---|---|
+| Add CLI command | `src/cli.rs` + `src/main.rs` | Keep parser and runtime match in sync |
+| Add MCP tool | `src/mcp_server.rs` | Register via `#[tool]` in `#[tool_router]` block |
+| Change storage behavior | `src/memory_core/storage/sqlite.rs` | Ensure async-safe DB access |
+| Introduce new core stage | `src/memory_core/mod.rs` | Implement trait, then wire Pipeline |
+
+## CONVENTIONS
+- `main.rs` initializes tracing to stderr; preserve this in server mode.
+- MCP tools must return stable payloads (`CallToolResult`) and clear error mapping.
+- Runtime logs should use metadata (ids, content lengths), not raw content dumps.
+- For DB operations called from async contexts, wrap sync SQLite work with `spawn_blocking`.
+
+## ANTI-PATTERNS
+- Do not perform direct `rusqlite` calls on async runtime threads.
+- Do not change command/tool names without migration rationale; integrations depend on them.
+- Do not add stdout logging in server path; protocol corruption risk.

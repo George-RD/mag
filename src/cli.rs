@@ -31,6 +31,8 @@ pub enum Commands {
     Process { content: String },
     /// Retrieves a stored memory by its ID.
     Retrieve { id: String },
+    /// Starts the MCP server over stdio transport.
+    Serve,
 }
 
 #[cfg(test)]
@@ -85,5 +87,15 @@ mod tests {
         ];
         let cli = Cli::parse_from(args);
         assert_eq!(cli.init_mode, InitModeArg::Advanced);
+    }
+
+    #[test]
+    fn test_cli_serve_command() {
+        let args = vec!["romega", "serve"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Serve => {}
+            _ => panic!("Expected Serve command"),
+        }
     }
 }

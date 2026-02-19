@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "romega-memory": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--",
+        "serve"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }
+  }
+}
