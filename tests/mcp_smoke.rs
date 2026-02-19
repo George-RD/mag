@@ -37,6 +37,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         tools.tools.iter().any(|tool| tool.name == "memory_search"),
         "expected memory_search to be registered"
     );
+    assert!(
+        tools.tools.iter().any(|tool| tool.name == "memory_recent"),
+        "expected memory_recent to be registered"
+    );
 
     let health_result = timeout(
         Duration::from_secs(20),
@@ -101,6 +105,29 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .as_text()
             .is_some_and(|text| text.text.contains("search needle item"))),
         "expected search result to include stored content"
+    );
+
+    let recent_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_recent".into(),
+            arguments: Some(
+                serde_json::json!({ "limit": 5 })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        recent_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("search needle item"))),
+        "expected recent result to include stored content"
     );
 
     service.cancel().await?;

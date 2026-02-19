@@ -8,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::memory_core::{Retriever, SearchResult, Searcher, Storage};
+use crate::memory_core::{Recents, Retriever, SearchResult, Searcher, Storage};
 
 /// Controls how the SQLite storage backend is initialized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,6 +295,51 @@ impl Searcher for SqliteStorage {
     }
 }
 
+#[async_trait]
+impl Recents for SqliteStorage {
+    async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let effective_limit = i64::try_from(limit).context("recent limit exceeds i64")?;
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, content
+                     FROM memories
+                     ORDER BY last_accessed_at DESC
+                     LIMIT ?1",
+                )
+                .context("failed to prepare recent query")?;
+
+            let rows = stmt
+                .query_map(params![effective_limit], |row| {
+                    Ok(SearchResult {
+                        id: row.get(0)?,
+                        content: row.get(1)?,
+                    })
+                })
+                .context("failed to execute recent query")?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.context("failed to decode recent row")?);
+            }
+
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
 /// Ensures the parent directory of `path` exists, creating it recursively if needed.
 fn initialize_parent_dir(path: &Path) -> Result<()> {
     let parent = path
@@ -351,7 +396,7 @@ fn default_db_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_core::{Retriever, Searcher, Storage};
+    use crate::memory_core::{Recents, Retriever, Searcher, Storage};
 
     #[test]
     fn test_new_with_path_creates_parent_and_db() {
@@ -508,5 +553,24 @@ mod tests {
         let backslash_results = storage.search(r"a\b", 10).await.unwrap();
         assert_eq!(backslash_results.len(), 1);
         assert_eq!(backslash_results[0].id, "u1");
+    }
+
+    #[tokio::test]
+    async fn test_recent_returns_most_recently_accessed_first() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("r1", "older").await.unwrap();
+        storage.store("r2", "newer").await.unwrap();
+
+        storage
+            .debug_force_last_accessed_at("r1", "2000-01-01T00:00:00.000Z")
+            .unwrap();
+        storage
+            .debug_force_last_accessed_at("r2", "2001-01-01T00:00:00.000Z")
+            .unwrap();
+
+        let results = storage.recent(2).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "r2");
+        assert_eq!(results[1].id, "r1");
     }
 }

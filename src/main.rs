@@ -32,6 +32,7 @@ async fn main() -> anyhow::Result<()> {
         Box::new(sqlite_storage.clone()),
         Box::new(sqlite_storage),
         Box::new(mcp_storage.clone()),
+        Box::new(mcp_storage.clone()),
     );
 
     match &cli.command {
@@ -61,6 +62,16 @@ async fn main() -> anyhow::Result<()> {
             );
             let results = pipeline.search(query, *limit).await?;
             info!(result_count = results.len(), "Search completed");
+            let payload: Vec<_> = results
+                .into_iter()
+                .map(|result| json!({ "id": result.id, "content": result.content }))
+                .collect();
+            println!("{}", json!({ "results": payload }));
+        }
+        Commands::Recent { limit } => {
+            info!(limit = *limit, "Listing recent memories");
+            let results = pipeline.recent(*limit).await?;
+            info!(result_count = results.len(), "Recent list completed");
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| json!({ "id": result.id, "content": result.content }))

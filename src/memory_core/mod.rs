@@ -49,6 +49,11 @@ pub trait Searcher: Send + Sync {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>>;
 }
 
+#[async_trait]
+pub trait Recents: Send + Sync {
+    async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>>;
+}
+
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
 pub struct Pipeline {
     ingestor: Box<dyn Ingestor>,
@@ -56,6 +61,7 @@ pub struct Pipeline {
     storage: Box<dyn Storage>,
     retriever: Box<dyn Retriever>,
     searcher: Box<dyn Searcher>,
+    recents: Box<dyn Recents>,
 }
 
 impl Pipeline {
@@ -66,6 +72,7 @@ impl Pipeline {
         storage: Box<dyn Storage>,
         retriever: Box<dyn Retriever>,
         searcher: Box<dyn Searcher>,
+        recents: Box<dyn Recents>,
     ) -> Self {
         Self {
             ingestor,
@@ -73,6 +80,7 @@ impl Pipeline {
             storage,
             retriever,
             searcher,
+            recents,
         }
     }
 
@@ -95,6 +103,10 @@ impl Pipeline {
     /// Searches for stored memories matching the provided query.
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
         self.searcher.search(query, limit).await
+    }
+
+    pub async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>> {
+        self.recents.recent(limit).await
     }
 }
 
@@ -136,6 +148,16 @@ impl Searcher for PlaceholderPipeline {
         Ok(vec![SearchResult {
             id: "placeholder".to_string(),
             content: format!("search result for: {query}"),
+        }])
+    }
+}
+
+#[async_trait]
+impl Recents for PlaceholderPipeline {
+    async fn recent(&self, _limit: usize) -> Result<Vec<SearchResult>> {
+        Ok(vec![SearchResult {
+            id: "placeholder-recent".to_string(),
+            content: "recent result".to_string(),
         }])
     }
 }
@@ -185,6 +207,16 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl Recents for MockPipeline {
+        async fn recent(&self, _limit: usize) -> Result<Vec<SearchResult>> {
+            Ok(vec![SearchResult {
+                id: "recent-1".to_string(),
+                content: "recent value".to_string(),
+            }])
+        }
+    }
+
     struct FailingIngestor;
 
     #[async_trait]
@@ -209,6 +241,7 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.run("hello", Some("custom_id")).await;
@@ -219,6 +252,7 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_run_default_id() {
         let pipeline = Pipeline::new(
+            Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
@@ -240,6 +274,7 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.retrieve("test_id").await;
@@ -251,6 +286,7 @@ mod tests {
     async fn test_pipeline_failure() {
         let pipeline = Pipeline::new(
             Box::new(FailingIngestor),
+            Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
@@ -270,11 +306,29 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let results = pipeline.search("needle", 5).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "result-1");
         assert_eq!(results[0].content, "match: needle");
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_recent_success() {
+        let pipeline = Pipeline::new(
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+        );
+
+        let results = pipeline.recent(3).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "recent-1");
+        assert_eq!(results[0].content, "recent value");
     }
 }

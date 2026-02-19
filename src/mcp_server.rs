@@ -12,7 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
-use crate::memory_core::{Retriever, Searcher, Storage};
+use crate::memory_core::{Recents, Retriever, Searcher, Storage};
 
 #[derive(Clone)]
 pub struct McpMemoryServer {
@@ -49,6 +49,11 @@ struct RetrieveRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SearchRequest {
     query: String,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecentRequest {
     limit: Option<usize>,
 }
 
@@ -109,6 +114,30 @@ impl McpMemoryServer {
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("failed to search memories: {e}"), None)
+            })?;
+
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|r| json!({ "id": r.id, "content": r.content }))
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "results": payload }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_recent",
+        description = "List recently accessed memories"
+    )]
+    async fn memory_recent(
+        &self,
+        params: Parameters<RecentRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = params.0.limit.unwrap_or(10);
+        let results =
+            self.storage.recent(limit).await.map_err(|e| {
+                McpError::internal_error(format!("failed to list recents: {e}"), None)
             })?;
 
         let payload: Vec<_> = results

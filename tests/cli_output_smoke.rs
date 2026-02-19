@@ -71,6 +71,18 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
         Some("processed: hello-process")
     );
 
+    let (recent_stdout, _recent_stderr) = run_cli(&test_home, &["recent", "--limit", "2"])?;
+    let recent_json: serde_json::Value = serde_json::from_str(recent_stdout.trim())?;
+    let recent_results = recent_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in recent output"))?;
+    assert!(!recent_results.is_empty());
+    assert!(
+        recent_results
+            .iter()
+            .any(|entry| entry["id"].as_str() == Some(process_id.as_str()))
+    );
+
     let _ = std::fs::remove_dir_all(&test_home);
     Ok(())
 }

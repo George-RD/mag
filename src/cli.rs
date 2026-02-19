@@ -37,6 +37,11 @@ pub enum Commands {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
+    /// Lists recently accessed memories.
+    Recent {
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
     /// Starts the MCP server over stdio transport.
     Serve,
 }
@@ -85,6 +90,16 @@ mod tests {
                 assert_eq!(limit, 3);
             }
             _ => panic!("Expected Search command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_recent_command() {
+        let args = vec!["romega", "recent", "--limit", "4"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Recent { limit } => assert_eq!(limit, 4),
+            _ => panic!("Expected Recent command"),
         }
     }
 
