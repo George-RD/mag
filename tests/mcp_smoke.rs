@@ -38,6 +38,13 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected memory_search to be registered"
     );
     assert!(
+        tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == "memory_semantic_search"),
+        "expected memory_semantic_search to be registered"
+    );
+    assert!(
         tools.tools.iter().any(|tool| tool.name == "memory_recent"),
         "expected memory_recent to be registered"
     );
@@ -105,6 +112,30 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .as_text()
             .is_some_and(|text| text.text.contains("search needle item"))),
         "expected search result to include stored content"
+    );
+
+    let semantic_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_semantic_search".into(),
+            arguments: Some(
+                serde_json::json!({ "query": "needle", "limit": 5 })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        semantic_result
+            .content
+            .iter()
+            .any(|c| c.as_text().is_some_and(|text| text.text.contains("score"))),
+        "expected semantic result to include scores"
     );
 
     let recent_result = timeout(

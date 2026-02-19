@@ -58,6 +58,15 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
     assert!(!results.is_empty());
     assert_eq!(results[0]["id"].as_str(), Some(id.as_str()));
 
+    let (semantic_stdout, _semantic_stderr) =
+        run_cli(&test_home, &["semantic-search", "hello", "--limit", "5"])?;
+    let semantic_json: serde_json::Value = serde_json::from_str(semantic_stdout.trim())?;
+    let semantic_results = semantic_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in semantic output"))?;
+    assert!(!semantic_results.is_empty());
+    assert!(semantic_results[0]["score"].as_f64().is_some());
+
     let (process_retrieve_stdout, _process_retrieve_stderr) =
         run_cli(&test_home, &["retrieve", &process_id])?;
     let process_retrieve_json: serde_json::Value =

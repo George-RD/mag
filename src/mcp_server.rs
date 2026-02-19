@@ -12,7 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
-use crate::memory_core::{Recents, Retriever, Searcher, Storage};
+use crate::memory_core::{Recents, Retriever, Searcher, SemanticSearcher, Storage};
 
 #[derive(Clone)]
 pub struct McpMemoryServer {
@@ -48,6 +48,12 @@ struct RetrieveRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SearchRequest {
+    query: String,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SemanticSearchRequest {
     query: String,
     limit: Option<usize>,
 }
@@ -119,6 +125,33 @@ impl McpMemoryServer {
         let payload: Vec<_> = results
             .into_iter()
             .map(|r| json!({ "id": r.id, "content": r.content }))
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "results": payload }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_semantic_search",
+        description = "Perform semantic search over stored memories"
+    )]
+    async fn memory_semantic_search(
+        &self,
+        params: Parameters<SemanticSearchRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = params.0.limit.unwrap_or(10);
+        let results = self
+            .storage
+            .semantic_search(&params.0.query, limit)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("failed to semantic-search memories: {e}"), None)
+            })?;
+
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|r| json!({ "id": r.id, "content": r.content, "score": r.score }))
             .collect();
 
         Ok(CallToolResult::success(vec![Content::text(

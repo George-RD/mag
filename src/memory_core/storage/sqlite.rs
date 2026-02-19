@@ -8,7 +8,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::memory_core::{Recents, Retriever, SearchResult, Searcher, Storage};
+use crate::memory_core::{
+    Recents, Retriever, SearchResult, Searcher, SemanticResult, SemanticSearcher, Storage,
+};
 
 /// Controls how the SQLite storage backend is initialized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +151,8 @@ impl Storage for SqliteStorage {
         let mut hasher = Sha256::new();
         hasher.update(data.as_bytes());
         let content_hash = format!("{:x}", hasher.finalize());
+        let embedding = serde_json::to_vec(&embedding_for_text(data))
+            .context("failed to serialize embedding")?;
 
         let conn = Arc::clone(&self.conn);
         let id = id.to_string();
@@ -176,21 +180,22 @@ impl Storage for SqliteStorage {
                 ) VALUES (
                     ?1,
                     ?2,
-                    NULL,
+                    ?3,
                     NULL,
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                    ?3,
+                    ?4,
                     'cli_input',
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     ''
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
+                    embedding = excluded.embedding,
                     content_hash = excluded.content_hash,
                     source_type = excluded.source_type,
                     tags = excluded.tags,
                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                params![id, data, content_hash],
+                params![id, data, embedding, content_hash],
             )
             .context("failed to insert memory")?;
 
@@ -340,6 +345,58 @@ impl Recents for SqliteStorage {
     }
 }
 
+#[async_trait]
+impl SemanticSearcher for SqliteStorage {
+    async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SemanticResult>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let query_embedding = embedding_for_text(query);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, content, embedding
+                     FROM memories
+                     WHERE embedding IS NOT NULL",
+                )
+                .context("failed to prepare semantic search query")?;
+
+            let rows = stmt
+                .query_map([], |row| {
+                    let id: String = row.get(0)?;
+                    let content: String = row.get(1)?;
+                    let embedding_blob: Vec<u8> = row.get(2)?;
+                    Ok((id, content, embedding_blob))
+                })
+                .context("failed to execute semantic search query")?;
+
+            let mut ranked = Vec::new();
+            for row in rows {
+                let (id, content, embedding_blob) =
+                    row.context("failed to decode semantic search row")?;
+                let candidate: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                    .context("failed to decode stored embedding")?;
+                let score = cosine_similarity(&query_embedding, &candidate);
+                ranked.push(SemanticResult { id, content, score });
+            }
+
+            ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
+            ranked.truncate(limit);
+
+            Ok::<_, anyhow::Error>(ranked)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
 /// Ensures the parent directory of `path` exists, creating it recursively if needed.
 fn initialize_parent_dir(path: &Path) -> Result<()> {
     let parent = path
@@ -393,10 +450,35 @@ fn default_db_path() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".romega-memory").join("memory.db"))
 }
 
+fn embedding_for_text(input: &str) -> Vec<f32> {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let digest = hasher.finalize();
+    let mut vec: Vec<f32> = digest.iter().map(|b| *b as f32 / 255.0).collect();
+    normalize_embedding(&mut vec);
+    vec
+}
+
+fn normalize_embedding(vec: &mut [f32]) {
+    let norm = vec.iter().map(|v| v * v).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for value in vec {
+            *value /= norm;
+        }
+    }
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_core::{Recents, Retriever, Searcher, Storage};
+    use crate::memory_core::{Recents, Retriever, Searcher, SemanticSearcher, Storage};
 
     #[test]
     fn test_new_with_path_creates_parent_and_db() {
@@ -572,5 +654,29 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, "r2");
         assert_eq!(results[1].id, "r1");
+    }
+
+    #[tokio::test]
+    async fn test_semantic_search_prefers_exact_text_match() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("e1", "alpha beta gamma").await.unwrap();
+        storage.store("e2", "other content").await.unwrap();
+
+        let results = storage
+            .semantic_search("alpha beta gamma", 2)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "e1");
+        assert!(results[0].score >= results[1].score);
+    }
+
+    #[tokio::test]
+    async fn test_semantic_search_zero_limit_returns_no_results() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("e3", "candidate").await.unwrap();
+
+        let results = storage.semantic_search("candidate", 0).await.unwrap();
+        assert!(results.is_empty());
     }
 }

@@ -14,6 +14,17 @@ pub struct SearchResult {
     pub content: String,
 }
 
+/// Semantic search result item with similarity score.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SemanticResult {
+    /// Memory identifier.
+    pub id: String,
+    /// Stored memory content.
+    pub content: String,
+    /// Similarity score in the range [0.0, 1.0].
+    pub score: f32,
+}
+
 /// Trait for ingesting raw content into the memory system.
 #[async_trait]
 pub trait Ingestor: Send + Sync {
@@ -54,6 +65,11 @@ pub trait Recents: Send + Sync {
     async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>>;
 }
 
+#[async_trait]
+pub trait SemanticSearcher: Send + Sync {
+    async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SemanticResult>>;
+}
+
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
 pub struct Pipeline {
     ingestor: Box<dyn Ingestor>,
@@ -62,6 +78,7 @@ pub struct Pipeline {
     retriever: Box<dyn Retriever>,
     searcher: Box<dyn Searcher>,
     recents: Box<dyn Recents>,
+    semantic_searcher: Box<dyn SemanticSearcher>,
 }
 
 impl Pipeline {
@@ -73,6 +90,7 @@ impl Pipeline {
         retriever: Box<dyn Retriever>,
         searcher: Box<dyn Searcher>,
         recents: Box<dyn Recents>,
+        semantic_searcher: Box<dyn SemanticSearcher>,
     ) -> Self {
         Self {
             ingestor,
@@ -81,6 +99,7 @@ impl Pipeline {
             retriever,
             searcher,
             recents,
+            semantic_searcher,
         }
     }
 
@@ -107,6 +126,10 @@ impl Pipeline {
 
     pub async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>> {
         self.recents.recent(limit).await
+    }
+
+    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SemanticResult>> {
+        self.semantic_searcher.semantic_search(query, limit).await
     }
 }
 
@@ -158,6 +181,17 @@ impl Recents for PlaceholderPipeline {
         Ok(vec![SearchResult {
             id: "placeholder-recent".to_string(),
             content: "recent result".to_string(),
+        }])
+    }
+}
+
+#[async_trait]
+impl SemanticSearcher for PlaceholderPipeline {
+    async fn semantic_search(&self, query: &str, _limit: usize) -> Result<Vec<SemanticResult>> {
+        Ok(vec![SemanticResult {
+            id: "placeholder-semantic".to_string(),
+            content: format!("semantic result for: {query}"),
+            score: 1.0,
         }])
     }
 }
@@ -217,6 +251,17 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl SemanticSearcher for MockPipeline {
+        async fn semantic_search(&self, query: &str, _limit: usize) -> Result<Vec<SemanticResult>> {
+            Ok(vec![SemanticResult {
+                id: "semantic-1".to_string(),
+                content: format!("semantic match: {query}"),
+                score: 0.99,
+            }])
+        }
+    }
+
     struct FailingIngestor;
 
     #[async_trait]
@@ -242,6 +287,7 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.run("hello", Some("custom_id")).await;
@@ -252,6 +298,7 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_run_default_id() {
         let pipeline = Pipeline::new(
+            Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
@@ -275,6 +322,7 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.retrieve("test_id").await;
@@ -291,6 +339,7 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let result = pipeline.run("hello", None).await;
@@ -301,6 +350,7 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_search_success() {
         let pipeline = Pipeline::new(
+            Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
@@ -324,11 +374,31 @@ mod tests {
             Box::new(MockPipeline),
             Box::new(MockPipeline),
             Box::new(MockPipeline),
+            Box::new(MockPipeline),
         );
 
         let results = pipeline.recent(3).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "recent-1");
         assert_eq!(results[0].content, "recent value");
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_semantic_search_success() {
+        let pipeline = Pipeline::new(
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+            Box::new(MockPipeline),
+        );
+
+        let results = pipeline.semantic_search("vector", 4).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "semantic-1");
+        assert_eq!(results[0].content, "semantic match: vector");
+        assert!(results[0].score > 0.9);
     }
 }

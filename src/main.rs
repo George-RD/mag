@@ -33,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
         Box::new(sqlite_storage),
         Box::new(mcp_storage.clone()),
         Box::new(mcp_storage.clone()),
+        Box::new(mcp_storage.clone()),
     );
 
     match &cli.command {
@@ -65,6 +66,22 @@ async fn main() -> anyhow::Result<()> {
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| json!({ "id": result.id, "content": result.content }))
+                .collect();
+            println!("{}", json!({ "results": payload }));
+        }
+        Commands::SemanticSearch { query, limit } => {
+            info!(
+                query_len = query.len(),
+                limit = *limit,
+                "Semantic searching memories"
+            );
+            let results = pipeline.semantic_search(query, *limit).await?;
+            info!(result_count = results.len(), "Semantic search completed");
+            let payload: Vec<_> = results
+                .into_iter()
+                .map(|result| {
+                    json!({ "id": result.id, "content": result.content, "score": result.score })
+                })
                 .collect();
             println!("{}", json!({ "results": payload }));
         }

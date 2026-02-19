@@ -37,6 +37,12 @@ pub enum Commands {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
+    /// Performs semantic search over stored memories.
+    SemanticSearch {
+        query: String,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
     /// Lists recently accessed memories.
     Recent {
         #[arg(long, default_value_t = 10)]
@@ -90,6 +96,19 @@ mod tests {
                 assert_eq!(limit, 3);
             }
             _ => panic!("Expected Search command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_semantic_search_command() {
+        let args = vec!["romega", "semantic-search", "context", "--limit", "2"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::SemanticSearch { query, limit } => {
+                assert_eq!(query, "context");
+                assert_eq!(limit, 2);
+            }
+            _ => panic!("Expected SemanticSearch command"),
         }
     }
 
