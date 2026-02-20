@@ -9,6 +9,7 @@
 ```text
 src/memory_core/
 ├── mod.rs               # Traits + Pipeline orchestration
+├── embedder.rs          # Embedder trait + PlaceholderEmbedder + OnnxEmbedder
 └── storage/
     ├── mod.rs           # Export surface
     └── sqlite.rs        # SQLite-backed storage + schema + tests
@@ -24,6 +25,7 @@ src/memory_core/
 | Relationship behavior | `src/memory_core/storage/sqlite.rs` | FK enforcement + cascade behavior are required |
 | Event type validation | `src/memory_core/mod.rs` | `VALID_EVENT_TYPES`, `is_valid_event_type()`, `default_priority_for_event_type()` |
 | Struct-based signatures | `src/memory_core/mod.rs` | `MemoryInput`, `MemoryUpdate`, `SearchOptions` replace positional params |
+| Embedding generation | `src/memory_core/embedder.rs` | `Embedder` trait with `OnnxEmbedder` (384-dim, feature-gated) and `PlaceholderEmbedder` (32-dim SHA256 fallback) |
 
 ## CONVENTIONS
 

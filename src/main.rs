@@ -2,11 +2,16 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    Deleter, Lister, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline, RelationshipQuerier,
-    SearchOptions, Updater, default_priority_for_event_type, is_valid_event_type,
+    Deleter, Embedder, Lister, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline,
+    RelationshipQuerier, SearchOptions, Updater, default_priority_for_event_type,
+    is_valid_event_type,
 };
 use serde_json::json;
+use std::sync::Arc;
 use tracing::info;
+
+#[cfg(not(feature = "real-embeddings"))]
+use memory_core::PlaceholderEmbedder;
 
 mod cli;
 mod mcp_server;
@@ -22,11 +27,26 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
+    if matches!(cli.command, Commands::DownloadModel) {
+        #[cfg(feature = "real-embeddings")]
+        {
+            println!("Preparing embedding model files...");
+            let model_path = memory_core::embedder::download_bge_small_model().await?;
+            println!("Embedding model is ready at {}", model_path.display());
+        }
+        #[cfg(not(feature = "real-embeddings"))]
+        {
+            anyhow::bail!("download-model requires the `real-embeddings` feature to be enabled");
+        }
+        return Ok(());
+    }
+
     let storage_mode = match cli.init_mode {
         InitModeArg::Default => InitMode::Default,
         InitModeArg::Advanced => InitMode::Advanced,
     };
-    let sqlite_storage = SqliteStorage::new(storage_mode)?;
+    let embedder = build_embedder()?;
+    let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
     let mcp_storage = sqlite_storage.clone();
 
     let pipeline = Pipeline::new(
@@ -380,6 +400,9 @@ async fn main() -> anyhow::Result<()> {
                 json!({ "imported_memories": memories, "imported_relationships": relationships })
             );
         }
+        Commands::DownloadModel => {
+            unreachable!("download-model is handled before storage initialization")
+        }
         Commands::Serve => {
             info!("Starting MCP server over stdio");
             McpMemoryServer::new(mcp_storage).serve_stdio().await?;
@@ -387,6 +410,19 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn build_embedder() -> anyhow::Result<Arc<dyn Embedder>> {
+    #[cfg(feature = "real-embeddings")]
+    {
+        let onnx = memory_core::OnnxEmbedder::new()?;
+        Ok(Arc::new(onnx))
+    }
+
+    #[cfg(not(feature = "real-embeddings"))]
+    {
+        Ok(Arc::new(PlaceholderEmbedder))
+    }
 }
 
 fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {

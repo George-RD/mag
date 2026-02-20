@@ -27,7 +27,8 @@ romega-memory/
 | CLI command wiring | `src/cli.rs`, `src/main.rs` | Add enum variant + match arm together |
 | MCP tool behavior | `src/mcp_server.rs` | 15 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health/stats/export/import |
 | Storage schema/ops | `src/memory_core/storage/sqlite.rs` | Uses `spawn_blocking` for DB I/O; FTS5 virtual table for full-text search |
-| Pipeline trait boundaries | `src/memory_core/mod.rs` | 12 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier |
+| Pipeline trait boundaries | `src/memory_core/mod.rs` | 12 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier + Embedder |
+| Embedding system | `src/memory_core/embedder.rs` | `Embedder` trait, `PlaceholderEmbedder`, `OnnxEmbedder` (feature-gated), model download |
 | FTS5 search | `src/memory_core/storage/sqlite.rs` | Standalone FTS5 table synced on store/update/delete; LIKE fallback |
 | Integration protocol checks | `tests/mcp_smoke.rs` | Hermetic HOME/USERPROFILE isolation |
 | Product direction/tracks | `conductor/product.md`, `conductor/tracks.md` | Parity target and sequencing |
@@ -76,7 +77,10 @@ gh api repos/George-RD/romega-memory/pulls/<num>/comments
 
 - CI currently has external billing instability; local strict verification remains mandatory.
 - Keep MCP smoke tests hermetic (temp HOME/USERPROFILE) to avoid mutating user state.
-- Next major parity block is real embeddings (bge-small-en-v1.5 ONNX, 384-dim) replacing SHA256-based placeholder.
+- Real embeddings implemented via `Embedder` trait with `OnnxEmbedder` (bge-small-en-v1.5, 384-dim) and `PlaceholderEmbedder` (SHA256 fallback, 32-dim).
+- Feature flag `real-embeddings` (default ON) controls ONNX dependency inclusion.
+- Model auto-downloads from HuggingFace to `~/.romega-memory/models/bge-small-en-v1.5/` on first use.
+- `download-model` CLI command for explicit model pre-download.
 - New CLI operations (delete, update, list, relations, stats, export, import) use `mcp_storage` directly, not Pipeline.
 - Tags stored as JSON arrays in the `tags` TEXT column; queried via SQLite `json_each()`.
 - FTS5 full-text search with BM25 ranking; LIKE fallback for edge cases.

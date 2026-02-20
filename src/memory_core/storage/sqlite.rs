@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::memory_core::{
     Deleter, ListResult, Lister, MemoryInput, MemoryUpdate, Recents, Relationship,
     RelationshipQuerier, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
-    SemanticSearcher, Storage, Tagger, Updater,
+    SemanticSearcher, Storage, Tagger, Updater, embedder::Embedder,
 };
 
 /// Controls how the SQLite storage backend is initialized.
@@ -30,33 +30,34 @@ pub enum InitMode {
 #[derive(Clone)]
 pub struct SqliteStorage {
     conn: Arc<Mutex<Connection>>,
+    embedder: Arc<dyn Embedder>,
 }
 
 impl SqliteStorage {
     /// Creates a new `SqliteStorage` using the given [`InitMode`].
-    pub fn new(mode: InitMode) -> Result<Self> {
+    pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self> {
         match mode {
-            InitMode::Default => Self::new_default(),
-            InitMode::Advanced => Self::new_advanced_placeholder(),
+            InitMode::Default => Self::new_default(embedder),
+            InitMode::Advanced => Self::new_advanced_placeholder(embedder),
         }
     }
 
     /// Opens (or creates) the database at the default path.
-    pub fn new_default() -> Result<Self> {
+    pub fn new_default(embedder: Arc<dyn Embedder>) -> Result<Self> {
         let path = default_db_path()?;
-        Self::new_with_path(path)
+        Self::new_with_path(path, embedder)
     }
 
     /// Placeholder for advanced initialization (currently delegates to [`new_default`](Self::new_default)).
-    pub fn new_advanced_placeholder() -> Result<Self> {
-        Self::new_default()
+    pub fn new_advanced_placeholder(embedder: Arc<dyn Embedder>) -> Result<Self> {
+        Self::new_default(embedder)
     }
 
     /// Opens (or creates) a database at the given `path`, creating parent directories as needed.
     ///
     /// Performs blocking filesystem and SQLite I/O. Call before entering the
     /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
-    pub fn new_with_path(path: PathBuf) -> Result<Self> {
+    pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self> {
         initialize_parent_dir(&path)?;
         let conn = Connection::open(&path)
             .with_context(|| format!("failed to open sqlite database at {}", path.display()))?;
@@ -65,6 +66,7 @@ impl SqliteStorage {
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            embedder,
         })
     }
 
@@ -386,10 +388,16 @@ impl SqliteStorage {
 
     #[cfg(test)]
     pub fn new_in_memory() -> Result<Self> {
+        Self::new_in_memory_with_embedder(Arc::new(crate::memory_core::PlaceholderEmbedder))
+    }
+
+    #[cfg(test)]
+    pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
         let conn = Connection::open_in_memory().context("failed to open in-memory sqlite")?;
         initialize_schema(&conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            embedder,
         })
     }
 
@@ -451,17 +459,13 @@ impl SqliteStorage {
 #[async_trait]
 impl Storage for SqliteStorage {
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
-        let mut hasher = Sha256::new();
-        hasher.update(data.as_bytes());
-        let content_hash = format!("{:x}", hasher.finalize());
-        let embedding = serde_json::to_vec(&embedding_for_text(data))
-            .context("failed to serialize embedding")?;
         let tags_json =
             serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?;
         let metadata_json = serde_json::to_string(&input.metadata)
             .context("failed to serialize metadata to JSON")?;
 
         let conn = Arc::clone(&self.conn);
+        let embedder = Arc::clone(&self.embedder);
         let id = id.to_string();
         let data = data.to_string();
         let importance = input.importance;
@@ -473,6 +477,11 @@ impl Storage for SqliteStorage {
         let agent_type = input.agent_type.clone();
 
         tokio::task::spawn_blocking(move || {
+            let mut hasher = Sha256::new();
+            hasher.update(data.as_bytes());
+            let content_hash = format!("{:x}", hasher.finalize());
+            let embedding = serde_json::to_vec(&embedder.embed(&data)?)
+                .context("failed to serialize embedding")?;
             let conn = conn
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
@@ -864,11 +873,16 @@ impl SemanticSearcher for SqliteStorage {
         }
 
         let conn = Arc::clone(&self.conn);
-        let query_embedding = embedding_for_text(query);
+        let embedder = Arc::clone(&self.embedder);
+        let query = query.to_string();
         let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
+
+            let query_embedding = embedder
+                .embed(&query)
+                .context("failed to compute query embedding")?;
 
             let conn = conn
                 .lock()
@@ -1006,19 +1020,6 @@ impl Updater for SqliteStorage {
             ));
         }
 
-        let content_fields = input
-            .content
-            .as_deref()
-            .map(|new_content| {
-                let mut hasher = Sha256::new();
-                hasher.update(new_content.as_bytes());
-                let hash = format!("{:x}", hasher.finalize());
-                let emb = serde_json::to_vec(&embedding_for_text(new_content))
-                    .context("failed to serialize embedding")?;
-                Ok::<_, anyhow::Error>((new_content.to_string(), hash, emb))
-            })
-            .transpose()?;
-
         let tags_json = input
             .tags
             .as_ref()
@@ -1032,11 +1033,24 @@ impl Updater for SqliteStorage {
         let event_type = input.event_type.clone();
         let priority = input.priority;
         let importance = input.importance;
+        let content = input.content.clone();
 
         let conn = Arc::clone(&self.conn);
+        let embedder = Arc::clone(&self.embedder);
         let id = id.to_string();
 
         tokio::task::spawn_blocking(move || {
+            let content_fields = match content.as_deref() {
+                Some(new_content) => {
+                    let mut hasher = Sha256::new();
+                    hasher.update(new_content.as_bytes());
+                    let hash = format!("{:x}", hasher.finalize());
+                    let emb = serde_json::to_vec(&embedder.embed(new_content)?)
+                        .context("failed to serialize embedding")?;
+                    Some((new_content.to_string(), hash, emb))
+                }
+                None => None,
+            };
             use rusqlite::types::Value as SqlValue;
 
             let conn = conn
@@ -1567,25 +1581,7 @@ fn build_fts5_query(input: &str) -> String {
     tokens.join(" ")
 }
 
-fn embedding_for_text(input: &str) -> Vec<f32> {
-    let mut hasher = Sha256::new();
-    hasher.update(input.as_bytes());
-    let digest = hasher.finalize();
-    let mut vec: Vec<f32> = digest.iter().map(|b| *b as f32 / 255.0).collect();
-    normalize_embedding(&mut vec);
-    vec
-}
-
-fn normalize_embedding(vec: &mut [f32]) {
-    let norm = vec.iter().map(|v| v * v).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for value in vec {
-            *value /= norm;
-        }
-    }
-}
-
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+pub(crate) fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
@@ -1605,7 +1601,10 @@ mod tests {
         let base = std::env::temp_dir().join(format!("romega-sqlite-test-{}", Uuid::new_v4()));
         let db_path = base.join("nested").join("memory.db");
 
-        let storage = SqliteStorage::new_with_path(db_path.clone());
+        let storage = SqliteStorage::new_with_path(
+            db_path.clone(),
+            std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+        );
         assert!(storage.is_ok());
         assert!(db_path.exists());
         assert!(db_path.parent().is_some_and(Path::exists));

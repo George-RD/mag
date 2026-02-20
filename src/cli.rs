@@ -148,6 +148,8 @@ pub enum Commands {
         /// Path to the JSON file to import, or "-" for stdin.
         path: String,
     },
+    /// Downloads the ONNX model and tokenizer used for embeddings.
+    DownloadModel,
     /// Starts the MCP server over stdio transport.
     Serve,
 }
@@ -440,6 +442,16 @@ mod tests {
         match cli.command {
             Commands::Import { path } => assert_eq!(path, "memories.json"),
             _ => panic!("Expected Import command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_download_model_command() {
+        let args = vec!["romega", "download-model"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::DownloadModel => {}
+            _ => panic!("Expected DownloadModel command"),
         }
     }
 

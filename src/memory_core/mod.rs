@@ -3,7 +3,14 @@ use async_trait::async_trait;
 use tracing::info;
 use uuid::Uuid;
 
+pub mod embedder;
 pub mod storage;
+
+#[cfg(feature = "real-embeddings")]
+#[allow(unused_imports)]
+pub use embedder::OnnxEmbedder;
+#[allow(unused_imports)]
+pub use embedder::{Embedder, PlaceholderEmbedder};
 
 #[derive(Debug, Clone)]
 pub struct MemoryInput {
