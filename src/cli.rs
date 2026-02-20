@@ -34,6 +34,18 @@ pub enum Commands {
         importance: f64,
         #[arg(long)]
         metadata: Option<String>,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        priority: Option<i32>,
+        #[arg(long)]
+        entity_id: Option<String>,
+        #[arg(long)]
+        agent_type: Option<String>,
     },
     /// Processes content through the pipeline (alias for run in current model).
     Process {
@@ -44,6 +56,18 @@ pub enum Commands {
         importance: f64,
         #[arg(long)]
         metadata: Option<String>,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        priority: Option<i32>,
+        #[arg(long)]
+        entity_id: Option<String>,
+        #[arg(long)]
+        agent_type: Option<String>,
     },
     /// Retrieves a stored memory by its ID.
     Retrieve { id: String },
@@ -60,6 +84,10 @@ pub enum Commands {
         importance: Option<f64>,
         #[arg(long)]
         metadata: Option<String>,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        priority: Option<i32>,
     },
     /// Lists stored memories with pagination.
     List {
@@ -67,6 +95,12 @@ pub enum Commands {
         offset: usize,
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
     },
     /// Shows relationships for a given memory.
     Relations { id: String },
@@ -75,17 +109,35 @@ pub enum Commands {
         query: String,
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
     },
     /// Performs semantic search over stored memories.
     SemanticSearch {
         query: String,
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
     },
     /// Lists recently accessed memories.
     Recent {
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
     },
     /// Shows memory store statistics.
     Stats,
@@ -114,6 +166,7 @@ mod tests {
                 tags,
                 importance,
                 metadata,
+                ..
             } => {
                 assert_eq!(content, "test content");
                 assert!(tags.is_empty());
@@ -134,6 +187,7 @@ mod tests {
                 tags,
                 importance,
                 metadata,
+                ..
             } => {
                 assert_eq!(content, "raw data");
                 assert!(tags.is_empty());
@@ -165,6 +219,7 @@ mod tests {
                 tags,
                 importance,
                 metadata,
+                ..
             } => {
                 assert_eq!(id, "abc123");
                 assert_eq!(content, Some("new content".to_string()));
@@ -195,6 +250,7 @@ mod tests {
                 tags,
                 importance,
                 metadata,
+                ..
             } => {
                 assert_eq!(id, "abc123");
                 assert_eq!(content, Some("new content".to_string()));
@@ -217,6 +273,7 @@ mod tests {
                 tags,
                 importance,
                 metadata,
+                ..
             } => {
                 assert_eq!(id, "abc123");
                 assert!(content.is_none());
@@ -233,7 +290,7 @@ mod tests {
         let args = vec!["romega", "list", "--offset", "5", "--limit", "3"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::List { offset, limit } => {
+            Commands::List { offset, limit, .. } => {
                 assert_eq!(offset, 5);
                 assert_eq!(limit, 3);
             }
@@ -261,6 +318,7 @@ mod tests {
                 tags,
                 importance,
                 metadata,
+                ..
             } => {
                 assert_eq!(content, "content");
                 assert_eq!(tags, vec!["x".to_string(), "y".to_string()]);
@@ -324,7 +382,7 @@ mod tests {
         let args = vec!["romega", "search", "hello", "--limit", "3"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Search { query, limit } => {
+            Commands::Search { query, limit, .. } => {
                 assert_eq!(query, "hello");
                 assert_eq!(limit, 3);
             }
@@ -337,7 +395,7 @@ mod tests {
         let args = vec!["romega", "semantic-search", "context", "--limit", "2"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::SemanticSearch { query, limit } => {
+            Commands::SemanticSearch { query, limit, .. } => {
                 assert_eq!(query, "context");
                 assert_eq!(limit, 2);
             }
@@ -350,7 +408,7 @@ mod tests {
         let args = vec!["romega", "recent", "--limit", "4"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Recent { limit } => assert_eq!(limit, 4),
+            Commands::Recent { limit, .. } => assert_eq!(limit, 4),
             _ => panic!("Expected Recent command"),
         }
     }

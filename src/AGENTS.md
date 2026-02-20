@@ -37,6 +37,9 @@ src/
 ### Core Traits
 `Ingestor`, `Processor`, `Storage`, `Retriever`, `Searcher`, `Recents`, `SemanticSearcher`, `Deleter`, `Updater`, `Tagger`, `Lister`, `RelationshipQuerier`
 
+### Domain Structs
+`MemoryInput` (store params), `MemoryUpdate` (update params), `SearchOptions` (filter by event_type/project/session_id), `SearchResult`, `SemanticResult`, `Relationship`, `ListResult`
+
 ## CONVENTIONS
 - `main.rs` initializes tracing to stderr; preserve this in server mode.
 - MCP tools must return stable payloads (`CallToolResult`) and clear error mapping.

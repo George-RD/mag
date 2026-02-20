@@ -22,6 +22,8 @@ src/memory_core/
 | SQLite schema changes | `src/memory_core/storage/sqlite.rs` | Keep migration-safe additive table updates |
 | Retrieval semantics | `src/memory_core/storage/sqlite.rs` | `retrieve` updates `last_accessed_at` in one transaction |
 | Relationship behavior | `src/memory_core/storage/sqlite.rs` | FK enforcement + cascade behavior are required |
+| Event type validation | `src/memory_core/mod.rs` | `VALID_EVENT_TYPES`, `is_valid_event_type()`, `default_priority_for_event_type()` |
+| Struct-based signatures | `src/memory_core/mod.rs` | `MemoryInput`, `MemoryUpdate`, `SearchOptions` replace positional params |
 
 ## CONVENTIONS
 

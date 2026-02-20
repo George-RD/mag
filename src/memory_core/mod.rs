@@ -5,6 +5,92 @@ use uuid::Uuid;
 
 pub mod storage;
 
+#[derive(Debug, Clone)]
+pub struct MemoryInput {
+    pub content: String,
+    pub id: Option<String>,
+    pub tags: Vec<String>,
+    pub importance: f64,
+    pub metadata: serde_json::Value,
+    pub event_type: Option<String>,
+    pub session_id: Option<String>,
+    pub project: Option<String>,
+    pub priority: Option<i32>,
+    pub entity_id: Option<String>,
+    pub agent_type: Option<String>,
+}
+
+impl Default for MemoryInput {
+    fn default() -> Self {
+        Self {
+            content: String::new(),
+            id: None,
+            tags: Vec::new(),
+            importance: 0.5,
+            metadata: serde_json::json!({}),
+            event_type: None,
+            session_id: None,
+            project: None,
+            priority: None,
+            entity_id: None,
+            agent_type: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MemoryUpdate {
+    pub content: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub importance: Option<f64>,
+    pub metadata: Option<serde_json::Value>,
+    pub event_type: Option<String>,
+    pub priority: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SearchOptions {
+    pub event_type: Option<String>,
+    pub project: Option<String>,
+    pub session_id: Option<String>,
+}
+
+pub const VALID_EVENT_TYPES: &[&str] = &[
+    "session_summary",
+    "task_completion",
+    "error_pattern",
+    "lesson_learned",
+    "decision",
+    "blocked_context",
+    "user_preference",
+    "advisor_insight",
+    "git_commit",
+    "git_merge",
+    "git_conflict",
+    "session_start",
+    "session_end",
+    "context_warning",
+    "budget_alert",
+    "coordination_snapshot",
+    "checkpoint",
+    "reminder",
+];
+
+pub fn is_valid_event_type(event_type: &str) -> bool {
+    VALID_EVENT_TYPES.contains(&event_type)
+}
+
+pub fn default_priority_for_event_type(event_type: &str) -> i32 {
+    match event_type {
+        "error_pattern" | "lesson_learned" | "user_preference" | "git_conflict" => 4,
+        "decision" | "task_completion" | "advisor_insight" => 3,
+        "git_commit" | "git_merge" | "session_end" | "budget_alert" => 2,
+        "session_summary" | "session_start" | "context_warning" | "coordination_snapshot" => 1,
+        "blocked_context" | "checkpoint" | "reminder" => 1,
+        _ => 0,
+    }
+}
+
 /// Search result item returned by memory queries.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchResult {
@@ -18,6 +104,9 @@ pub struct SearchResult {
     pub importance: f64,
     /// Arbitrary JSON metadata payload.
     pub metadata: serde_json::Value,
+    pub event_type: Option<String>,
+    pub session_id: Option<String>,
+    pub project: Option<String>,
 }
 
 /// Semantic search result item with similarity score.
@@ -33,12 +122,15 @@ pub struct SemanticResult {
     pub importance: f64,
     /// Arbitrary JSON metadata payload.
     pub metadata: serde_json::Value,
+    pub event_type: Option<String>,
+    pub session_id: Option<String>,
+    pub project: Option<String>,
     /// Similarity score in the range [0.0, 1.0].
     pub score: f32,
 }
 
 /// A directed relationship between two memories.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Relationship {
     /// Relationship identifier.
     pub id: String,
@@ -48,6 +140,10 @@ pub struct Relationship {
     pub target_id: String,
     /// Relationship type label (e.g. "links_to", "related").
     pub rel_type: String,
+    pub weight: f64,
+    /// Arbitrary JSON metadata payload.
+    pub metadata: serde_json::Value,
+    pub created_at: String,
 }
 
 /// Result of a paginated list query.
@@ -76,19 +172,7 @@ pub trait Processor: Send + Sync {
 /// Trait for storing processed memory data.
 #[async_trait]
 pub trait Storage: Send + Sync {
-    /// Stores the data under the given ID with tags, importance, and metadata.
-    ///
-    /// * `tags` – slice of tag strings attached to the memory.
-    /// * `importance` – relevance score in the range `[0.0, 1.0]`.
-    /// * `metadata` – arbitrary JSON object stored alongside the memory.
-    async fn store(
-        &self,
-        id: &str,
-        data: &str,
-        tags: &[String],
-        importance: f64,
-        metadata: &serde_json::Value,
-    ) -> Result<()>;
+    async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()>;
 }
 
 /// Trait for retrieving stored memory data.
@@ -102,17 +186,27 @@ pub trait Retriever: Send + Sync {
 #[async_trait]
 pub trait Searcher: Send + Sync {
     /// Searches for memories matching the query string.
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>>;
+    async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>>;
 }
 
 #[async_trait]
 pub trait Recents: Send + Sync {
-    async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>>;
+    async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>>;
 }
 
 #[async_trait]
 pub trait SemanticSearcher: Send + Sync {
-    async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SemanticResult>>;
+    async fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SemanticResult>>;
 }
 
 /// Trait for deleting stored memories.
@@ -126,28 +220,26 @@ pub trait Deleter: Send + Sync {
 #[async_trait]
 pub trait Updater: Send + Sync {
     /// Updates an existing memory. At least one of content, tags, importance, or metadata must be provided.
-    async fn update(
-        &self,
-        id: &str,
-        content: Option<&str>,
-        tags: Option<&[String]>,
-        importance: Option<f64>,
-        metadata: Option<&serde_json::Value>,
-    ) -> Result<()>;
+    async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>;
 }
 
 /// Trait for querying memories by tag.
 #[async_trait]
 pub trait Tagger: Send + Sync {
     /// Returns memories whose tags contain **all** of the supplied tags.
-    async fn get_by_tags(&self, tags: &[String], limit: usize) -> Result<Vec<SearchResult>>;
+    async fn get_by_tags(
+        &self,
+        tags: &[String],
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>>;
 }
 
 /// Trait for paginated listing of memories.
 #[async_trait]
 pub trait Lister: Send + Sync {
     /// Lists memories with pagination, returning the page and total count.
-    async fn list(&self, offset: usize, limit: usize) -> Result<ListResult>;
+    async fn list(&self, offset: usize, limit: usize, opts: &SearchOptions) -> Result<ListResult>;
 }
 
 /// Trait for querying relationships of a memory.
@@ -191,22 +283,23 @@ impl Pipeline {
     }
 
     /// Runs the full pipeline: ingest -> process -> store.
-    pub async fn run(
-        &self,
-        content: &str,
-        id: Option<&str>,
-        tags: &[String],
-        importance: f64,
-        metadata: &serde_json::Value,
-    ) -> Result<String> {
-        let id = id
-            .map(std::string::ToString::to_string)
+    pub async fn run(&self, content: &str, input: &MemoryInput) -> Result<String> {
+        let id = input
+            .id
+            .clone()
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let ingested = self.ingestor.ingest(content).await?;
+        let mut store_input = input.clone();
+        if store_input.id.is_none() {
+            store_input.id = Some(id.clone());
+        }
+        let content_to_ingest = if content.is_empty() {
+            input.content.as_str()
+        } else {
+            content
+        };
+        let ingested = self.ingestor.ingest(content_to_ingest).await?;
         let processed = self.processor.process(&ingested).await?;
-        self.storage
-            .store(&id, &processed, tags, importance, metadata)
-            .await?;
+        self.storage.store(&id, &processed, &store_input).await?;
         Ok(id)
     }
 
@@ -216,16 +309,28 @@ impl Pipeline {
     }
 
     /// Searches for stored memories matching the provided query.
-    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
-        self.searcher.search(query, limit).await
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        self.searcher.search(query, limit, opts).await
     }
 
-    pub async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>> {
-        self.recents.recent(limit).await
+    pub async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>> {
+        self.recents.recent(limit, opts).await
     }
 
-    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SemanticResult>> {
-        self.semantic_searcher.semantic_search(query, limit).await
+    pub async fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SemanticResult>> {
+        self.semantic_searcher
+            .semantic_search(query, limit, opts)
+            .await
     }
 }
 
@@ -248,14 +353,7 @@ impl Processor for PlaceholderPipeline {
 
 #[async_trait]
 impl Storage for PlaceholderPipeline {
-    async fn store(
-        &self,
-        id: &str,
-        data: &str,
-        _tags: &[String],
-        _importance: f64,
-        _metadata: &serde_json::Value,
-    ) -> Result<()> {
+    async fn store(&self, id: &str, data: &str, _input: &MemoryInput) -> Result<()> {
         info!(memory_id = %id, content_len = data.len(), "Storing placeholder payload");
         Ok(())
     }
@@ -270,39 +368,58 @@ impl Retriever for PlaceholderPipeline {
 
 #[async_trait]
 impl Searcher for PlaceholderPipeline {
-    async fn search(&self, query: &str, _limit: usize) -> Result<Vec<SearchResult>> {
+    async fn search(
+        &self,
+        query: &str,
+        _limit: usize,
+        _opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
         Ok(vec![SearchResult {
             id: "placeholder".to_string(),
             content: format!("search result for: {query}"),
             tags: Vec::new(),
             importance: 0.5,
             metadata: serde_json::json!({}),
+            event_type: None,
+            session_id: None,
+            project: None,
         }])
     }
 }
 
 #[async_trait]
 impl Recents for PlaceholderPipeline {
-    async fn recent(&self, _limit: usize) -> Result<Vec<SearchResult>> {
+    async fn recent(&self, _limit: usize, _opts: &SearchOptions) -> Result<Vec<SearchResult>> {
         Ok(vec![SearchResult {
             id: "placeholder-recent".to_string(),
             content: "recent result".to_string(),
             tags: Vec::new(),
             importance: 0.5,
             metadata: serde_json::json!({}),
+            event_type: None,
+            session_id: None,
+            project: None,
         }])
     }
 }
 
 #[async_trait]
 impl SemanticSearcher for PlaceholderPipeline {
-    async fn semantic_search(&self, query: &str, _limit: usize) -> Result<Vec<SemanticResult>> {
+    async fn semantic_search(
+        &self,
+        query: &str,
+        _limit: usize,
+        _opts: &SearchOptions,
+    ) -> Result<Vec<SemanticResult>> {
         Ok(vec![SemanticResult {
             id: "placeholder-semantic".to_string(),
             content: format!("semantic result for: {query}"),
             tags: Vec::new(),
             importance: 0.5,
             metadata: serde_json::json!({}),
+            event_type: None,
+            session_id: None,
+            project: None,
             score: 1.0,
         }])
     }
@@ -332,14 +449,7 @@ mod tests {
 
     #[async_trait]
     impl Storage for MockPipeline {
-        async fn store(
-            &self,
-            _id: &str,
-            _data: &str,
-            _tags: &[String],
-            _importance: f64,
-            _metadata: &serde_json::Value,
-        ) -> Result<()> {
+        async fn store(&self, _id: &str, _data: &str, _input: &MemoryInput) -> Result<()> {
             Ok(())
         }
     }
@@ -353,39 +463,58 @@ mod tests {
 
     #[async_trait]
     impl Searcher for MockPipeline {
-        async fn search(&self, query: &str, _limit: usize) -> Result<Vec<SearchResult>> {
+        async fn search(
+            &self,
+            query: &str,
+            _limit: usize,
+            _opts: &SearchOptions,
+        ) -> Result<Vec<SearchResult>> {
             Ok(vec![SearchResult {
                 id: "result-1".to_string(),
                 content: format!("match: {query}"),
                 tags: Vec::new(),
                 importance: 0.5,
                 metadata: json!({}),
+                event_type: None,
+                session_id: None,
+                project: None,
             }])
         }
     }
 
     #[async_trait]
     impl Recents for MockPipeline {
-        async fn recent(&self, _limit: usize) -> Result<Vec<SearchResult>> {
+        async fn recent(&self, _limit: usize, _opts: &SearchOptions) -> Result<Vec<SearchResult>> {
             Ok(vec![SearchResult {
                 id: "recent-1".to_string(),
                 content: "recent value".to_string(),
                 tags: Vec::new(),
                 importance: 0.5,
                 metadata: json!({}),
+                event_type: None,
+                session_id: None,
+                project: None,
             }])
         }
     }
 
     #[async_trait]
     impl SemanticSearcher for MockPipeline {
-        async fn semantic_search(&self, query: &str, _limit: usize) -> Result<Vec<SemanticResult>> {
+        async fn semantic_search(
+            &self,
+            query: &str,
+            _limit: usize,
+            _opts: &SearchOptions,
+        ) -> Result<Vec<SemanticResult>> {
             Ok(vec![SemanticResult {
                 id: "semantic-1".to_string(),
                 content: format!("semantic match: {query}"),
                 tags: Vec::new(),
                 importance: 0.5,
                 metadata: json!({}),
+                event_type: None,
+                session_id: None,
+                project: None,
                 score: 0.99,
             }])
         }
@@ -419,9 +548,14 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline
-            .run("hello", Some("custom_id"), &[], 0.5, &json!({}))
-            .await;
+        let input = MemoryInput {
+            id: Some("custom_id".to_string()),
+            content: "hello".to_string(),
+            importance: 0.5,
+            metadata: json!({}),
+            ..Default::default()
+        };
+        let result = pipeline.run("hello", &input).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "custom_id");
     }
@@ -438,7 +572,13 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", None, &[], 0.5, &json!({})).await;
+        let input = MemoryInput {
+            content: "hello".to_string(),
+            importance: 0.5,
+            metadata: json!({}),
+            ..Default::default()
+        };
+        let result = pipeline.run("hello", &input).await;
         assert!(result.is_ok());
         let id = result.unwrap();
         assert!(uuid::Uuid::parse_str(&id).is_ok());
@@ -473,7 +613,13 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", None, &[], 0.5, &json!({})).await;
+        let input = MemoryInput {
+            content: "hello".to_string(),
+            importance: 0.5,
+            metadata: json!({}),
+            ..Default::default()
+        };
+        let result = pipeline.run("hello", &input).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Ingestion failed");
     }
@@ -490,7 +636,10 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let results = pipeline.search("needle", 5).await.unwrap();
+        let results = pipeline
+            .search("needle", 5, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "result-1");
         assert_eq!(results[0].content, "match: needle");
@@ -511,7 +660,7 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let results = pipeline.recent(3).await.unwrap();
+        let results = pipeline.recent(3, &SearchOptions::default()).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "recent-1");
         assert_eq!(results[0].content, "recent value");
@@ -532,7 +681,10 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let results = pipeline.semantic_search("vector", 4).await.unwrap();
+        let results = pipeline
+            .semantic_search("vector", 4, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "semantic-1");
         assert_eq!(results[0].content, "semantic match: vector");

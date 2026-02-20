@@ -13,8 +13,9 @@ use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    Deleter, Lister, Recents, RelationshipQuerier, Retriever, Searcher, SemanticSearcher, Storage,
-    Tagger, Updater,
+    Deleter, Lister, MemoryInput, MemoryUpdate, Recents, RelationshipQuerier, Retriever,
+    SearchOptions, Searcher, SemanticSearcher, Storage, Tagger, Updater,
+    default_priority_for_event_type, is_valid_event_type,
 };
 
 #[derive(Clone)]
@@ -45,6 +46,12 @@ struct StoreRequest {
     tags: Option<Vec<String>>,
     importance: Option<f64>,
     metadata: Option<serde_json::Value>,
+    event_type: Option<String>,
+    session_id: Option<String>,
+    project: Option<String>,
+    priority: Option<i32>,
+    entity_id: Option<String>,
+    agent_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -56,17 +63,26 @@ struct RetrieveRequest {
 struct SearchRequest {
     query: String,
     limit: Option<usize>,
+    event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SemanticSearchRequest {
     query: String,
     limit: Option<usize>,
+    event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecentRequest {
     limit: Option<usize>,
+    event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -81,6 +97,8 @@ struct UpdateRequest {
     tags: Option<Vec<String>>,
     importance: Option<f64>,
     metadata: Option<serde_json::Value>,
+    event_type: Option<String>,
+    priority: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -98,12 +116,18 @@ struct ImportRequest {
 struct TagSearchRequest {
     tags: Vec<String>,
     limit: Option<usize>,
+    event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct ListRequest {
     offset: Option<usize>,
     limit: Option<usize>,
+    event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -116,6 +140,8 @@ struct AddRelationRequest {
     source_id: String,
     target_id: String,
     rel_type: String,
+    weight: Option<f64>,
+    metadata: Option<serde_json::Value>,
 }
 
 #[tool_router]
@@ -128,24 +154,41 @@ impl McpMemoryServer {
         &self,
         params: Parameters<StoreRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
+
         let id = params
             .0
             .id
             .clone()
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let tags = params.0.tags.unwrap_or_default();
-        let importance = params.0.importance.unwrap_or(0.5);
-        let metadata = params.0.metadata.unwrap_or_else(|| serde_json::json!({}));
-        <SqliteStorage as Storage>::store(
-            &self.storage,
-            &id,
-            &params.0.content,
-            &tags,
-            importance,
-            &metadata,
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
+        let event_type = params.0.event_type.clone();
+        let input = MemoryInput {
+            content: params.0.content.clone(),
+            id: Some(id.clone()),
+            tags: params.0.tags.clone().unwrap_or_default(),
+            importance: params.0.importance.unwrap_or(0.5),
+            metadata: params
+                .0
+                .metadata
+                .clone()
+                .unwrap_or_else(|| serde_json::json!({})),
+            priority: params
+                .0
+                .priority
+                .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
+            event_type,
+            session_id: params.0.session_id.clone(),
+            project: params.0.project.clone(),
+            entity_id: params.0.entity_id.clone(),
+            agent_type: params.0.agent_type.clone(),
+        };
+        <SqliteStorage as Storage>::store(&self.storage, &id, &params.0.content, &input)
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": id }).to_string(),
@@ -177,10 +220,20 @@ impl McpMemoryServer {
         &self,
         params: Parameters<SearchRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
         let limit = params.0.limit.unwrap_or(10);
+        let opts = SearchOptions {
+            event_type: params.0.event_type.clone(),
+            project: params.0.project.clone(),
+            session_id: params.0.session_id.clone(),
+        };
         let results = self
             .storage
-            .search(&params.0.query, limit)
+            .search(&params.0.query, limit, &opts)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("failed to search memories: {e}"), None)
@@ -194,7 +247,10 @@ impl McpMemoryServer {
                     "content": r.content,
                     "tags": r.tags,
                     "importance": r.importance,
-                    "metadata": r.metadata
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
                 })
             })
             .collect();
@@ -212,10 +268,20 @@ impl McpMemoryServer {
         &self,
         params: Parameters<SemanticSearchRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
         let limit = params.0.limit.unwrap_or(10);
+        let opts = SearchOptions {
+            event_type: params.0.event_type.clone(),
+            project: params.0.project.clone(),
+            session_id: params.0.session_id.clone(),
+        };
         let results = self
             .storage
-            .semantic_search(&params.0.query, limit)
+            .semantic_search(&params.0.query, limit, &opts)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("failed to semantic-search memories: {e}"), None)
@@ -230,7 +296,10 @@ impl McpMemoryServer {
                     "score": r.score,
                     "tags": r.tags,
                     "importance": r.importance,
-                    "metadata": r.metadata
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
                 })
             })
             .collect();
@@ -248,9 +317,19 @@ impl McpMemoryServer {
         &self,
         params: Parameters<RecentRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
         let limit = params.0.limit.unwrap_or(10);
+        let opts = SearchOptions {
+            event_type: params.0.event_type.clone(),
+            project: params.0.project.clone(),
+            session_id: params.0.session_id.clone(),
+        };
         let results =
-            self.storage.recent(limit).await.map_err(|e| {
+            self.storage.recent(limit, &opts).await.map_err(|e| {
                 McpError::internal_error(format!("failed to list recents: {e}"), None)
             })?;
 
@@ -262,7 +341,10 @@ impl McpMemoryServer {
                     "content": r.content,
                     "tags": r.tags,
                     "importance": r.importance,
-                    "metadata": r.metadata
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
                 })
             })
             .collect();
@@ -309,23 +391,30 @@ impl McpMemoryServer {
             && params.0.tags.is_none()
             && params.0.importance.is_none()
             && params.0.metadata.is_none()
+            && params.0.event_type.is_none()
+            && params.0.priority.is_none()
         {
             return Err(McpError::invalid_params(
-                "at least one of content, tags, importance, or metadata must be provided",
+                "at least one of content, tags, importance, metadata, event_type, or priority must be provided",
                 None,
             ));
         }
-        let tag_slice = params.0.tags.as_deref();
-        <SqliteStorage as Updater>::update(
-            &self.storage,
-            &params.0.id,
-            params.0.content.as_deref(),
-            tag_slice,
-            params.0.importance,
-            params.0.metadata.as_ref(),
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
+        let update = MemoryUpdate {
+            content: params.0.content.clone(),
+            tags: params.0.tags.clone(),
+            importance: params.0.importance,
+            metadata: params.0.metadata.clone(),
+            event_type: params.0.event_type.clone(),
+            priority: params.0.priority,
+        };
+        <SqliteStorage as Updater>::update(&self.storage, &params.0.id, &update)
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": params.0.id, "updated": true }).to_string(),
@@ -345,10 +434,20 @@ impl McpMemoryServer {
                 json!({ "results": [] }).to_string(),
             )]));
         }
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
         let limit = params.0.limit.unwrap_or(10);
+        let opts = SearchOptions {
+            event_type: params.0.event_type.clone(),
+            project: params.0.project.clone(),
+            session_id: params.0.session_id.clone(),
+        };
         let results = self
             .storage
-            .get_by_tags(&params.0.tags, limit)
+            .get_by_tags(&params.0.tags, limit, &opts)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("failed to search by tags: {e}"), None)
@@ -362,7 +461,10 @@ impl McpMemoryServer {
                     "content": r.content,
                     "tags": r.tags,
                     "importance": r.importance,
-                    "metadata": r.metadata
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
                 })
             })
             .collect();
@@ -380,10 +482,20 @@ impl McpMemoryServer {
         &self,
         params: Parameters<ListRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
         let offset = params.0.offset.unwrap_or(0);
         let limit = params.0.limit.unwrap_or(10);
+        let opts = SearchOptions {
+            event_type: params.0.event_type.clone(),
+            project: params.0.project.clone(),
+            session_id: params.0.session_id.clone(),
+        };
         let result =
-            self.storage.list(offset, limit).await.map_err(|e| {
+            self.storage.list(offset, limit, &opts).await.map_err(|e| {
                 McpError::internal_error(format!("failed to list memories: {e}"), None)
             })?;
 
@@ -396,7 +508,10 @@ impl McpMemoryServer {
                     "content": m.content,
                     "tags": m.tags,
                     "importance": m.importance,
-                    "metadata": m.metadata
+                    "metadata": m.metadata,
+                    "event_type": m.event_type,
+                    "session_id": m.session_id,
+                    "project": m.project
                 })
             })
             .collect();
@@ -429,7 +544,10 @@ impl McpMemoryServer {
                     "id": r.id,
                     "source_id": r.source_id,
                     "target_id": r.target_id,
-                    "rel_type": r.rel_type
+                    "rel_type": r.rel_type,
+                    "weight": r.weight,
+                    "metadata": r.metadata,
+                    "created_at": r.created_at
                 })
             })
             .collect();
@@ -449,14 +567,24 @@ impl McpMemoryServer {
     ) -> Result<CallToolResult, McpError> {
         let rel_id = self
             .storage
-            .add_relationship(&params.0.source_id, &params.0.target_id, &params.0.rel_type)
+            .add_relationship(
+                &params.0.source_id,
+                &params.0.target_id,
+                &params.0.rel_type,
+                params.0.weight.unwrap_or(1.0),
+                &params
+                    .0
+                    .metadata
+                    .clone()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("failed to add relationship: {e}"), None)
             })?;
 
         Ok(CallToolResult::success(vec![Content::text(
-            json!({ "id": rel_id, "source_id": params.0.source_id, "target_id": params.0.target_id, "rel_type": params.0.rel_type }).to_string(),
+            json!({ "id": rel_id, "source_id": params.0.source_id, "target_id": params.0.target_id, "rel_type": params.0.rel_type, "weight": params.0.weight.unwrap_or(1.0), "metadata": params.0.metadata.clone().unwrap_or_else(|| serde_json::json!({})) }).to_string(),
         )]))
     }
 

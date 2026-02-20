@@ -9,8 +9,9 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    Deleter, ListResult, Lister, Recents, Relationship, RelationshipQuerier, Retriever,
-    SearchResult, Searcher, SemanticResult, SemanticSearcher, Storage, Tagger, Updater,
+    Deleter, ListResult, Lister, MemoryInput, MemoryUpdate, Recents, Relationship,
+    RelationshipQuerier, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
+    SemanticSearcher, Storage, Tagger, Updater,
 };
 
 /// Controls how the SQLite storage backend is initialized.
@@ -75,12 +76,16 @@ impl SqliteStorage {
         source_id: &str,
         target_id: &str,
         rel_type: &str,
+        weight: f64,
+        metadata: &serde_json::Value,
     ) -> Result<String> {
         let rel_id = Uuid::new_v4().to_string();
         let conn = Arc::clone(&self.conn);
         let source_id = source_id.to_string();
         let target_id = target_id.to_string();
         let rel_type = rel_type.to_string();
+        let metadata_json =
+            serde_json::to_string(metadata).context("failed to serialize relationship metadata")?;
         let rid = rel_id.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -88,8 +93,8 @@ impl SqliteStorage {
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
             conn.execute(
-                "INSERT INTO relationships (id, source_id, target_id, rel_type) VALUES (?1, ?2, ?3, ?4)",
-                params![rid, source_id, target_id, rel_type],
+                "INSERT INTO relationships (id, source_id, target_id, rel_type, weight, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![rid, source_id, target_id, rel_type, weight, metadata_json],
             )
             .context("failed to insert relationship")?;
             Ok::<_, anyhow::Error>(())
@@ -101,18 +106,13 @@ impl SqliteStorage {
     }
 
     #[allow(dead_code)]
-    pub async fn store(&self, id: &str, data: &str, tags: &[String]) -> Result<()> {
-        <Self as Storage>::store(self, id, data, tags, 0.5, &serde_json::json!({})).await
+    pub async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
+        <Self as Storage>::store(self, id, data, input).await
     }
 
     #[allow(dead_code)]
-    pub async fn update(
-        &self,
-        id: &str,
-        content: Option<&str>,
-        tags: Option<&[String]>,
-    ) -> Result<()> {
-        <Self as Updater>::update(self, id, content, tags, None, None).await
+    pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
+        <Self as Updater>::update(self, id, input).await
     }
 
     /// Returns storage statistics as a JSON Value.
@@ -178,7 +178,7 @@ impl SqliteStorage {
                 .prepare(
                     "SELECT id, content, tags, importance, metadata, embedding, parent_id,
                             created_at, event_at, content_hash, source_type, last_accessed_at,
-                            access_count
+                            access_count, session_id, event_type, project, priority, entity_id, agent_type
                      FROM memories ORDER BY created_at",
                 )
                 .context("failed to prepare export query")?;
@@ -197,6 +197,12 @@ impl SqliteStorage {
                     let source_type: String = row.get(10)?;
                     let last_accessed_at: String = row.get(11)?;
                     let access_count: i64 = row.get(12)?;
+                    let session_id: Option<String> = row.get(13).ok();
+                    let event_type: Option<String> = row.get(14).ok();
+                    let project: Option<String> = row.get(15).ok();
+                    let priority: Option<i64> = row.get(16).ok();
+                    let entity_id: Option<String> = row.get(17).ok();
+                    let agent_type: Option<String> = row.get(18).ok();
                     let tags_value = serde_json::from_str::<serde_json::Value>(&tags)
                         .unwrap_or_else(|_| serde_json::Value::Array(vec![]));
                     let metadata_value = serde_json::from_str::<serde_json::Value>(&metadata)
@@ -214,6 +220,12 @@ impl SqliteStorage {
                         "source_type": source_type,
                         "last_accessed_at": last_accessed_at,
                         "access_count": access_count,
+                        "session_id": session_id,
+                        "event_type": event_type,
+                        "project": project,
+                        "priority": priority,
+                        "entity_id": entity_id,
+                        "agent_type": agent_type,
                     }))
                 })
                 .context("failed to query memories for export")?
@@ -221,7 +233,7 @@ impl SqliteStorage {
                 .context("failed to decode memory row for export")?;
 
             let mut rel_stmt = conn
-                .prepare("SELECT id, source_id, target_id, rel_type FROM relationships ORDER BY id")
+                .prepare("SELECT id, source_id, target_id, rel_type, weight, metadata, created_at FROM relationships ORDER BY id")
                 .context("failed to prepare relationship export query")?;
 
             let relationships: Vec<serde_json::Value> = rel_stmt
@@ -231,6 +243,9 @@ impl SqliteStorage {
                         "source_id": row.get::<_, String>(1)?,
                         "target_id": row.get::<_, String>(2)?,
                         "rel_type": row.get::<_, String>(3)?,
+                        "weight": row.get::<_, f64>(4).unwrap_or(1.0),
+                        "metadata": serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(5).unwrap_or_else(|_| "{}".to_string())).unwrap_or_else(|_| serde_json::json!({})),
+                        "created_at": row.get::<_, String>(6).unwrap_or_else(|_| "".to_string()),
                     }))
                 })
                 .context("failed to query relationships for export")?
@@ -291,11 +306,18 @@ impl SqliteStorage {
                 let content_hash = mem["content_hash"].as_str().unwrap_or("");
                 let source_type = mem["source_type"].as_str().unwrap_or("import");
                 let access_count = mem["access_count"].as_i64().unwrap_or(0);
+                let session_id = mem["session_id"].as_str();
+                let event_type = mem["event_type"].as_str();
+                let project = mem["project"].as_str();
+                let priority = mem["priority"].as_i64();
+                let entity_id = mem["entity_id"].as_str();
+                let agent_type = mem["agent_type"].as_str();
 
                 tx.execute(
                     "INSERT OR REPLACE INTO memories (
-                        id, content, content_hash, source_type, tags, importance, metadata, access_count
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        id, content, content_hash, source_type, tags, importance, metadata, access_count,
+                        session_id, event_type, project, priority, entity_id, agent_type
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                     params![
                         id,
                         content,
@@ -304,7 +326,13 @@ impl SqliteStorage {
                         tags,
                         importance,
                         metadata,
-                        access_count
+                        access_count,
+                        session_id,
+                        event_type,
+                        project,
+                        priority,
+                        entity_id,
+                        agent_type,
                     ],
                 )
                 .context("failed to import memory")?;
@@ -334,10 +362,14 @@ impl SqliteStorage {
                 let rel_type = rel["rel_type"]
                     .as_str()
                     .ok_or_else(|| anyhow!("relationship missing rel_type"))?;
+                let weight = rel["weight"].as_f64().unwrap_or(1.0);
+                let metadata = serde_json::to_string(&rel["metadata"])
+                    .unwrap_or_else(|_| "{}".to_string());
+                let created_at = rel["created_at"].as_str();
 
                 tx.execute(
-                    "INSERT OR REPLACE INTO relationships (id, source_id, target_id, rel_type) VALUES (?1, ?2, ?3, ?4)",
-                    params![id, source_id, target_id, rel_type],
+                    "INSERT OR REPLACE INTO relationships (id, source_id, target_id, rel_type, weight, metadata, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, COALESCE(?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+                    params![id, source_id, target_id, rel_type, weight, metadata, created_at],
                 )
                 .context("failed to import relationship")?;
 
@@ -418,26 +450,27 @@ impl SqliteStorage {
 
 #[async_trait]
 impl Storage for SqliteStorage {
-    async fn store(
-        &self,
-        id: &str,
-        data: &str,
-        tags: &[String],
-        importance: f64,
-        metadata: &serde_json::Value,
-    ) -> Result<()> {
+    async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
         let mut hasher = Sha256::new();
         hasher.update(data.as_bytes());
         let content_hash = format!("{:x}", hasher.finalize());
         let embedding = serde_json::to_vec(&embedding_for_text(data))
             .context("failed to serialize embedding")?;
-        let tags_json = serde_json::to_string(tags).context("failed to serialize tags to JSON")?;
-        let metadata_json =
-            serde_json::to_string(metadata).context("failed to serialize metadata to JSON")?;
+        let tags_json =
+            serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?;
+        let metadata_json = serde_json::to_string(&input.metadata)
+            .context("failed to serialize metadata to JSON")?;
 
         let conn = Arc::clone(&self.conn);
         let id = id.to_string();
         let data = data.to_string();
+        let importance = input.importance;
+        let event_type = input.event_type.clone();
+        let session_id = input.session_id.clone();
+        let project = input.project.clone();
+        let priority = input.priority;
+        let entity_id = input.entity_id.clone();
+        let agent_type = input.agent_type.clone();
 
         tokio::task::spawn_blocking(move || {
             let conn = conn
@@ -459,7 +492,13 @@ impl Storage for SqliteStorage {
                     last_accessed_at,
                     tags,
                     importance,
-                    metadata
+                    metadata,
+                    session_id,
+                    event_type,
+                    project,
+                    priority,
+                    entity_id,
+                    agent_type
                 ) VALUES (
                     ?1,
                     ?2,
@@ -471,7 +510,13 @@ impl Storage for SqliteStorage {
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     ?5,
                     ?6,
-                    ?7
+                    ?7,
+                    ?8,
+                    ?9,
+                    ?10,
+                    ?11,
+                    ?12,
+                    ?13
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
@@ -481,6 +526,12 @@ impl Storage for SqliteStorage {
                     tags = excluded.tags,
                     importance = excluded.importance,
                     metadata = excluded.metadata,
+                    session_id = excluded.session_id,
+                    event_type = excluded.event_type,
+                    project = excluded.project,
+                    priority = excluded.priority,
+                    entity_id = excluded.entity_id,
+                    agent_type = excluded.agent_type,
                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 params![
                     id,
@@ -489,7 +540,13 @@ impl Storage for SqliteStorage {
                     content_hash,
                     tags_json,
                     importance,
-                    metadata_json
+                    metadata_json,
+                    session_id,
+                    event_type,
+                    project,
+                    priority,
+                    entity_id,
+                    agent_type
                 ],
             )
             .context("failed to insert memory")?;
@@ -557,7 +614,12 @@ impl Retriever for SqliteStorage {
 
 #[async_trait]
 impl Searcher for SqliteStorage {
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+    async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -565,24 +627,51 @@ impl Searcher for SqliteStorage {
         let conn = Arc::clone(&self.conn);
         let query = query.to_string();
         let effective_limit = i64::try_from(limit).context("search limit exceeds i64")?;
+        let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
             let conn = conn
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
             let fts_query = build_fts5_query(&query);
-            let fts_result = conn.prepare(
-                "SELECT f.id, m.content, m.tags, m.importance, m.metadata
+            let mut fts_sql = String::from(
+                "SELECT f.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project
                  FROM memories_fts f
                  JOIN memories m ON m.id = f.id
-                 WHERE memories_fts MATCH ?1
-                 ORDER BY bm25(memories_fts)
-                 LIMIT ?2",
+                 WHERE memories_fts MATCH ?1",
             );
+            let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
+            let mut param_idx = 2;
+            if let Some(event_type) = opts.event_type.clone() {
+                fts_sql.push_str(&format!(" AND m.event_type = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(event_type));
+                param_idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                fts_sql.push_str(&format!(" AND m.project = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(project));
+                param_idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                fts_sql.push_str(&format!(" AND m.session_id = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(session_id));
+                param_idx += 1;
+            }
+            fts_sql.push_str(" ORDER BY bm25(memories_fts)");
+            fts_sql.push_str(&format!(" LIMIT ?{param_idx}"));
+            fts_params.push(SqlValue::Integer(effective_limit));
+
+            let fts_result = conn.prepare(&fts_sql);
 
             if let Ok(mut stmt) = fts_result {
-                let rows = stmt.query_map(params![fts_query, effective_limit], |row| {
+                let mut fts_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+                for value in &fts_params {
+                    fts_param_refs.push(value);
+                }
+                let rows = stmt.query_map(fts_param_refs.as_slice(), |row| {
                     let raw_tags: String = row.get(2)?;
                     let raw_metadata: String = row.get(4)?;
                     Ok(SearchResult {
@@ -591,6 +680,9 @@ impl Searcher for SqliteStorage {
                         tags: parse_tags_from_db(&raw_tags),
                         importance: row.get(3)?,
                         metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type: row.get(5).ok(),
+                        session_id: row.get(6).ok(),
+                        project: row.get(7).ok(),
                     })
                 });
 
@@ -613,18 +705,43 @@ impl Searcher for SqliteStorage {
                 .replace('_', "\\_");
             let pattern = format!("%{escaped}%");
 
+            let mut sql = String::from(
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project
+                 FROM memories
+                 WHERE lower(content) LIKE ?1 ESCAPE '\\'",
+            );
+            let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
+            let mut idx = 2;
+            if let Some(event_type) = opts.event_type.clone() {
+                sql.push_str(&format!(" AND event_type = ?{idx}"));
+                params_values.push(SqlValue::Text(event_type));
+                idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                sql.push_str(&format!(" AND project = ?{idx}"));
+                params_values.push(SqlValue::Text(project));
+                idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                sql.push_str(&format!(" AND session_id = ?{idx}"));
+                params_values.push(SqlValue::Text(session_id));
+                idx += 1;
+            }
+            sql.push_str(" ORDER BY last_accessed_at DESC");
+            sql.push_str(&format!(" LIMIT ?{idx}"));
+            params_values.push(SqlValue::Integer(effective_limit));
+
             let mut stmt = conn
-                .prepare(
-                    "SELECT id, content, tags, importance, metadata
-                     FROM memories
-                     WHERE lower(content) LIKE ?1 ESCAPE '\\'
-                     ORDER BY last_accessed_at DESC
-                     LIMIT ?2",
-                )
+                .prepare(&sql)
                 .context("failed to prepare LIKE search query")?;
 
+            let mut like_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &params_values {
+                like_param_refs.push(value);
+            }
+
             let rows = stmt
-                .query_map(params![pattern, effective_limit], |row| {
+                .query_map(like_param_refs.as_slice(), |row| {
                     let raw_tags: String = row.get(2)?;
                     let raw_metadata: String = row.get(4)?;
                     Ok(SearchResult {
@@ -633,6 +750,9 @@ impl Searcher for SqliteStorage {
                         tags: parse_tags_from_db(&raw_tags),
                         importance: row.get(3)?,
                         metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type: row.get(5).ok(),
+                        session_id: row.get(6).ok(),
+                        project: row.get(7).ok(),
                     })
                 })
                 .context("failed to execute LIKE search query")?;
@@ -651,30 +771,59 @@ impl Searcher for SqliteStorage {
 
 #[async_trait]
 impl Recents for SqliteStorage {
-    async fn recent(&self, limit: usize) -> Result<Vec<SearchResult>> {
+    async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>> {
         if limit == 0 {
             return Ok(Vec::new());
         }
 
         let conn = Arc::clone(&self.conn);
         let effective_limit = i64::try_from(limit).context("recent limit exceeds i64")?;
+        let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
             let conn = conn
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
+            let mut sql = String::from(
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project
+                 FROM memories
+                 WHERE 1 = 1",
+            );
+            let mut params_values: Vec<SqlValue> = Vec::new();
+            let mut idx = 1;
+            if let Some(event_type) = opts.event_type.clone() {
+                sql.push_str(&format!(" AND event_type = ?{idx}"));
+                params_values.push(SqlValue::Text(event_type));
+                idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                sql.push_str(&format!(" AND project = ?{idx}"));
+                params_values.push(SqlValue::Text(project));
+                idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                sql.push_str(&format!(" AND session_id = ?{idx}"));
+                params_values.push(SqlValue::Text(session_id));
+                idx += 1;
+            }
+            sql.push_str(" ORDER BY last_accessed_at DESC");
+            sql.push_str(&format!(" LIMIT ?{idx}"));
+            params_values.push(SqlValue::Integer(effective_limit));
+
             let mut stmt = conn
-                .prepare(
-                    "SELECT id, content, tags, importance, metadata
-                     FROM memories
-                     ORDER BY last_accessed_at DESC
-                     LIMIT ?1",
-                )
+                .prepare(&sql)
                 .context("failed to prepare recent query")?;
 
+            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &params_values {
+                param_refs.push(value);
+            }
+
             let rows = stmt
-                .query_map(params![effective_limit], |row| {
+                .query_map(param_refs.as_slice(), |row| {
                     let raw_tags: String = row.get(2)?;
                     let raw_metadata: String = row.get(4)?;
                     Ok(SearchResult {
@@ -683,6 +832,9 @@ impl Recents for SqliteStorage {
                         tags: parse_tags_from_db(&raw_tags),
                         importance: row.get(3)?,
                         metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type: row.get(5).ok(),
+                        session_id: row.get(6).ok(),
+                        project: row.get(7).ok(),
                     })
                 })
                 .context("failed to execute recent query")?;
@@ -701,43 +853,96 @@ impl Recents for SqliteStorage {
 
 #[async_trait]
 impl SemanticSearcher for SqliteStorage {
-    async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SemanticResult>> {
+    async fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SemanticResult>> {
         if limit == 0 {
             return Ok(Vec::new());
         }
 
         let conn = Arc::clone(&self.conn);
         let query_embedding = embedding_for_text(query);
+        let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
             let conn = conn
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
+            let mut sql = String::from(
+                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
+                 FROM memories
+                 WHERE embedding IS NOT NULL",
+            );
+            let mut params_values: Vec<SqlValue> = Vec::new();
+            let mut idx = 1;
+            if let Some(event_type) = opts.event_type.clone() {
+                sql.push_str(&format!(" AND event_type = ?{idx}"));
+                params_values.push(SqlValue::Text(event_type));
+                idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                sql.push_str(&format!(" AND project = ?{idx}"));
+                params_values.push(SqlValue::Text(project));
+                idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                sql.push_str(&format!(" AND session_id = ?{idx}"));
+                params_values.push(SqlValue::Text(session_id));
+            }
+
             let mut stmt = conn
-                .prepare(
-                    "SELECT id, content, embedding, tags, importance, metadata
-                     FROM memories
-                     WHERE embedding IS NOT NULL",
-                )
+                .prepare(&sql)
                 .context("failed to prepare semantic search query")?;
 
+            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &params_values {
+                param_refs.push(value);
+            }
+
             let rows = stmt
-                .query_map([], |row| {
+                .query_map(param_refs.as_slice(), |row| {
                     let id: String = row.get(0)?;
                     let content: String = row.get(1)?;
                     let embedding_blob: Vec<u8> = row.get(2)?;
                     let tags: String = row.get(3)?;
                     let importance: f64 = row.get(4)?;
                     let metadata: String = row.get(5)?;
-                    Ok((id, content, embedding_blob, tags, importance, metadata))
+                    let event_type: Option<String> = row.get(6).ok();
+                    let session_id: Option<String> = row.get(7).ok();
+                    let project: Option<String> = row.get(8).ok();
+                    Ok((
+                        id,
+                        content,
+                        embedding_blob,
+                        tags,
+                        importance,
+                        metadata,
+                        event_type,
+                        session_id,
+                        project,
+                    ))
                 })
                 .context("failed to execute semantic search query")?;
 
             let mut ranked = Vec::new();
             for row in rows {
-                let (id, content, embedding_blob, raw_tags, importance, raw_metadata) =
-                    row.context("failed to decode semantic search row")?;
+                let (
+                    id,
+                    content,
+                    embedding_blob,
+                    raw_tags,
+                    importance,
+                    raw_metadata,
+                    event_type,
+                    session_id,
+                    project,
+                ) = row.context("failed to decode semantic search row")?;
                 let candidate: Vec<f32> = serde_json::from_slice(&embedding_blob)
                     .context("failed to decode stored embedding")?;
                 let score = cosine_similarity(&query_embedding, &candidate);
@@ -747,6 +952,9 @@ impl SemanticSearcher for SqliteStorage {
                     tags: parse_tags_from_db(&raw_tags),
                     importance,
                     metadata: parse_metadata_from_db(&raw_metadata),
+                    event_type,
+                    session_id,
+                    project,
                     score,
                 });
             }
@@ -785,37 +993,45 @@ impl Deleter for SqliteStorage {
 
 #[async_trait]
 impl Updater for SqliteStorage {
-    async fn update(
-        &self,
-        id: &str,
-        content: Option<&str>,
-        tags: Option<&[String]>,
-        importance: Option<f64>,
-        metadata: Option<&serde_json::Value>,
-    ) -> Result<()> {
-        if content.is_none() && tags.is_none() && importance.is_none() && metadata.is_none() {
+    async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
+        if input.content.is_none()
+            && input.tags.is_none()
+            && input.importance.is_none()
+            && input.metadata.is_none()
+            && input.event_type.is_none()
+            && input.priority.is_none()
+        {
             return Err(anyhow!(
-                "at least one of content, tags, importance, or metadata must be provided"
+                "at least one of content, tags, importance, metadata, event_type, or priority must be provided"
             ));
         }
 
-        let content_fields = content
-            .map(|c| {
+        let content_fields = input
+            .content
+            .as_deref()
+            .map(|new_content| {
                 let mut hasher = Sha256::new();
-                hasher.update(c.as_bytes());
+                hasher.update(new_content.as_bytes());
                 let hash = format!("{:x}", hasher.finalize());
-                let emb = serde_json::to_vec(&embedding_for_text(c))
+                let emb = serde_json::to_vec(&embedding_for_text(new_content))
                     .context("failed to serialize embedding")?;
-                Ok::<_, anyhow::Error>((c.to_string(), hash, emb))
+                Ok::<_, anyhow::Error>((new_content.to_string(), hash, emb))
             })
             .transpose()?;
 
-        let tags_json = tags
-            .map(|t| serde_json::to_string(t).context("failed to serialize tags"))
+        let tags_json = input
+            .tags
+            .as_ref()
+            .map(|tags| serde_json::to_string(tags).context("failed to serialize tags"))
             .transpose()?;
-        let metadata_json = metadata
-            .map(|m| serde_json::to_string(m).context("failed to serialize metadata"))
+        let metadata_json = input
+            .metadata
+            .as_ref()
+            .map(|metadata| serde_json::to_string(metadata).context("failed to serialize metadata"))
             .transpose()?;
+        let event_type = input.event_type.clone();
+        let priority = input.priority;
+        let importance = input.importance;
 
         let conn = Arc::clone(&self.conn);
         let id = id.to_string();
@@ -860,6 +1076,18 @@ impl Updater for SqliteStorage {
             if let Some(new_metadata) = &metadata_json {
                 set_clauses.push(format!("metadata = ?{next_param_index}"));
                 values.push(SqlValue::Text(new_metadata.clone()));
+                next_param_index += 1;
+            }
+
+            if let Some(new_event_type) = &event_type {
+                set_clauses.push(format!("event_type = ?{next_param_index}"));
+                values.push(SqlValue::Text(new_event_type.clone()));
+                next_param_index += 1;
+            }
+
+            if let Some(new_priority) = priority {
+                set_clauses.push(format!("priority = ?{next_param_index}"));
+                values.push(SqlValue::Integer(i64::from(new_priority)));
             }
 
             let sql = format!(
@@ -904,7 +1132,12 @@ impl Updater for SqliteStorage {
 
 #[async_trait]
 impl Tagger for SqliteStorage {
-    async fn get_by_tags(&self, tags: &[String], limit: usize) -> Result<Vec<SearchResult>> {
+    async fn get_by_tags(
+        &self,
+        tags: &[String],
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
         if tags.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
@@ -912,6 +1145,7 @@ impl Tagger for SqliteStorage {
         let conn = Arc::clone(&self.conn);
         let tags = tags.to_vec();
         let effective_limit = i64::try_from(limit).context("tag search limit exceeds i64")?;
+        let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
             let conn = conn
@@ -934,15 +1168,33 @@ impl Tagger for SqliteStorage {
                 ));
                 param_values.push(tag.clone());
             }
-            let limit_param_idx = param_values.len() + 1;
             let json_clause = json_conditions.join(" AND ");
             let csv_clause = csv_conditions.join(" AND ");
-            let sql = format!(
-                "SELECT id, content, tags, importance, metadata FROM memories \
+            let mut sql = format!(
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project FROM memories \
                  WHERE ((json_valid(memories.tags) AND {json_clause}) \
-                        OR (NOT json_valid(memories.tags) AND memories.tags != '' AND {csv_clause})) \
-                 ORDER BY last_accessed_at DESC LIMIT ?{limit_param_idx}"
+                         OR (NOT json_valid(memories.tags) AND memories.tags != '' AND {csv_clause})) \
+                 "
             );
+
+            let mut next_idx = param_values.len();
+            if let Some(event_type) = opts.event_type.clone() {
+                next_idx += 1;
+                sql.push_str(&format!(" AND event_type = ?{next_idx}"));
+                param_values.push(event_type);
+            }
+            if let Some(project) = opts.project.clone() {
+                next_idx += 1;
+                sql.push_str(&format!(" AND project = ?{next_idx}"));
+                param_values.push(project);
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                next_idx += 1;
+                sql.push_str(&format!(" AND session_id = ?{next_idx}"));
+                param_values.push(session_id);
+            }
+            next_idx += 1;
+            sql.push_str(&format!(" ORDER BY last_accessed_at DESC LIMIT ?{next_idx}"));
 
             let mut stmt = conn
                 .prepare(&sql)
@@ -964,6 +1216,9 @@ impl Tagger for SqliteStorage {
                         tags: parse_tags_from_db(&raw_tags),
                         importance: row.get(3)?,
                         metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type: row.get(5).ok(),
+                        session_id: row.get(6).ok(),
+                        project: row.get(7).ok(),
                     })
                 })
                 .context("failed to execute tag search query")?;
@@ -981,15 +1236,43 @@ impl Tagger for SqliteStorage {
 
 #[async_trait]
 impl Lister for SqliteStorage {
-    async fn list(&self, offset: usize, limit: usize) -> Result<ListResult> {
+    async fn list(&self, offset: usize, limit: usize, opts: &SearchOptions) -> Result<ListResult> {
+        let opts = opts.clone();
         if limit == 0 {
             let conn = Arc::clone(&self.conn);
+            let count_opts = opts.clone();
             let total = tokio::task::spawn_blocking(move || {
+                use rusqlite::types::Value as SqlValue;
+
                 let conn = conn
                     .lock()
                     .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
-                let count: i64 = conn
-                    .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+                let mut sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
+                let mut params_values: Vec<SqlValue> = Vec::new();
+                let mut idx = 1;
+                if let Some(event_type) = count_opts.event_type {
+                    sql.push_str(&format!(" AND event_type = ?{idx}"));
+                    params_values.push(SqlValue::Text(event_type));
+                    idx += 1;
+                }
+                if let Some(project) = count_opts.project {
+                    sql.push_str(&format!(" AND project = ?{idx}"));
+                    params_values.push(SqlValue::Text(project));
+                    idx += 1;
+                }
+                if let Some(session_id) = count_opts.session_id {
+                    sql.push_str(&format!(" AND session_id = ?{idx}"));
+                    params_values.push(SqlValue::Text(session_id));
+                }
+                let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+                for value in &params_values {
+                    param_refs.push(value);
+                }
+                let mut stmt = conn
+                    .prepare(&sql)
+                    .context("failed to prepare list count query")?;
+                let count: i64 = stmt
+                    .query_row(param_refs.as_slice(), |row| row.get(0))
                     .context("failed to count memories")?;
                 Ok::<_, anyhow::Error>(count as usize)
             })
@@ -1006,24 +1289,79 @@ impl Lister for SqliteStorage {
         let effective_offset = i64::try_from(offset).context("list offset exceeds i64")?;
 
         tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
             let conn = conn
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
-            let total: i64 = conn
-                .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+            let mut count_sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
+            let mut filter_params: Vec<SqlValue> = Vec::new();
+            let mut idx = 1;
+            if let Some(event_type) = opts.event_type.clone() {
+                count_sql.push_str(&format!(" AND event_type = ?{idx}"));
+                filter_params.push(SqlValue::Text(event_type));
+                idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                count_sql.push_str(&format!(" AND project = ?{idx}"));
+                filter_params.push(SqlValue::Text(project));
+                idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                count_sql.push_str(&format!(" AND session_id = ?{idx}"));
+                filter_params.push(SqlValue::Text(session_id));
+            }
+
+            let mut count_stmt = conn
+                .prepare(&count_sql)
+                .context("failed to prepare list count query")?;
+            let mut count_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &filter_params {
+                count_param_refs.push(value);
+            }
+            let total: i64 = count_stmt
+                .query_row(count_param_refs.as_slice(), |row| row.get(0))
                 .context("failed to count memories")?;
 
+            let mut data_sql = String::from(
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project FROM memories WHERE 1 = 1",
+            );
+            let mut data_params: Vec<SqlValue> = Vec::new();
+            let mut next_idx = 1;
+            if let Some(event_type) = opts.event_type.clone() {
+                data_sql.push_str(&format!(" AND event_type = ?{next_idx}"));
+                data_params.push(SqlValue::Text(event_type));
+                next_idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                data_sql.push_str(&format!(" AND project = ?{next_idx}"));
+                data_params.push(SqlValue::Text(project));
+                next_idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                data_sql.push_str(&format!(" AND session_id = ?{next_idx}"));
+                data_params.push(SqlValue::Text(session_id));
+                next_idx += 1;
+            }
+            data_sql.push_str(" ORDER BY created_at DESC");
+            data_sql.push_str(&format!(" LIMIT ?{next_idx}"));
+            data_params.push(SqlValue::Integer(effective_limit));
+            next_idx += 1;
+            data_sql.push_str(&format!(" OFFSET ?{next_idx}"));
+            data_params.push(SqlValue::Integer(effective_offset));
+
             let mut stmt = conn
-                .prepare(
-                    "SELECT id, content, tags, importance, metadata FROM memories
-                     ORDER BY created_at DESC
-                     LIMIT ?1 OFFSET ?2",
-                )
+                .prepare(&data_sql)
                 .context("failed to prepare list query")?;
 
+            let mut data_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &data_params {
+                data_param_refs.push(value);
+            }
+
             let rows = stmt
-                .query_map(params![effective_limit, effective_offset], |row| {
+                .query_map(data_param_refs.as_slice(), |row| {
                     let raw_tags: String = row.get(2)?;
                     let raw_metadata: String = row.get(4)?;
                     Ok(SearchResult {
@@ -1032,6 +1370,9 @@ impl Lister for SqliteStorage {
                         tags: parse_tags_from_db(&raw_tags),
                         importance: row.get(3)?,
                         metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type: row.get(5).ok(),
+                        session_id: row.get(6).ok(),
+                        project: row.get(7).ok(),
                     })
                 })
                 .context("failed to execute list query")?;
@@ -1064,7 +1405,7 @@ impl RelationshipQuerier for SqliteStorage {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, source_id, target_id, rel_type
+                    "SELECT id, source_id, target_id, rel_type, weight, metadata, created_at
                      FROM relationships
                      WHERE source_id = ?1 OR target_id = ?1",
                 )
@@ -1077,6 +1418,11 @@ impl RelationshipQuerier for SqliteStorage {
                         source_id: row.get(1)?,
                         target_id: row.get(2)?,
                         rel_type: row.get(3)?,
+                        weight: row.get::<_, f64>(4).unwrap_or(1.0),
+                        metadata: parse_metadata_from_db(
+                            &row.get::<_, String>(5).unwrap_or_else(|_| "{}".to_string()),
+                        ),
+                        created_at: row.get::<_, String>(6).unwrap_or_else(|_| "".to_string()),
                     })
                 })
                 .context("failed to execute relationships query")?;
@@ -1140,6 +1486,27 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
         );",
     )
     .context("failed to initialize sqlite schema")?;
+
+    let new_columns = [
+        "ALTER TABLE memories ADD COLUMN session_id TEXT",
+        "ALTER TABLE memories ADD COLUMN event_type TEXT",
+        "ALTER TABLE memories ADD COLUMN project TEXT",
+        "ALTER TABLE memories ADD COLUMN priority INTEGER",
+        "ALTER TABLE memories ADD COLUMN entity_id TEXT",
+        "ALTER TABLE memories ADD COLUMN agent_type TEXT",
+    ];
+    for alter in &new_columns {
+        let _ = conn.execute_batch(alter);
+    }
+
+    let new_rel_columns = [
+        "ALTER TABLE relationships ADD COLUMN weight REAL NOT NULL DEFAULT 1.0",
+        "ALTER TABLE relationships ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE relationships ADD COLUMN created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+    ];
+    for alter in &new_rel_columns {
+        let _ = conn.execute_batch(alter);
+    }
 
     rebuild_fts_index(conn)?;
 
@@ -1228,7 +1595,10 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_core::{Recents, Retriever, Searcher, SemanticSearcher, Storage};
+    use crate::memory_core::{
+        Recents, Retriever, SearchOptions, Searcher, SemanticSearcher, Storage, Updater,
+        default_priority_for_event_type, is_valid_event_type,
+    };
 
     #[test]
     fn test_new_with_path_creates_parent_and_db() {
@@ -1272,6 +1642,12 @@ mod tests {
             "importance",
             "metadata",
             "access_count",
+            "session_id",
+            "event_type",
+            "project",
+            "priority",
+            "entity_id",
+            "agent_type",
         ] {
             assert!(memories_cols.iter().any(|c| c == col));
         }
@@ -1282,7 +1658,15 @@ mod tests {
             rows.map(|r| r.unwrap()).collect()
         };
 
-        for col in ["id", "source_id", "target_id", "rel_type"] {
+        for col in [
+            "id",
+            "source_id",
+            "target_id",
+            "rel_type",
+            "weight",
+            "metadata",
+            "created_at",
+        ] {
             assert!(relationships_cols.iter().any(|c| c == col));
         }
     }
@@ -1314,9 +1698,12 @@ mod tests {
             &storage,
             "m1",
             "hello world",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1333,9 +1720,12 @@ mod tests {
             &storage,
             "m2",
             "payload",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1355,15 +1745,35 @@ mod tests {
     #[tokio::test]
     async fn test_add_relationship() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        <SqliteStorage as Storage>::store(&storage, "a", "alpha", &[], 0.5, &serde_json::json!({}))
-            .await
-            .unwrap();
-        <SqliteStorage as Storage>::store(&storage, "b", "beta", &[], 0.5, &serde_json::json!({}))
-            .await
-            .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "a",
+            "alpha",
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "b",
+            "beta",
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
 
         let rel_id = storage
-            .add_relationship("a", "b", "links_to")
+            .add_relationship("a", "b", "links_to", 1.0, &serde_json::json!({}))
             .await
             .unwrap();
 
@@ -1391,9 +1801,12 @@ mod tests {
             &storage,
             "s1",
             "Rust memory store",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1401,14 +1814,20 @@ mod tests {
             &storage,
             "s2",
             "another note",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("MEMORY", 10).await.unwrap();
+        let results = storage
+            .search("MEMORY", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "s1");
         assert_eq!(results[0].content, "Rust memory store");
@@ -1424,9 +1843,12 @@ mod tests {
             &storage,
             "p1",
             "value 100% done",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1434,14 +1856,20 @@ mod tests {
             &storage,
             "p2",
             "value 1000 done",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("100%", 10).await.unwrap();
+        let results = storage
+            .search("100%", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "p1");
     }
@@ -1453,14 +1881,20 @@ mod tests {
             &storage,
             "z1",
             "zero limit candidate",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("zero", 0).await.unwrap();
+        let results = storage
+            .search("zero", 0, &SearchOptions::default())
+            .await
+            .unwrap();
         assert!(results.is_empty());
     }
 
@@ -1471,9 +1905,12 @@ mod tests {
             &storage,
             "u1",
             r"file_a\b",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1481,18 +1918,27 @@ mod tests {
             &storage,
             "u2",
             r"fileXab",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let underscore_results = storage.search("file_a", 10).await.unwrap();
+        let underscore_results = storage
+            .search("file_a", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(underscore_results.len(), 1);
         assert_eq!(underscore_results[0].id, "u1");
 
-        let backslash_results = storage.search(r"a\b", 10).await.unwrap();
+        let backslash_results = storage
+            .search(r"a\b", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(backslash_results.len(), 1);
         assert_eq!(backslash_results[0].id, "u1");
     }
@@ -1504,14 +1950,20 @@ mod tests {
             &storage,
             "fts1",
             "Rust memory management",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("memory", 10).await.unwrap();
+        let results = storage
+            .search("memory", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "fts1");
     }
@@ -1523,9 +1975,12 @@ mod tests {
             &storage,
             "fts2",
             "rust memory ownership",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1533,14 +1988,20 @@ mod tests {
             &storage,
             "fts3",
             "rust tooling",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("rust memory", 10).await.unwrap();
+        let results = storage
+            .search("rust memory", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "fts2");
     }
@@ -1552,14 +2013,20 @@ mod tests {
             &storage,
             "fts4",
             "fts metadata payload",
-            &["alpha".to_string()],
-            0.91,
-            &serde_json::json!({"scope":"fts"}),
+            &MemoryInput {
+                tags: vec!["alpha".to_string()],
+                importance: 0.91,
+                metadata: serde_json::json!({"scope":"fts"}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("metadata", 10).await.unwrap();
+        let results = storage
+            .search("metadata", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "fts4");
         assert_eq!(results[0].tags, vec!["alpha".to_string()]);
@@ -1574,18 +2041,27 @@ mod tests {
             &storage,
             "fts5",
             "value with % symbol and _ marker",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let percent_results = storage.search("%", 10).await.unwrap();
+        let percent_results = storage
+            .search("%", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(percent_results.len(), 1);
         assert_eq!(percent_results[0].id, "fts5");
 
-        let underscore_results = storage.search("_", 10).await.unwrap();
+        let underscore_results = storage
+            .search("_", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(underscore_results.len(), 1);
         assert_eq!(underscore_results[0].id, "fts5");
     }
@@ -1597,9 +2073,12 @@ mod tests {
             &storage,
             "fts6",
             "before update",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1607,15 +2086,21 @@ mod tests {
         <SqliteStorage as Updater>::update(
             &storage,
             "fts6",
-            Some("after update"),
-            None,
-            None,
-            None,
+            &MemoryUpdate {
+                content: Some("after update".to_string()),
+                tags: None,
+                importance: None,
+                metadata: None,
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("after", 10).await.unwrap();
+        let results = storage
+            .search("after", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "fts6");
     }
@@ -1627,9 +2112,12 @@ mod tests {
             &storage,
             "fts7",
             "delete candidate",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1637,7 +2125,10 @@ mod tests {
         let deleted = storage.delete("fts7").await.unwrap();
         assert!(deleted);
 
-        let results = storage.search("candidate", 10).await.unwrap();
+        let results = storage
+            .search("candidate", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert!(results.is_empty());
     }
 
@@ -1648,9 +2139,12 @@ mod tests {
             &storage,
             "r1",
             "older",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1658,9 +2152,12 @@ mod tests {
             &storage,
             "r2",
             "newer",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1672,7 +2169,7 @@ mod tests {
             .debug_force_last_accessed_at("r2", "2001-01-01T00:00:00.000Z")
             .unwrap();
 
-        let results = storage.recent(2).await.unwrap();
+        let results = storage.recent(2, &SearchOptions::default()).await.unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, "r2");
         assert_eq!(results[1].id, "r1");
@@ -1685,9 +2182,12 @@ mod tests {
             &storage,
             "e1",
             "alpha beta gamma",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1695,15 +2195,18 @@ mod tests {
             &storage,
             "e2",
             "other content",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         let results = storage
-            .semantic_search("alpha beta gamma", 2)
+            .semantic_search("alpha beta gamma", 2, &SearchOptions::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -1721,14 +2224,20 @@ mod tests {
             &storage,
             "e3",
             "candidate",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.semantic_search("candidate", 0).await.unwrap();
+        let results = storage
+            .semantic_search("candidate", 0, &SearchOptions::default())
+            .await
+            .unwrap();
         assert!(results.is_empty());
     }
 
@@ -1741,9 +2250,12 @@ mod tests {
             &storage,
             "d1",
             "to-delete",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1769,17 +2281,30 @@ mod tests {
             &storage,
             "ca",
             "alpha",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
-        <SqliteStorage as Storage>::store(&storage, "cb", "beta", &[], 0.5, &serde_json::json!({}))
-            .await
-            .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "cb",
+            "beta",
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         storage
-            .add_relationship("ca", "cb", "links_to")
+            .add_relationship("ca", "cb", "links_to", 1.0, &serde_json::json!({}))
             .await
             .unwrap();
 
@@ -1798,16 +2323,29 @@ mod tests {
             &storage,
             "up1",
             "original",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        <SqliteStorage as Updater>::update(&storage, "up1", Some("updated"), None, None, None)
-            .await
-            .unwrap();
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "up1",
+            &MemoryUpdate {
+                content: Some("updated".to_string()),
+                tags: None,
+                importance: None,
+                metadata: None,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         let content = storage.retrieve("up1").await.unwrap();
         assert_eq!(content, "updated");
     }
@@ -1820,9 +2358,12 @@ mod tests {
             &storage,
             "up2",
             "data",
-            &tags,
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: tags.clone(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1831,15 +2372,21 @@ mod tests {
         <SqliteStorage as Updater>::update(
             &storage,
             "up2",
-            Some("data-v2"),
-            Some(&new_tags),
-            None,
-            None,
+            &MemoryUpdate {
+                content: Some("data-v2".to_string()),
+                tags: Some(new_tags.clone()),
+                importance: None,
+                metadata: None,
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.get_by_tags(&new_tags, 10).await.unwrap();
+        let results = storage
+            .get_by_tags(&new_tags, 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "up2");
         assert_eq!(results[0].content, "data-v2");
@@ -1855,18 +2402,34 @@ mod tests {
             &storage,
             "up3",
             "data",
-            &tags,
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: tags.clone(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        <SqliteStorage as Updater>::update(&storage, "up3", Some("data-v2"), None, None, None)
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "up3",
+            &MemoryUpdate {
+                content: Some("data-v2".to_string()),
+                tags: None,
+                importance: None,
+                metadata: None,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = storage
+            .get_by_tags(&tags, 10, &SearchOptions::default())
             .await
             .unwrap();
-
-        let results = storage.get_by_tags(&tags, 10).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "up3");
     }
@@ -1878,21 +2441,37 @@ mod tests {
             &storage,
             "up4",
             "keep-this",
-            &["old".to_string()],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: vec!["old".to_string()],
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         let new_tags = vec!["new-tag".to_string()];
-        <SqliteStorage as Updater>::update(&storage, "up4", None, Some(&new_tags), None, None)
-            .await
-            .unwrap();
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "up4",
+            &MemoryUpdate {
+                content: None,
+                tags: Some(new_tags.clone()),
+                importance: None,
+                metadata: None,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
 
         let content = storage.retrieve("up4").await.unwrap();
         assert_eq!(content, "keep-this");
-        let results = storage.get_by_tags(&new_tags, 10).await.unwrap();
+        let results = storage
+            .get_by_tags(&new_tags, 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "up4");
     }
@@ -1904,22 +2483,32 @@ mod tests {
             &storage,
             "up5",
             "data",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
-        let err = <SqliteStorage as Updater>::update(&storage, "up5", None, None, None, None).await;
+        let err =
+            <SqliteStorage as Updater>::update(&storage, "up5", &MemoryUpdate::default()).await;
         assert!(err.is_err());
     }
 
     #[tokio::test]
     async fn test_update_nonexistent_errors() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        let err =
-            <SqliteStorage as Updater>::update(&storage, "ghost", Some("data"), None, None, None)
-                .await;
+        let err = <SqliteStorage as Updater>::update(
+            &storage,
+            "ghost",
+            &MemoryUpdate {
+                content: Some("data".to_string()),
+                ..Default::default()
+            },
+        )
+        .await;
         assert!(err.is_err());
     }
 
@@ -1932,9 +2521,12 @@ mod tests {
             &storage,
             "t1",
             "one",
-            &["rust".to_string(), "memory".to_string()],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: vec!["rust".to_string(), "memory".to_string()],
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1942,9 +2534,12 @@ mod tests {
             &storage,
             "t2",
             "two",
-            &["rust".to_string()],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: vec!["rust".to_string()],
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1952,21 +2547,28 @@ mod tests {
             &storage,
             "t3",
             "three",
-            &["python".to_string()],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: vec!["python".to_string()],
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         let results = storage
-            .get_by_tags(&["rust".to_string()], 10)
+            .get_by_tags(&["rust".to_string()], 10, &SearchOptions::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
 
         let results = storage
-            .get_by_tags(&["rust".to_string(), "memory".to_string()], 10)
+            .get_by_tags(
+                &["rust".to_string(), "memory".to_string()],
+                10,
+                &SearchOptions::default(),
+            )
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -1991,23 +2593,26 @@ mod tests {
             &storage,
             "json1",
             "json data",
-            &["rust".to_string(), "search".to_string()],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: vec!["rust".to_string(), "search".to_string()],
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         // Search for 'rust' should find both CSV and JSON rows
         let results = storage
-            .get_by_tags(&["rust".to_string()], 10)
+            .get_by_tags(&["rust".to_string()], 10, &SearchOptions::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
 
         // Search for 'memory' should find only the CSV row
         let results = storage
-            .get_by_tags(&["memory".to_string()], 10)
+            .get_by_tags(&["memory".to_string()], 10, &SearchOptions::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -2015,7 +2620,7 @@ mod tests {
 
         // Search for 'search' should find only the JSON row
         let results = storage
-            .get_by_tags(&["search".to_string()], 10)
+            .get_by_tags(&["search".to_string()], 10, &SearchOptions::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -2029,13 +2634,19 @@ mod tests {
             &storage,
             "te",
             "data",
-            &["tag".to_string()],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: vec!["tag".to_string()],
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
-        let results = storage.get_by_tags(&[], 10).await.unwrap();
+        let results = storage
+            .get_by_tags(&[], 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert!(results.is_empty());
     }
 
@@ -2049,19 +2660,22 @@ mod tests {
                 &storage,
                 &format!("l{i}"),
                 &format!("item-{i}"),
-                &[],
-                0.5,
-                &serde_json::json!({}),
+                &MemoryInput {
+                    tags: Vec::new(),
+                    importance: 0.5,
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();
         }
 
-        let result = storage.list(0, 3).await.unwrap();
+        let result = storage.list(0, 3, &SearchOptions::default()).await.unwrap();
         assert_eq!(result.memories.len(), 3);
         assert_eq!(result.total, 5);
 
-        let result = storage.list(3, 3).await.unwrap();
+        let result = storage.list(3, 3, &SearchOptions::default()).await.unwrap();
         assert_eq!(result.memories.len(), 2);
         assert_eq!(result.total, 5);
     }
@@ -2069,14 +2683,34 @@ mod tests {
     #[tokio::test]
     async fn test_list_zero_limit_returns_count_only() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        <SqliteStorage as Storage>::store(&storage, "lz1", "a", &[], 0.5, &serde_json::json!({}))
-            .await
-            .unwrap();
-        <SqliteStorage as Storage>::store(&storage, "lz2", "b", &[], 0.5, &serde_json::json!({}))
-            .await
-            .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "lz1",
+            "a",
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "lz2",
+            "b",
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
 
-        let result = storage.list(0, 0).await.unwrap();
+        let result = storage.list(0, 0, &SearchOptions::default()).await.unwrap();
         assert!(result.memories.is_empty());
         assert_eq!(result.total, 2);
     }
@@ -2090,32 +2724,48 @@ mod tests {
             &storage,
             "ra",
             "alpha",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
-        <SqliteStorage as Storage>::store(&storage, "rb", "beta", &[], 0.5, &serde_json::json!({}))
-            .await
-            .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "rb",
+            "beta",
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         <SqliteStorage as Storage>::store(
             &storage,
             "rc",
             "gamma",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         storage
-            .add_relationship("ra", "rb", "links_to")
+            .add_relationship("ra", "rb", "links_to", 1.0, &serde_json::json!({}))
             .await
             .unwrap();
         storage
-            .add_relationship("rc", "ra", "depends_on")
+            .add_relationship("rc", "ra", "depends_on", 1.0, &serde_json::json!({}))
             .await
             .unwrap();
 
@@ -2134,9 +2784,12 @@ mod tests {
             &storage,
             "lonely",
             "alone",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2155,15 +2808,18 @@ mod tests {
             &storage,
             "st1",
             "tagged content",
-            &tags,
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: tags.clone(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         let results = storage
-            .get_by_tags(&["project-x".to_string()], 10)
+            .get_by_tags(&["project-x".to_string()], 10, &SearchOptions::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -2183,14 +2839,20 @@ mod tests {
             &storage,
             "im1",
             "priority note",
-            &["ranked".to_string()],
-            0.9,
-            &metadata,
+            &MemoryInput {
+                tags: vec!["ranked".to_string()],
+                importance: 0.9,
+                metadata: metadata.clone(),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("priority", 5).await.unwrap();
+        let results = storage
+            .search("priority", 5, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "im1");
         assert_eq!(results[0].importance, 0.9);
@@ -2206,18 +2868,34 @@ mod tests {
             &storage,
             "im2",
             "keep me",
-            &tags,
-            0.5,
-            &serde_json::json!({"scope":"base"}),
+            &MemoryInput {
+                tags: tags.clone(),
+                importance: 0.5,
+                metadata: serde_json::json!({"scope":"base"}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        <SqliteStorage as Updater>::update(&storage, "im2", None, None, Some(0.88), None)
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "im2",
+            &MemoryUpdate {
+                content: None,
+                tags: None,
+                importance: Some(0.88),
+                metadata: None,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = storage
+            .search("keep me", 1, &SearchOptions::default())
             .await
             .unwrap();
-
-        let results = storage.search("keep me", 1).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].content, "keep me");
         assert_eq!(results[0].tags, tags);
@@ -2233,9 +2911,12 @@ mod tests {
             &storage,
             "im3",
             "keep metadata",
-            &tags,
-            0.6,
-            &serde_json::json!({"v":1}),
+            &MemoryInput {
+                tags: tags.clone(),
+                importance: 0.6,
+                metadata: serde_json::json!({"v":1}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2244,15 +2925,21 @@ mod tests {
         <SqliteStorage as Updater>::update(
             &storage,
             "im3",
-            None,
-            None,
-            None,
-            Some(&updated_metadata),
+            &MemoryUpdate {
+                content: None,
+                tags: None,
+                importance: None,
+                metadata: Some(updated_metadata.clone()),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("keep metadata", 1).await.unwrap();
+        let results = storage
+            .search("keep metadata", 1, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].content, "keep metadata");
         assert_eq!(results[0].tags, tags);
@@ -2268,9 +2955,12 @@ mod tests {
             &storage,
             "ac1",
             "read me",
-            &[],
-            0.5,
-            &serde_json::json!({}),
+            &MemoryInput {
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2290,14 +2980,20 @@ mod tests {
             &storage,
             "im4",
             "search payload",
-            &["alpha".to_string(), "beta".to_string()],
-            0.77,
-            &serde_json::json!({"team":"memory"}),
+            &MemoryInput {
+                tags: vec!["alpha".to_string(), "beta".to_string()],
+                importance: 0.77,
+                metadata: serde_json::json!({"team":"memory"}),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
-        let results = storage.search("payload", 10).await.unwrap();
+        let results = storage
+            .search("payload", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "im4");
         assert_eq!(
@@ -2321,10 +3017,615 @@ mod tests {
             .unwrap();
         }
 
-        let results = storage.search("default importance", 10).await.unwrap();
+        let results = storage
+            .search("default importance", 10, &SearchOptions::default())
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "defimp");
         assert_eq!(results[0].importance, 0.5);
         assert_eq!(results[0].metadata, serde_json::json!({}));
+    }
+
+    #[tokio::test]
+    async fn test_store_with_event_type_and_session() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "evt1",
+            "event scoped",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                session_id: Some("ses_1".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = storage
+            .search(
+                "event scoped",
+                5,
+                &SearchOptions {
+                    session_id: Some("ses_1".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].event_type.as_deref(), Some("decision"));
+        assert_eq!(results[0].session_id.as_deref(), Some("ses_1"));
+    }
+
+    #[tokio::test]
+    async fn test_store_with_project_and_priority() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "evt2",
+            "project scoped",
+            &MemoryInput {
+                project: Some("myproj".to_string()),
+                priority: Some(3),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let conn = storage.conn.lock().unwrap();
+        let got: (Option<String>, Option<i64>) = conn
+            .query_row(
+                "SELECT project, priority FROM memories WHERE id='evt2'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(got.0.as_deref(), Some("myproj"));
+        assert_eq!(got.1, Some(3));
+    }
+
+    #[tokio::test]
+    async fn test_search_filter_by_event_type() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, event_type) in [("f1", "decision"), ("f2", "reminder")] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                "same query",
+                &MemoryInput {
+                    event_type: Some(event_type.to_string()),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let results = storage
+            .search(
+                "same query",
+                10,
+                &SearchOptions {
+                    event_type: Some("decision".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "f1");
+    }
+
+    #[tokio::test]
+    async fn test_search_filter_by_project() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, project) in [("p1", "myproj"), ("p2", "other")] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                "project query",
+                &MemoryInput {
+                    project: Some(project.to_string()),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let results = storage
+            .search(
+                "project query",
+                10,
+                &SearchOptions {
+                    project: Some("myproj".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "p1");
+    }
+
+    #[tokio::test]
+    async fn test_search_filter_by_session_id() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, session_id) in [("s1", "ses_a"), ("s2", "ses_b")] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                "session query",
+                &MemoryInput {
+                    session_id: Some(session_id.to_string()),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let results = storage
+            .search(
+                "session query",
+                10,
+                &SearchOptions {
+                    session_id: Some("ses_a".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "s1");
+    }
+
+    #[tokio::test]
+    async fn test_recent_filter_by_project() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "rp1",
+            "recent in proj",
+            &MemoryInput {
+                project: Some("myproj".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "rp2",
+            "recent out proj",
+            &MemoryInput {
+                project: Some("other".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = storage
+            .recent(
+                10,
+                &SearchOptions {
+                    project: Some("myproj".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "rp1");
+    }
+
+    #[tokio::test]
+    async fn test_semantic_search_filter_by_event_type() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "se1",
+            "semantic token",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "se2",
+            "semantic token",
+            &MemoryInput {
+                event_type: Some("reminder".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = storage
+            .semantic_search(
+                "semantic token",
+                10,
+                &SearchOptions {
+                    event_type: Some("decision".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "se1");
+    }
+
+    #[tokio::test]
+    async fn test_list_filter_by_project() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "lp1",
+            "list1",
+            &MemoryInput {
+                project: Some("myproj".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "lp2",
+            "list2",
+            &MemoryInput {
+                project: Some("other".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = storage
+            .list(
+                0,
+                10,
+                &SearchOptions {
+                    project: Some("myproj".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.memories.len(), 1);
+        assert_eq!(result.memories[0].id, "lp1");
+    }
+
+    #[tokio::test]
+    async fn test_update_event_type() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "ue1",
+            "updatable",
+            &MemoryInput {
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "ue1",
+            &MemoryUpdate {
+                event_type: Some("decision".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = storage
+            .search(
+                "updatable",
+                1,
+                &SearchOptions {
+                    event_type: Some("decision".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_update_priority() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "upprio",
+            "priority target",
+            &MemoryInput {
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "upprio",
+            &MemoryUpdate {
+                priority: Some(4),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let conn = storage.conn.lock().unwrap();
+        let priority: Option<i64> = conn
+            .query_row(
+                "SELECT priority FROM memories WHERE id='upprio'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(priority, Some(4));
+    }
+
+    #[test]
+    fn test_valid_event_types() {
+        assert!(is_valid_event_type("decision"));
+        assert!(is_valid_event_type("error_pattern"));
+        assert!(!is_valid_event_type("unknown_event_type"));
+    }
+
+    #[test]
+    fn test_default_priority_for_event_type() {
+        assert_eq!(default_priority_for_event_type("error_pattern"), 4);
+        assert_eq!(default_priority_for_event_type("decision"), 3);
+        assert_eq!(default_priority_for_event_type("git_merge"), 2);
+        assert_eq!(default_priority_for_event_type("session_summary"), 1);
+        assert_eq!(default_priority_for_event_type("not_real"), 0);
+    }
+
+    #[tokio::test]
+    async fn test_relationship_with_weight_and_metadata() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "rw1",
+            "a",
+            &MemoryInput {
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "rw2",
+            "b",
+            &MemoryInput {
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        storage
+            .add_relationship("rw1", "rw2", "links_to", 0.7, &serde_json::json!({"k":"v"}))
+            .await
+            .unwrap();
+
+        let rels = storage.get_relationships("rw1").await.unwrap();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].weight, 0.7);
+        assert_eq!(rels[0].metadata, serde_json::json!({"k":"v"}));
+    }
+
+    #[tokio::test]
+    async fn test_export_includes_new_fields() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "ex1",
+            "export me",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                session_id: Some("ses_export".to_string()),
+                project: Some("proj_export".to_string()),
+                priority: Some(3),
+                entity_id: Some("ent_1".to_string()),
+                agent_type: Some("assistant".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        storage
+            .add_relationship("ex1", "ex1", "self", 0.5, &serde_json::json!({"a":1}))
+            .await
+            .unwrap();
+
+        let export = storage.export_all().await.unwrap();
+        assert!(export.contains("session_id"));
+        assert!(export.contains("event_type"));
+        assert!(export.contains("project"));
+        assert!(export.contains("priority"));
+        assert!(export.contains("entity_id"));
+        assert!(export.contains("agent_type"));
+        assert!(export.contains("weight"));
+        assert!(export.contains("created_at"));
+    }
+
+    #[tokio::test]
+    async fn test_import_with_new_fields() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let data = serde_json::json!({
+            "memories": [{
+                "id":"imx1",
+                "content":"imported",
+                "tags":["t"],
+                "importance":0.8,
+                "metadata":{"m":1},
+                "content_hash":"h",
+                "source_type":"import",
+                "access_count":1,
+                "session_id":"ses_i",
+                "event_type":"decision",
+                "project":"proj_i",
+                "priority":4,
+                "entity_id":"e1",
+                "agent_type":"assistant"
+            }],
+            "relationships":[{
+                "id":"rel_i",
+                "source_id":"imx1",
+                "target_id":"imx1",
+                "rel_type":"self",
+                "weight":0.9,
+                "metadata":{"x":1}
+            }]
+        });
+        let imported = storage.import_all(&data.to_string()).await.unwrap();
+        assert_eq!(imported.0, 1);
+        assert_eq!(imported.1, 1);
+
+        let results = storage
+            .search(
+                "imported",
+                5,
+                &SearchOptions {
+                    event_type: Some("decision".to_string()),
+                    project: Some("proj_i".to_string()),
+                    session_id: Some("ses_i".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_tag_search_filter_by_event_type() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "tag_evt_1",
+            "tagged",
+            &MemoryInput {
+                tags: vec!["alpha".to_string()],
+                event_type: Some("decision".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "tag_evt_2",
+            "tagged",
+            &MemoryInput {
+                tags: vec!["alpha".to_string()],
+                event_type: Some("reminder".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = storage
+            .get_by_tags(
+                &["alpha".to_string()],
+                10,
+                &SearchOptions {
+                    event_type: Some("decision".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "tag_evt_1");
+    }
+
+    #[tokio::test]
+    async fn test_search_empty_opts_returns_all() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for id in ["all_1", "all_2"] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                "same",
+                &MemoryInput {
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let results = storage
+            .search("same", 10, &SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_schema_contains_new_columns() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let conn = storage.conn.lock().unwrap();
+        let memories_cols: Vec<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(memories)").unwrap();
+            stmt.query_map([], |row| row.get::<_, String>(1))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        for col in [
+            "session_id",
+            "event_type",
+            "project",
+            "priority",
+            "entity_id",
+            "agent_type",
+        ] {
+            assert!(memories_cols.contains(&col.to_string()));
+        }
+
+        let rel_cols: Vec<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(relationships)").unwrap();
+            stmt.query_map([], |row| row.get::<_, String>(1))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        for col in ["weight", "metadata", "created_at"] {
+            assert!(rel_cols.contains(&col.to_string()));
+        }
     }
 }

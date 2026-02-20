@@ -80,5 +80,9 @@ gh api repos/George-RD/romega-memory/pulls/<num>/comments
 - New CLI operations (delete, update, list, relations, stats, export, import) use `mcp_storage` directly, not Pipeline.
 - Tags stored as JSON arrays in the `tags` TEXT column; queried via SQLite `json_each()`.
 - FTS5 full-text search with BM25 ranking; LIKE fallback for edge cases.
-- Memories have importance (0.0–1.0), metadata (JSON), and access_count fields.
-- Export/import supports full JSON data portability including relationships.
+- Memories have importance (0.0–1.0), metadata (JSON), access_count, session_id, event_type, project, priority, entity_id, agent_type fields.
+- Relationships have weight (0.0–1.0), metadata (JSON), and created_at fields.
+- Export/import supports full JSON data portability including relationships and all extended fields.
+- Traits use struct-based signatures: `MemoryInput` (store), `MemoryUpdate` (update), `SearchOptions` (search/recent/semantic/tag/list).
+- Event types are validated against `VALID_EVENT_TYPES`; priority auto-maps from event type via `default_priority_for_event_type`.
+- Schema migrations are additive (ALTER TABLE ADD COLUMN with error ignoring for existing DBs).

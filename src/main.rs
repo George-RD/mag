@@ -1,7 +1,10 @@
 use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
-use memory_core::{Deleter, Lister, Pipeline, PlaceholderPipeline, RelationshipQuerier, Updater};
+use memory_core::{
+    Deleter, Lister, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline, RelationshipQuerier,
+    SearchOptions, Updater, default_priority_for_event_type, is_valid_event_type,
+};
 use serde_json::json;
 use tracing::info;
 
@@ -41,12 +44,36 @@ async fn main() -> anyhow::Result<()> {
             tags,
             importance,
             metadata,
+            event_type,
+            session_id,
+            project,
+            priority,
+            entity_id,
+            agent_type,
         } => {
             info!(content_len = content.len(), "Ingesting content");
             let meta = parse_metadata_arg(metadata.as_deref())?;
-            let id = pipeline
-                .run(content, None, tags, *importance, &meta)
-                .await?;
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let input = MemoryInput {
+                content: content.clone(),
+                id: None,
+                tags: tags.clone(),
+                importance: *importance,
+                metadata: meta,
+                event_type: event_type.clone(),
+                session_id: session_id.clone(),
+                project: project.clone(),
+                priority: priority
+                    .to_owned()
+                    .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
+                entity_id: entity_id.clone(),
+                agent_type: agent_type.clone(),
+            };
+            let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Successfully processed and stored");
             println!("{}", json!({ "id": id }));
         }
@@ -55,12 +82,36 @@ async fn main() -> anyhow::Result<()> {
             tags,
             importance,
             metadata,
+            event_type,
+            session_id,
+            project,
+            priority,
+            entity_id,
+            agent_type,
         } => {
             info!(content_len = content.len(), "Processing content directly");
             let meta = parse_metadata_arg(metadata.as_deref())?;
-            let id = pipeline
-                .run(content, None, tags, *importance, &meta)
-                .await?;
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let input = MemoryInput {
+                content: content.clone(),
+                id: None,
+                tags: tags.clone(),
+                importance: *importance,
+                metadata: meta,
+                event_type: event_type.clone(),
+                session_id: session_id.clone(),
+                project: project.clone(),
+                priority: priority
+                    .to_owned()
+                    .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
+                entity_id: entity_id.clone(),
+                agent_type: agent_type.clone(),
+            };
+            let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Process command stored result");
             println!("{}", json!({ "id": id }));
         }
@@ -82,6 +133,8 @@ async fn main() -> anyhow::Result<()> {
             tags,
             importance,
             metadata,
+            event_type,
+            priority,
         } => {
             info!(memory_id = %id, "Updating memory");
             // NOTE: We intentionally do NOT use `parse_metadata_arg` here because
@@ -93,26 +146,53 @@ async fn main() -> anyhow::Result<()> {
                 .map(serde_json::from_str::<serde_json::Value>)
                 .transpose()
                 .map_err(|e| anyhow::anyhow!("invalid metadata JSON: {e}"))?;
-            if content.is_none() && tags.is_none() && importance.is_none() && meta.is_none() {
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            if content.is_none()
+                && tags.is_none()
+                && importance.is_none()
+                && meta.is_none()
+                && event_type.is_none()
+                && priority.is_none()
+            {
                 anyhow::bail!(
-                    "at least one of --content, --tags, --importance, or --metadata must be provided"
+                    "at least one of --content, --tags, --importance, --metadata, --event-type, or --priority must be provided"
                 );
             }
-            <SqliteStorage as Updater>::update(
-                &mcp_storage,
-                id,
-                content.as_deref(),
-                tags.as_ref().map(|v| v.as_slice()),
-                *importance,
-                meta.as_ref(),
-            )
-            .await?;
+            let update = MemoryUpdate {
+                content: content.clone(),
+                tags: tags.clone(),
+                importance: *importance,
+                metadata: meta,
+                event_type: event_type.clone(),
+                priority: *priority,
+            };
+            <SqliteStorage as Updater>::update(&mcp_storage, id, &update).await?;
             info!(memory_id = %id, "Update completed");
             println!("{}", json!({ "id": id, "updated": true }));
         }
-        Commands::List { offset, limit } => {
+        Commands::List {
+            offset,
+            limit,
+            event_type,
+            project,
+            session_id,
+        } => {
             info!(offset = *offset, limit = *limit, "Listing memories");
-            let result = mcp_storage.list(*offset, *limit).await?;
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let opts = SearchOptions {
+                event_type: event_type.clone(),
+                project: project.clone(),
+                session_id: session_id.clone(),
+            };
+            let result = mcp_storage.list(*offset, *limit, &opts).await?;
             info!(
                 count = result.memories.len(),
                 total = result.total,
@@ -127,7 +207,10 @@ async fn main() -> anyhow::Result<()> {
                         "content": m.content,
                         "tags": m.tags,
                         "importance": m.importance,
-                        "metadata": m.metadata
+                        "metadata": m.metadata,
+                        "event_type": m.event_type,
+                        "session_id": m.session_id,
+                        "project": m.project
                     })
                 })
                 .collect();
@@ -140,18 +223,34 @@ async fn main() -> anyhow::Result<()> {
             let payload: Vec<_> = rels
                 .into_iter()
                 .map(|r| {
-                    json!({ "id": r.id, "source_id": r.source_id, "target_id": r.target_id, "rel_type": r.rel_type })
+                    json!({ "id": r.id, "source_id": r.source_id, "target_id": r.target_id, "rel_type": r.rel_type, "weight": r.weight, "metadata": r.metadata, "created_at": r.created_at })
                 })
                 .collect();
             println!("{}", json!({ "relationships": payload }));
         }
-        Commands::Search { query, limit } => {
+        Commands::Search {
+            query,
+            limit,
+            event_type,
+            project,
+            session_id,
+        } => {
             info!(
                 query_len = query.len(),
                 limit = *limit,
                 "Searching memories"
             );
-            let results = pipeline.search(query, *limit).await?;
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let opts = SearchOptions {
+                event_type: event_type.clone(),
+                project: project.clone(),
+                session_id: session_id.clone(),
+            };
+            let results = pipeline.search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Search completed");
             let payload: Vec<_> = results
                 .into_iter()
@@ -161,19 +260,38 @@ async fn main() -> anyhow::Result<()> {
                         "content": result.content,
                         "tags": result.tags,
                         "importance": result.importance,
-                        "metadata": result.metadata
+                        "metadata": result.metadata,
+                        "event_type": result.event_type,
+                        "session_id": result.session_id,
+                        "project": result.project
                     })
                 })
                 .collect();
             println!("{}", json!({ "results": payload }));
         }
-        Commands::SemanticSearch { query, limit } => {
+        Commands::SemanticSearch {
+            query,
+            limit,
+            event_type,
+            project,
+            session_id,
+        } => {
             info!(
                 query_len = query.len(),
                 limit = *limit,
                 "Semantic searching memories"
             );
-            let results = pipeline.semantic_search(query, *limit).await?;
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let opts = SearchOptions {
+                event_type: event_type.clone(),
+                project: project.clone(),
+                session_id: session_id.clone(),
+            };
+            let results = pipeline.semantic_search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Semantic search completed");
             let payload: Vec<_> = results
                 .into_iter()
@@ -184,15 +302,33 @@ async fn main() -> anyhow::Result<()> {
                         "score": result.score,
                         "tags": result.tags,
                         "importance": result.importance,
-                        "metadata": result.metadata
+                        "metadata": result.metadata,
+                        "event_type": result.event_type,
+                        "session_id": result.session_id,
+                        "project": result.project
                     })
                 })
                 .collect();
             println!("{}", json!({ "results": payload }));
         }
-        Commands::Recent { limit } => {
+        Commands::Recent {
+            limit,
+            event_type,
+            project,
+            session_id,
+        } => {
             info!(limit = *limit, "Listing recent memories");
-            let results = pipeline.recent(*limit).await?;
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let opts = SearchOptions {
+                event_type: event_type.clone(),
+                project: project.clone(),
+                session_id: session_id.clone(),
+            };
+            let results = pipeline.recent(*limit, &opts).await?;
             info!(result_count = results.len(), "Recent list completed");
             let payload: Vec<_> = results
                 .into_iter()
@@ -202,7 +338,10 @@ async fn main() -> anyhow::Result<()> {
                         "content": result.content,
                         "tags": result.tags,
                         "importance": result.importance,
-                        "metadata": result.metadata
+                        "metadata": result.metadata,
+                        "event_type": result.event_type,
+                        "session_id": result.session_id,
+                        "project": result.project
                     })
                 })
                 .collect();
