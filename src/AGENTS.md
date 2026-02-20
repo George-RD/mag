@@ -23,6 +23,18 @@ src/
 | Add MCP tool | `src/mcp_server.rs` | Register via `#[tool]` in `#[tool_router]` block |
 | Change storage behavior | `src/memory_core/storage/sqlite.rs` | Ensure async-safe DB access |
 | Introduce new core stage | `src/memory_core/mod.rs` | Implement trait, then wire Pipeline |
+| New operations via SqliteStorage | `src/main.rs` | New CLI ops use `mcp_storage` directly (not Pipeline) |
+
+## FEATURE SURFACE
+
+### CLI Commands
+`ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `serve`
+
+### MCP Tools (12)
+`memory_store`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_semantic_search`, `memory_tag_search`, `memory_list`, `memory_recent`, `memory_relations`, `memory_add_relation`, `memory_health`
+
+### Core Traits
+`Ingestor`, `Processor`, `Storage`, `Retriever`, `Searcher`, `Recents`, `SemanticSearcher`, `Deleter`, `Updater`, `Tagger`, `Lister`, `RelationshipQuerier`
 
 ## CONVENTIONS
 - `main.rs` initializes tracing to stderr; preserve this in server mode.

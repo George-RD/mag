@@ -1,8 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-02-19
-**Commit:** bf2e6f6
-**Branch:** feat/mcp-server-setup
+**Generated:** 2026-02-20
+**Branch:** main
 
 ## OVERVIEW
 
@@ -26,9 +25,9 @@ romega-memory/
 | Task | Location | Notes |
 |---|---|---|
 | CLI command wiring | `src/cli.rs`, `src/main.rs` | Add enum variant + match arm together |
-| MCP tool behavior | `src/mcp_server.rs` | Tools currently: store/retrieve/health |
+| MCP tool behavior | `src/mcp_server.rs` | 12 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health |
 | Storage schema/ops | `src/memory_core/storage/sqlite.rs` | Uses `spawn_blocking` for DB I/O |
-| Pipeline trait boundaries | `src/memory_core/mod.rs` | Ingestor/Processor/Storage/Retriever |
+| Pipeline trait boundaries | `src/memory_core/mod.rs` | 12 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier |
 | Integration protocol checks | `tests/mcp_smoke.rs` | Hermetic HOME/USERPROFILE isolation |
 | Product direction/tracks | `conductor/product.md`, `conductor/tracks.md` | Parity target and sequencing |
 
@@ -77,3 +76,5 @@ gh api repos/George-RD/romega-memory/pulls/<num>/comments
 - CI currently has external billing instability; local strict verification remains mandatory.
 - Keep MCP smoke tests hermetic (temp HOME/USERPROFILE) to avoid mutating user state.
 - Next major parity block after MCP is semantic search + embeddings + vector query path.
+- New CLI operations (delete, update, list, relations) use `mcp_storage` directly, not Pipeline.
+- Tags stored as JSON arrays in the `tags` TEXT column; queried via SQLite `json_each()`.

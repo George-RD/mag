@@ -92,6 +92,33 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
             .any(|entry| entry["id"].as_str() == Some(process_id.as_str()))
     );
 
+    let (delete_stdout, _delete_stderr) = run_cli(&test_home, &["delete", &id])?;
+    let delete_json: serde_json::Value = serde_json::from_str(delete_stdout.trim())?;
+    assert_eq!(delete_json["deleted"].as_bool(), Some(true));
+
+    let (reingest_stdout, _) = run_cli(&test_home, &["ingest", "test-data", "--tags", "a,b"])?;
+    let reingest_json: serde_json::Value = serde_json::from_str(reingest_stdout.trim())?;
+    let reingest_id = reingest_json["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing id"))?
+        .to_string();
+
+    let (update_stdout, _update_stderr) = run_cli(
+        &test_home,
+        &["update", &reingest_id, "--content", "updated-data"],
+    )?;
+    let update_json: serde_json::Value = serde_json::from_str(update_stdout.trim())?;
+    assert_eq!(update_json["updated"].as_bool(), Some(true));
+
+    let (list_stdout, _list_stderr) = run_cli(&test_home, &["list", "--limit", "10"])?;
+    let list_json: serde_json::Value = serde_json::from_str(list_stdout.trim())?;
+    assert!(list_json["total"].as_u64().is_some());
+    assert!(list_json["results"].as_array().is_some());
+
+    let (relations_stdout, _relations_stderr) = run_cli(&test_home, &["relations", &reingest_id])?;
+    let relations_json: serde_json::Value = serde_json::from_str(relations_stdout.trim())?;
+    assert!(relations_json["relationships"].as_array().is_some());
+
     let _ = std::fs::remove_dir_all(&test_home);
     Ok(())
 }

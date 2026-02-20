@@ -48,6 +48,39 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         tools.tools.iter().any(|tool| tool.name == "memory_recent"),
         "expected memory_recent to be registered"
     );
+    assert!(
+        tools.tools.iter().any(|tool| tool.name == "memory_delete"),
+        "expected memory_delete to be registered"
+    );
+    assert!(
+        tools.tools.iter().any(|tool| tool.name == "memory_update"),
+        "expected memory_update to be registered"
+    );
+    assert!(
+        tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == "memory_tag_search"),
+        "expected memory_tag_search to be registered"
+    );
+    assert!(
+        tools.tools.iter().any(|tool| tool.name == "memory_list"),
+        "expected memory_list to be registered"
+    );
+    assert!(
+        tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == "memory_relations"),
+        "expected memory_relations to be registered"
+    );
+    assert!(
+        tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == "memory_add_relation"),
+        "expected memory_add_relation to be registered"
+    );
 
     let health_result = timeout(
         Duration::from_secs(20),
@@ -89,6 +122,28 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .iter()
             .any(|c| c.as_text().is_some_and(|text| text.text.contains("id"))),
         "expected store result to return id"
+    );
+
+    let store2_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_store".into(),
+            arguments: Some(
+                serde_json::json!({ "content": "update target", "id": "test-id-2", "tags": ["alpha", "beta"] })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+    assert!(
+        store2_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("test-id-2"))),
+        "expected second store to return test-id-2"
     );
 
     let search_result = timeout(
@@ -159,6 +214,100 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .as_text()
             .is_some_and(|text| text.text.contains("search needle item"))),
         "expected recent result to include stored content"
+    );
+
+    let list_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_list".into(),
+            arguments: Some(
+                serde_json::json!({ "limit": 10 })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        list_result
+            .content
+            .iter()
+            .any(|c| c.as_text().is_some_and(|text| text.text.contains("total"))),
+        "expected list result to include total count"
+    );
+
+    let tag_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_tag_search".into(),
+            arguments: Some(
+                serde_json::json!({ "tags": ["alpha"], "limit": 5 })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        tag_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("update target"))),
+        "expected tag search to find tagged memory"
+    );
+
+    let update_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_update".into(),
+            arguments: Some(
+                serde_json::json!({ "id": "test-id-2", "content": "updated content" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        update_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("updated"))),
+        "expected update result to confirm update"
+    );
+
+    let delete_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_delete".into(),
+            arguments: Some(
+                serde_json::json!({ "id": "test-id-2" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        delete_result
+            .content
+            .iter()
+            .any(|c| c.as_text().is_some_and(|text| text.text.contains("true"))),
+        "expected delete to confirm deletion"
     );
 
     service.cancel().await?;

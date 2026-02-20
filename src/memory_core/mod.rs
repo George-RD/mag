@@ -25,6 +25,28 @@ pub struct SemanticResult {
     pub score: f32,
 }
 
+/// A directed relationship between two memories.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relationship {
+    /// Relationship identifier.
+    pub id: String,
+    /// Source memory identifier.
+    pub source_id: String,
+    /// Target memory identifier.
+    pub target_id: String,
+    /// Relationship type label (e.g. "links_to", "related").
+    pub rel_type: String,
+}
+
+/// Result of a paginated list query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListResult {
+    /// Memories in the current page.
+    pub memories: Vec<SearchResult>,
+    /// Total number of memories in the store.
+    pub total: usize,
+}
+
 /// Trait for ingesting raw content into the memory system.
 #[async_trait]
 pub trait Ingestor: Send + Sync {
@@ -42,8 +64,8 @@ pub trait Processor: Send + Sync {
 /// Trait for storing processed memory data.
 #[async_trait]
 pub trait Storage: Send + Sync {
-    /// Stores the data under the given ID.
-    async fn store(&self, id: &str, data: &str) -> Result<()>;
+    /// Stores the data under the given ID with optional tags.
+    async fn store(&self, id: &str, data: &str, tags: &[String]) -> Result<()>;
 }
 
 /// Trait for retrieving stored memory data.
@@ -68,6 +90,41 @@ pub trait Recents: Send + Sync {
 #[async_trait]
 pub trait SemanticSearcher: Send + Sync {
     async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SemanticResult>>;
+}
+
+/// Trait for deleting stored memories.
+#[async_trait]
+pub trait Deleter: Send + Sync {
+    /// Deletes the memory with the given ID. Returns `true` if a row was removed.
+    async fn delete(&self, id: &str) -> Result<bool>;
+}
+
+/// Trait for updating stored memory content and tags.
+#[async_trait]
+pub trait Updater: Send + Sync {
+    /// Updates an existing memory. At least one of content or tags must be provided.
+    async fn update(&self, id: &str, content: Option<&str>, tags: Option<&[String]>) -> Result<()>;
+}
+
+/// Trait for querying memories by tag.
+#[async_trait]
+pub trait Tagger: Send + Sync {
+    /// Returns memories whose tags contain **all** of the supplied tags.
+    async fn get_by_tags(&self, tags: &[String], limit: usize) -> Result<Vec<SearchResult>>;
+}
+
+/// Trait for paginated listing of memories.
+#[async_trait]
+pub trait Lister: Send + Sync {
+    /// Lists memories with pagination, returning the page and total count.
+    async fn list(&self, offset: usize, limit: usize) -> Result<ListResult>;
+}
+
+/// Trait for querying relationships of a memory.
+#[async_trait]
+pub trait RelationshipQuerier: Send + Sync {
+    /// Returns all relationships where `memory_id` is either source or target.
+    async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>;
 }
 
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
@@ -104,13 +161,13 @@ impl Pipeline {
     }
 
     /// Runs the full pipeline: ingest -> process -> store.
-    pub async fn run(&self, content: &str, id: Option<&str>) -> Result<String> {
+    pub async fn run(&self, content: &str, id: Option<&str>, tags: &[String]) -> Result<String> {
         let id = id
             .map(std::string::ToString::to_string)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let ingested = self.ingestor.ingest(content).await?;
         let processed = self.processor.process(&ingested).await?;
-        self.storage.store(&id, &processed).await?;
+        self.storage.store(&id, &processed, tags).await?;
         Ok(id)
     }
 
@@ -152,7 +209,7 @@ impl Processor for PlaceholderPipeline {
 
 #[async_trait]
 impl Storage for PlaceholderPipeline {
-    async fn store(&self, id: &str, data: &str) -> Result<()> {
+    async fn store(&self, id: &str, data: &str, _tags: &[String]) -> Result<()> {
         info!(memory_id = %id, content_len = data.len(), "Storing placeholder payload");
         Ok(())
     }
@@ -219,7 +276,7 @@ mod tests {
 
     #[async_trait]
     impl Storage for MockPipeline {
-        async fn store(&self, _id: &str, _data: &str) -> Result<()> {
+        async fn store(&self, _id: &str, _data: &str, _tags: &[String]) -> Result<()> {
             Ok(())
         }
     }
@@ -290,7 +347,7 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", Some("custom_id")).await;
+        let result = pipeline.run("hello", Some("custom_id"), &[]).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "custom_id");
     }
@@ -307,7 +364,7 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", None).await;
+        let result = pipeline.run("hello", None, &[]).await;
         assert!(result.is_ok());
         let id = result.unwrap();
         assert!(uuid::Uuid::parse_str(&id).is_ok());
@@ -342,7 +399,7 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", None).await;
+        let result = pipeline.run("hello", None, &[]).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Ingestion failed");
     }

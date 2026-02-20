@@ -9,7 +9,8 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    Recents, Retriever, SearchResult, Searcher, SemanticResult, SemanticSearcher, Storage,
+    Deleter, ListResult, Lister, Recents, Relationship, RelationshipQuerier, Retriever,
+    SearchResult, Searcher, SemanticResult, SemanticSearcher, Storage, Tagger, Updater,
 };
 
 /// Controls how the SQLite storage backend is initialized.
@@ -69,7 +70,6 @@ impl SqliteStorage {
     /// Inserts a directed relationship between two memories.
     ///
     /// Returns the generated relationship ID.
-    #[allow(dead_code)]
     pub async fn add_relationship(
         &self,
         source_id: &str,
@@ -147,12 +147,13 @@ impl SqliteStorage {
 
 #[async_trait]
 impl Storage for SqliteStorage {
-    async fn store(&self, id: &str, data: &str) -> Result<()> {
+    async fn store(&self, id: &str, data: &str, tags: &[String]) -> Result<()> {
         let mut hasher = Sha256::new();
         hasher.update(data.as_bytes());
         let content_hash = format!("{:x}", hasher.finalize());
         let embedding = serde_json::to_vec(&embedding_for_text(data))
             .context("failed to serialize embedding")?;
+        let tags_json = serde_json::to_string(tags).context("failed to serialize tags to JSON")?;
 
         let conn = Arc::clone(&self.conn);
         let id = id.to_string();
@@ -186,7 +187,7 @@ impl Storage for SqliteStorage {
                     ?4,
                     'cli_input',
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                    ''
+                    ?5
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
@@ -195,7 +196,7 @@ impl Storage for SqliteStorage {
                     source_type = excluded.source_type,
                     tags = excluded.tags,
                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                params![id, data, embedding, content_hash],
+                params![id, data, embedding, content_hash, tags_json],
             )
             .context("failed to insert memory")?;
 
@@ -397,6 +398,274 @@ impl SemanticSearcher for SqliteStorage {
     }
 }
 
+#[async_trait]
+impl Deleter for SqliteStorage {
+    async fn delete(&self, id: &str) -> Result<bool> {
+        let conn = Arc::clone(&self.conn);
+        let id = id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let changes = conn
+                .execute("DELETE FROM memories WHERE id = ?1", params![id])
+                .context("failed to delete memory")?;
+            Ok::<_, anyhow::Error>(changes > 0)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl Updater for SqliteStorage {
+    async fn update(&self, id: &str, content: Option<&str>, tags: Option<&[String]>) -> Result<()> {
+        if content.is_none() && tags.is_none() {
+            return Err(anyhow!("at least one of content or tags must be provided"));
+        }
+
+        let content_fields = content
+            .map(|c| {
+                let mut hasher = Sha256::new();
+                hasher.update(c.as_bytes());
+                let hash = format!("{:x}", hasher.finalize());
+                let emb = serde_json::to_vec(&embedding_for_text(c))
+                    .context("failed to serialize embedding")?;
+                Ok::<_, anyhow::Error>((c.to_string(), hash, emb))
+            })
+            .transpose()?;
+
+        let tags_json = tags
+            .map(|t| serde_json::to_string(t).context("failed to serialize tags"))
+            .transpose()?;
+
+        let conn = Arc::clone(&self.conn);
+        let id = id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let changes = match (&content_fields, &tags_json) {
+                (Some((content, hash, emb)), Some(tags)) => conn.execute(
+                    "UPDATE memories SET
+                        content = ?2, content_hash = ?3, embedding = ?4, tags = ?5,
+                        last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     WHERE id = ?1",
+                    params![id, content, hash, emb, tags],
+                ),
+                (Some((content, hash, emb)), None) => conn.execute(
+                    "UPDATE memories SET
+                        content = ?2, content_hash = ?3, embedding = ?4,
+                        last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     WHERE id = ?1",
+                    params![id, content, hash, emb],
+                ),
+                (None, Some(tags)) => conn.execute(
+                    "UPDATE memories SET
+                        tags = ?2,
+                        last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     WHERE id = ?1",
+                    params![id, tags],
+                ),
+                (None, None) => unreachable!(),
+            }
+            .context("failed to update memory")?;
+
+            if changes == 0 {
+                return Err(anyhow!("memory not found for id={id}"));
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Tagger for SqliteStorage {
+    async fn get_by_tags(&self, tags: &[String], limit: usize) -> Result<Vec<SearchResult>> {
+        if tags.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let tags = tags.to_vec();
+        let effective_limit = i64::try_from(limit).context("tag search limit exceeds i64")?;
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            // Build dynamic WHERE clause with dual-read support:
+            // - JSON tags: json_valid + json_each
+            // - Legacy CSV tags: instr-based comma-delimited matching
+            let mut json_conditions = Vec::new();
+            let mut csv_conditions = Vec::new();
+            let mut param_values: Vec<String> = Vec::new();
+            for (i, tag) in tags.iter().enumerate() {
+                let p = i + 1;
+                json_conditions.push(format!(
+                    "EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE value = ?{p})"
+                ));
+                csv_conditions.push(format!(
+                    "instr(',' || memories.tags || ',', ',' || ?{p} || ',') > 0"
+                ));
+                param_values.push(tag.clone());
+            }
+            let limit_param_idx = param_values.len() + 1;
+            let json_clause = json_conditions.join(" AND ");
+            let csv_clause = csv_conditions.join(" AND ");
+            let sql = format!(
+                "SELECT id, content FROM memories \
+                 WHERE ((json_valid(memories.tags) AND {json_clause}) \
+                        OR (NOT json_valid(memories.tags) AND memories.tags != '' AND {csv_clause})) \
+                 ORDER BY last_accessed_at DESC LIMIT ?{limit_param_idx}"
+            );
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .context("failed to prepare tag search query")?;
+
+            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for v in &param_values {
+                param_refs.push(v);
+            }
+            param_refs.push(&effective_limit);
+
+            let rows = stmt
+                .query_map(param_refs.as_slice(), |row| {
+                    Ok(SearchResult {
+                        id: row.get(0)?,
+                        content: row.get(1)?,
+                    })
+                })
+                .context("failed to execute tag search query")?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.context("failed to decode tag search row")?);
+            }
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl Lister for SqliteStorage {
+    async fn list(&self, offset: usize, limit: usize) -> Result<ListResult> {
+        if limit == 0 {
+            let conn = Arc::clone(&self.conn);
+            let total = tokio::task::spawn_blocking(move || {
+                let conn = conn
+                    .lock()
+                    .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+                let count: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+                    .context("failed to count memories")?;
+                Ok::<_, anyhow::Error>(count as usize)
+            })
+            .await
+            .context("spawn_blocking join error")??;
+            return Ok(ListResult {
+                memories: Vec::new(),
+                total,
+            });
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let effective_limit = i64::try_from(limit).context("list limit exceeds i64")?;
+        let effective_offset = i64::try_from(offset).context("list offset exceeds i64")?;
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let total: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+                .context("failed to count memories")?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, content FROM memories
+                     ORDER BY created_at DESC
+                     LIMIT ?1 OFFSET ?2",
+                )
+                .context("failed to prepare list query")?;
+
+            let rows = stmt
+                .query_map(params![effective_limit, effective_offset], |row| {
+                    Ok(SearchResult {
+                        id: row.get(0)?,
+                        content: row.get(1)?,
+                    })
+                })
+                .context("failed to execute list query")?;
+
+            let mut memories = Vec::new();
+            for row in rows {
+                memories.push(row.context("failed to decode list row")?);
+            }
+
+            Ok::<_, anyhow::Error>(ListResult {
+                memories,
+                total: total as usize,
+            })
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl RelationshipQuerier for SqliteStorage {
+    async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>> {
+        let conn = Arc::clone(&self.conn);
+        let memory_id = memory_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, source_id, target_id, rel_type
+                     FROM relationships
+                     WHERE source_id = ?1 OR target_id = ?1",
+                )
+                .context("failed to prepare relationships query")?;
+
+            let rows = stmt
+                .query_map(params![memory_id], |row| {
+                    Ok(Relationship {
+                        id: row.get(0)?,
+                        source_id: row.get(1)?,
+                        target_id: row.get(2)?,
+                        rel_type: row.get(3)?,
+                    })
+                })
+                .context("failed to execute relationships query")?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.context("failed to decode relationship row")?);
+            }
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
 /// Ensures the parent directory of `path` exists, creating it recursively if needed.
 fn initialize_parent_dir(path: &Path) -> Result<()> {
     let parent = path
@@ -423,7 +692,7 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
             content_hash TEXT NOT NULL,
             source_type TEXT NOT NULL,
             last_accessed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            tags TEXT NOT NULL DEFAULT ''
+            tags TEXT NOT NULL DEFAULT '[]'
         );
 
         CREATE TABLE IF NOT EXISTS relationships (
@@ -538,7 +807,7 @@ mod tests {
     async fn test_store_and_retrieve_roundtrip() {
         let storage = SqliteStorage::new_in_memory().unwrap();
 
-        storage.store("m1", "hello world").await.unwrap();
+        storage.store("m1", "hello world", &[]).await.unwrap();
         let content = storage.retrieve("m1").await.unwrap();
 
         assert_eq!(content, "hello world");
@@ -548,7 +817,7 @@ mod tests {
     async fn test_retrieve_updates_last_accessed_at() {
         let storage = SqliteStorage::new_in_memory().unwrap();
 
-        storage.store("m2", "payload").await.unwrap();
+        storage.store("m2", "payload", &[]).await.unwrap();
         storage
             .debug_force_last_accessed_at("m2", "2000-01-01T00:00:00.000Z")
             .unwrap();
@@ -565,8 +834,8 @@ mod tests {
     #[tokio::test]
     async fn test_add_relationship() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("a", "alpha").await.unwrap();
-        storage.store("b", "beta").await.unwrap();
+        storage.store("a", "alpha", &[]).await.unwrap();
+        storage.store("b", "beta", &[]).await.unwrap();
 
         let rel_id = storage
             .add_relationship("a", "b", "links_to")
@@ -593,8 +862,8 @@ mod tests {
     #[tokio::test]
     async fn test_search_matches_content_case_insensitive() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("s1", "Rust memory store").await.unwrap();
-        storage.store("s2", "another note").await.unwrap();
+        storage.store("s1", "Rust memory store", &[]).await.unwrap();
+        storage.store("s2", "another note", &[]).await.unwrap();
 
         let results = storage.search("MEMORY", 10).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -605,8 +874,8 @@ mod tests {
     #[tokio::test]
     async fn test_search_treats_like_wildcards_as_literals() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("p1", "value 100% done").await.unwrap();
-        storage.store("p2", "value 1000 done").await.unwrap();
+        storage.store("p1", "value 100% done", &[]).await.unwrap();
+        storage.store("p2", "value 1000 done", &[]).await.unwrap();
 
         let results = storage.search("100%", 10).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -616,7 +885,10 @@ mod tests {
     #[tokio::test]
     async fn test_search_with_zero_limit_returns_no_results() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("z1", "zero limit candidate").await.unwrap();
+        storage
+            .store("z1", "zero limit candidate", &[])
+            .await
+            .unwrap();
 
         let results = storage.search("zero", 0).await.unwrap();
         assert!(results.is_empty());
@@ -625,8 +897,8 @@ mod tests {
     #[tokio::test]
     async fn test_search_escapes_underscore_and_backslash_literals() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("u1", r"file_a\b").await.unwrap();
-        storage.store("u2", r"fileXab").await.unwrap();
+        storage.store("u1", r"file_a\b", &[]).await.unwrap();
+        storage.store("u2", r"fileXab", &[]).await.unwrap();
 
         let underscore_results = storage.search("file_a", 10).await.unwrap();
         assert_eq!(underscore_results.len(), 1);
@@ -640,8 +912,8 @@ mod tests {
     #[tokio::test]
     async fn test_recent_returns_most_recently_accessed_first() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("r1", "older").await.unwrap();
-        storage.store("r2", "newer").await.unwrap();
+        storage.store("r1", "older", &[]).await.unwrap();
+        storage.store("r2", "newer", &[]).await.unwrap();
 
         storage
             .debug_force_last_accessed_at("r1", "2000-01-01T00:00:00.000Z")
@@ -659,8 +931,8 @@ mod tests {
     #[tokio::test]
     async fn test_semantic_search_prefers_exact_text_match() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("e1", "alpha beta gamma").await.unwrap();
-        storage.store("e2", "other content").await.unwrap();
+        storage.store("e1", "alpha beta gamma", &[]).await.unwrap();
+        storage.store("e2", "other content", &[]).await.unwrap();
 
         let results = storage
             .semantic_search("alpha beta gamma", 2)
@@ -674,9 +946,296 @@ mod tests {
     #[tokio::test]
     async fn test_semantic_search_zero_limit_returns_no_results() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        storage.store("e3", "candidate").await.unwrap();
+        storage.store("e3", "candidate", &[]).await.unwrap();
 
         let results = storage.semantic_search("candidate", 0).await.unwrap();
         assert!(results.is_empty());
+    }
+
+    // ── Delete tests ──
+
+    #[tokio::test]
+    async fn test_delete_existing_memory() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("d1", "to-delete", &[]).await.unwrap();
+
+        let deleted = storage.delete("d1").await.unwrap();
+        assert!(deleted);
+
+        let err = storage.retrieve("d1").await;
+        assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_nonexistent_returns_false() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let deleted = storage.delete("no-such-id").await.unwrap();
+        assert!(!deleted);
+    }
+
+    #[tokio::test]
+    async fn test_delete_cascades_relationships() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("ca", "alpha", &[]).await.unwrap();
+        storage.store("cb", "beta", &[]).await.unwrap();
+        storage
+            .add_relationship("ca", "cb", "links_to")
+            .await
+            .unwrap();
+
+        storage.delete("ca").await.unwrap();
+
+        let rels = storage.get_relationships("cb").await.unwrap();
+        assert!(rels.is_empty());
+    }
+
+    // ── Update tests ──
+
+    #[tokio::test]
+    async fn test_update_content_changes_value() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("up1", "original", &[]).await.unwrap();
+
+        storage.update("up1", Some("updated"), None).await.unwrap();
+        let content = storage.retrieve("up1").await.unwrap();
+        assert_eq!(content, "updated");
+    }
+
+    #[tokio::test]
+    async fn test_update_with_tags() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let tags = vec!["a".to_string(), "b".to_string()];
+        storage.store("up2", "data", &tags).await.unwrap();
+
+        let new_tags = vec!["x".to_string()];
+        storage
+            .update("up2", Some("data-v2"), Some(&new_tags))
+            .await
+            .unwrap();
+
+        let results = storage.get_by_tags(&new_tags, 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "up2");
+        assert_eq!(results[0].content, "data-v2");
+    }
+
+    #[tokio::test]
+    async fn test_update_without_tags_preserves_existing() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let tags = vec!["keep".to_string()];
+        storage.store("up3", "data", &tags).await.unwrap();
+
+        storage.update("up3", Some("data-v2"), None).await.unwrap();
+
+        let results = storage.get_by_tags(&tags, 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "up3");
+    }
+
+    #[tokio::test]
+    async fn test_update_tags_only_preserves_content() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage
+            .store("up4", "keep-this", &["old".to_string()])
+            .await
+            .unwrap();
+
+        let new_tags = vec!["new-tag".to_string()];
+        storage.update("up4", None, Some(&new_tags)).await.unwrap();
+
+        let content = storage.retrieve("up4").await.unwrap();
+        assert_eq!(content, "keep-this");
+        let results = storage.get_by_tags(&new_tags, 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "up4");
+    }
+
+    #[tokio::test]
+    async fn test_update_neither_content_nor_tags_errors() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("up5", "data", &[]).await.unwrap();
+        let err = storage.update("up5", None, None).await;
+        assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_update_nonexistent_errors() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let err = storage.update("ghost", Some("data"), None).await;
+        assert!(err.is_err());
+    }
+
+    // ── Tags tests ──
+
+    #[tokio::test]
+    async fn test_get_by_tags_filters_correctly() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage
+            .store("t1", "one", &["rust".to_string(), "memory".to_string()])
+            .await
+            .unwrap();
+        storage
+            .store("t2", "two", &["rust".to_string()])
+            .await
+            .unwrap();
+        storage
+            .store("t3", "three", &["python".to_string()])
+            .await
+            .unwrap();
+
+        let results = storage
+            .get_by_tags(&["rust".to_string()], 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let results = storage
+            .get_by_tags(&["rust".to_string(), "memory".to_string()], 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "t1");
+    }
+
+    #[tokio::test]
+    async fn test_get_by_tags_legacy_csv_backward_compat() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        // Insert a row with legacy CSV tags directly via raw SQL
+        {
+            let conn = storage.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO memories (id, content, content_hash, source_type, tags)
+                 VALUES ('csv1', 'legacy data', 'hash1', 'test', 'rust,memory')",
+                [],
+            )
+            .unwrap();
+        }
+        // JSON-tagged row via normal API
+        storage
+            .store(
+                "json1",
+                "json data",
+                &["rust".to_string(), "search".to_string()],
+            )
+            .await
+            .unwrap();
+
+        // Search for 'rust' should find both CSV and JSON rows
+        let results = storage
+            .get_by_tags(&["rust".to_string()], 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Search for 'memory' should find only the CSV row
+        let results = storage
+            .get_by_tags(&["memory".to_string()], 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "csv1");
+
+        // Search for 'search' should find only the JSON row
+        let results = storage
+            .get_by_tags(&["search".to_string()], 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "json1");
+    }
+
+    #[tokio::test]
+    async fn test_get_by_tags_empty_returns_empty() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage
+            .store("te", "data", &["tag".to_string()])
+            .await
+            .unwrap();
+        let results = storage.get_by_tags(&[], 10).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    // ── List tests ──
+
+    #[tokio::test]
+    async fn test_list_with_pagination() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for i in 0..5 {
+            storage
+                .store(&format!("l{i}"), &format!("item-{i}"), &[])
+                .await
+                .unwrap();
+        }
+
+        let result = storage.list(0, 3).await.unwrap();
+        assert_eq!(result.memories.len(), 3);
+        assert_eq!(result.total, 5);
+
+        let result = storage.list(3, 3).await.unwrap();
+        assert_eq!(result.memories.len(), 2);
+        assert_eq!(result.total, 5);
+    }
+
+    #[tokio::test]
+    async fn test_list_zero_limit_returns_count_only() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("lz1", "a", &[]).await.unwrap();
+        storage.store("lz2", "b", &[]).await.unwrap();
+
+        let result = storage.list(0, 0).await.unwrap();
+        assert!(result.memories.is_empty());
+        assert_eq!(result.total, 2);
+    }
+
+    // ── Relationship query tests ──
+
+    #[tokio::test]
+    async fn test_get_relationships_both_directions() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("ra", "alpha", &[]).await.unwrap();
+        storage.store("rb", "beta", &[]).await.unwrap();
+        storage.store("rc", "gamma", &[]).await.unwrap();
+
+        storage
+            .add_relationship("ra", "rb", "links_to")
+            .await
+            .unwrap();
+        storage
+            .add_relationship("rc", "ra", "depends_on")
+            .await
+            .unwrap();
+
+        let rels = storage.get_relationships("ra").await.unwrap();
+        assert_eq!(rels.len(), 2);
+
+        let types: Vec<&str> = rels.iter().map(|r| r.rel_type.as_str()).collect();
+        assert!(types.contains(&"links_to"));
+        assert!(types.contains(&"depends_on"));
+    }
+
+    #[tokio::test]
+    async fn test_get_relationships_empty() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        storage.store("lonely", "alone", &[]).await.unwrap();
+
+        let rels = storage.get_relationships("lonely").await.unwrap();
+        assert!(rels.is_empty());
+    }
+
+    // ── Tags roundtrip with store ──
+
+    #[tokio::test]
+    async fn test_store_with_tags_roundtrip() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let tags = vec!["project-x".to_string(), "important".to_string()];
+        storage.store("st1", "tagged content", &tags).await.unwrap();
+
+        let results = storage
+            .get_by_tags(&["project-x".to_string()], 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "st1");
+        assert_eq!(results[0].content, "tagged content");
     }
 }

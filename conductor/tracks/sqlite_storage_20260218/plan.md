@@ -30,3 +30,16 @@
 - [x] Task: Implement the "Default vs. Advanced" configuration flow in the CLI.
     - [x] Update `src/cli.rs` with necessary flags or a configuration command.
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Pipeline Integration & CLI Update' (Protocol in workflow.md)
+
+## Phase 4: Full CRUD + Tags + Relations Query
+- [x] Task: Add `Deleter` trait and `SqliteStorage::delete()` implementation with cascade.
+- [x] Task: Add `Updater` trait and `SqliteStorage::update()` with content_hash/embedding recalculation.
+- [x] Task: Add tags support — `Storage::store()` accepts tags (JSON array), `Tagger` trait with `json_each()` query.
+- [x] Task: Add `Lister` trait and paginated list with total count.
+- [x] Task: Add `RelationshipQuerier` trait for bi-directional relationship queries.
+- [x] Task: Wire all 5 features to CLI commands (delete, update, list, relations, --tags on ingest/process).
+- [x] Task: Wire all features as MCP tools (memory_delete, memory_update, memory_tag_search, memory_list, memory_relations, memory_add_relation).
+- [x] Task: Unit tests for all new SQLite operations (15 tests).
+- [x] Task: Integration smoke tests for MCP and CLI roundtrips.
+- [x] Task: Strict gate passes (fmt, clippy -D warnings, test --all-features).
+- [ ] Task: Conductor - User Manual Verification 'Phase 4: Full CRUD + Tags + Relations Query' (Protocol in workflow.md)

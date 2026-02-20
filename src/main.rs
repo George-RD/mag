@@ -1,7 +1,7 @@
 use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
-use memory_core::{Pipeline, PlaceholderPipeline};
+use memory_core::{Deleter, Lister, Pipeline, PlaceholderPipeline, RelationshipQuerier, Updater};
 use serde_json::json;
 use tracing::info;
 
@@ -37,15 +37,15 @@ async fn main() -> anyhow::Result<()> {
     );
 
     match &cli.command {
-        Commands::Ingest { content } => {
+        Commands::Ingest { content, tags } => {
             info!(content_len = content.len(), "Ingesting content");
-            let id = pipeline.run(content, None).await?;
+            let id = pipeline.run(content, None, tags).await?;
             info!(memory_id = %id, "Successfully processed and stored");
             println!("{}", json!({ "id": id }));
         }
-        Commands::Process { content } => {
+        Commands::Process { content, tags } => {
             info!(content_len = content.len(), "Processing content directly");
-            let id = pipeline.run(content, None).await?;
+            let id = pipeline.run(content, None, tags).await?;
             info!(memory_id = %id, "Process command stored result");
             println!("{}", json!({ "id": id }));
         }
@@ -54,6 +54,50 @@ async fn main() -> anyhow::Result<()> {
             let result = pipeline.retrieve(id).await?;
             info!(memory_id = %id, content_len = result.len(), "Retrieved memory");
             println!("{}", json!({ "id": id, "content": result }));
+        }
+        Commands::Delete { id } => {
+            info!(memory_id = %id, "Deleting memory");
+            let deleted = mcp_storage.delete(id).await?;
+            info!(memory_id = %id, deleted = deleted, "Delete completed");
+            println!("{}", json!({ "id": id, "deleted": deleted }));
+        }
+        Commands::Update { id, content, tags } => {
+            info!(memory_id = %id, "Updating memory");
+            if content.is_none() && tags.is_none() {
+                anyhow::bail!("at least one of --content or --tags must be provided");
+            }
+            mcp_storage
+                .update(id, content.as_deref(), tags.as_ref().map(|v| v.as_slice()))
+                .await?;
+            info!(memory_id = %id, "Update completed");
+            println!("{}", json!({ "id": id, "updated": true }));
+        }
+        Commands::List { offset, limit } => {
+            info!(offset = *offset, limit = *limit, "Listing memories");
+            let result = mcp_storage.list(*offset, *limit).await?;
+            info!(
+                count = result.memories.len(),
+                total = result.total,
+                "List completed"
+            );
+            let payload: Vec<_> = result
+                .memories
+                .into_iter()
+                .map(|m| json!({ "id": m.id, "content": m.content }))
+                .collect();
+            println!("{}", json!({ "results": payload, "total": result.total }));
+        }
+        Commands::Relations { id } => {
+            info!(memory_id = %id, "Querying relationships");
+            let rels = mcp_storage.get_relationships(id).await?;
+            info!(count = rels.len(), "Relationships retrieved");
+            let payload: Vec<_> = rels
+                .into_iter()
+                .map(|r| {
+                    json!({ "id": r.id, "source_id": r.source_id, "target_id": r.target_id, "rel_type": r.rel_type })
+                })
+                .collect();
+            println!("{}", json!({ "relationships": payload }));
         }
         Commands::Search { query, limit } => {
             info!(
