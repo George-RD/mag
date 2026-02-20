@@ -81,6 +81,18 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .any(|tool| tool.name == "memory_add_relation"),
         "expected memory_add_relation to be registered"
     );
+    assert!(
+        tools.tools.iter().any(|tool| tool.name == "memory_stats"),
+        "expected memory_stats to be registered"
+    );
+    assert!(
+        tools.tools.iter().any(|tool| tool.name == "memory_export"),
+        "expected memory_export to be registered"
+    );
+    assert!(
+        tools.tools.iter().any(|tool| tool.name == "memory_import"),
+        "expected memory_import to be registered"
+    );
 
     let health_result = timeout(
         Duration::from_secs(20),
@@ -146,6 +158,33 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected second store to return test-id-2"
     );
 
+    let store3_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_store".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "content": "important memory",
+                    "id": "test-id-3",
+                    "importance": 0.95,
+                    "metadata": {"source": "test"}
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+    assert!(
+        store3_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("test-id-3"))),
+        "expected store with importance to return test-id-3"
+    );
+
     let search_result = timeout(
         Duration::from_secs(20),
         service.call_tool(CallToolRequestParams {
@@ -167,6 +206,12 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .as_text()
             .is_some_and(|text| text.text.contains("search needle item"))),
         "expected search result to include stored content"
+    );
+    assert!(
+        search_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("importance"))),
+        "expected search result to include importance field"
     );
 
     let semantic_result = timeout(
@@ -308,6 +353,82 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .iter()
             .any(|c| c.as_text().is_some_and(|text| text.text.contains("true"))),
         "expected delete to confirm deletion"
+    );
+
+    let stats_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_stats".into(),
+            arguments: Some(
+                serde_json::json!({})
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        stats_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("total_memories"))),
+        "expected stats to include total_memories"
+    );
+
+    let export_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_export".into(),
+            arguments: Some(
+                serde_json::json!({})
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        export_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("memories"))),
+        "expected export to include memories array"
+    );
+
+    // Extract exported JSON string and feed it into memory_import
+    let export_json: String = export_result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+        .collect();
+
+    let import_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_import".into(),
+            arguments: Some(
+                serde_json::json!({ "data": export_json })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        import_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("imported") || text.text.contains("memories"))),
+        "expected import to confirm completion"
     );
 
     service.cancel().await?;

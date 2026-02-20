@@ -25,9 +25,10 @@ romega-memory/
 | Task | Location | Notes |
 |---|---|---|
 | CLI command wiring | `src/cli.rs`, `src/main.rs` | Add enum variant + match arm together |
-| MCP tool behavior | `src/mcp_server.rs` | 12 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health |
-| Storage schema/ops | `src/memory_core/storage/sqlite.rs` | Uses `spawn_blocking` for DB I/O |
+| MCP tool behavior | `src/mcp_server.rs` | 15 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health/stats/export/import |
+| Storage schema/ops | `src/memory_core/storage/sqlite.rs` | Uses `spawn_blocking` for DB I/O; FTS5 virtual table for full-text search |
 | Pipeline trait boundaries | `src/memory_core/mod.rs` | 12 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier |
+| FTS5 search | `src/memory_core/storage/sqlite.rs` | Standalone FTS5 table synced on store/update/delete; LIKE fallback |
 | Integration protocol checks | `tests/mcp_smoke.rs` | Hermetic HOME/USERPROFILE isolation |
 | Product direction/tracks | `conductor/product.md`, `conductor/tracks.md` | Parity target and sequencing |
 
@@ -75,6 +76,9 @@ gh api repos/George-RD/romega-memory/pulls/<num>/comments
 
 - CI currently has external billing instability; local strict verification remains mandatory.
 - Keep MCP smoke tests hermetic (temp HOME/USERPROFILE) to avoid mutating user state.
-- Next major parity block after MCP is semantic search + embeddings + vector query path.
-- New CLI operations (delete, update, list, relations) use `mcp_storage` directly, not Pipeline.
+- Next major parity block is real embeddings (bge-small-en-v1.5 ONNX, 384-dim) replacing SHA256-based placeholder.
+- New CLI operations (delete, update, list, relations, stats, export, import) use `mcp_storage` directly, not Pipeline.
 - Tags stored as JSON arrays in the `tags` TEXT column; queried via SQLite `json_each()`.
+- FTS5 full-text search with BM25 ranking; LIKE fallback for edge cases.
+- Memories have importance (0.0–1.0), metadata (JSON), and access_count fields.
+- Export/import supports full JSON data portability including relationships.

@@ -43,6 +43,8 @@ struct StoreRequest {
     content: String,
     id: Option<String>,
     tags: Option<Vec<String>>,
+    importance: Option<f64>,
+    metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -77,6 +79,19 @@ struct UpdateRequest {
     id: String,
     content: Option<String>,
     tags: Option<Vec<String>>,
+    importance: Option<f64>,
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StatsRequest {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ExportRequest {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ImportRequest {
+    data: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -119,10 +134,18 @@ impl McpMemoryServer {
             .clone()
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let tags = params.0.tags.unwrap_or_default();
-        self.storage
-            .store(&id, &params.0.content, &tags)
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
+        let importance = params.0.importance.unwrap_or(0.5);
+        let metadata = params.0.metadata.unwrap_or_else(|| serde_json::json!({}));
+        <SqliteStorage as Storage>::store(
+            &self.storage,
+            &id,
+            &params.0.content,
+            &tags,
+            importance,
+            &metadata,
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": id }).to_string(),
@@ -165,7 +188,15 @@ impl McpMemoryServer {
 
         let payload: Vec<_> = results
             .into_iter()
-            .map(|r| json!({ "id": r.id, "content": r.content }))
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata
+                })
+            })
             .collect();
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -192,7 +223,16 @@ impl McpMemoryServer {
 
         let payload: Vec<_> = results
             .into_iter()
-            .map(|r| json!({ "id": r.id, "content": r.content, "score": r.score }))
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
+                    "score": r.score,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata
+                })
+            })
             .collect();
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -216,7 +256,15 @@ impl McpMemoryServer {
 
         let payload: Vec<_> = results
             .into_iter()
-            .map(|r| json!({ "id": r.id, "content": r.content }))
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata
+                })
+            })
             .collect();
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -257,17 +305,27 @@ impl McpMemoryServer {
         &self,
         params: Parameters<UpdateRequest>,
     ) -> Result<CallToolResult, McpError> {
-        if params.0.content.is_none() && params.0.tags.is_none() {
+        if params.0.content.is_none()
+            && params.0.tags.is_none()
+            && params.0.importance.is_none()
+            && params.0.metadata.is_none()
+        {
             return Err(McpError::invalid_params(
-                "at least one of content or tags must be provided",
+                "at least one of content, tags, importance, or metadata must be provided",
                 None,
             ));
         }
         let tag_slice = params.0.tags.as_deref();
-        self.storage
-            .update(&params.0.id, params.0.content.as_deref(), tag_slice)
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
+        <SqliteStorage as Updater>::update(
+            &self.storage,
+            &params.0.id,
+            params.0.content.as_deref(),
+            tag_slice,
+            params.0.importance,
+            params.0.metadata.as_ref(),
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": params.0.id, "updated": true }).to_string(),
@@ -298,7 +356,15 @@ impl McpMemoryServer {
 
         let payload: Vec<_> = results
             .into_iter()
-            .map(|r| json!({ "id": r.id, "content": r.content }))
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata
+                })
+            })
             .collect();
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -324,7 +390,15 @@ impl McpMemoryServer {
         let payload: Vec<_> = result
             .memories
             .into_iter()
-            .map(|m| json!({ "id": m.id, "content": m.content }))
+            .map(|m| {
+                json!({
+                    "id": m.id,
+                    "content": m.content,
+                    "tags": m.tags,
+                    "importance": m.importance,
+                    "metadata": m.metadata
+                })
+            })
             .collect();
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -383,6 +457,63 @@ impl McpMemoryServer {
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": rel_id, "source_id": params.0.source_id, "target_id": params.0.target_id, "rel_type": params.0.rel_type }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_stats",
+        description = "Return memory store statistics including counts and storage info"
+    )]
+    async fn memory_stats(
+        &self,
+        #[allow(unused_variables)] params: Parameters<StatsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let stats = self
+            .storage
+            .stats()
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to get stats: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&stats).map_err(|e| {
+                McpError::internal_error(format!("failed to serialize stats: {e}"), None)
+            })?,
+        )]))
+    }
+
+    #[tool(
+        name = "memory_export",
+        description = "Export all memories and relationships as JSON"
+    )]
+    async fn memory_export(
+        &self,
+        #[allow(unused_variables)] params: Parameters<ExportRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let export_data = self
+            .storage
+            .export_all()
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to export: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(export_data)]))
+    }
+
+    #[tool(
+        name = "memory_import",
+        description = "Import memories and relationships from JSON"
+    )]
+    async fn memory_import(
+        &self,
+        params: Parameters<ImportRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let count = self
+            .storage
+            .import_all(&params.0.data)
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to import: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "imported_memories": count.0, "imported_relationships": count.1 }).to_string(),
         )]))
     }
 }

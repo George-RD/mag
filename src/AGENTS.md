@@ -28,10 +28,11 @@ src/
 ## FEATURE SURFACE
 
 ### CLI Commands
-`ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `serve`
+`ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `stats`, `export`, `import`, `serve`
 
-### MCP Tools (12)
-`memory_store`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_semantic_search`, `memory_tag_search`, `memory_list`, `memory_recent`, `memory_relations`, `memory_add_relation`, `memory_health`
+### MCP Tools (15)
+
+`memory_store`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_semantic_search`, `memory_tag_search`, `memory_list`, `memory_recent`, `memory_relations`, `memory_add_relation`, `memory_health`, `memory_stats`, `memory_export`, `memory_import`
 
 ### Core Traits
 `Ingestor`, `Processor`, `Storage`, `Retriever`, `Searcher`, `Recents`, `SemanticSearcher`, `Deleter`, `Updater`, `Tagger`, `Lister`, `RelationshipQuerier`

@@ -119,6 +119,54 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
     let relations_json: serde_json::Value = serde_json::from_str(relations_stdout.trim())?;
     assert!(relations_json["relationships"].as_array().is_some());
 
+    let (stats_stdout, _stats_stderr) = run_cli(&test_home, &["stats"])?;
+    let stats_json: serde_json::Value = serde_json::from_str(stats_stdout.trim())?;
+    assert!(stats_json["total_memories"].as_u64().is_some());
+    assert!(stats_json["fts5_indexed"].as_u64().is_some());
+
+    let (export_stdout, _export_stderr) = run_cli(&test_home, &["export"])?;
+    let export_json: serde_json::Value = serde_json::from_str(export_stdout.trim())?;
+    assert!(export_json["memories"].as_array().is_some());
+    assert!(export_json["version"].as_u64() == Some(1));
+
+    // Write exported data to a temp file, then import it
+    let import_file = test_home.join("export.json");
+    std::fs::write(&import_file, &export_stdout)?;
+
+    // Delete existing data first
+    run_cli(&test_home, &["delete", &reingest_id])?;
+    run_cli(&test_home, &["delete", &process_id])?;
+
+    let (import_stdout, _import_stderr) =
+        run_cli(&test_home, &["import", import_file.to_str().unwrap()])?;
+    let import_json: serde_json::Value = serde_json::from_str(import_stdout.trim())?;
+    assert!(import_json["imported_memories"].as_u64().unwrap() > 0);
+
+    let (ingest_imp_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "ingest",
+            "important-data",
+            "--importance",
+            "0.9",
+            "--metadata",
+            r#"{"key":"val"}"#,
+        ],
+    )?;
+    let ingest_imp_json: serde_json::Value = serde_json::from_str(ingest_imp_stdout.trim())?;
+    assert!(ingest_imp_json["id"].as_str().is_some());
+
+    // Verify search results include importance field
+    let (search_stdout, _search_stderr) =
+        run_cli(&test_home, &["search", "important", "--limit", "5"])?;
+    let search_json: serde_json::Value = serde_json::from_str(search_stdout.trim())?;
+    let search_results = search_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in search output"))?;
+    if !search_results.is_empty() {
+        assert!(search_results[0]["importance"].as_f64().is_some());
+    }
+
     let _ = std::fs::remove_dir_all(&test_home);
     Ok(())
 }

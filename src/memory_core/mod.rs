@@ -6,12 +6,18 @@ use uuid::Uuid;
 pub mod storage;
 
 /// Search result item returned by memory queries.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SearchResult {
     /// Memory identifier.
     pub id: String,
     /// Stored memory content.
     pub content: String,
+    /// Memory tags.
+    pub tags: Vec<String>,
+    /// Importance score in the range [0.0, 1.0].
+    pub importance: f64,
+    /// Arbitrary JSON metadata payload.
+    pub metadata: serde_json::Value,
 }
 
 /// Semantic search result item with similarity score.
@@ -21,6 +27,12 @@ pub struct SemanticResult {
     pub id: String,
     /// Stored memory content.
     pub content: String,
+    /// Memory tags.
+    pub tags: Vec<String>,
+    /// Importance score in the range [0.0, 1.0].
+    pub importance: f64,
+    /// Arbitrary JSON metadata payload.
+    pub metadata: serde_json::Value,
     /// Similarity score in the range [0.0, 1.0].
     pub score: f32,
 }
@@ -39,7 +51,7 @@ pub struct Relationship {
 }
 
 /// Result of a paginated list query.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ListResult {
     /// Memories in the current page.
     pub memories: Vec<SearchResult>,
@@ -64,8 +76,19 @@ pub trait Processor: Send + Sync {
 /// Trait for storing processed memory data.
 #[async_trait]
 pub trait Storage: Send + Sync {
-    /// Stores the data under the given ID with optional tags.
-    async fn store(&self, id: &str, data: &str, tags: &[String]) -> Result<()>;
+    /// Stores the data under the given ID with tags, importance, and metadata.
+    ///
+    /// * `tags` – slice of tag strings attached to the memory.
+    /// * `importance` – relevance score in the range `[0.0, 1.0]`.
+    /// * `metadata` – arbitrary JSON object stored alongside the memory.
+    async fn store(
+        &self,
+        id: &str,
+        data: &str,
+        tags: &[String],
+        importance: f64,
+        metadata: &serde_json::Value,
+    ) -> Result<()>;
 }
 
 /// Trait for retrieving stored memory data.
@@ -102,8 +125,15 @@ pub trait Deleter: Send + Sync {
 /// Trait for updating stored memory content and tags.
 #[async_trait]
 pub trait Updater: Send + Sync {
-    /// Updates an existing memory. At least one of content or tags must be provided.
-    async fn update(&self, id: &str, content: Option<&str>, tags: Option<&[String]>) -> Result<()>;
+    /// Updates an existing memory. At least one of content, tags, importance, or metadata must be provided.
+    async fn update(
+        &self,
+        id: &str,
+        content: Option<&str>,
+        tags: Option<&[String]>,
+        importance: Option<f64>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<()>;
 }
 
 /// Trait for querying memories by tag.
@@ -161,13 +191,22 @@ impl Pipeline {
     }
 
     /// Runs the full pipeline: ingest -> process -> store.
-    pub async fn run(&self, content: &str, id: Option<&str>, tags: &[String]) -> Result<String> {
+    pub async fn run(
+        &self,
+        content: &str,
+        id: Option<&str>,
+        tags: &[String],
+        importance: f64,
+        metadata: &serde_json::Value,
+    ) -> Result<String> {
         let id = id
             .map(std::string::ToString::to_string)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let ingested = self.ingestor.ingest(content).await?;
         let processed = self.processor.process(&ingested).await?;
-        self.storage.store(&id, &processed, tags).await?;
+        self.storage
+            .store(&id, &processed, tags, importance, metadata)
+            .await?;
         Ok(id)
     }
 
@@ -209,7 +248,14 @@ impl Processor for PlaceholderPipeline {
 
 #[async_trait]
 impl Storage for PlaceholderPipeline {
-    async fn store(&self, id: &str, data: &str, _tags: &[String]) -> Result<()> {
+    async fn store(
+        &self,
+        id: &str,
+        data: &str,
+        _tags: &[String],
+        _importance: f64,
+        _metadata: &serde_json::Value,
+    ) -> Result<()> {
         info!(memory_id = %id, content_len = data.len(), "Storing placeholder payload");
         Ok(())
     }
@@ -228,6 +274,9 @@ impl Searcher for PlaceholderPipeline {
         Ok(vec![SearchResult {
             id: "placeholder".to_string(),
             content: format!("search result for: {query}"),
+            tags: Vec::new(),
+            importance: 0.5,
+            metadata: serde_json::json!({}),
         }])
     }
 }
@@ -238,6 +287,9 @@ impl Recents for PlaceholderPipeline {
         Ok(vec![SearchResult {
             id: "placeholder-recent".to_string(),
             content: "recent result".to_string(),
+            tags: Vec::new(),
+            importance: 0.5,
+            metadata: serde_json::json!({}),
         }])
     }
 }
@@ -248,6 +300,9 @@ impl SemanticSearcher for PlaceholderPipeline {
         Ok(vec![SemanticResult {
             id: "placeholder-semantic".to_string(),
             content: format!("semantic result for: {query}"),
+            tags: Vec::new(),
+            importance: 0.5,
+            metadata: serde_json::json!({}),
             score: 1.0,
         }])
     }
@@ -257,6 +312,7 @@ impl SemanticSearcher for PlaceholderPipeline {
 mod tests {
     use super::*;
     use anyhow::anyhow;
+    use serde_json::json;
 
     struct MockPipeline;
 
@@ -276,7 +332,14 @@ mod tests {
 
     #[async_trait]
     impl Storage for MockPipeline {
-        async fn store(&self, _id: &str, _data: &str, _tags: &[String]) -> Result<()> {
+        async fn store(
+            &self,
+            _id: &str,
+            _data: &str,
+            _tags: &[String],
+            _importance: f64,
+            _metadata: &serde_json::Value,
+        ) -> Result<()> {
             Ok(())
         }
     }
@@ -294,6 +357,9 @@ mod tests {
             Ok(vec![SearchResult {
                 id: "result-1".to_string(),
                 content: format!("match: {query}"),
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: json!({}),
             }])
         }
     }
@@ -304,6 +370,9 @@ mod tests {
             Ok(vec![SearchResult {
                 id: "recent-1".to_string(),
                 content: "recent value".to_string(),
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: json!({}),
             }])
         }
     }
@@ -314,6 +383,9 @@ mod tests {
             Ok(vec![SemanticResult {
                 id: "semantic-1".to_string(),
                 content: format!("semantic match: {query}"),
+                tags: Vec::new(),
+                importance: 0.5,
+                metadata: json!({}),
                 score: 0.99,
             }])
         }
@@ -347,7 +419,9 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", Some("custom_id"), &[]).await;
+        let result = pipeline
+            .run("hello", Some("custom_id"), &[], 0.5, &json!({}))
+            .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "custom_id");
     }
@@ -364,7 +438,7 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", None, &[]).await;
+        let result = pipeline.run("hello", None, &[], 0.5, &json!({})).await;
         assert!(result.is_ok());
         let id = result.unwrap();
         assert!(uuid::Uuid::parse_str(&id).is_ok());
@@ -399,7 +473,7 @@ mod tests {
             Box::new(MockPipeline),
         );
 
-        let result = pipeline.run("hello", None, &[]).await;
+        let result = pipeline.run("hello", None, &[], 0.5, &json!({})).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Ingestion failed");
     }
@@ -420,6 +494,9 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "result-1");
         assert_eq!(results[0].content, "match: needle");
+        assert!(results[0].tags.is_empty());
+        assert_eq!(results[0].importance, 0.5);
+        assert_eq!(results[0].metadata, json!({}));
     }
 
     #[tokio::test]
@@ -438,6 +515,9 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "recent-1");
         assert_eq!(results[0].content, "recent value");
+        assert!(results[0].tags.is_empty());
+        assert_eq!(results[0].importance, 0.5);
+        assert_eq!(results[0].metadata, json!({}));
     }
 
     #[tokio::test]
@@ -456,6 +536,9 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "semantic-1");
         assert_eq!(results[0].content, "semantic match: vector");
+        assert!(results[0].tags.is_empty());
+        assert_eq!(results[0].importance, 0.5);
+        assert_eq!(results[0].metadata, json!({}));
         assert!(results[0].score > 0.9);
     }
 }

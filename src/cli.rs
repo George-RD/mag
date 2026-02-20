@@ -30,12 +30,20 @@ pub enum Commands {
         content: String,
         #[arg(long, value_delimiter = ',')]
         tags: Vec<String>,
+        #[arg(long, default_value_t = 0.5)]
+        importance: f64,
+        #[arg(long)]
+        metadata: Option<String>,
     },
     /// Processes content through the pipeline (alias for run in current model).
     Process {
         content: String,
         #[arg(long, value_delimiter = ',')]
         tags: Vec<String>,
+        #[arg(long, default_value_t = 0.5)]
+        importance: f64,
+        #[arg(long)]
+        metadata: Option<String>,
     },
     /// Retrieves a stored memory by its ID.
     Retrieve { id: String },
@@ -48,6 +56,10 @@ pub enum Commands {
         content: Option<String>,
         #[arg(long, value_delimiter = ',')]
         tags: Option<Vec<String>>,
+        #[arg(long)]
+        importance: Option<f64>,
+        #[arg(long)]
+        metadata: Option<String>,
     },
     /// Lists stored memories with pagination.
     List {
@@ -75,6 +87,15 @@ pub enum Commands {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
+    /// Shows memory store statistics.
+    Stats,
+    /// Exports all memories and relationships as JSON.
+    Export,
+    /// Imports memories and relationships from JSON.
+    Import {
+        /// Path to the JSON file to import, or "-" for stdin.
+        path: String,
+    },
     /// Starts the MCP server over stdio transport.
     Serve,
 }
@@ -88,9 +109,16 @@ mod tests {
         let args = vec!["romega", "ingest", "test content"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Ingest { content, tags } => {
+            Commands::Ingest {
+                content,
+                tags,
+                importance,
+                metadata,
+            } => {
                 assert_eq!(content, "test content");
                 assert!(tags.is_empty());
+                assert_eq!(importance, 0.5);
+                assert!(metadata.is_none());
             }
             _ => panic!("Expected Ingest command"),
         }
@@ -101,9 +129,16 @@ mod tests {
         let args = vec!["romega", "process", "raw data"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Process { content, tags } => {
+            Commands::Process {
+                content,
+                tags,
+                importance,
+                metadata,
+            } => {
                 assert_eq!(content, "raw data");
                 assert!(tags.is_empty());
+                assert_eq!(importance, 0.5);
+                assert!(metadata.is_none());
             }
             _ => panic!("Expected Process command"),
         }
@@ -124,10 +159,18 @@ mod tests {
         let args = vec!["romega", "update", "abc123", "--content", "new content"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Update { id, content, tags } => {
+            Commands::Update {
+                id,
+                content,
+                tags,
+                importance,
+                metadata,
+            } => {
                 assert_eq!(id, "abc123");
                 assert_eq!(content, Some("new content".to_string()));
                 assert!(tags.is_none());
+                assert!(importance.is_none());
+                assert!(metadata.is_none());
             }
             _ => panic!("Expected Update command"),
         }
@@ -146,10 +189,18 @@ mod tests {
         ];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Update { id, content, tags } => {
+            Commands::Update {
+                id,
+                content,
+                tags,
+                importance,
+                metadata,
+            } => {
                 assert_eq!(id, "abc123");
                 assert_eq!(content, Some("new content".to_string()));
                 assert_eq!(tags, Some(vec!["a".to_string(), "b".to_string()]));
+                assert!(importance.is_none());
+                assert!(metadata.is_none());
             }
             _ => panic!("Expected Update command"),
         }
@@ -160,10 +211,18 @@ mod tests {
         let args = vec!["romega", "update", "abc123", "--tags", "x,y"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Update { id, content, tags } => {
+            Commands::Update {
+                id,
+                content,
+                tags,
+                importance,
+                metadata,
+            } => {
                 assert_eq!(id, "abc123");
                 assert!(content.is_none());
                 assert_eq!(tags, Some(vec!["x".to_string(), "y".to_string()]));
+                assert!(importance.is_none());
+                assert!(metadata.is_none());
             }
             _ => panic!("Expected Update command"),
         }
@@ -197,11 +256,56 @@ mod tests {
         let args = vec!["romega", "ingest", "content", "--tags", "x,y"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Ingest { content, tags } => {
+            Commands::Ingest {
+                content,
+                tags,
+                importance,
+                metadata,
+            } => {
                 assert_eq!(content, "content");
                 assert_eq!(tags, vec!["x".to_string(), "y".to_string()]);
+                assert_eq!(importance, 0.5);
+                assert!(metadata.is_none());
             }
             _ => panic!("Expected Ingest command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_ingest_with_importance() {
+        let args = vec!["romega", "ingest", "content", "--importance", "0.9"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Ingest { importance, .. } => assert_eq!(importance, 0.9),
+            _ => panic!("Expected Ingest command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_ingest_with_metadata() {
+        let args = vec![
+            "romega",
+            "ingest",
+            "content",
+            "--metadata",
+            "{\"key\":\"val\"}",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Ingest { metadata, .. } => {
+                assert_eq!(metadata, Some("{\"key\":\"val\"}".to_string()))
+            }
+            _ => panic!("Expected Ingest command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_update_with_importance() {
+        let args = vec!["romega", "update", "abc123", "--importance", "0.8"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Update { importance, .. } => assert_eq!(importance, Some(0.8)),
+            _ => panic!("Expected Update command"),
         }
     }
 
@@ -248,6 +352,36 @@ mod tests {
         match cli.command {
             Commands::Recent { limit } => assert_eq!(limit, 4),
             _ => panic!("Expected Recent command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_stats_command() {
+        let args = vec!["romega", "stats"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Stats => {}
+            _ => panic!("Expected Stats command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_export_command() {
+        let args = vec!["romega", "export"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Export => {}
+            _ => panic!("Expected Export command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_import_command() {
+        let args = vec!["romega", "import", "memories.json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Import { path } => assert_eq!(path, "memories.json"),
+            _ => panic!("Expected Import command"),
         }
     }
 
