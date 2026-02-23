@@ -3,10 +3,11 @@ use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MemoryInput, MemoryUpdate,
-    PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, RelationshipQuerier,
-    ReminderManager, SearchOptions, SimilarFinder, Updater, default_priority_for_event_type,
-    default_ttl_for_event_type, is_valid_event_type,
+    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
+    MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager,
+    RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder, StatsProvider, Updater,
+    WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
+    is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -740,6 +741,114 @@ async fn main() -> anyhow::Result<()> {
             .await?;
             println!("{}", json!({ "results": results }));
         }
+        Commands::Maintain {
+            action,
+            warn_mb,
+            critical_mb,
+            max_nodes,
+            prune_days,
+            max_summaries,
+            event_type,
+            similarity_threshold,
+            min_cluster_size,
+            dry_run,
+            session_id,
+        } => match action.as_str() {
+            "health" => {
+                let result = <SqliteStorage as MaintenanceManager>::check_health(
+                    &mcp_storage,
+                    warn_mb.unwrap_or(350.0),
+                    critical_mb.unwrap_or(800.0),
+                    max_nodes.unwrap_or(10000),
+                )
+                .await?;
+                println!("{result}");
+            }
+            "consolidate" => {
+                let result = <SqliteStorage as MaintenanceManager>::consolidate(
+                    &mcp_storage,
+                    prune_days.unwrap_or(30),
+                    max_summaries.unwrap_or(50),
+                )
+                .await?;
+                println!("{result}");
+            }
+            "compact" => {
+                let result = <SqliteStorage as MaintenanceManager>::compact(
+                    &mcp_storage,
+                    event_type.as_deref().unwrap_or("lesson_learned"),
+                    similarity_threshold.unwrap_or(0.6),
+                    min_cluster_size.unwrap_or(3),
+                    *dry_run,
+                )
+                .await?;
+                println!("{result}");
+            }
+            "clear_session" | "clear-session" => {
+                let sid = session_id
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--session-id is required for clear-session"))?;
+                let removed =
+                    <SqliteStorage as MaintenanceManager>::clear_session(&mcp_storage, sid).await?;
+                println!("{}", json!({"session_id": sid, "removed": removed}));
+            }
+            other => anyhow::bail!(
+                "invalid maintain action: {other} (expected health|consolidate|compact|clear-session)"
+            ),
+        },
+        Commands::Welcome {
+            session_id,
+            project,
+        } => {
+            let result = <SqliteStorage as WelcomeProvider>::welcome(
+                &mcp_storage,
+                session_id.as_deref(),
+                project.as_deref(),
+            )
+            .await?;
+            println!("{result}");
+        }
+        Commands::Protocol { section: _ } => {
+            let protocol = serde_json::json!({
+                "tools": [
+                    "memory_store", "memory_retrieve", "memory_delete", "memory_update",
+                    "memory_search", "memory_semantic_search", "memory_advanced_search",
+                    "memory_similar", "memory_traverse", "memory_phrase_search",
+                    "memory_tag_search", "memory_list", "memory_recent",
+                    "memory_relations", "memory_add_relation",
+                    "memory_feedback", "memory_sweep",
+                    "memory_profile", "memory_checkpoint", "memory_resume_task",
+                    "memory_remind", "memory_lessons",
+                    "memory_health", "memory_stats", "memory_export", "memory_import",
+                    "memory_maintain", "memory_welcome", "memory_protocol", "memory_stats_extended",
+                ],
+                "tool_count": 30,
+            });
+            println!("{protocol}");
+        }
+        Commands::StatsExtended { action, days } => match action.as_str() {
+            "types" => {
+                let result = <SqliteStorage as StatsProvider>::type_stats(&mcp_storage).await?;
+                println!("{result}");
+            }
+            "sessions" => {
+                let result = <SqliteStorage as StatsProvider>::session_stats(&mcp_storage).await?;
+                println!("{result}");
+            }
+            "digest" => {
+                let result =
+                    <SqliteStorage as StatsProvider>::weekly_digest(&mcp_storage, *days).await?;
+                println!("{result}");
+            }
+            "access_rate" | "access-rate" => {
+                let result =
+                    <SqliteStorage as StatsProvider>::access_rate_stats(&mcp_storage).await?;
+                println!("{result}");
+            }
+            other => anyhow::bail!(
+                "invalid stats-extended action: {other} (expected types|sessions|digest|access-rate)"
+            ),
+        },
         Commands::DownloadModel => {
             unreachable!("download-model is handled before storage initialization")
         }

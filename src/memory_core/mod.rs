@@ -485,6 +485,54 @@ pub trait LessonQuerier: Send + Sync {
     ) -> Result<Vec<serde_json::Value>>;
 }
 
+/// Maintenance operations for memory store housekeeping.
+#[async_trait]
+pub trait MaintenanceManager: Send + Sync {
+    /// Check database health: size, integrity, node count vs limits.
+    async fn check_health(
+        &self,
+        warn_mb: f64,
+        critical_mb: f64,
+        max_nodes: i64,
+    ) -> Result<serde_json::Value>;
+    /// Prune zero-access memories older than `prune_days` and cap session summaries.
+    async fn consolidate(&self, prune_days: i64, max_summaries: i64) -> Result<serde_json::Value>;
+    /// Merge near-duplicate memories of a given event type using Jaccard similarity.
+    async fn compact(
+        &self,
+        event_type: &str,
+        similarity_threshold: f64,
+        min_cluster_size: usize,
+        dry_run: bool,
+    ) -> Result<serde_json::Value>;
+    /// Delete all memories (and their relationships) for a given session.
+    async fn clear_session(&self, session_id: &str) -> Result<usize>;
+}
+
+/// Session startup briefing provider.
+#[async_trait]
+pub trait WelcomeProvider: Send + Sync {
+    /// Generate a welcome briefing with recent activity, profile, and pending reminders.
+    async fn welcome(
+        &self,
+        session_id: Option<&str>,
+        project: Option<&str>,
+    ) -> Result<serde_json::Value>;
+}
+
+/// Extended statistics beyond basic counts.
+#[async_trait]
+pub trait StatsProvider: Send + Sync {
+    /// Per-event-type memory counts.
+    async fn type_stats(&self) -> Result<serde_json::Value>;
+    /// Per-session memory counts (top 20).
+    async fn session_stats(&self) -> Result<serde_json::Value>;
+    /// Activity digest for a given period.
+    async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>;
+    /// Access rate analysis: zero-access %, top-accessed, by-type breakdown.
+    async fn access_rate_stats(&self) -> Result<serde_json::Value>;
+}
+
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
 pub struct Pipeline {
     ingestor: Box<dyn Ingestor>,

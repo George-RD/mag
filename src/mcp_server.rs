@@ -14,10 +14,11 @@ use uuid::Uuid;
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MemoryInput, MemoryUpdate,
-    PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager, Retriever,
-    SearchOptions, Searcher, SemanticSearcher, SimilarFinder, Storage, Tagger, Updater,
-    default_priority_for_event_type, default_ttl_for_event_type, is_valid_event_type,
+    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
+    MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager,
+    Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, StatsProvider, Storage,
+    Tagger, Updater, WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
+    is_valid_event_type,
 };
 
 #[derive(Clone)]
@@ -148,6 +149,39 @@ struct ExportRequest {}
 #[derive(Debug, Deserialize, JsonSchema)]
 struct ImportRequest {
     data: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct MaintainRequest {
+    action: String,
+    warn_mb: Option<f64>,
+    critical_mb: Option<f64>,
+    max_nodes: Option<i64>,
+    prune_days: Option<i64>,
+    max_summaries: Option<i64>,
+    event_type: Option<String>,
+    similarity_threshold: Option<f64>,
+    min_cluster_size: Option<usize>,
+    dry_run: Option<bool>,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WelcomeRequest {
+    session_id: Option<String>,
+    project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ProtocolRequest {
+    #[allow(dead_code)]
+    section: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StatsExtendedRequest {
+    action: String,
+    days: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1238,6 +1272,224 @@ impl McpMemoryServer {
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "imported_memories": count.0, "imported_relationships": count.1 }).to_string(),
         )]))
+    }
+
+    #[tool(
+        name = "memory_maintain",
+        description = "System housekeeping: health check, consolidate stale memories, compact near-duplicates, or clear a session"
+    )]
+    async fn memory_maintain(
+        &self,
+        params: Parameters<MaintainRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let req = &params.0;
+        let action = req.action.as_str();
+
+        match action {
+            "health" => {
+                let warn = req.warn_mb.unwrap_or(350.0);
+                let crit = req.critical_mb.unwrap_or(800.0);
+                let max = req.max_nodes.unwrap_or(10000);
+                let result = self
+                    .storage
+                    .check_health(warn, crit, max)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("health check failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "consolidate" => {
+                let prune = req.prune_days.unwrap_or(30);
+                let max_sum = req.max_summaries.unwrap_or(50);
+                let result = self
+                    .storage
+                    .consolidate(prune, max_sum)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("consolidation failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "compact" => {
+                let et = req.event_type.as_deref().unwrap_or("lesson_learned");
+                let thresh = req.similarity_threshold.unwrap_or(0.6);
+                let min_cs = req.min_cluster_size.unwrap_or(3);
+                let dry = req.dry_run.unwrap_or(false);
+                let result = self
+                    .storage
+                    .compact(et, thresh, min_cs, dry)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("compaction failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "clear_session" => {
+                let sid = req.session_id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("session_id is required for clear_session", None)
+                })?;
+                let removed = self.storage.clear_session(sid).await.map_err(|e| {
+                    McpError::internal_error(format!("clear_session failed: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({"session_id": sid, "removed": removed}).to_string(),
+                )]))
+            }
+            "backup" => Ok(CallToolResult::success(vec![Content::text(
+                "Use the memory_export tool to export data as JSON.".to_string(),
+            )])),
+            "restore" => Ok(CallToolResult::success(vec![Content::text(
+                "Use the memory_import tool to import data from JSON.".to_string(),
+            )])),
+            other => Err(McpError::invalid_params(
+                format!(
+                    "unknown maintain action: {other} (expected health|consolidate|compact|clear_session|backup|restore)"
+                ),
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_welcome",
+        description = "Session startup briefing with recent activity, user profile, and pending reminders"
+    )]
+    async fn memory_welcome(
+        &self,
+        params: Parameters<WelcomeRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self
+            .storage
+            .welcome(params.0.session_id.as_deref(), params.0.project.as_deref())
+            .await
+            .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_protocol",
+        description = "Retrieve available tools and operational guidelines for this memory server"
+    )]
+    async fn memory_protocol(
+        &self,
+        _params: Parameters<ProtocolRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let protocol = r#"# romega-memory Protocol
+
+## Available Tools (30)
+
+### Storage & Retrieval
+- **memory_store** — Store new memory content with tags, importance, metadata
+- **memory_retrieve** — Retrieve a memory by ID
+- **memory_delete** — Delete a memory by ID
+- **memory_update** — Update content, tags, importance, or metadata
+- **memory_export** — Export all data as JSON
+- **memory_import** — Import data from JSON
+
+### Search
+- **memory_search** — Full-text search with FTS5
+- **memory_semantic_search** — Semantic search via embeddings
+- **memory_advanced_search** — Multi-phase scoring (vector + FTS5 + type weights + time decay)
+- **memory_similar** — Find similar memories by embedding
+- **memory_phrase_search** — Exact phrase search
+- **memory_tag_search** — Search by tags
+- **memory_list** — Paginated listing with filters
+- **memory_recent** — Recently accessed memories
+
+### Relationships & Graph
+- **memory_relations** — Get relationships for a memory
+- **memory_add_relation** — Create a directed relationship
+- **memory_traverse** — Graph traversal via BFS
+
+### Lifecycle
+- **memory_feedback** — Record feedback (helpful/unhelpful/outdated)
+- **memory_sweep** — Expire memories by TTL
+
+### Cross-Session
+- **memory_profile** — Read/update user profile
+- **memory_checkpoint** — Save task checkpoint
+- **memory_resume_task** — Resume from prior checkpoints
+- **memory_remind** — Set, list, or dismiss reminders
+- **memory_lessons** — Query lesson_learned memories
+
+### Maintenance & Stats
+- **memory_health** — Basic health check
+- **memory_stats** — Basic store statistics
+- **memory_maintain** — System housekeeping (health/consolidate/compact/clear_session)
+- **memory_welcome** — Session startup briefing
+- **memory_protocol** — This tool: available tools and guidelines
+- **memory_stats_extended** — Extended analytics (types/sessions/digest/access_rate)
+
+## Usage Guidelines
+- Call **memory_welcome** at session start for context
+- Use **memory_store** with appropriate event_type and tags for categorization
+- Use **memory_sweep** periodically to clean expired memories
+- Use **memory_maintain** with action=consolidate to prune stale data
+"#;
+        Ok(CallToolResult::success(vec![Content::text(protocol)]))
+    }
+
+    #[tool(
+        name = "memory_stats_extended",
+        description = "Extended analytics: per-type counts, session stats, weekly digest, or access rate analysis"
+    )]
+    async fn memory_stats_extended(
+        &self,
+        params: Parameters<StatsExtendedRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_str();
+
+        match action {
+            "types" => {
+                let result = self.storage.type_stats().await.map_err(|e| {
+                    McpError::internal_error(format!("type_stats failed: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "sessions" => {
+                let result = self.storage.session_stats().await.map_err(|e| {
+                    McpError::internal_error(format!("session_stats failed: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "digest" => {
+                let days = params.0.days.unwrap_or(7);
+                let result = self.storage.weekly_digest(days).await.map_err(|e| {
+                    McpError::internal_error(format!("weekly_digest failed: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "access_rate" => {
+                let result = self.storage.access_rate_stats().await.map_err(|e| {
+                    McpError::internal_error(format!("access_rate_stats failed: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            other => Err(McpError::invalid_params(
+                format!(
+                    "unknown stats action: {other} (expected types|sessions|digest|access_rate)"
+                ),
+                None,
+            )),
+        }
     }
 }
 

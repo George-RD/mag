@@ -265,6 +265,50 @@ pub enum Commands {
         #[arg(long, default_value_t = 5)]
         limit: usize,
     },
+    /// System maintenance: health check, consolidate, compact, clear-session.
+    Maintain {
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        warn_mb: Option<f64>,
+        #[arg(long)]
+        critical_mb: Option<f64>,
+        #[arg(long)]
+        max_nodes: Option<i64>,
+        #[arg(long)]
+        prune_days: Option<i64>,
+        #[arg(long)]
+        max_summaries: Option<i64>,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        similarity_threshold: Option<f64>,
+        #[arg(long)]
+        min_cluster_size: Option<usize>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        session_id: Option<String>,
+    },
+    /// Session startup briefing.
+    Welcome {
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Show available tools and operational guidelines.
+    Protocol {
+        #[arg(long)]
+        section: Option<String>,
+    },
+    /// Extended statistics (types, sessions, digest, access-rate).
+    StatsExtended {
+        #[arg(long)]
+        action: String,
+        #[arg(long, default_value_t = 7)]
+        days: i64,
+    },
     /// Downloads the ONNX model and tokenizer used for embeddings.
     DownloadModel,
     /// Starts the MCP server over stdio transport.
@@ -805,6 +849,76 @@ mod tests {
         match cli.command {
             Commands::Serve => {}
             _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_maintain_command() {
+        let args = vec![
+            "romega",
+            "maintain",
+            "--action",
+            "health",
+            "--warn-mb",
+            "100",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Maintain {
+                action, warn_mb, ..
+            } => {
+                assert_eq!(action, "health");
+                assert_eq!(warn_mb, Some(100.0));
+            }
+            _ => panic!("Expected Maintain command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_welcome_command() {
+        let args = vec![
+            "romega",
+            "welcome",
+            "--session-id",
+            "s1",
+            "--project",
+            "proj",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Welcome {
+                session_id,
+                project,
+            } => {
+                assert_eq!(session_id.as_deref(), Some("s1"));
+                assert_eq!(project.as_deref(), Some("proj"));
+            }
+            _ => panic!("Expected Welcome command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_protocol_command() {
+        let args = vec!["romega", "protocol"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Protocol { section } => {
+                assert!(section.is_none());
+            }
+            _ => panic!("Expected Protocol command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_stats_extended_command() {
+        let args = vec!["romega", "stats-extended", "--action", "types"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::StatsExtended { action, days } => {
+                assert_eq!(action, "types");
+                assert_eq!(days, 7);
+            }
+            _ => panic!("Expected StatsExtended command"),
         }
     }
 }

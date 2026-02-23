@@ -33,6 +33,7 @@ src/memory_core/
 | Cross-session profile/checkpoint/reminder/lesson | `src/memory_core/mod.rs`, `src/memory_core/storage/sqlite.rs` | Traits: ProfileManager/CheckpointManager/ReminderManager/LessonQuerier; `user_profile` table |
 | TTL + dedup lifecycle | `src/memory_core/mod.rs`, `src/memory_core/storage/sqlite.rs` | Event-type TTL defaults, canonical hash dedup, Jaccard dedup |
 | Auto-relate + feedback + sweep | `src/memory_core/storage/sqlite.rs` | Best-effort related edges, feedback scoring flags, TTL expiration cleanup |
+| Maintenance + welcome + stats | `src/memory_core/mod.rs`, `src/memory_core/storage/sqlite.rs` | Traits: MaintenanceManager (health/consolidate/compact/clear_session), WelcomeProvider (session briefing), StatsProvider (type/session/digest/access_rate stats) |
 
 ## CONVENTIONS
 
