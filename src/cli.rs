@@ -128,6 +128,38 @@ pub enum Commands {
         #[arg(long)]
         session_id: Option<String>,
     },
+    /// Advanced multi-phase search with scoring.
+    AdvancedSearch {
+        query: String,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Find similar memories by embedding.
+    Similar {
+        id: String,
+        #[arg(long, default_value = "5")]
+        limit: usize,
+    },
+    /// Traverse relationship graph from a memory.
+    Traverse {
+        id: String,
+        #[arg(long, default_value = "2")]
+        max_hops: usize,
+        #[arg(long, default_value = "0.0")]
+        min_weight: f64,
+    },
+    /// Search for exact phrase matches.
+    PhraseSearch {
+        phrase: String,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        #[arg(long)]
+        event_type: Option<String>,
+    },
     /// Lists recently accessed memories.
     Recent {
         #[arg(long, default_value_t = 10)]
@@ -412,6 +444,71 @@ mod tests {
         match cli.command {
             Commands::Recent { limit, .. } => assert_eq!(limit, 4),
             _ => panic!("Expected Recent command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_advanced_search_command() {
+        let args = vec!["romega", "advanced-search", "query", "--limit", "7"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::AdvancedSearch { query, limit, .. } => {
+                assert_eq!(query, "query");
+                assert_eq!(limit, 7);
+            }
+            _ => panic!("Expected AdvancedSearch command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_similar_command() {
+        let args = vec!["romega", "similar", "mem-1", "--limit", "3"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Similar { id, limit } => {
+                assert_eq!(id, "mem-1");
+                assert_eq!(limit, 3);
+            }
+            _ => panic!("Expected Similar command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_traverse_command() {
+        let args = vec![
+            "romega",
+            "traverse",
+            "mem-2",
+            "--max-hops",
+            "3",
+            "--min-weight",
+            "0.4",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Traverse {
+                id,
+                max_hops,
+                min_weight,
+            } => {
+                assert_eq!(id, "mem-2");
+                assert_eq!(max_hops, 3);
+                assert!((min_weight - 0.4).abs() < f64::EPSILON);
+            }
+            _ => panic!("Expected Traverse command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_phrase_search_command() {
+        let args = vec!["romega", "phrase-search", "exact phrase", "--limit", "4"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::PhraseSearch { phrase, limit, .. } => {
+                assert_eq!(phrase, "exact phrase");
+                assert_eq!(limit, 4);
+            }
+            _ => panic!("Expected PhraseSearch command"),
         }
     }
 

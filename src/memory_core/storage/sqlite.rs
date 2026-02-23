@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -9,9 +10,11 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    Deleter, ListResult, Lister, MemoryInput, MemoryUpdate, Recents, Relationship,
-    RelationshipQuerier, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
-    SemanticSearcher, Storage, Tagger, Updater, embedder::Embedder,
+    AdvancedSearcher, Deleter, GraphNode, GraphTraverser, ListResult, Lister, MemoryInput,
+    MemoryUpdate, PhraseSearcher, Recents, Relationship, RelationshipQuerier, Retriever,
+    SearchOptions, SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder,
+    Storage, Tagger, Updater, embedder::Embedder, jaccard_similarity, priority_factor, time_decay,
+    type_weight, word_overlap,
 };
 
 /// Controls how the SQLite storage backend is initialized.
@@ -983,6 +986,634 @@ impl SemanticSearcher for SqliteStorage {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RankedSemanticCandidate {
+    result: SemanticResult,
+    created_at: String,
+    score: f64,
+}
+
+#[async_trait]
+impl AdvancedSearcher for SqliteStorage {
+    async fn advanced_search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SemanticResult>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let embedder = Arc::clone(&self.embedder);
+        let query = query.to_string();
+        let opts = opts.clone();
+
+        tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
+            let query_embedding = embedder
+                .embed(&query)
+                .context("failed to compute query embedding")?;
+            let query_words_owned: Vec<String> = query
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| w.len() > 2)
+                .map(|w| w.to_lowercase())
+                .collect();
+            let query_word_refs: Vec<&str> = query_words_owned.iter().map(String::as_str).collect();
+
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
+
+            let mut vector_stmt = conn
+                .prepare(
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at
+                     FROM memories WHERE embedding IS NOT NULL",
+                )
+                .context("failed to prepare advanced vector query")?;
+            let vector_rows = vector_stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, f64>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<String>>(6).ok().flatten(),
+                        row.get::<_, Option<String>>(7).ok().flatten(),
+                        row.get::<_, Option<String>>(8).ok().flatten(),
+                        row.get::<_, Option<i64>>(9).ok().flatten(),
+                        row.get::<_, String>(10)
+                            .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string()),
+                    ))
+                })
+                .context("failed to execute advanced vector query")?;
+
+            for row in vector_rows {
+                let (
+                    id,
+                    content,
+                    embedding_blob,
+                    raw_tags,
+                    importance,
+                    raw_metadata,
+                    event_type,
+                    session_id,
+                    project,
+                    priority,
+                    created_at,
+                ) = row.context("failed to decode advanced vector row")?;
+                let candidate: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                    .context("failed to decode stored embedding")?;
+                let similarity = cosine_similarity(&query_embedding, &candidate) as f64;
+                if similarity < 0.1 {
+                    continue;
+                }
+
+                let priority_value = resolve_priority(event_type.as_deref(), priority);
+                let mut score =
+                    similarity * type_weight(event_type.as_deref().unwrap_or("memory"));
+                score *= priority_factor(priority_value);
+
+                ranked.insert(
+                    id.clone(),
+                    RankedSemanticCandidate {
+                        result: SemanticResult {
+                            id,
+                            content,
+                            tags: parse_tags_from_db(&raw_tags),
+                            importance,
+                            metadata: parse_metadata_from_db(&raw_metadata),
+                            event_type,
+                            session_id,
+                            project,
+                            score: 0.0,
+                        },
+                        created_at,
+                        score,
+                    },
+                );
+            }
+
+            let fts_query = build_fts5_query(&query);
+            let mut fts_sql = String::from(
+                "SELECT m.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project, m.priority, m.created_at, bm25(memories_fts)
+                 FROM memories_fts
+                 JOIN memories m ON m.id = memories_fts.id
+                 WHERE memories_fts MATCH ?1",
+            );
+            let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
+            let mut param_idx = 2;
+            if let Some(event_type) = opts.event_type.clone() {
+                fts_sql.push_str(&format!(" AND m.event_type = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(event_type));
+                param_idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                fts_sql.push_str(&format!(" AND m.project = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(project));
+                param_idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                fts_sql.push_str(&format!(" AND m.session_id = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(session_id));
+            }
+
+            if let Ok(mut stmt) = conn.prepare(&fts_sql) {
+                let mut refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+                for value in &fts_params {
+                    refs.push(value);
+                }
+
+                let rows = stmt.query_map(refs.as_slice(), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, f64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5).ok().flatten(),
+                        row.get::<_, Option<String>>(6).ok().flatten(),
+                        row.get::<_, Option<String>>(7).ok().flatten(),
+                        row.get::<_, Option<i64>>(8).ok().flatten(),
+                        row.get::<_, String>(9)
+                            .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string()),
+                        row.get::<_, f64>(10).unwrap_or(1.0),
+                    ))
+                });
+
+                if let Ok(rows) = rows {
+                    for row in rows {
+                        let (
+                            id,
+                            content,
+                            raw_tags,
+                            importance,
+                            raw_metadata,
+                            event_type,
+                            session_id,
+                            project,
+                            priority,
+                            created_at,
+                            bm25,
+                        ) = row.context("failed to decode advanced FTS row")?;
+
+                        let text_relevance = (1.0 / (1.0 + bm25.abs())).clamp(0.0, 1.0);
+
+                        if let Some(existing) = ranked.get_mut(&id) {
+                            existing.score *= 1.3 + text_relevance * 0.5;
+                            continue;
+                        }
+
+                        let priority_value = resolve_priority(event_type.as_deref(), priority);
+                        let mut score = text_relevance
+                            * type_weight(event_type.as_deref().unwrap_or("memory"));
+                        score *= priority_factor(priority_value);
+
+                        ranked.insert(
+                            id.clone(),
+                            RankedSemanticCandidate {
+                                result: SemanticResult {
+                                    id,
+                                    content,
+                                    tags: parse_tags_from_db(&raw_tags),
+                                    importance,
+                                    metadata: parse_metadata_from_db(&raw_metadata),
+                                    event_type,
+                                    session_id,
+                                    project,
+                                    score: 0.0,
+                                },
+                                created_at,
+                                score,
+                            },
+                        );
+                    }
+                }
+            }
+
+            for candidate in ranked.values_mut() {
+                let with_tags = if candidate.result.tags.is_empty() {
+                    candidate.result.content.clone()
+                } else {
+                    format!("{} {}", candidate.result.content, candidate.result.tags.join(" "))
+                };
+                let overlap = word_overlap(&query_word_refs, &with_tags);
+                candidate.score *= 1.0 + overlap * 0.5;
+                let jaccard = jaccard_similarity(&query, &with_tags, 3);
+                candidate.score *= 1.0 + jaccard * 0.25;
+
+                candidate.score *= time_decay(&candidate.created_at);
+                candidate.score *= 0.5 + candidate.result.importance * 0.5;
+
+                if let Some(context_tags) = opts.context_tags.as_ref() {
+                    let candidate_tags: HashSet<String> = candidate
+                        .result
+                        .tags
+                        .iter()
+                        .map(|t| t.to_lowercase())
+                        .collect();
+                    let context_norm: Vec<String> = context_tags
+                        .iter()
+                        .map(|t| t.to_lowercase())
+                        .filter(|t| !t.is_empty())
+                        .collect();
+                    if !context_norm.is_empty() {
+                        let matched = context_norm
+                            .iter()
+                            .filter(|t| candidate_tags.contains(*t))
+                            .count();
+                        let ratio = matched as f64 / context_norm.len() as f64;
+                        candidate.score *= 1.0 + ratio * 0.25;
+                    }
+                }
+            }
+
+            let mut deduped = Vec::new();
+            let mut seen = HashSet::new();
+            for candidate in ranked.into_values() {
+                if !matches_search_options(&candidate, &opts) {
+                    continue;
+                }
+                let fingerprint = normalize_for_dedup(&candidate.result.content);
+                if seen.insert(fingerprint) {
+                    deduped.push(candidate);
+                }
+            }
+
+            if deduped.is_empty() {
+                return Ok::<_, anyhow::Error>(Vec::new());
+            }
+
+            deduped.sort_by(|a, b| b.score.total_cmp(&a.score));
+            let max_score = deduped.first().map(|c| c.score).unwrap_or(0.0);
+            let mut out = Vec::new();
+            for mut candidate in deduped.into_iter().take(limit) {
+                let normalized = if max_score > 0.0 {
+                    (candidate.score / max_score).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                candidate.result.score = normalized as f32;
+                out.push(candidate.result);
+            }
+            Ok::<_, anyhow::Error>(out)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl GraphTraverser for SqliteStorage {
+    async fn traverse(
+        &self,
+        start_id: &str,
+        max_hops: usize,
+        min_weight: f64,
+        edge_types: Option<&[String]>,
+    ) -> Result<Vec<GraphNode>> {
+        let conn = Arc::clone(&self.conn);
+        let start_id = start_id.to_string();
+        let hop_limit = max_hops.clamp(1, 5);
+        if max_hops > 5 {
+            tracing::warn!(requested = max_hops, capped = 5, "max_hops capped to 5");
+        }
+        let edge_types = edge_types.map(|edges| edges.to_vec());
+
+        tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut frontier = vec![start_id.clone()];
+            let mut visited: HashSet<String> = HashSet::from([start_id.clone()]);
+            let mut nodes = Vec::new();
+
+            for hop in 1..=hop_limit {
+                if frontier.is_empty() {
+                    break;
+                }
+                let mut next_frontier = Vec::new();
+
+                for current in &frontier {
+                    let mut sql = String::from(
+                        "SELECT source_id, target_id, rel_type, weight
+                         FROM relationships
+                         WHERE (source_id = ?1 OR target_id = ?1)
+                           AND weight >= ?2",
+                    );
+                    let mut params_values: Vec<SqlValue> = vec![
+                        SqlValue::Text(current.clone()),
+                        SqlValue::Real(min_weight),
+                    ];
+                    if let Some(types) = edge_types.as_ref()
+                        && !types.is_empty()
+                    {
+                        sql.push_str(" AND rel_type IN (");
+                        for idx in 0..types.len() {
+                            if idx > 0 {
+                                sql.push_str(", ");
+                            }
+                            sql.push_str(&format!("?{}", idx + 3));
+                        }
+                        sql.push(')');
+                        for rel_type in types {
+                            params_values.push(SqlValue::Text(rel_type.clone()));
+                        }
+                    }
+                    sql.push_str(" ORDER BY weight DESC");
+
+                    let mut stmt = conn
+                        .prepare(&sql)
+                        .context("failed to prepare traversal query")?;
+                    let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+                    for value in &params_values {
+                        param_refs.push(value);
+                    }
+
+                    let edges = stmt
+                        .query_map(param_refs.as_slice(), |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, f64>(3).unwrap_or(1.0),
+                            ))
+                        })
+                        .context("failed to execute traversal query")?;
+
+                    for edge in edges {
+                        let (source_id, target_id, rel_type, weight) =
+                            edge.context("failed to decode traversal edge")?;
+                        let neighbor = if source_id == *current {
+                            target_id
+                        } else {
+                            source_id
+                        };
+
+                        if neighbor == start_id || !visited.insert(neighbor.clone()) {
+                            continue;
+                        }
+
+                        let memory: Option<(String, Option<String>, String, String)> = conn
+                            .query_row(
+                                "SELECT content, event_type, metadata, created_at FROM memories WHERE id = ?1",
+                                params![neighbor],
+                                |row| {
+                                    Ok((
+                                        row.get::<_, String>(0)?,
+                                        row.get::<_, Option<String>>(1).ok().flatten(),
+                                        row.get::<_, String>(2)
+                                            .unwrap_or_else(|_| "{}".to_string()),
+                                        row.get::<_, String>(3).unwrap_or_else(|_| {
+                                            "1970-01-01T00:00:00.000Z".to_string()
+                                        }),
+                                    ))
+                                },
+                            )
+                            .optional()
+                            .context("failed to fetch neighbor memory")?;
+
+                        if let Some((content, event_type, metadata_raw, created_at)) = memory {
+                            next_frontier.push(neighbor.clone());
+                            nodes.push(GraphNode {
+                                id: neighbor,
+                                content,
+                                event_type,
+                                metadata: parse_metadata_from_db(&metadata_raw),
+                                hop,
+                                weight,
+                                edge_type: rel_type,
+                                created_at,
+                            });
+                        }
+                    }
+                }
+
+                frontier = next_frontier;
+            }
+
+            nodes.sort_by(|a, b| a.hop.cmp(&b.hop).then_with(|| b.weight.total_cmp(&a.weight)));
+            Ok::<_, anyhow::Error>(nodes)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl SimilarFinder for SqliteStorage {
+    async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let memory_id = memory_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let source_embedding: Vec<u8> = conn
+                .query_row(
+                    "SELECT embedding FROM memories WHERE id = ?1",
+                    params![memory_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query source embedding")?
+                .ok_or_else(|| anyhow!("memory not found for id={memory_id}"))?;
+            let source_embedding: Vec<f32> = serde_json::from_slice(&source_embedding)
+                .context("failed to decode source embedding")?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
+                     FROM memories WHERE embedding IS NOT NULL AND id != ?1",
+                )
+                .context("failed to prepare similar query")?;
+            let rows = stmt
+                .query_map(params![memory_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, f64>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<String>>(6).ok().flatten(),
+                        row.get::<_, Option<String>>(7).ok().flatten(),
+                        row.get::<_, Option<String>>(8).ok().flatten(),
+                    ))
+                })
+                .context("failed to execute similar query")?;
+
+            let mut ranked = Vec::new();
+            for row in rows {
+                let (
+                    id,
+                    content,
+                    embedding_blob,
+                    raw_tags,
+                    importance,
+                    raw_metadata,
+                    event_type,
+                    session_id,
+                    project,
+                ) = row.context("failed to decode similar row")?;
+                let embedding: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                    .context("failed to decode candidate embedding")?;
+                let score = cosine_similarity(&source_embedding, &embedding);
+                ranked.push(SemanticResult {
+                    id,
+                    content,
+                    tags: parse_tags_from_db(&raw_tags),
+                    importance,
+                    metadata: parse_metadata_from_db(&raw_metadata),
+                    event_type,
+                    session_id,
+                    project,
+                    score,
+                });
+            }
+
+            ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
+            ranked.truncate(limit);
+            Ok::<_, anyhow::Error>(ranked)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl PhraseSearcher for SqliteStorage {
+    async fn phrase_search(
+        &self,
+        phrase: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let phrase = phrase.to_string();
+        let limit = i64::try_from(limit).context("phrase search limit exceeds i64")?;
+        let opts = opts.clone();
+
+        tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let escaped = phrase
+                .to_lowercase()
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            let pattern = format!("%{escaped}%");
+
+            let mut sql = String::from(
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project
+                 FROM memories
+                 WHERE lower(content) LIKE ?1 ESCAPE '\\'",
+            );
+            let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
+            let mut idx = 2;
+            if let Some(event_type) = opts.event_type.clone() {
+                sql.push_str(&format!(" AND event_type = ?{idx}"));
+                params_values.push(SqlValue::Text(event_type));
+                idx += 1;
+            }
+            if let Some(project) = opts.project.clone() {
+                sql.push_str(&format!(" AND project = ?{idx}"));
+                params_values.push(SqlValue::Text(project));
+                idx += 1;
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                sql.push_str(&format!(" AND session_id = ?{idx}"));
+                params_values.push(SqlValue::Text(session_id));
+                idx += 1;
+            }
+            if let Some(importance_min) = opts.importance_min {
+                sql.push_str(&format!(" AND importance >= ?{idx}"));
+                params_values.push(SqlValue::Real(importance_min));
+                idx += 1;
+            }
+            if let Some(created_after) = opts.created_after.clone() {
+                sql.push_str(&format!(" AND created_at >= ?{idx}"));
+                params_values.push(SqlValue::Text(created_after));
+                idx += 1;
+            }
+            if let Some(created_before) = opts.created_before.clone() {
+                sql.push_str(&format!(" AND created_at <= ?{idx}"));
+                params_values.push(SqlValue::Text(created_before));
+                idx += 1;
+            }
+            sql.push_str(" ORDER BY created_at DESC");
+            sql.push_str(&format!(" LIMIT ?{idx}"));
+            params_values.push(SqlValue::Integer(limit));
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .context("failed to prepare phrase search query")?;
+            let mut refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &params_values {
+                refs.push(value);
+            }
+
+            let rows = stmt
+                .query_map(refs.as_slice(), |row| {
+                    let raw_tags: String = row.get(2)?;
+                    let raw_metadata: String = row.get(4)?;
+                    Ok(SearchResult {
+                        id: row.get(0)?,
+                        content: row.get(1)?,
+                        tags: parse_tags_from_db(&raw_tags),
+                        importance: row.get(3)?,
+                        metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type: row.get(5).ok(),
+                        session_id: row.get(6).ok(),
+                        project: row.get(7).ok(),
+                    })
+                })
+                .context("failed to execute phrase search query")?;
+
+            let mut out = Vec::new();
+            for row in rows {
+                let result = row.context("failed to decode phrase search row")?;
+                if let Some(context_tags) = opts.context_tags.as_ref()
+                    && !context_tags.is_empty()
+                    && !context_tags
+                        .iter()
+                        .all(|tag| result.tags.iter().any(|r| r.eq_ignore_ascii_case(tag)))
+                {
+                    continue;
+                }
+                out.push(result);
+            }
+
+            Ok::<_, anyhow::Error>(out)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
 #[async_trait]
 impl Deleter for SqliteStorage {
     async fn delete(&self, id: &str) -> Result<bool> {
@@ -1588,11 +2219,69 @@ pub(crate) fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
+fn resolve_priority(event_type: Option<&str>, priority: Option<i64>) -> u8 {
+    if let Some(value) = priority
+        && (1..=5).contains(&value)
+    {
+        return value as u8;
+    }
+    event_type
+        .map(|et| {
+            let p = crate::memory_core::default_priority_for_event_type(et);
+            if p == 0 { 3 } else { p as u8 }
+        })
+        .unwrap_or(3)
+}
+
+fn normalize_for_dedup(content: &str) -> String {
+    let collapsed = content
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    collapsed.chars().take(150).collect()
+}
+
+fn matches_search_options(candidate: &RankedSemanticCandidate, opts: &SearchOptions) -> bool {
+    if let Some(event_type) = opts.event_type.as_deref()
+        && candidate.result.event_type.as_deref() != Some(event_type)
+    {
+        return false;
+    }
+    if let Some(project) = opts.project.as_deref()
+        && candidate.result.project.as_deref() != Some(project)
+    {
+        return false;
+    }
+    if let Some(session_id) = opts.session_id.as_deref()
+        && candidate.result.session_id.as_deref() != Some(session_id)
+    {
+        return false;
+    }
+    if let Some(importance_min) = opts.importance_min
+        && candidate.result.importance < importance_min
+    {
+        return false;
+    }
+    if let Some(created_after) = opts.created_after.as_deref()
+        && candidate.created_at.as_str() < created_after
+    {
+        return false;
+    }
+    if let Some(created_before) = opts.created_before.as_deref()
+        && candidate.created_at.as_str() > created_before
+    {
+        return false;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::memory_core::{
-        Recents, Retriever, SearchOptions, Searcher, SemanticSearcher, Storage, Updater,
+        AdvancedSearcher, GraphTraverser, PhraseSearcher, Recents, Retriever, SearchOptions,
+        Searcher, SemanticSearcher, SimilarFinder, Storage, Updater,
         default_priority_for_event_type, is_valid_event_type,
     };
 
@@ -3519,6 +4208,10 @@ mod tests {
                     event_type: Some("decision".to_string()),
                     project: Some("proj_i".to_string()),
                     session_id: Some("ses_i".to_string()),
+                    importance_min: None,
+                    created_after: None,
+                    created_before: None,
+                    context_tags: None,
                 },
             )
             .await
@@ -3569,6 +4262,354 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "tag_evt_1");
+    }
+
+    #[tokio::test]
+    async fn test_advanced_search_basic() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, content, event_type) in [
+            ("adv1", "alpha memory context", "decision"),
+            ("adv2", "alpha context details", "reminder"),
+            ("adv3", "unrelated content", "task_completion"),
+        ] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                content,
+                &MemoryInput {
+                    event_type: Some(event_type.to_string()),
+                    tags: vec!["alpha".to_string()],
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+            &storage,
+            "alpha context",
+            10,
+            &SearchOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert!(!results.is_empty());
+        assert!(results.iter().all(|r| (0.0..=1.0).contains(&r.score)));
+    }
+
+    #[tokio::test]
+    async fn test_advanced_search_type_weight() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "weight1",
+            "same searchable text decision",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "weight2",
+            "same searchable text reminder",
+            &MemoryInput {
+                event_type: Some("reminder".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+            &storage,
+            "same searchable text",
+            10,
+            &SearchOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].id, "weight2");
+    }
+
+    #[tokio::test]
+    async fn test_advanced_search_dedup() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for id in ["dup1", "dup2"] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                "identical duplicate content",
+                &MemoryInput {
+                    event_type: Some("decision".to_string()),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+            &storage,
+            "identical duplicate",
+            10,
+            &SearchOptions::default(),
+        )
+        .await
+        .unwrap();
+        let duplicate_count = results
+            .iter()
+            .filter(|r| r.content == "identical duplicate content")
+            .count();
+        assert_eq!(duplicate_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_advanced_search_filters() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "flt1",
+            "filter target text",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                project: Some("project-a".to_string()),
+                importance: 0.8,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "flt2",
+            "filter target text",
+            &MemoryInput {
+                event_type: Some("reminder".to_string()),
+                project: Some("project-b".to_string()),
+                importance: 0.2,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+            &storage,
+            "filter target",
+            10,
+            &SearchOptions {
+                event_type: Some("decision".to_string()),
+                project: Some("project-a".to_string()),
+                importance_min: Some(0.5),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "flt1");
+    }
+
+    #[tokio::test]
+    async fn test_graph_traverse_basic() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, content) in [("ga", "A"), ("gb", "B"), ("gc", "C")] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                content,
+                &MemoryInput {
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        storage
+            .add_relationship("ga", "gb", "links", 0.9, &serde_json::json!({}))
+            .await
+            .unwrap();
+        storage
+            .add_relationship("gb", "gc", "links", 0.8, &serde_json::json!({}))
+            .await
+            .unwrap();
+
+        let nodes = <SqliteStorage as GraphTraverser>::traverse(&storage, "ga", 2, 0.0, None)
+            .await
+            .unwrap();
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes[0].id, "gb");
+        assert_eq!(nodes[0].hop, 1);
+        assert_eq!(nodes[1].id, "gc");
+        assert_eq!(nodes[1].hop, 2);
+    }
+
+    #[tokio::test]
+    async fn test_graph_traverse_min_weight() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for id in ["gwa", "gwb", "gwc"] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                id,
+                &MemoryInput {
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        storage
+            .add_relationship("gwa", "gwb", "links", 0.9, &serde_json::json!({}))
+            .await
+            .unwrap();
+        storage
+            .add_relationship("gwa", "gwc", "links", 0.1, &serde_json::json!({}))
+            .await
+            .unwrap();
+
+        let nodes = <SqliteStorage as GraphTraverser>::traverse(&storage, "gwa", 2, 0.5, None)
+            .await
+            .unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].id, "gwb");
+    }
+
+    #[tokio::test]
+    async fn test_graph_traverse_max_hops() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, content) in [("mh1", "n1"), ("mh2", "n2"), ("mh3", "n3"), ("mh4", "n4")] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                content,
+                &MemoryInput {
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        storage
+            .add_relationship("mh1", "mh2", "links", 1.0, &serde_json::json!({}))
+            .await
+            .unwrap();
+        storage
+            .add_relationship("mh2", "mh3", "links", 1.0, &serde_json::json!({}))
+            .await
+            .unwrap();
+        storage
+            .add_relationship("mh3", "mh4", "links", 1.0, &serde_json::json!({}))
+            .await
+            .unwrap();
+
+        let nodes = <SqliteStorage as GraphTraverser>::traverse(&storage, "mh1", 2, 0.0, None)
+            .await
+            .unwrap();
+        assert_eq!(nodes.len(), 2);
+        assert!(nodes.iter().all(|n| n.hop <= 2));
+    }
+
+    #[tokio::test]
+    async fn test_find_similar() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sim1",
+            "alpha beta",
+            &MemoryInput {
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sim2",
+            "alpha beta",
+            &MemoryInput {
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sim3",
+            "zzzz qqqq",
+            &MemoryInput {
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim1", 2)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "sim2");
+        assert!(results[0].score >= results[1].score);
+    }
+
+    #[tokio::test]
+    async fn test_phrase_search() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "ph1",
+            "this has exact phrase inside",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "ph2",
+            "this has different words",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = <SqliteStorage as PhraseSearcher>::phrase_search(
+            &storage,
+            "exact phrase",
+            10,
+            &SearchOptions {
+                event_type: Some("decision".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "ph1");
     }
 
     #[tokio::test]

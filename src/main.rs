@@ -2,9 +2,9 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    Deleter, Embedder, Lister, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline,
-    RelationshipQuerier, SearchOptions, Updater, default_priority_for_event_type,
-    is_valid_event_type,
+    AdvancedSearcher, Deleter, Embedder, GraphTraverser, Lister, MemoryInput, MemoryUpdate,
+    PhraseSearcher, Pipeline, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
+    SimilarFinder, Updater, default_priority_for_event_type, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -211,6 +211,10 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                importance_min: None,
+                created_after: None,
+                created_before: None,
+                context_tags: None,
             };
             let result = mcp_storage.list(*offset, *limit, &opts).await?;
             info!(
@@ -269,6 +273,10 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                importance_min: None,
+                created_after: None,
+                created_before: None,
+                context_tags: None,
             };
             let results = pipeline.search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Search completed");
@@ -310,6 +318,10 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                importance_min: None,
+                created_after: None,
+                created_before: None,
+                context_tags: None,
             };
             let results = pipeline.semantic_search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Semantic search completed");
@@ -320,6 +332,150 @@ async fn main() -> anyhow::Result<()> {
                         "id": result.id,
                         "content": result.content,
                         "score": result.score,
+                        "tags": result.tags,
+                        "importance": result.importance,
+                        "metadata": result.metadata,
+                        "event_type": result.event_type,
+                        "session_id": result.session_id,
+                        "project": result.project
+                    })
+                })
+                .collect();
+            println!("{}", json!({ "results": payload }));
+        }
+        Commands::AdvancedSearch {
+            query,
+            limit,
+            event_type,
+            project,
+        } => {
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let opts = SearchOptions {
+                event_type: event_type.clone(),
+                project: project.clone(),
+                session_id: None,
+                importance_min: None,
+                created_after: None,
+                created_before: None,
+                context_tags: None,
+            };
+            let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+                &mcp_storage,
+                query,
+                *limit,
+                &opts,
+            )
+            .await?;
+            let payload: Vec<_> = results
+                .into_iter()
+                .map(|result| {
+                    json!({
+                        "id": result.id,
+                        "content": result.content,
+                        "score": result.score,
+                        "tags": result.tags,
+                        "importance": result.importance,
+                        "metadata": result.metadata,
+                        "event_type": result.event_type,
+                        "session_id": result.session_id,
+                        "project": result.project
+                    })
+                })
+                .collect();
+            println!("{}", json!({ "results": payload }));
+        }
+        Commands::Similar { id, limit } => {
+            let results =
+                <SqliteStorage as SimilarFinder>::find_similar(&mcp_storage, id, *limit).await?;
+            let payload: Vec<_> = results
+                .into_iter()
+                .map(|result| {
+                    json!({
+                        "id": result.id,
+                        "content": result.content,
+                        "score": result.score,
+                        "tags": result.tags,
+                        "importance": result.importance,
+                        "metadata": result.metadata,
+                        "event_type": result.event_type,
+                        "session_id": result.session_id,
+                        "project": result.project
+                    })
+                })
+                .collect();
+            println!("{}", json!({ "results": payload }));
+        }
+        Commands::Traverse {
+            id,
+            max_hops,
+            min_weight,
+        } => {
+            let nodes = <SqliteStorage as GraphTraverser>::traverse(
+                &mcp_storage,
+                id,
+                *max_hops,
+                *min_weight,
+                None,
+            )
+            .await?;
+
+            let mut grouped = serde_json::Map::new();
+            for node in nodes {
+                let key = node.hop.to_string();
+                let entry = grouped
+                    .entry(key)
+                    .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                if let serde_json::Value::Array(items) = entry {
+                    items.push(json!({
+                        "id": node.id,
+                        "content": node.content,
+                        "event_type": node.event_type,
+                        "metadata": node.metadata,
+                        "hop": node.hop,
+                        "weight": node.weight,
+                        "edge_type": node.edge_type,
+                        "created_at": node.created_at
+                    }));
+                }
+            }
+            println!("{}", serde_json::Value::Object(grouped));
+        }
+        Commands::PhraseSearch {
+            phrase,
+            limit,
+            event_type,
+        } => {
+            if let Some(kind) = event_type.as_deref()
+                && !is_valid_event_type(kind)
+            {
+                anyhow::bail!("invalid --event-type: {kind}");
+            }
+            let opts = SearchOptions {
+                event_type: event_type.clone(),
+                project: None,
+                session_id: None,
+                importance_min: None,
+                created_after: None,
+                created_before: None,
+                context_tags: None,
+            };
+            let results = <SqliteStorage as PhraseSearcher>::phrase_search(
+                &mcp_storage,
+                phrase,
+                *limit,
+                &opts,
+            )
+            .await?;
+            let payload: Vec<_> = results
+                .into_iter()
+                .map(|result| {
+                    json!({
+                        "id": result.id,
+                        "content": result.content,
                         "tags": result.tags,
                         "importance": result.importance,
                         "metadata": result.metadata,
@@ -347,6 +503,10 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                importance_min: None,
+                created_after: None,
+                created_before: None,
+                context_tags: None,
             };
             let results = pipeline.recent(*limit, &opts).await?;
             info!(result_count = results.len(), "Recent list completed");

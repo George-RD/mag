@@ -10,6 +10,7 @@
 src/memory_core/
 ├── mod.rs               # Traits + Pipeline orchestration
 ├── embedder.rs          # Embedder trait + PlaceholderEmbedder + OnnxEmbedder
+├── scoring.rs           # Search scoring: type weights, priority factors, time decay, word overlap, Jaccard
 └── storage/
     ├── mod.rs           # Export surface
     └── sqlite.rs        # SQLite-backed storage + schema + tests
@@ -26,6 +27,9 @@ src/memory_core/
 | Event type validation | `src/memory_core/mod.rs` | `VALID_EVENT_TYPES`, `is_valid_event_type()`, `default_priority_for_event_type()` |
 | Struct-based signatures | `src/memory_core/mod.rs` | `MemoryInput`, `MemoryUpdate`, `SearchOptions` replace positional params |
 | Embedding generation | `src/memory_core/embedder.rs` | `Embedder` trait with `OnnxEmbedder` (384-dim, feature-gated) and `PlaceholderEmbedder` (32-dim SHA256 fallback) |
+| Search scoring | `src/memory_core/scoring.rs` | Type weights, priority factors, time decay, word overlap, Jaccard similarity |
+| Advanced search | `src/memory_core/storage/sqlite.rs` | Multi-phase scoring: vector + FTS5 + type-weighting + time-decay + word-overlap + importance |
+| Graph traversal | `src/memory_core/storage/sqlite.rs` | BFS with max_hops (1-5), min_weight, edge type filtering |
 
 ## CONVENTIONS
 

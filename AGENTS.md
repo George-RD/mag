@@ -25,9 +25,10 @@ romega-memory/
 | Task | Location | Notes |
 |---|---|---|
 | CLI command wiring | `src/cli.rs`, `src/main.rs` | Add enum variant + match arm together |
-| MCP tool behavior | `src/mcp_server.rs` | 15 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health/stats/export/import |
+| MCP tool behavior | `src/mcp_server.rs` | 19 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health/stats/export/import/advanced_search/similar/traverse/phrase_search |
 | Storage schema/ops | `src/memory_core/storage/sqlite.rs` | Uses `spawn_blocking` for DB I/O; FTS5 virtual table for full-text search |
-| Pipeline trait boundaries | `src/memory_core/mod.rs` | 12 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier + Embedder |
+| Pipeline trait boundaries | `src/memory_core/mod.rs` | 17 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier/Embedder/AdvancedSearcher/GraphTraverser/SimilarFinder/PhraseSearcher |
+| Scoring system | `src/memory_core/scoring.rs` | Type weights, priority factors, time decay, word overlap, Jaccard similarity |
 | Embedding system | `src/memory_core/embedder.rs` | `Embedder` trait, `PlaceholderEmbedder`, `OnnxEmbedder` (feature-gated), model download |
 | FTS5 search | `src/memory_core/storage/sqlite.rs` | Standalone FTS5 table synced on store/update/delete; LIKE fallback |
 | Integration protocol checks | `tests/mcp_smoke.rs` | Hermetic HOME/USERPROFILE isolation |
@@ -90,3 +91,7 @@ gh api repos/George-RD/romega-memory/pulls/<num>/comments
 - Traits use struct-based signatures: `MemoryInput` (store), `MemoryUpdate` (update), `SearchOptions` (search/recent/semantic/tag/list).
 - Event types are validated against `VALID_EVENT_TYPES`; priority auto-maps from event type via `default_priority_for_event_type`.
 - Schema migrations are additive (ALTER TABLE ADD COLUMN with error ignoring for existing DBs).
+- Advanced search uses multi-phase scoring: vector similarity + FTS5 BM25 + type weighting + time decay + word overlap + importance boost + dedup.
+- Graph traversal via BFS with configurable max_hops (1-5), min_weight, and edge type filtering.
+- Scoring module (`scoring.rs`) holds parity constants: TYPE_WEIGHTS, DEFAULT_PRIORITY, and scoring helper functions.
+- `SearchOptions` extended with `importance_min`, `created_after`, `created_before`, `context_tags` for advanced filtering.

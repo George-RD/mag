@@ -13,9 +13,9 @@ use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    Deleter, Lister, MemoryInput, MemoryUpdate, Recents, RelationshipQuerier, Retriever,
-    SearchOptions, Searcher, SemanticSearcher, Storage, Tagger, Updater,
-    default_priority_for_event_type, is_valid_event_type,
+    AdvancedSearcher, Deleter, GraphTraverser, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
+    Recents, RelationshipQuerier, Retriever, SearchOptions, Searcher, SemanticSearcher,
+    SimilarFinder, Storage, Tagger, Updater, default_priority_for_event_type, is_valid_event_type,
 };
 
 #[derive(Clone)]
@@ -71,6 +71,41 @@ struct SearchRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SemanticSearchRequest {
     query: String,
+    limit: Option<usize>,
+    event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct AdvancedSearchRequest {
+    query: String,
+    limit: Option<usize>,
+    event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
+    importance_min: Option<f64>,
+    created_after: Option<String>,
+    created_before: Option<String>,
+    context_tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimilarRequest {
+    memory_id: String,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct TraverseRequest {
+    memory_id: String,
+    max_hops: Option<usize>,
+    min_weight: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct PhraseSearchRequest {
+    phrase: String,
     limit: Option<usize>,
     event_type: Option<String>,
     project: Option<String>,
@@ -230,6 +265,10 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            importance_min: None,
+            created_after: None,
+            created_before: None,
+            context_tags: None,
         };
         let results = self
             .storage
@@ -278,6 +317,10 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            importance_min: None,
+            created_after: None,
+            created_before: None,
+            context_tags: None,
         };
         let results = self
             .storage
@@ -294,6 +337,219 @@ impl McpMemoryServer {
                     "id": r.id,
                     "content": r.content,
                     "score": r.score,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
+                })
+            })
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "results": payload }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_advanced_search",
+        description = "Perform advanced multi-phase search with scoring and filters"
+    )]
+    async fn memory_advanced_search(
+        &self,
+        params: Parameters<AdvancedSearchRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
+
+        let limit = params.0.limit.unwrap_or(10);
+        let opts = SearchOptions {
+            event_type: params.0.event_type.clone(),
+            project: params.0.project.clone(),
+            session_id: params.0.session_id.clone(),
+            importance_min: params.0.importance_min,
+            created_after: params.0.created_after.clone(),
+            created_before: params.0.created_before.clone(),
+            context_tags: params.0.context_tags.clone(),
+        };
+        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+            &self.storage,
+            &params.0.query,
+            limit,
+            &opts,
+        )
+        .await
+        .map_err(|e| {
+            McpError::internal_error(format!("failed to advanced-search memories: {e}"), None)
+        })?;
+
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
+                    "score": r.score,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
+                })
+            })
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "results": payload }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_similar",
+        description = "Find memories similar to a source memory by embedding"
+    )]
+    async fn memory_similar(
+        &self,
+        params: Parameters<SimilarRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        self.storage
+            .retrieve(&params.0.memory_id)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("memory not found for similar search: {e}"), None)
+            })?;
+
+        let limit = params.0.limit.unwrap_or(5);
+        let results = <SqliteStorage as SimilarFinder>::find_similar(
+            &self.storage,
+            &params.0.memory_id,
+            limit,
+        )
+        .await
+        .map_err(|e| {
+            McpError::internal_error(format!("failed to find similar memories: {e}"), None)
+        })?;
+
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
+                    "score": r.score,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
+                })
+            })
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "results": payload }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_traverse",
+        description = "Traverse related memories using graph relationships"
+    )]
+    async fn memory_traverse(
+        &self,
+        params: Parameters<TraverseRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        self.storage
+            .retrieve(&params.0.memory_id)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("memory not found for traversal: {e}"), None)
+            })?;
+
+        let max_hops = params.0.max_hops.unwrap_or(2);
+        let min_weight = params.0.min_weight.unwrap_or(0.0);
+        let nodes = <SqliteStorage as GraphTraverser>::traverse(
+            &self.storage,
+            &params.0.memory_id,
+            max_hops,
+            min_weight,
+            None,
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to traverse graph: {e}"), None))?;
+
+        let mut grouped = serde_json::Map::new();
+        for node in nodes {
+            let key = node.hop.to_string();
+            let entry = grouped
+                .entry(key)
+                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+            if let serde_json::Value::Array(items) = entry {
+                items.push(json!({
+                    "id": node.id,
+                    "content": node.content,
+                    "event_type": node.event_type,
+                    "metadata": node.metadata,
+                    "hop": node.hop,
+                    "weight": node.weight,
+                    "edge_type": node.edge_type,
+                    "created_at": node.created_at
+                }));
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::Value::Object(grouped).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_phrase_search",
+        description = "Search memories by exact phrase substring"
+    )]
+    async fn memory_phrase_search(
+        &self,
+        params: Parameters<PhraseSearchRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
+
+        let limit = params.0.limit.unwrap_or(10);
+        let opts = SearchOptions {
+            event_type: params.0.event_type.clone(),
+            project: params.0.project.clone(),
+            session_id: params.0.session_id.clone(),
+            importance_min: None,
+            created_after: None,
+            created_before: None,
+            context_tags: None,
+        };
+        let results = <SqliteStorage as PhraseSearcher>::phrase_search(
+            &self.storage,
+            &params.0.phrase,
+            limit,
+            &opts,
+        )
+        .await
+        .map_err(|e| {
+            McpError::internal_error(format!("failed to phrase-search memories: {e}"), None)
+        })?;
+
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
                     "tags": r.tags,
                     "importance": r.importance,
                     "metadata": r.metadata,
@@ -327,6 +583,10 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            importance_min: None,
+            created_after: None,
+            created_before: None,
+            context_tags: None,
         };
         let results =
             self.storage.recent(limit, &opts).await.map_err(|e| {
@@ -444,6 +704,10 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            importance_min: None,
+            created_after: None,
+            created_before: None,
+            context_tags: None,
         };
         let results = self
             .storage
@@ -493,6 +757,10 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            importance_min: None,
+            created_after: None,
+            created_before: None,
+            context_tags: None,
         };
         let result =
             self.storage.list(offset, limit, &opts).await.map_err(|e| {

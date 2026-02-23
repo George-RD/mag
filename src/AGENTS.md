@@ -12,6 +12,7 @@ src/
 └── memory_core/
     ├── mod.rs            # Core traits + Pipeline orchestration
     ├── embedder.rs       # Embedder trait + PlaceholderEmbedder + OnnxEmbedder
+    ├── scoring.rs        # Search scoring: type weights, priority factors, time decay, word overlap, Jaccard
     └── storage/
         ├── mod.rs        # Storage exports
         └── sqlite.rs     # SQLite implementation
@@ -29,18 +30,21 @@ src/
 
 ## FEATURE SURFACE
 
-### CLI Commands
-`ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `stats`, `export`, `import`, `download-model`, `serve`
+### CLI Commands (19)
 
-### MCP Tools (15)
+`ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `stats`, `export`, `import`, `download-model`, `advanced-search`, `similar`, `traverse`, `phrase-search`, `serve`
 
-`memory_store`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_semantic_search`, `memory_tag_search`, `memory_list`, `memory_recent`, `memory_relations`, `memory_add_relation`, `memory_health`, `memory_stats`, `memory_export`, `memory_import`
+### MCP Tools (19)
 
-### Core Traits
-`Ingestor`, `Processor`, `Storage`, `Retriever`, `Searcher`, `Recents`, `SemanticSearcher`, `Deleter`, `Updater`, `Tagger`, `Lister`, `RelationshipQuerier`, `Embedder`
+`memory_store`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_semantic_search`, `memory_tag_search`, `memory_list`, `memory_recent`, `memory_relations`, `memory_add_relation`, `memory_health`, `memory_stats`, `memory_export`, `memory_import`, `memory_advanced_search`, `memory_similar`, `memory_traverse`, `memory_phrase_search`
+
+### Core Traits (17)
+
+`Ingestor`, `Processor`, `Storage`, `Retriever`, `Searcher`, `Recents`, `SemanticSearcher`, `Deleter`, `Updater`, `Tagger`, `Lister`, `RelationshipQuerier`, `Embedder`, `AdvancedSearcher`, `GraphTraverser`, `SimilarFinder`, `PhraseSearcher`
 
 ### Domain Structs
-`MemoryInput` (store params), `MemoryUpdate` (update params), `SearchOptions` (filter by event_type/project/session_id), `SearchResult`, `SemanticResult`, `Relationship`, `ListResult`
+
+`MemoryInput` (store params), `MemoryUpdate` (update params), `SearchOptions` (filter by event_type/project/session_id/importance_min/created_after/created_before/context_tags), `SearchResult`, `SemanticResult`, `Relationship`, `ListResult`, `GraphNode`
 
 ## CONVENTIONS
 - `main.rs` initializes tracing to stderr; preserve this in server mode.

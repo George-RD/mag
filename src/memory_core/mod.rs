@@ -4,6 +4,7 @@ use tracing::info;
 use uuid::Uuid;
 
 pub mod embedder;
+pub mod scoring;
 pub mod storage;
 
 #[cfg(feature = "real-embeddings")]
@@ -11,6 +12,7 @@ pub mod storage;
 pub use embedder::OnnxEmbedder;
 #[allow(unused_imports)]
 pub use embedder::{Embedder, PlaceholderEmbedder};
+pub use scoring::{jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap};
 
 #[derive(Debug, Clone)]
 pub struct MemoryInput {
@@ -60,6 +62,10 @@ pub struct SearchOptions {
     pub event_type: Option<String>,
     pub project: Option<String>,
     pub session_id: Option<String>,
+    pub importance_min: Option<f64>,
+    pub created_after: Option<String>,
+    pub created_before: Option<String>,
+    pub context_tags: Option<Vec<String>>,
 }
 
 pub const VALID_EVENT_TYPES: &[&str] = &[
@@ -136,6 +142,18 @@ pub struct SemanticResult {
     pub score: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct GraphNode {
+    pub id: String,
+    pub content: String,
+    pub event_type: Option<String>,
+    pub metadata: serde_json::Value,
+    pub hop: usize,
+    pub weight: f64,
+    pub edge_type: String,
+    pub created_at: String,
+}
+
 /// A directed relationship between two memories.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Relationship {
@@ -209,6 +227,42 @@ pub trait Recents: Send + Sync {
 #[async_trait]
 pub trait SemanticSearcher: Send + Sync {
     async fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SemanticResult>>;
+}
+
+#[async_trait]
+pub trait GraphTraverser: Send + Sync {
+    async fn traverse(
+        &self,
+        start_id: &str,
+        max_hops: usize,
+        min_weight: f64,
+        edge_types: Option<&[String]>,
+    ) -> Result<Vec<GraphNode>>;
+}
+
+#[async_trait]
+pub trait SimilarFinder: Send + Sync {
+    async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>;
+}
+
+#[async_trait]
+pub trait PhraseSearcher: Send + Sync {
+    async fn phrase_search(
+        &self,
+        phrase: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>>;
+}
+
+#[async_trait]
+pub trait AdvancedSearcher: Send + Sync {
+    async fn advanced_search(
         &self,
         query: &str,
         limit: usize,
