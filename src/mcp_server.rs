@@ -13,9 +13,10 @@ use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, GraphTraverser, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
-    Recents, RelationshipQuerier, Retriever, SearchOptions, Searcher, SemanticSearcher,
-    SimilarFinder, Storage, Tagger, Updater, default_priority_for_event_type, is_valid_event_type,
+    AdvancedSearcher, Deleter, ExpirationSweeper, FeedbackRecorder, GraphTraverser, Lister,
+    MemoryInput, MemoryUpdate, PhraseSearcher, Recents, RelationshipQuerier, Retriever,
+    SearchOptions, Searcher, SemanticSearcher, SimilarFinder, Storage, Tagger, Updater,
+    default_priority_for_event_type, default_ttl_for_event_type, is_valid_event_type,
 };
 
 #[derive(Clone)]
@@ -52,6 +53,7 @@ struct StoreRequest {
     priority: Option<i32>,
     entity_id: Option<String>,
     agent_type: Option<String>,
+    ttl_seconds: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -179,6 +181,16 @@ struct AddRelationRequest {
     metadata: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct FeedbackRequest {
+    memory_id: String,
+    rating: String,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SweepRequest {}
+
 #[tool_router]
 impl McpMemoryServer {
     #[tool(
@@ -201,6 +213,12 @@ impl McpMemoryServer {
             .clone()
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let event_type = params.0.event_type.clone();
+        let ttl_seconds = params.0.ttl_seconds.or_else(|| {
+            event_type
+                .as_deref()
+                .map(default_ttl_for_event_type)
+                .unwrap_or(Some(crate::memory_core::TTL_LONG_TERM))
+        });
         let input = MemoryInput {
             content: params.0.content.clone(),
             id: Some(id.clone()),
@@ -220,6 +238,7 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             entity_id: params.0.entity_id.clone(),
             agent_type: params.0.agent_type.clone(),
+            ttl_seconds,
         };
         <SqliteStorage as Storage>::store(&self.storage, &id, &params.0.content, &input)
             .await
@@ -853,6 +872,50 @@ impl McpMemoryServer {
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": rel_id, "source_id": params.0.source_id, "target_id": params.0.target_id, "rel_type": params.0.rel_type, "weight": params.0.weight.unwrap_or(1.0), "metadata": params.0.metadata.clone().unwrap_or_else(|| serde_json::json!({})) }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_feedback",
+        description = "Record user feedback signal for a memory"
+    )]
+    async fn memory_feedback(
+        &self,
+        params: Parameters<FeedbackRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let rating = params.0.rating.as_str();
+        if !matches!(rating, "helpful" | "unhelpful" | "outdated") {
+            return Err(McpError::invalid_params("invalid rating", None));
+        }
+
+        let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
+            &self.storage,
+            &params.0.memory_id,
+            rating,
+            params.0.reason.as_deref(),
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to record feedback: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({"memory_id": params.0.memory_id, "feedback": result}).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_sweep",
+        description = "Sweep expired memories based on TTL"
+    )]
+    async fn memory_sweep(
+        &self,
+        #[allow(unused_variables)] params: Parameters<SweepRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let swept_count = <SqliteStorage as ExpirationSweeper>::sweep_expired(&self.storage)
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to sweep expired: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "swept_count": swept_count }).to_string(),
         )]))
     }
 

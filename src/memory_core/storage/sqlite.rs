@@ -10,12 +10,27 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, GraphNode, GraphTraverser, ListResult, Lister, MemoryInput,
-    MemoryUpdate, PhraseSearcher, Recents, Relationship, RelationshipQuerier, Retriever,
-    SearchOptions, SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder,
-    Storage, Tagger, Updater, embedder::Embedder, jaccard_similarity, priority_factor, time_decay,
-    type_weight, word_overlap,
+    AdvancedSearcher, Deleter, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser,
+    ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Recents, Relationship,
+    RelationshipQuerier, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
+    SemanticSearcher, SimilarFinder, Storage, Tagger, Updater, embedder::Embedder,
+    jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
 };
+
+const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
+    ("error_pattern", 0.70),
+    ("session_summary", 0.95),
+    ("task_completion", 0.85),
+    ("decision", 0.85),
+    ("lesson_learned", 0.85),
+    ("checkpoint", 0.90),
+];
+
+#[derive(Debug)]
+enum StoreOutcome {
+    Inserted,
+    Deduped,
+}
 
 /// Controls how the SQLite storage backend is initialized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,8 +197,8 @@ impl SqliteStorage {
             let mut mem_stmt = conn
                 .prepare(
                     "SELECT id, content, tags, importance, metadata, embedding, parent_id,
-                            created_at, event_at, content_hash, source_type, last_accessed_at,
-                            access_count, session_id, event_type, project, priority, entity_id, agent_type
+                            created_at, event_at, content_hash, canonical_hash, source_type, last_accessed_at,
+                            access_count, session_id, event_type, project, priority, entity_id, agent_type, ttl_seconds
                      FROM memories ORDER BY created_at",
                 )
                 .context("failed to prepare export query")?;
@@ -199,15 +214,17 @@ impl SqliteStorage {
                     let created_at: String = row.get(7)?;
                     let event_at: String = row.get(8)?;
                     let content_hash: String = row.get(9)?;
-                    let source_type: String = row.get(10)?;
-                    let last_accessed_at: String = row.get(11)?;
-                    let access_count: i64 = row.get(12)?;
-                    let session_id: Option<String> = row.get(13).ok();
-                    let event_type: Option<String> = row.get(14).ok();
-                    let project: Option<String> = row.get(15).ok();
-                    let priority: Option<i64> = row.get(16).ok();
-                    let entity_id: Option<String> = row.get(17).ok();
-                    let agent_type: Option<String> = row.get(18).ok();
+                    let canonical_hash: Option<String> = row.get(10).ok();
+                    let source_type: String = row.get(11)?;
+                    let last_accessed_at: String = row.get(12)?;
+                    let access_count: i64 = row.get(13)?;
+                    let session_id: Option<String> = row.get(14).ok();
+                    let event_type: Option<String> = row.get(15).ok();
+                    let project: Option<String> = row.get(16).ok();
+                    let priority: Option<i64> = row.get(17).ok();
+                    let entity_id: Option<String> = row.get(18).ok();
+                    let agent_type: Option<String> = row.get(19).ok();
+                    let ttl_seconds: Option<i64> = row.get(20).ok();
                     let tags_value = serde_json::from_str::<serde_json::Value>(&tags)
                         .unwrap_or_else(|_| serde_json::Value::Array(vec![]));
                     let metadata_value = serde_json::from_str::<serde_json::Value>(&metadata)
@@ -222,6 +239,7 @@ impl SqliteStorage {
                         "created_at": created_at,
                         "event_at": event_at,
                         "content_hash": content_hash,
+                        "canonical_hash": canonical_hash,
                         "source_type": source_type,
                         "last_accessed_at": last_accessed_at,
                         "access_count": access_count,
@@ -231,6 +249,7 @@ impl SqliteStorage {
                         "priority": priority,
                         "entity_id": entity_id,
                         "agent_type": agent_type,
+                        "ttl_seconds": ttl_seconds,
                     }))
                 })
                 .context("failed to query memories for export")?
@@ -309,6 +328,10 @@ impl SqliteStorage {
                 let metadata =
                     serde_json::to_string(&mem["metadata"]).unwrap_or_else(|_| "{}".to_string());
                 let content_hash = mem["content_hash"].as_str().unwrap_or("");
+                let canonical_hash_value = mem["canonical_hash"]
+                    .as_str()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| canonical_hash(content));
                 let source_type = mem["source_type"].as_str().unwrap_or("import");
                 let access_count = mem["access_count"].as_i64().unwrap_or(0);
                 let session_id = mem["session_id"].as_str();
@@ -317,12 +340,13 @@ impl SqliteStorage {
                 let priority = mem["priority"].as_i64();
                 let entity_id = mem["entity_id"].as_str();
                 let agent_type = mem["agent_type"].as_str();
+                let ttl_seconds = mem["ttl_seconds"].as_i64();
 
                 tx.execute(
                     "INSERT OR REPLACE INTO memories (
                         id, content, content_hash, source_type, tags, importance, metadata, access_count,
-                        session_id, event_type, project, priority, entity_id, agent_type
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                        session_id, event_type, project, priority, entity_id, agent_type, ttl_seconds, canonical_hash
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                     params![
                         id,
                         content,
@@ -338,6 +362,8 @@ impl SqliteStorage {
                         priority,
                         entity_id,
                         agent_type,
+                        ttl_seconds,
+                        canonical_hash_value,
                     ],
                 )
                 .context("failed to import memory")?;
@@ -457,6 +483,75 @@ impl SqliteStorage {
 
         value.ok_or_else(|| anyhow!("memory not found for id={id}"))
     }
+
+    async fn try_auto_relate(&self, memory_id: &str) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        let memory_id = memory_id.to_string();
+        let source_id_for_query = memory_id.clone();
+
+        let similar_ids = tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let source_embedding: Vec<u8> = conn
+                .query_row(
+                    "SELECT embedding FROM memories WHERE id = ?1",
+                    params![source_id_for_query],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query source embedding for auto relate")?
+                .ok_or_else(|| anyhow!("memory not found for auto relate"))?;
+            let source_embedding: Vec<f32> = serde_json::from_slice(&source_embedding)
+                .context("failed to decode source embedding for auto relate")?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND id != ?1
+                     AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                     ORDER BY created_at DESC LIMIT 100",
+                )
+                .context("failed to prepare auto relate query")?;
+
+            let rows = stmt
+                .query_map(params![source_id_for_query], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+                })
+                .context("failed to execute auto relate query")?;
+
+            let mut ranked = Vec::new();
+            for row in rows {
+                let (id, embedding_blob) = row.context("failed to decode auto relate row")?;
+                let embedding: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                    .context("failed to decode candidate embedding for auto relate")?;
+                let score = cosine_similarity(&source_embedding, &embedding);
+                if score >= 0.45 {
+                    ranked.push((id, score));
+                }
+            }
+
+            ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+            ranked.truncate(3);
+
+            Ok::<_, anyhow::Error>(ranked)
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        for (target_id, score) in similar_ids {
+            self.add_relationship(
+                &memory_id,
+                &target_id,
+                "related",
+                f64::from(score),
+                &serde_json::json!({}),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -478,11 +573,14 @@ impl Storage for SqliteStorage {
         let priority = input.priority;
         let entity_id = input.entity_id.clone();
         let agent_type = input.agent_type.clone();
+        let ttl_seconds = input.ttl_seconds;
+        let id_for_store = id.clone();
 
-        tokio::task::spawn_blocking(move || {
+        let outcome = tokio::task::spawn_blocking(move || {
             let mut hasher = Sha256::new();
             hasher.update(data.as_bytes());
             let content_hash = format!("{:x}", hasher.finalize());
+            let normalized_hash = canonical_hash(&data);
             let embedding = serde_json::to_vec(&embedder.embed(&data)?)
                 .context("failed to serialize embedding")?;
             let conn = conn
@@ -491,6 +589,78 @@ impl Storage for SqliteStorage {
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start sqlite transaction")?;
+
+            let existing_canonical_id: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM memories
+                     WHERE canonical_hash = ?1
+                       AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                     LIMIT 1",
+                    params![normalized_hash],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query canonical hash dedup")?;
+
+            if let Some(existing_id) = existing_canonical_id {
+                tx.execute(
+                    "UPDATE memories
+                     SET access_count = access_count + 1,
+                         last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     WHERE id = ?1",
+                    params![existing_id],
+                )
+                .context("failed to update access_count for canonical dedup")?;
+                tx.commit().context("failed to commit canonical dedup")?;
+                return Ok::<_, anyhow::Error>(StoreOutcome::Deduped);
+            }
+
+            if let Some(ref event_type_value) = event_type {
+                let threshold = DEDUP_THRESHOLDS
+                    .iter()
+                    .find(|(kind, _)| kind == &event_type_value.as_str())
+                    .map(|(_, threshold)| *threshold);
+
+                if let Some(threshold) = threshold {
+                    let mut stmt = tx
+                        .prepare(
+                            "SELECT id, content FROM memories WHERE event_type = ?1
+                             AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                             ORDER BY created_at DESC LIMIT 5",
+                        )
+                        .context("failed to prepare Jaccard dedup query")?;
+                    let rows = stmt
+                        .query_map(params![event_type_value], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        })
+                        .context("failed to execute Jaccard dedup query")?;
+
+                    let mut matched_id: Option<String> = None;
+                    for row in rows {
+                        let (candidate_id, candidate_content) =
+                            row.context("failed to decode Jaccard dedup row")?;
+                        let similarity = jaccard_similarity(&data, &candidate_content, 3);
+                        if similarity >= threshold {
+                            matched_id = Some(candidate_id);
+                            break;
+                        }
+                    }
+
+                    if let Some(existing_id) = matched_id {
+                        drop(stmt);
+                        tx.execute(
+                            "UPDATE memories
+                             SET access_count = access_count + 1,
+                                 last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                             WHERE id = ?1",
+                            params![existing_id],
+                        )
+                        .context("failed to update access_count for Jaccard dedup")?;
+                        tx.commit().context("failed to commit Jaccard dedup")?;
+                        return Ok::<_, anyhow::Error>(StoreOutcome::Deduped);
+                    }
+                }
+            }
 
             tx.execute(
                 "INSERT INTO memories (
@@ -510,7 +680,9 @@ impl Storage for SqliteStorage {
                     project,
                     priority,
                     entity_id,
-                    agent_type
+                    agent_type,
+                    ttl_seconds,
+                    canonical_hash
                 ) VALUES (
                     ?1,
                     ?2,
@@ -528,7 +700,9 @@ impl Storage for SqliteStorage {
                     ?10,
                     ?11,
                     ?12,
-                    ?13
+                    ?13,
+                    ?14,
+                    ?15
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
@@ -544,9 +718,11 @@ impl Storage for SqliteStorage {
                     priority = excluded.priority,
                     entity_id = excluded.entity_id,
                     agent_type = excluded.agent_type,
+                    ttl_seconds = excluded.ttl_seconds,
+                    canonical_hash = excluded.canonical_hash,
                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 params![
-                    id,
+                    id_for_store,
                     data,
                     embedding,
                     content_hash,
@@ -558,24 +734,32 @@ impl Storage for SqliteStorage {
                     project,
                     priority,
                     entity_id,
-                    agent_type
+                    agent_type,
+                    ttl_seconds,
+                    normalized_hash,
                 ],
             )
             .context("failed to insert memory")?;
 
-            tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
+            tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id_for_store])
                 .context("failed to delete existing FTS row during store")?;
             tx.execute(
                 "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
-                params![id, data],
+                params![id_for_store, data],
             )
             .context("failed to insert FTS row during store")?;
 
             tx.commit().context("failed to commit sqlite transaction")?;
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, anyhow::Error>(StoreOutcome::Inserted)
         })
         .await
         .context("spawn_blocking join error")??;
+
+        if matches!(outcome, StoreOutcome::Inserted)
+            && let Err(error) = self.try_auto_relate(&id).await
+        {
+            tracing::warn!(memory_id = %id, error = %error, "auto-relate failed");
+        }
 
         Ok(())
     }
@@ -1676,9 +1860,10 @@ impl Updater for SqliteStorage {
                     let mut hasher = Sha256::new();
                     hasher.update(new_content.as_bytes());
                     let hash = format!("{:x}", hasher.finalize());
+                    let canonical = canonical_hash(new_content);
                     let emb = serde_json::to_vec(&embedder.embed(new_content)?)
                         .context("failed to serialize embedding")?;
-                    Some((new_content.to_string(), hash, emb))
+                    Some((new_content.to_string(), hash, canonical, emb))
                 }
                 None => None,
             };
@@ -1692,7 +1877,7 @@ impl Updater for SqliteStorage {
             let mut values: Vec<SqlValue> = Vec::new();
             let mut next_param_index = 2;
 
-            if let Some((new_content, hash, embedding)) = &content_fields {
+            if let Some((new_content, hash, canonical, embedding)) = &content_fields {
                 set_clauses.push(format!("content = ?{next_param_index}"));
                 values.push(SqlValue::Text(new_content.clone()));
                 next_param_index += 1;
@@ -1703,6 +1888,10 @@ impl Updater for SqliteStorage {
 
                 set_clauses.push(format!("embedding = ?{next_param_index}"));
                 values.push(SqlValue::Blob(embedding.clone()));
+                next_param_index += 1;
+
+                set_clauses.push(format!("canonical_hash = ?{next_param_index}"));
+                values.push(SqlValue::Text(canonical.clone()));
                 next_param_index += 1;
             }
 
@@ -1756,7 +1945,7 @@ impl Updater for SqliteStorage {
                 return Err(anyhow!("memory not found for id={id}"));
             }
 
-            if let Some((new_content, _, _)) = &content_fields {
+            if let Some((new_content, _, _, _)) = &content_fields {
                 conn.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
                     .context("failed to delete existing FTS row during update")?;
                 conn.execute(
@@ -1772,6 +1961,146 @@ impl Updater for SqliteStorage {
         .context("spawn_blocking join error")??;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl FeedbackRecorder for SqliteStorage {
+    async fn record_feedback(
+        &self,
+        memory_id: &str,
+        rating: &str,
+        reason: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let delta = match rating {
+            "helpful" => 1_i64,
+            "unhelpful" => -1_i64,
+            "outdated" => -2_i64,
+            _ => return Err(anyhow!("invalid rating: {rating}")),
+        };
+
+        let conn = Arc::clone(&self.conn);
+        let memory_id = memory_id.to_string();
+        let rating = rating.to_string();
+        let reason = reason.map(ToString::to_string);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let metadata_raw: Option<String> = conn
+                .query_row(
+                    "SELECT metadata FROM memories WHERE id = ?1",
+                    params![memory_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query metadata for feedback")?;
+
+            let metadata_raw =
+                metadata_raw.ok_or_else(|| anyhow!("memory not found for id={memory_id}"))?;
+            let mut metadata = parse_metadata_from_db(&metadata_raw);
+
+            let mut feedback_signals = metadata
+                .get("feedback_signals")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+
+            feedback_signals.push(serde_json::json!({
+                "rating": rating,
+                "reason": reason,
+                "at": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            }));
+
+            let new_score = metadata
+                .get("feedback_score")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0)
+                + delta;
+            let flagged = new_score <= -3;
+
+            metadata["feedback_signals"] = serde_json::Value::Array(feedback_signals.clone());
+            metadata["feedback_score"] = serde_json::Value::Number(new_score.into());
+            if flagged {
+                metadata["flagged_for_review"] = serde_json::Value::Bool(true);
+            }
+
+            let metadata_json = serde_json::to_string(&metadata)
+                .context("failed to serialize feedback metadata")?;
+            conn.execute(
+                "UPDATE memories
+                 SET metadata = ?2,
+                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ?1",
+                params![memory_id, metadata_json],
+            )
+            .context("failed to persist feedback metadata")?;
+
+            Ok::<_, anyhow::Error>(serde_json::json!({
+                "memory_id": memory_id,
+                "rating": rating,
+                "new_score": new_score,
+                "total_signals": feedback_signals.len(),
+                "flagged": flagged,
+            }))
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl ExpirationSweeper for SqliteStorage {
+    async fn sweep_expired(&self) -> Result<usize> {
+        let conn = Arc::clone(&self.conn);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let tx = conn
+                .unchecked_transaction()
+                .context("failed to start sweep transaction")?;
+
+            let mut stmt = tx
+                .prepare(
+                    "SELECT id FROM memories
+                     WHERE ttl_seconds IS NOT NULL
+                       AND datetime(created_at, '+' || ttl_seconds || ' seconds') < datetime('now')",
+                )
+                .context("failed to prepare expiration query")?;
+            let expired_rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .context("failed to execute expiration query")?;
+
+            let mut expired_ids = Vec::new();
+            for row in expired_rows {
+                expired_ids.push(row.context("failed to decode expiration row")?);
+            }
+            drop(stmt);
+
+            for id in &expired_ids {
+                tx.execute(
+                    "DELETE FROM relationships WHERE source_id = ?1 OR target_id = ?1",
+                    params![id],
+                )
+                .context("failed to delete relationships during sweep")?;
+                tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
+                    .context("failed to delete FTS during sweep")?;
+                tx.execute("DELETE FROM memories WHERE id = ?1", params![id])
+                    .context("failed to delete memory during sweep")?;
+            }
+
+            tx.commit().context("failed to commit sweep transaction")?;
+            Ok::<_, anyhow::Error>(expired_ids.len())
+        })
+        .await
+        .context("spawn_blocking join error")?
     }
 }
 
@@ -2139,6 +2468,8 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
         "ALTER TABLE memories ADD COLUMN priority INTEGER",
         "ALTER TABLE memories ADD COLUMN entity_id TEXT",
         "ALTER TABLE memories ADD COLUMN agent_type TEXT",
+        "ALTER TABLE memories ADD COLUMN ttl_seconds INTEGER",
+        "ALTER TABLE memories ADD COLUMN canonical_hash TEXT",
     ];
     for alter in &new_columns {
         let _ = conn.execute_batch(alter);
@@ -2184,6 +2515,31 @@ fn default_db_path() -> Result<PathBuf> {
             anyhow!("neither HOME nor USERPROFILE is set — cannot resolve default database path")
         })?;
     Ok(PathBuf::from(home).join(".romega-memory").join("memory.db"))
+}
+
+fn canonicalize(content: &str) -> String {
+    let stripped: String = content
+        .chars()
+        .filter(|c| {
+            !matches!(
+                c,
+                '*' | '#' | '`' | '~' | '[' | ']' | '(' | ')' | '>' | '|' | '_'
+            )
+        })
+        .collect();
+    stripped
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_lowercase()
+}
+
+fn canonical_hash(content: &str) -> String {
+    let canonical = canonicalize(content);
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn parse_tags_from_db(raw: &str) -> Vec<String> {
@@ -2280,10 +2636,30 @@ fn matches_search_options(candidate: &RankedSemanticCandidate, opts: &SearchOpti
 mod tests {
     use super::*;
     use crate::memory_core::{
-        AdvancedSearcher, GraphTraverser, PhraseSearcher, Recents, Retriever, SearchOptions,
-        Searcher, SemanticSearcher, SimilarFinder, Storage, Updater,
-        default_priority_for_event_type, is_valid_event_type,
+        AdvancedSearcher, ExpirationSweeper, FeedbackRecorder, GraphTraverser, PhraseSearcher,
+        Recents, Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, Storage,
+        TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater, default_priority_for_event_type,
+        default_ttl_for_event_type, is_valid_event_type,
     };
+
+    #[derive(Debug, Clone)]
+    struct KeywordEmbedder;
+
+    impl Embedder for KeywordEmbedder {
+        fn dimension(&self) -> usize {
+            4
+        }
+
+        fn embed(&self, text: &str) -> Result<Vec<f32>> {
+            if text.contains("alpha") {
+                Ok(vec![1.0, 0.0, 0.0, 0.0])
+            } else if text.contains("beta") {
+                Ok(vec![0.9, 0.1, 0.0, 0.0])
+            } else {
+                Ok(vec![0.0, 0.0, 1.0, 0.0])
+            }
+        }
+    }
 
     #[test]
     fn test_new_with_path_creates_parent_and_db() {
@@ -2336,6 +2712,8 @@ mod tests {
             "priority",
             "entity_id",
             "agent_type",
+            "ttl_seconds",
+            "canonical_hash",
         ] {
             assert!(memories_cols.iter().any(|c| c == col));
         }
@@ -3458,9 +3836,12 @@ mod tests {
             .unwrap();
 
         let rels = storage.get_relationships("ra").await.unwrap();
-        assert_eq!(rels.len(), 2);
-
-        let types: Vec<&str> = rels.iter().map(|r| r.rel_type.as_str()).collect();
+        let types: Vec<&str> = rels
+            .iter()
+            .filter(|r| r.rel_type == "links_to" || r.rel_type == "depends_on")
+            .map(|r| r.rel_type.as_str())
+            .collect();
+        assert_eq!(types.len(), 2);
         assert!(types.contains(&"links_to"));
         assert!(types.contains(&"depends_on"));
     }
@@ -4094,6 +4475,355 @@ mod tests {
         assert_eq!(default_priority_for_event_type("not_real"), 0);
     }
 
+    #[test]
+    fn test_ttl_auto_assignment() {
+        assert_eq!(
+            default_ttl_for_event_type("session_summary"),
+            Some(TTL_SHORT_TERM)
+        );
+        assert_eq!(
+            default_ttl_for_event_type("task_completion"),
+            Some(TTL_LONG_TERM)
+        );
+        assert_eq!(default_ttl_for_event_type("error_pattern"), None);
+        assert_eq!(default_ttl_for_event_type("user_preference"), None);
+        assert_eq!(default_ttl_for_event_type("checkpoint"), Some(604_800));
+        assert_eq!(
+            default_ttl_for_event_type("code_chunk"),
+            Some(TTL_EPHEMERAL)
+        );
+        assert_eq!(
+            default_ttl_for_event_type("file_summary"),
+            Some(TTL_SHORT_TERM)
+        );
+        assert_eq!(
+            default_ttl_for_event_type("unknown_event"),
+            Some(TTL_LONG_TERM)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_canonical_hash_dedup() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let input = MemoryInput {
+            event_type: Some("memory".to_string()),
+            ..Default::default()
+        };
+
+        <SqliteStorage as Storage>::store(&storage, "dup-a", "Hello World", &input)
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "dup-b", "Hello World", &input)
+            .await
+            .unwrap();
+
+        let listed = storage
+            .list(0, 10, &SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(listed.total, 1);
+        assert_eq!(storage.debug_get_access_count("dup-a").unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_canonical_hash_ignores_formatting() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let input = MemoryInput {
+            event_type: Some("memory".to_string()),
+            ..Default::default()
+        };
+
+        <SqliteStorage as Storage>::store(&storage, "fmt-a", "Hello World", &input)
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "fmt-b", "# hello    world", &input)
+            .await
+            .unwrap();
+
+        let listed = storage
+            .list(0, 10, &SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(listed.total, 1);
+    }
+
+    #[tokio::test]
+    async fn test_jaccard_dedup() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "jac-a",
+            "alpha beta gamma delta epsilon zeta eta theta iota",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "jac-b",
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let listed = storage
+            .list(0, 10, &SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(listed.total, 1);
+    }
+
+    #[tokio::test]
+    async fn test_no_dedup_different_event_types() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "nd-a",
+            "database migration plan finalized today",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "nd-b",
+            "database migration plan finalized today with notes",
+            &MemoryInput {
+                event_type: Some("reminder".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let listed = storage
+            .list(0, 10, &SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(listed.total, 2);
+    }
+
+    #[tokio::test]
+    async fn test_auto_relate_creates_edges() {
+        let storage =
+            SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+        <SqliteStorage as Storage>::store(&storage, "rel-a", "alpha seed", &MemoryInput::default())
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "rel-b", "beta seed", &MemoryInput::default())
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "rel-c",
+            "alpha latest",
+            &MemoryInput {
+                event_type: Some("decision".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let conn = storage.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relationships WHERE source_id = 'rel-c' AND rel_type = 'related'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(count >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_auto_relate_failure_doesnt_fail_store() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        {
+            let conn = storage.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO memories (id, content, embedding, content_hash, source_type, tags, metadata)
+                 VALUES ('broken', 'broken embedding', x'00', 'h-broken', 'test', '[]', '{}')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let result = <SqliteStorage as Storage>::store(
+            &storage,
+            "rel-safe",
+            "safe store payload",
+            &MemoryInput::default(),
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(
+            storage.retrieve("rel-safe").await.unwrap(),
+            "safe store payload"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feedback_helpful() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "fb-1",
+            "feedback target",
+            &MemoryInput::default(),
+        )
+        .await
+        .unwrap();
+
+        let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
+            &storage,
+            "fb-1",
+            "helpful",
+            Some("useful"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result["new_score"].as_i64(), Some(1));
+        assert_eq!(result["total_signals"].as_u64(), Some(1));
+        assert_eq!(result["flagged"].as_bool(), Some(false));
+    }
+
+    #[tokio::test]
+    async fn test_feedback_unhelpful_flagged() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "fb-2",
+            "feedback target",
+            &MemoryInput::default(),
+        )
+        .await
+        .unwrap();
+
+        for _ in 0..3 {
+            let _ = <SqliteStorage as FeedbackRecorder>::record_feedback(
+                &storage,
+                "fb-2",
+                "unhelpful",
+                None,
+            )
+            .await
+            .unwrap();
+        }
+
+        let conn = storage.conn.lock().unwrap();
+        let metadata_raw: String = conn
+            .query_row(
+                "SELECT metadata FROM memories WHERE id = 'fb-2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let metadata = parse_metadata_from_db(&metadata_raw);
+        assert_eq!(metadata["feedback_score"].as_i64(), Some(-3));
+        assert_eq!(metadata["flagged_for_review"].as_bool(), Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_sweep_expired() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "ttl-exp",
+            "expires",
+            &MemoryInput {
+                ttl_seconds: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        {
+            let conn = storage.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE memories SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = 'ttl-exp'",
+                [],
+            )
+            .unwrap();
+        }
+
+        let swept = <SqliteStorage as ExpirationSweeper>::sweep_expired(&storage)
+            .await
+            .unwrap();
+        assert_eq!(swept, 1);
+        assert!(storage.retrieve("ttl-exp").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sweep_preserves_permanent() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "ttl-perm",
+            "permanent",
+            &MemoryInput {
+                ttl_seconds: None,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        {
+            let conn = storage.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE memories SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = 'ttl-perm'",
+                [],
+            )
+            .unwrap();
+        }
+
+        let swept = <SqliteStorage as ExpirationSweeper>::sweep_expired(&storage)
+            .await
+            .unwrap();
+        assert_eq!(swept, 0);
+        assert_eq!(storage.retrieve("ttl-perm").await.unwrap(), "permanent");
+    }
+
+    #[tokio::test]
+    async fn test_ttl_seconds_stored() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "ttl-set",
+            "ttl value",
+            &MemoryInput {
+                ttl_seconds: Some(1234),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let conn = storage.conn.lock().unwrap();
+        let ttl: Option<i64> = conn
+            .query_row(
+                "SELECT ttl_seconds FROM memories WHERE id = 'ttl-set'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(ttl, Some(1234));
+    }
+
     #[tokio::test]
     async fn test_relationship_with_weight_and_metadata() {
         let storage = SqliteStorage::new_in_memory().unwrap();
@@ -4126,9 +4856,13 @@ mod tests {
             .unwrap();
 
         let rels = storage.get_relationships("rw1").await.unwrap();
-        assert_eq!(rels.len(), 1);
-        assert_eq!(rels[0].weight, 0.7);
-        assert_eq!(rels[0].metadata, serde_json::json!({"k":"v"}));
+        let links_to: Vec<_> = rels
+            .into_iter()
+            .filter(|r| r.rel_type == "links_to")
+            .collect();
+        assert_eq!(links_to.len(), 1);
+        assert_eq!(links_to[0].weight, 0.7);
+        assert_eq!(links_to[0].metadata, serde_json::json!({"k":"v"}));
     }
 
     #[tokio::test]
@@ -4446,9 +5180,11 @@ mod tests {
             .await
             .unwrap();
 
-        let nodes = <SqliteStorage as GraphTraverser>::traverse(&storage, "ga", 2, 0.0, None)
-            .await
-            .unwrap();
+        let edge_types = vec!["links".to_string()];
+        let nodes =
+            <SqliteStorage as GraphTraverser>::traverse(&storage, "ga", 2, 0.0, Some(&edge_types))
+                .await
+                .unwrap();
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0].id, "gb");
         assert_eq!(nodes[0].hop, 1);
@@ -4481,9 +5217,11 @@ mod tests {
             .await
             .unwrap();
 
-        let nodes = <SqliteStorage as GraphTraverser>::traverse(&storage, "gwa", 2, 0.5, None)
-            .await
-            .unwrap();
+        let edge_types = vec!["links".to_string()];
+        let nodes =
+            <SqliteStorage as GraphTraverser>::traverse(&storage, "gwa", 2, 0.5, Some(&edge_types))
+                .await
+                .unwrap();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].id, "gwb");
     }
@@ -4517,9 +5255,11 @@ mod tests {
             .await
             .unwrap();
 
-        let nodes = <SqliteStorage as GraphTraverser>::traverse(&storage, "mh1", 2, 0.0, None)
-            .await
-            .unwrap();
+        let edge_types = vec!["links".to_string()];
+        let nodes =
+            <SqliteStorage as GraphTraverser>::traverse(&storage, "mh1", 2, 0.0, Some(&edge_types))
+                .await
+                .unwrap();
         assert_eq!(nodes.len(), 2);
         assert!(nodes.iter().all(|n| n.hop <= 2));
     }
@@ -4541,7 +5281,7 @@ mod tests {
         <SqliteStorage as Storage>::store(
             &storage,
             "sim2",
-            "alpha beta",
+            "alpha beta extra",
             &MemoryInput {
                 metadata: serde_json::json!({}),
                 ..Default::default()
@@ -4615,11 +5355,11 @@ mod tests {
     #[tokio::test]
     async fn test_search_empty_opts_returns_all() {
         let storage = SqliteStorage::new_in_memory().unwrap();
-        for id in ["all_1", "all_2"] {
+        for (id, content) in [("all_1", "same one"), ("all_2", "same two")] {
             <SqliteStorage as Storage>::store(
                 &storage,
                 id,
-                "same",
+                content,
                 &MemoryInput {
                     metadata: serde_json::json!({}),
                     ..Default::default()
@@ -4653,6 +5393,8 @@ mod tests {
             "priority",
             "entity_id",
             "agent_type",
+            "ttl_seconds",
+            "canonical_hash",
         ] {
             assert!(memories_cols.contains(&col.to_string()));
         }

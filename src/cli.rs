@@ -9,6 +9,25 @@ pub enum InitModeArg {
     Advanced,
 }
 
+/// CLI representation of allowed feedback ratings.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeedbackRating {
+    Helpful,
+    Unhelpful,
+    Outdated,
+}
+
+impl FeedbackRating {
+    /// Returns the string representation expected by the storage layer.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Helpful => "helpful",
+            Self::Unhelpful => "unhelpful",
+            Self::Outdated => "outdated",
+        }
+    }
+}
+
 /// The main CLI entry point for the romega memory system.
 #[derive(Parser)]
 #[command(name = "romega")]
@@ -46,6 +65,8 @@ pub enum Commands {
         entity_id: Option<String>,
         #[arg(long)]
         agent_type: Option<String>,
+        #[arg(long, value_parser = clap::value_parser!(i64).range(0..))]
+        ttl_seconds: Option<i64>,
     },
     /// Processes content through the pipeline (alias for run in current model).
     Process {
@@ -68,11 +89,17 @@ pub enum Commands {
         entity_id: Option<String>,
         #[arg(long)]
         agent_type: Option<String>,
+        #[arg(long, value_parser = clap::value_parser!(i64).range(0..))]
+        ttl_seconds: Option<i64>,
     },
     /// Retrieves a stored memory by its ID.
-    Retrieve { id: String },
+    Retrieve {
+        id: String,
+    },
     /// Deletes a stored memory by its ID.
-    Delete { id: String },
+    Delete {
+        id: String,
+    },
     /// Updates an existing memory's content and/or tags.
     Update {
         id: String,
@@ -103,7 +130,9 @@ pub enum Commands {
         session_id: Option<String>,
     },
     /// Shows relationships for a given memory.
-    Relations { id: String },
+    Relations {
+        id: String,
+    },
     /// Searches stored memories by query string.
     Search {
         query: String,
@@ -180,6 +209,13 @@ pub enum Commands {
         /// Path to the JSON file to import, or "-" for stdin.
         path: String,
     },
+    Feedback {
+        memory_id: String,
+        rating: FeedbackRating,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    Sweep,
     /// Downloads the ONNX model and tokenizer used for embeddings.
     DownloadModel,
     /// Starts the MCP server over stdio transport.
@@ -392,6 +428,16 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_ingest_with_ttl_seconds() {
+        let args = vec!["romega", "ingest", "content", "--ttl-seconds", "123"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Ingest { ttl_seconds, .. } => assert_eq!(ttl_seconds, Some(123)),
+            _ => panic!("Expected Ingest command"),
+        }
+    }
+
+    #[test]
     fn test_cli_update_with_importance() {
         let args = vec!["romega", "update", "abc123", "--importance", "0.8"];
         let cli = Cli::parse_from(args);
@@ -539,6 +585,36 @@ mod tests {
         match cli.command {
             Commands::Import { path } => assert_eq!(path, "memories.json"),
             _ => panic!("Expected Import command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_feedback_command() {
+        let args = vec![
+            "romega", "feedback", "mem-1", "helpful", "--reason", "clear",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Feedback {
+                memory_id,
+                rating,
+                reason,
+            } => {
+                assert_eq!(memory_id, "mem-1");
+                assert_eq!(rating, FeedbackRating::Helpful);
+                assert_eq!(reason.as_deref(), Some("clear"));
+            }
+            _ => panic!("Expected Feedback command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_sweep_command() {
+        let args = vec!["romega", "sweep"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Sweep => {}
+            _ => panic!("Expected Sweep command"),
         }
     }
 

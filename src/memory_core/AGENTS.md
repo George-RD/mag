@@ -30,6 +30,8 @@ src/memory_core/
 | Search scoring | `src/memory_core/scoring.rs` | Type weights, priority factors, time decay, word overlap, Jaccard similarity |
 | Advanced search | `src/memory_core/storage/sqlite.rs` | Multi-phase scoring: vector + FTS5 + type-weighting + time-decay + word-overlap + importance |
 | Graph traversal | `src/memory_core/storage/sqlite.rs` | BFS with max_hops (1-5), min_weight, edge type filtering |
+| TTL + dedup lifecycle | `src/memory_core/mod.rs`, `src/memory_core/storage/sqlite.rs` | Event-type TTL defaults, canonical hash dedup, Jaccard dedup |
+| Auto-relate + feedback + sweep | `src/memory_core/storage/sqlite.rs` | Best-effort related edges, feedback scoring flags, TTL expiration cleanup |
 
 ## CONVENTIONS
 

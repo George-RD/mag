@@ -2,9 +2,10 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    AdvancedSearcher, Deleter, Embedder, GraphTraverser, Lister, MemoryInput, MemoryUpdate,
-    PhraseSearcher, Pipeline, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
-    SimilarFinder, Updater, default_priority_for_event_type, is_valid_event_type,
+    AdvancedSearcher, Deleter, Embedder, ExpirationSweeper, FeedbackRecorder, GraphTraverser,
+    Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
+    RelationshipQuerier, SearchOptions, SimilarFinder, Updater, default_priority_for_event_type,
+    default_ttl_for_event_type, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -70,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
             priority,
             entity_id,
             agent_type,
+            ttl_seconds,
         } => {
             info!(content_len = content.len(), "Ingesting content");
             let meta = parse_metadata_arg(metadata.as_deref())?;
@@ -92,6 +94,12 @@ async fn main() -> anyhow::Result<()> {
                     .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
                 entity_id: entity_id.clone(),
                 agent_type: agent_type.clone(),
+                ttl_seconds: ttl_seconds.to_owned().or_else(|| {
+                    event_type
+                        .as_deref()
+                        .map(default_ttl_for_event_type)
+                        .unwrap_or(Some(memory_core::TTL_LONG_TERM))
+                }),
             };
             let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Successfully processed and stored");
@@ -108,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
             priority,
             entity_id,
             agent_type,
+            ttl_seconds,
         } => {
             info!(content_len = content.len(), "Processing content directly");
             let meta = parse_metadata_arg(metadata.as_deref())?;
@@ -130,6 +139,12 @@ async fn main() -> anyhow::Result<()> {
                     .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
                 entity_id: entity_id.clone(),
                 agent_type: agent_type.clone(),
+                ttl_seconds: ttl_seconds.map(Some).unwrap_or_else(|| {
+                    event_type
+                        .as_deref()
+                        .map(default_ttl_for_event_type)
+                        .unwrap_or(Some(memory_core::TTL_LONG_TERM))
+                }),
             };
             let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Process command stored result");
@@ -559,6 +574,25 @@ async fn main() -> anyhow::Result<()> {
                 "{}",
                 json!({ "imported_memories": memories, "imported_relationships": relationships })
             );
+        }
+        Commands::Feedback {
+            memory_id,
+            rating,
+            reason,
+        } => {
+            let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
+                &mcp_storage,
+                memory_id,
+                rating.as_str(),
+                reason.as_deref(),
+            )
+            .await?;
+            println!("{}", result);
+        }
+        Commands::Sweep => {
+            let swept_count =
+                <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;
+            println!("{}", json!({ "swept_count": swept_count }));
         }
         Commands::DownloadModel => {
             unreachable!("download-model is handled before storage initialization")

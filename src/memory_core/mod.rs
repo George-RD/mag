@@ -14,6 +14,10 @@ pub use embedder::OnnxEmbedder;
 pub use embedder::{Embedder, PlaceholderEmbedder};
 pub use scoring::{jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap};
 
+pub const TTL_EPHEMERAL: i64 = 3600;
+pub const TTL_SHORT_TERM: i64 = 86_400;
+pub const TTL_LONG_TERM: i64 = 1_209_600;
+
 #[derive(Debug, Clone)]
 pub struct MemoryInput {
     pub content: String,
@@ -27,6 +31,7 @@ pub struct MemoryInput {
     pub priority: Option<i32>,
     pub entity_id: Option<String>,
     pub agent_type: Option<String>,
+    pub ttl_seconds: Option<i64>,
 }
 
 impl Default for MemoryInput {
@@ -43,6 +48,7 @@ impl Default for MemoryInput {
             priority: None,
             entity_id: None,
             agent_type: None,
+            ttl_seconds: None,
         }
     }
 }
@@ -87,6 +93,9 @@ pub const VALID_EVENT_TYPES: &[&str] = &[
     "coordination_snapshot",
     "checkpoint",
     "reminder",
+    "memory",
+    "code_chunk",
+    "file_summary",
 ];
 
 pub fn is_valid_event_type(event_type: &str) -> bool {
@@ -99,8 +108,36 @@ pub fn default_priority_for_event_type(event_type: &str) -> i32 {
         "decision" | "task_completion" | "advisor_insight" => 3,
         "git_commit" | "git_merge" | "session_end" | "budget_alert" => 2,
         "session_summary" | "session_start" | "context_warning" | "coordination_snapshot" => 1,
-        "blocked_context" | "checkpoint" | "reminder" => 1,
+        "blocked_context" | "checkpoint" | "reminder" | "memory" | "file_summary" => 1,
+        "code_chunk" => 0,
         _ => 0,
+    }
+}
+
+pub fn default_ttl_for_event_type(event_type: &str) -> Option<i64> {
+    match event_type {
+        "session_summary" => Some(TTL_SHORT_TERM),
+        "task_completion" => Some(TTL_LONG_TERM),
+        "error_pattern" => None,
+        "lesson_learned" => None,
+        "decision" => Some(TTL_LONG_TERM),
+        "blocked_context" => Some(TTL_SHORT_TERM),
+        "user_preference" => None,
+        "advisor_insight" => Some(TTL_LONG_TERM),
+        "git_commit" => Some(TTL_LONG_TERM),
+        "git_merge" => Some(TTL_LONG_TERM),
+        "git_conflict" => None,
+        "session_start" => Some(TTL_SHORT_TERM),
+        "session_end" => Some(TTL_LONG_TERM),
+        "context_warning" => Some(TTL_SHORT_TERM),
+        "budget_alert" => Some(TTL_LONG_TERM),
+        "coordination_snapshot" => Some(TTL_SHORT_TERM),
+        "checkpoint" => Some(604_800),
+        "reminder" => None,
+        "memory" => Some(TTL_LONG_TERM),
+        "code_chunk" => Some(TTL_EPHEMERAL),
+        "file_summary" => Some(TTL_SHORT_TERM),
+        _ => Some(TTL_LONG_TERM),
     }
 }
 
@@ -308,6 +345,21 @@ pub trait Lister: Send + Sync {
 pub trait RelationshipQuerier: Send + Sync {
     /// Returns all relationships where `memory_id` is either source or target.
     async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>;
+}
+
+#[async_trait]
+pub trait FeedbackRecorder: Send + Sync {
+    async fn record_feedback(
+        &self,
+        memory_id: &str,
+        rating: &str,
+        reason: Option<&str>,
+    ) -> Result<serde_json::Value>;
+}
+
+#[async_trait]
+pub trait ExpirationSweeper: Send + Sync {
+    async fn sweep_expired(&self) -> Result<usize>;
 }
 
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
