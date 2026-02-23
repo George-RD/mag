@@ -216,6 +216,55 @@ pub enum Commands {
         reason: Option<String>,
     },
     Sweep,
+    Profile {
+        action: String,
+        data: Option<String>,
+    },
+    Checkpoint {
+        task_title: String,
+        progress: String,
+        #[arg(long)]
+        plan: Option<String>,
+        #[arg(long)]
+        next_steps: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+    },
+    ResumeTask {
+        #[arg(long)]
+        task_title: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        limit: usize,
+    },
+    Remind {
+        action: String,
+        #[arg(long)]
+        text: Option<String>,
+        #[arg(long)]
+        duration: Option<String>,
+        #[arg(long)]
+        context: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        reminder_id: Option<String>,
+    },
+    Lessons {
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
     /// Downloads the ONNX model and tokenizer used for embeddings.
     DownloadModel,
     /// Starts the MCP server over stdio transport.
@@ -615,6 +664,107 @@ mod tests {
         match cli.command {
             Commands::Sweep => {}
             _ => panic!("Expected Sweep command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_profile_command() {
+        let args = vec!["romega", "profile", "read"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Profile { action, data } => {
+                assert_eq!(action, "read");
+                assert!(data.is_none());
+            }
+            _ => panic!("Expected Profile command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_checkpoint_command() {
+        let args = vec![
+            "romega",
+            "checkpoint",
+            "Task",
+            "Done",
+            "--project",
+            "romega",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Checkpoint {
+                task_title,
+                progress,
+                project,
+                ..
+            } => {
+                assert_eq!(task_title, "Task");
+                assert_eq!(progress, "Done");
+                assert_eq!(project.as_deref(), Some("romega"));
+            }
+            _ => panic!("Expected Checkpoint command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_resume_task_command() {
+        let args = vec![
+            "romega",
+            "resume-task",
+            "--task-title",
+            "Task",
+            "--limit",
+            "3",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::ResumeTask {
+                task_title, limit, ..
+            } => {
+                assert_eq!(task_title.as_deref(), Some("Task"));
+                assert_eq!(limit, 3);
+            }
+            _ => panic!("Expected ResumeTask command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_remind_command() {
+        let args = vec![
+            "romega",
+            "remind",
+            "set",
+            "--text",
+            "review",
+            "--duration",
+            "1h",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Remind {
+                action,
+                text,
+                duration,
+                ..
+            } => {
+                assert_eq!(action, "set");
+                assert_eq!(text.as_deref(), Some("review"));
+                assert_eq!(duration.as_deref(), Some("1h"));
+            }
+            _ => panic!("Expected Remind command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_lessons_command() {
+        let args = vec!["romega", "lessons", "--task", "search", "--limit", "7"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Lessons { task, limit, .. } => {
+                assert_eq!(task.as_deref(), Some("search"));
+                assert_eq!(limit, 7);
+            }
+            _ => panic!("Expected Lessons command"),
         }
     }
 

@@ -74,6 +74,19 @@ pub struct SearchOptions {
     pub context_tags: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CheckpointInput {
+    pub task_title: String,
+    pub progress: String,
+    pub plan: Option<String>,
+    pub files_touched: Option<serde_json::Value>,
+    pub decisions: Option<Vec<String>>,
+    pub key_context: Option<String>,
+    pub next_steps: Option<String>,
+    pub session_id: Option<String>,
+    pub project: Option<String>,
+}
+
 pub const VALID_EVENT_TYPES: &[&str] = &[
     "session_summary",
     "task_completion",
@@ -139,6 +152,73 @@ pub fn default_ttl_for_event_type(event_type: &str) -> Option<i64> {
         "file_summary" => Some(TTL_SHORT_TERM),
         _ => Some(TTL_LONG_TERM),
     }
+}
+
+pub fn parse_duration(text: &str) -> Result<chrono::Duration> {
+    if text.is_empty() {
+        return Err(anyhow::anyhow!("duration cannot be empty"));
+    }
+
+    let mut weeks: i64 = 0;
+    let mut days: i64 = 0;
+    let mut hours: i64 = 0;
+    let mut minutes: i64 = 0;
+    let mut last_rank: i32 = -1;
+    let mut idx: usize = 0;
+    let bytes = text.as_bytes();
+
+    while idx < bytes.len() {
+        if !bytes[idx].is_ascii_digit() {
+            return Err(anyhow::anyhow!("invalid duration format: {text}"));
+        }
+
+        let start = idx;
+        while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+            idx += 1;
+        }
+
+        if idx >= bytes.len() {
+            return Err(anyhow::anyhow!("invalid duration format: {text}"));
+        }
+
+        let value = text[start..idx]
+            .parse::<i64>()
+            .map_err(|_| anyhow::anyhow!("invalid duration value: {text}"))?;
+        let unit = bytes[idx] as char;
+        idx += 1;
+
+        let rank = match unit {
+            'w' => 0,
+            'd' => 1,
+            'h' => 2,
+            'm' => 3,
+            _ => return Err(anyhow::anyhow!("invalid duration unit in: {text}")),
+        };
+
+        if rank <= last_rank {
+            return Err(anyhow::anyhow!("invalid duration order in: {text}"));
+        }
+        last_rank = rank;
+
+        match unit {
+            'w' => weeks = value,
+            'd' => days = value,
+            'h' => hours = value,
+            'm' => minutes = value,
+            _ => return Err(anyhow::anyhow!("invalid duration unit in: {text}")),
+        }
+    }
+
+    let total = chrono::Duration::weeks(weeks)
+        + chrono::Duration::days(days)
+        + chrono::Duration::hours(hours)
+        + chrono::Duration::minutes(minutes);
+
+    if total.num_seconds() <= 0 {
+        return Err(anyhow::anyhow!("duration must be greater than zero"));
+    }
+
+    Ok(total)
 }
 
 /// Search result item returned by memory queries.
@@ -360,6 +440,49 @@ pub trait FeedbackRecorder: Send + Sync {
 #[async_trait]
 pub trait ExpirationSweeper: Send + Sync {
     async fn sweep_expired(&self) -> Result<usize>;
+}
+
+#[async_trait]
+pub trait ProfileManager: Send + Sync {
+    async fn get_profile(&self) -> Result<serde_json::Value>;
+    async fn set_profile(&self, updates: &serde_json::Value) -> Result<()>;
+}
+
+#[async_trait]
+pub trait CheckpointManager: Send + Sync {
+    async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>;
+    async fn resume_task(
+        &self,
+        query: &str,
+        project: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>>;
+}
+
+#[async_trait]
+pub trait ReminderManager: Send + Sync {
+    async fn create_reminder(
+        &self,
+        text: &str,
+        duration_str: &str,
+        context: Option<&str>,
+        session_id: Option<&str>,
+        project: Option<&str>,
+    ) -> Result<serde_json::Value>;
+    async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>;
+    async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>;
+}
+
+#[async_trait]
+pub trait LessonQuerier: Send + Sync {
+    async fn query_lessons(
+        &self,
+        task: Option<&str>,
+        project: Option<&str>,
+        exclude_session: Option<&str>,
+        agent_type: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>>;
 }
 
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.

@@ -2,9 +2,10 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    AdvancedSearcher, Deleter, Embedder, ExpirationSweeper, FeedbackRecorder, GraphTraverser,
-    Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
-    RelationshipQuerier, SearchOptions, SimilarFinder, Updater, default_priority_for_event_type,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, ExpirationSweeper,
+    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MemoryInput, MemoryUpdate,
+    PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, RelationshipQuerier,
+    ReminderManager, SearchOptions, SimilarFinder, Updater, default_priority_for_event_type,
     default_ttl_for_event_type, is_valid_event_type,
 };
 use serde_json::json;
@@ -593,6 +594,151 @@ async fn main() -> anyhow::Result<()> {
             let swept_count =
                 <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;
             println!("{}", json!({ "swept_count": swept_count }));
+        }
+        Commands::Profile { action, data } => match action.as_str() {
+            "read" => {
+                let profile = <SqliteStorage as ProfileManager>::get_profile(&mcp_storage).await?;
+                println!("{}", profile);
+            }
+            "update" => {
+                let raw = data
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("profile update requires JSON data"))?;
+                let parsed: serde_json::Value = serde_json::from_str(raw)
+                    .map_err(|e| anyhow::anyhow!("invalid profile JSON: {e}"))?;
+                <SqliteStorage as ProfileManager>::set_profile(&mcp_storage, &parsed).await?;
+                println!("{}", json!({ "updated": true }));
+            }
+            other => anyhow::bail!("invalid profile action: {other} (expected read|update)"),
+        },
+        Commands::Checkpoint {
+            task_title,
+            progress,
+            plan,
+            next_steps,
+            session_id,
+            project,
+        } => {
+            let input = CheckpointInput {
+                task_title: task_title.clone(),
+                progress: progress.clone(),
+                plan: plan.clone(),
+                files_touched: None,
+                decisions: None,
+                key_context: None,
+                next_steps: next_steps.clone(),
+                session_id: session_id.clone(),
+                project: project.clone(),
+            };
+            let memory_id =
+                <SqliteStorage as CheckpointManager>::save_checkpoint(&mcp_storage, input).await?;
+            let latest = <SqliteStorage as CheckpointManager>::resume_task(
+                &mcp_storage,
+                task_title,
+                project.as_deref(),
+                1,
+            )
+            .await?;
+            let checkpoint_number = latest
+                .first()
+                .and_then(|entry| entry.get("metadata"))
+                .and_then(|metadata| metadata.get("checkpoint_number"))
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(1);
+            println!(
+                "{}",
+                json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
+            );
+        }
+        Commands::ResumeTask {
+            task_title,
+            project,
+            limit,
+        } => {
+            let query = task_title.clone().unwrap_or_default();
+            let results = <SqliteStorage as CheckpointManager>::resume_task(
+                &mcp_storage,
+                &query,
+                project.as_deref(),
+                *limit,
+            )
+            .await?;
+            let mut markdown = String::new();
+            for (index, entry) in results.iter().enumerate() {
+                if index > 0 {
+                    markdown.push_str("\n\n---\n\n");
+                }
+                markdown.push_str("### Checkpoint\n");
+                markdown.push_str(entry["content"].as_str().unwrap_or(""));
+                markdown.push_str("\n\nMetadata:\n");
+                markdown.push_str(&entry["metadata"].to_string());
+                markdown.push_str("\n\nCreated At: ");
+                markdown.push_str(entry["created_at"].as_str().unwrap_or(""));
+            }
+            println!("{markdown}");
+        }
+        Commands::Remind {
+            action,
+            text,
+            duration,
+            context,
+            session_id,
+            project,
+            status,
+            reminder_id,
+        } => match action.as_str() {
+            "set" => {
+                let text = text
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--text is required for remind set"))?;
+                let duration = duration
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--duration is required for remind set"))?;
+                let result = <SqliteStorage as ReminderManager>::create_reminder(
+                    &mcp_storage,
+                    text,
+                    duration,
+                    context.as_deref(),
+                    session_id.as_deref(),
+                    project.as_deref(),
+                )
+                .await?;
+                println!("{}", result);
+            }
+            "list" => {
+                let result = <SqliteStorage as ReminderManager>::list_reminders(
+                    &mcp_storage,
+                    status.as_deref(),
+                )
+                .await?;
+                println!("{}", json!({ "results": result }));
+            }
+            "dismiss" => {
+                let reminder_id = reminder_id.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("--reminder-id is required for remind dismiss")
+                })?;
+                let result =
+                    <SqliteStorage as ReminderManager>::dismiss_reminder(&mcp_storage, reminder_id)
+                        .await?;
+                println!("{}", result);
+            }
+            other => anyhow::bail!("invalid remind action: {other} (expected set|list|dismiss)"),
+        },
+        Commands::Lessons {
+            task,
+            project,
+            limit,
+        } => {
+            let results = <SqliteStorage as LessonQuerier>::query_lessons(
+                &mcp_storage,
+                task.as_deref(),
+                project.as_deref(),
+                None,
+                None,
+                *limit,
+            )
+            .await?;
+            println!("{}", json!({ "results": results }));
         }
         Commands::DownloadModel => {
             unreachable!("download-model is handled before storage initialization")

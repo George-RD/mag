@@ -13,8 +13,9 @@ use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, ExpirationSweeper, FeedbackRecorder, GraphTraverser, Lister,
-    MemoryInput, MemoryUpdate, PhraseSearcher, Recents, RelationshipQuerier, Retriever,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, ExpirationSweeper,
+    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MemoryInput, MemoryUpdate,
+    PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager, Retriever,
     SearchOptions, Searcher, SemanticSearcher, SimilarFinder, Storage, Tagger, Updater,
     default_priority_for_event_type, default_ttl_for_event_type, is_valid_event_type,
 };
@@ -190,6 +191,53 @@ struct FeedbackRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SweepRequest {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ProfileRequest {
+    action: Option<String>,
+    update: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct CheckpointRequest {
+    task_title: String,
+    progress: String,
+    plan: Option<String>,
+    files_touched: Option<serde_json::Value>,
+    decisions: Option<Vec<String>>,
+    key_context: Option<String>,
+    next_steps: Option<String>,
+    session_id: Option<String>,
+    project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ResumeTaskRequest {
+    task_title: Option<String>,
+    project: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RemindRequest {
+    action: Option<String>,
+    text: Option<String>,
+    duration: Option<String>,
+    context: Option<String>,
+    session_id: Option<String>,
+    project: Option<String>,
+    status: Option<String>,
+    reminder_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct LessonsRequest {
+    task: Option<String>,
+    project: Option<String>,
+    limit: Option<usize>,
+    exclude_session: Option<String>,
+    agent_type: Option<String>,
+}
 
 #[tool_router]
 impl McpMemoryServer {
@@ -630,6 +678,222 @@ impl McpMemoryServer {
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "results": payload }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_profile",
+        description = "Read or update the cross-session user profile"
+    )]
+    async fn memory_profile(
+        &self,
+        params: Parameters<ProfileRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("read");
+        match action {
+            "read" => {
+                let profile = <SqliteStorage as ProfileManager>::get_profile(&self.storage)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to read profile: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    profile.to_string(),
+                )]))
+            }
+            "update" => {
+                let updates = params.0.update.as_ref().ok_or_else(|| {
+                    McpError::invalid_params("update payload is required for action=update", None)
+                })?;
+                <SqliteStorage as ProfileManager>::set_profile(&self.storage, updates)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to update profile: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "updated": true }).to_string(),
+                )]))
+            }
+            _ => Err(McpError::invalid_params(
+                "action must be one of: read, update",
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_checkpoint",
+        description = "Save a cross-session checkpoint for a task"
+    )]
+    async fn memory_checkpoint(
+        &self,
+        params: Parameters<CheckpointRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = CheckpointInput {
+            task_title: params.0.task_title.clone(),
+            progress: params.0.progress.clone(),
+            plan: params.0.plan.clone(),
+            files_touched: params.0.files_touched.clone(),
+            decisions: params.0.decisions.clone(),
+            key_context: params.0.key_context.clone(),
+            next_steps: params.0.next_steps.clone(),
+            session_id: params.0.session_id.clone(),
+            project: params.0.project.clone(),
+        };
+        let memory_id = <SqliteStorage as CheckpointManager>::save_checkpoint(&self.storage, input)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
+            })?;
+
+        let latest = <SqliteStorage as CheckpointManager>::resume_task(
+            &self.storage,
+            &params.0.task_title,
+            params.0.project.as_deref(),
+            1,
+        )
+        .await
+        .map_err(|e| {
+            McpError::internal_error(format!("failed to resolve checkpoint number: {e}"), None)
+        })?;
+        let checkpoint_number = latest
+            .first()
+            .and_then(|entry| entry.get("metadata"))
+            .and_then(|metadata| metadata.get("checkpoint_number"))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(1);
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_resume_task",
+        description = "Resume prior checkpoints for a task"
+    )]
+    async fn memory_resume_task(
+        &self,
+        params: Parameters<ResumeTaskRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let query = params.0.task_title.clone().unwrap_or_default();
+        let limit = params.0.limit.unwrap_or(1);
+        let results = <SqliteStorage as CheckpointManager>::resume_task(
+            &self.storage,
+            &query,
+            params.0.project.as_deref(),
+            limit,
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to resume task: {e}"), None))?;
+
+        let mut markdown = String::new();
+        for (index, entry) in results.iter().enumerate() {
+            if index > 0 {
+                markdown.push_str("\n\n---\n\n");
+            }
+            markdown.push_str("### Checkpoint\n");
+            markdown.push_str(entry["content"].as_str().unwrap_or(""));
+            markdown.push_str("\n\nMetadata:\n");
+            markdown.push_str(&entry["metadata"].to_string());
+            markdown.push_str("\n\nCreated At: ");
+            markdown.push_str(entry["created_at"].as_str().unwrap_or(""));
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(markdown)]))
+    }
+
+    #[tool(
+        name = "memory_remind",
+        description = "Set, list, or dismiss reminders"
+    )]
+    async fn memory_remind(
+        &self,
+        params: Parameters<RemindRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("set");
+        match action {
+            "set" => {
+                let text = params.0.text.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("text is required for action=set", None)
+                })?;
+                let duration = params.0.duration.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("duration is required for action=set", None)
+                })?;
+                let result = <SqliteStorage as ReminderManager>::create_reminder(
+                    &self.storage,
+                    text,
+                    duration,
+                    params.0.context.as_deref(),
+                    params.0.session_id.as_deref(),
+                    params.0.project.as_deref(),
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to create reminder: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "list" => {
+                let result = <SqliteStorage as ReminderManager>::list_reminders(
+                    &self.storage,
+                    params.0.status.as_deref(),
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to list reminders: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "results": result }).to_string(),
+                )]))
+            }
+            "dismiss" => {
+                let reminder_id = params.0.reminder_id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("reminder_id is required for action=dismiss", None)
+                })?;
+                let result = <SqliteStorage as ReminderManager>::dismiss_reminder(
+                    &self.storage,
+                    reminder_id,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to dismiss reminder: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            _ => Err(McpError::invalid_params(
+                "action must be one of: set, list, dismiss",
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_lessons",
+        description = "Query lesson_learned memories for a task or project"
+    )]
+    async fn memory_lessons(
+        &self,
+        params: Parameters<LessonsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = params.0.limit.unwrap_or(5);
+        let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
+            &self.storage,
+            params.0.task.as_deref(),
+            params.0.project.as_deref(),
+            params.0.exclude_session.as_deref(),
+            params.0.agent_type.as_deref(),
+            limit,
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to query lessons: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "results": lessons }).to_string(),
         )]))
     }
 

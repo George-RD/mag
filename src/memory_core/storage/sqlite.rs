@@ -5,16 +5,19 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser,
-    ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Recents, Relationship,
-    RelationshipQuerier, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
-    SemanticSearcher, SimilarFinder, Storage, Tagger, Updater, embedder::Embedder,
-    jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, ExpirationSweeper,
+    FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput,
+    MemoryUpdate, PhraseSearcher, ProfileManager, Recents, Relationship, RelationshipQuerier,
+    ReminderManager, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
+    SemanticSearcher, SimilarFinder, Storage, Tagger, Updater, default_priority_for_event_type,
+    default_ttl_for_event_type, embedder::Embedder, jaccard_similarity, priority_factor,
+    time_decay, type_weight, word_overlap,
 };
 
 const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
@@ -23,7 +26,6 @@ const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
     ("task_completion", 0.85),
     ("decision", 0.85),
     ("lesson_learned", 0.85),
-    ("checkpoint", 0.90),
 ];
 
 #[derive(Debug)]
@@ -276,10 +278,27 @@ impl SqliteStorage {
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .context("failed to decode relationship row for export")?;
 
+            let mut profile_stmt = conn
+                .prepare("SELECT key, value FROM user_profile")
+                .context("failed to prepare user profile export query")?;
+            let mut user_profile = serde_json::Map::new();
+            let profile_rows = profile_stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .context("failed to query user profile for export")?;
+            for row in profile_rows {
+                let (key, value_raw) = row.context("failed to decode user profile row")?;
+                let value = serde_json::from_str(&value_raw)
+                    .unwrap_or(serde_json::Value::String(value_raw));
+                user_profile.insert(key, value);
+            }
+
             let export = serde_json::json!({
                 "version": 1,
                 "memories": memories,
                 "relationships": relationships,
+                "user_profile": user_profile,
             });
 
             serde_json::to_string_pretty(&export).context("failed to serialize export data")
@@ -301,6 +320,11 @@ impl SqliteStorage {
 
         let relationships = parsed["relationships"]
             .as_array()
+            .cloned()
+            .unwrap_or_default();
+
+        let user_profile = parsed["user_profile"]
+            .as_object()
             .cloned()
             .unwrap_or_default();
 
@@ -405,6 +429,17 @@ impl SqliteStorage {
                 .context("failed to import relationship")?;
 
                 rel_count += 1;
+            }
+
+            for (key, value) in &user_profile {
+                let value_json =
+                    serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+                tx.execute(
+                    "INSERT OR REPLACE INTO user_profile (key, value, updated_at)
+                     VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    params![key, value_json],
+                )
+                .context("failed to import user profile value")?;
             }
 
             tx.commit()
@@ -2412,6 +2447,608 @@ impl RelationshipQuerier for SqliteStorage {
     }
 }
 
+#[async_trait]
+impl ProfileManager for SqliteStorage {
+    async fn get_profile(&self) -> Result<serde_json::Value> {
+        let conn = Arc::clone(&self.conn);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut profile = serde_json::Map::new();
+            let mut stmt = conn
+                .prepare("SELECT key, value FROM user_profile")
+                .context("failed to prepare user profile query")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .context("failed to query user profile rows")?;
+
+            for row in rows {
+                let (key, value_raw) = row.context("failed to decode user profile row")?;
+                let value = serde_json::from_str::<serde_json::Value>(&value_raw)
+                    .unwrap_or(serde_json::Value::String(value_raw));
+                profile.insert(key, value);
+            }
+
+            let mut pref_stmt = conn
+                .prepare(
+                    "SELECT id, content, metadata, created_at
+                     FROM memories
+                     WHERE event_type = 'user_preference'
+                     ORDER BY created_at DESC
+                     LIMIT 20",
+                )
+                .context("failed to prepare preference query")?;
+            let pref_rows = pref_stmt
+                .query_map([], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "content": row.get::<_, String>(1)?,
+                        "metadata": parse_metadata_from_db(&row.get::<_, String>(2)?),
+                        "created_at": row.get::<_, String>(3)?,
+                    }))
+                })
+                .context("failed to query preferences from memory")?;
+
+            let mut preferences_from_memory = Vec::new();
+            for row in pref_rows {
+                preferences_from_memory
+                    .push(row.context("failed to decode preference from memory row")?);
+            }
+            profile.insert(
+                "preferences_from_memory".to_string(),
+                serde_json::Value::Array(preferences_from_memory),
+            );
+
+            Ok::<_, anyhow::Error>(serde_json::Value::Object(profile))
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+
+    async fn set_profile(&self, updates: &serde_json::Value) -> Result<()> {
+        let updates = updates.clone();
+        let conn = Arc::clone(&self.conn);
+
+        tokio::task::spawn_blocking(move || {
+            let updates_obj = updates
+                .as_object()
+                .ok_or_else(|| anyhow!("profile updates must be a JSON object"))?;
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            for (key, value) in updates_obj {
+                let value_json = serde_json::to_string(value)
+                    .context("failed to serialize user profile value")?;
+                conn.execute(
+                    "INSERT OR REPLACE INTO user_profile (key, value, updated_at)
+                     VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    params![key, value_json],
+                )
+                .context("failed to upsert user profile value")?;
+            }
+
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl CheckpointManager for SqliteStorage {
+    async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+        let conn = Arc::clone(&self.conn);
+        let task_title = input.task_title.clone();
+        let task_marker = format!("## Checkpoint: {}", task_title);
+        let existing_count = tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT COUNT(*) FROM memories
+                     WHERE event_type = 'checkpoint' AND lower(content) LIKE lower(?1)",
+                )
+                .context("failed to prepare checkpoint count query")?;
+            let pattern = format!("%{}%", task_marker.replace('%', "\\%").replace('_', "\\_"));
+            let count: i64 = stmt
+                .query_row(params![pattern], |row| row.get(0))
+                .context("failed to count matching checkpoints")?;
+            Ok::<_, anyhow::Error>(count)
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        let checkpoint_number = existing_count + 1;
+        let mut content = format!(
+            "## Checkpoint: {}\n### Progress\n{}",
+            input.task_title, input.progress
+        );
+        if let Some(plan) = input.plan.as_deref() {
+            content.push_str("\n\n### Plan\n");
+            content.push_str(plan);
+        }
+        if let Some(files_touched) = input.files_touched.as_ref() {
+            content.push_str("\n\n### Files Touched\n");
+            content.push_str(
+                &serde_json::to_string_pretty(files_touched)
+                    .context("failed to serialize files_touched for checkpoint")?,
+            );
+        }
+        if let Some(decisions) = input.decisions.as_ref()
+            && !decisions.is_empty()
+        {
+            content.push_str("\n\n### Decisions\n");
+            for decision in decisions {
+                content.push_str("- ");
+                content.push_str(decision);
+                content.push('\n');
+            }
+        }
+        if let Some(key_context) = input.key_context.as_deref() {
+            content.push_str("\n### Key Context\n");
+            content.push_str(key_context);
+        }
+        if let Some(next_steps) = input.next_steps.as_deref() {
+            content.push_str("\n\n### Next Steps\n");
+            content.push_str(next_steps);
+        }
+
+        let metadata = serde_json::json!({
+            "checkpoint_number": checkpoint_number,
+            "checkpoint_data": {
+                "task_title": input.task_title,
+                "plan": input.plan,
+                "progress": input.progress,
+                "files_touched": input.files_touched,
+                "decisions": input.decisions,
+                "key_context": input.key_context,
+                "next_steps": input.next_steps,
+            }
+        });
+
+        let id = Uuid::new_v4().to_string();
+        let memory_input = MemoryInput {
+            content: content.clone(),
+            id: Some(id.clone()),
+            metadata,
+            event_type: Some("checkpoint".to_string()),
+            priority: Some(default_priority_for_event_type("checkpoint")),
+            ttl_seconds: default_ttl_for_event_type("checkpoint"),
+            session_id: input.session_id,
+            project: input.project,
+            ..Default::default()
+        };
+
+        <Self as Storage>::store(self, &id, &content, &memory_input).await?;
+        Ok(id)
+    }
+
+    async fn resume_task(
+        &self,
+        query: &str,
+        project: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let query = query.to_string();
+        let project = project.map(ToString::to_string);
+        let limit = i64::try_from(limit).context("resume_task limit exceeds i64")?;
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut sql = String::from(
+                "SELECT content, metadata, created_at
+                 FROM memories
+                 WHERE event_type = 'checkpoint'",
+            );
+            let mut params_values: Vec<rusqlite::types::Value> = Vec::new();
+            let mut idx = 1;
+
+            if !query.trim().is_empty() {
+                sql.push_str(&format!(" AND lower(content) LIKE ?{idx}"));
+                params_values.push(rusqlite::types::Value::Text(format!(
+                    "%{}%",
+                    query.to_lowercase()
+                )));
+                idx += 1;
+            }
+
+            if let Some(project_value) = project {
+                sql.push_str(&format!(" AND project = ?{idx}"));
+                params_values.push(rusqlite::types::Value::Text(project_value));
+                idx += 1;
+            }
+
+            sql.push_str(" ORDER BY created_at DESC");
+            sql.push_str(&format!(" LIMIT ?{idx}"));
+            params_values.push(rusqlite::types::Value::Integer(limit));
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .context("failed to prepare resume_task query")?;
+            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &params_values {
+                param_refs.push(value);
+            }
+
+            let rows = stmt
+                .query_map(param_refs.as_slice(), |row| {
+                    Ok(serde_json::json!({
+                        "content": row.get::<_, String>(0)?,
+                        "metadata": parse_metadata_from_db(&row.get::<_, String>(1)?),
+                        "created_at": row.get::<_, String>(2)?,
+                    }))
+                })
+                .context("failed to execute resume_task query")?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.context("failed to decode resume_task row")?);
+            }
+
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl ReminderManager for SqliteStorage {
+    async fn create_reminder(
+        &self,
+        text: &str,
+        duration_str: &str,
+        context: Option<&str>,
+        session_id: Option<&str>,
+        project: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let duration = crate::memory_core::parse_duration(duration_str)?;
+        let now = Utc::now();
+        let remind_at = now + duration;
+        let remind_at_iso = remind_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let now_iso = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+        let mut metadata = serde_json::json!({
+            "event_type": "reminder",
+            "reminder_status": "pending",
+            "remind_at": remind_at_iso,
+            "created_at_utc": now_iso,
+        });
+        if let Some(context_value) = context {
+            metadata["context"] = serde_json::Value::String(context_value.to_string());
+        }
+        if let Some(session_value) = session_id {
+            metadata["session_id"] = serde_json::Value::String(session_value.to_string());
+        }
+        if let Some(project_value) = project {
+            metadata["project"] = serde_json::Value::String(project_value.to_string());
+        }
+
+        let reminder_id = Uuid::new_v4().to_string();
+        let content = format!("{text}\n[due: {remind_at_iso}]");
+        let input = MemoryInput {
+            content: content.clone(),
+            id: Some(reminder_id.clone()),
+            metadata,
+            event_type: Some("reminder".to_string()),
+            priority: Some(default_priority_for_event_type("reminder")),
+            ttl_seconds: default_ttl_for_event_type("reminder"),
+            session_id: session_id.map(ToString::to_string),
+            project: project.map(ToString::to_string),
+            ..Default::default()
+        };
+
+        <Self as Storage>::store(self, &reminder_id, &content, &input).await?;
+
+        Ok(serde_json::json!({
+            "reminder_id": reminder_id,
+            "text": text,
+            "remind_at": remind_at_iso,
+            "duration": duration_str,
+        }))
+    }
+
+    async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>> {
+        let conn = Arc::clone(&self.conn);
+        let status = status.map(ToString::to_string);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, content, metadata, created_at
+                     FROM memories
+                     WHERE event_type = 'reminder'",
+                )
+                .context("failed to prepare reminder list query")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })
+                .context("failed to execute reminder list query")?;
+
+            let now = Utc::now();
+            let status_filter = status.unwrap_or_else(|| "pending".to_string());
+            let include_all = status_filter == "all";
+
+            let mut reminders: Vec<(bool, DateTime<Utc>, serde_json::Value)> = Vec::new();
+
+            for row in rows {
+                let (id, content, metadata_raw, created_at) =
+                    row.context("failed to decode reminder row")?;
+                let metadata = parse_metadata_from_db(&metadata_raw);
+                let reminder_status = metadata
+                    .get("reminder_status")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("pending");
+
+                if !include_all && reminder_status != status_filter {
+                    continue;
+                }
+
+                let remind_at_str = metadata
+                    .get("remind_at")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("1970-01-01T00:00:00.000Z");
+                let remind_at = DateTime::parse_from_rfc3339(remind_at_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| {
+                        DateTime::parse_from_rfc3339("9999-12-31T23:59:59.000Z")
+                            .map(|dt| dt.with_timezone(&Utc))
+                            .unwrap_or(now)
+                    });
+                let is_due = now >= remind_at;
+                let is_overdue = is_due && reminder_status == "pending";
+
+                reminders.push((
+                    is_overdue,
+                    remind_at,
+                    serde_json::json!({
+                        "reminder_id": id,
+                        "text": content,
+                        "status": reminder_status,
+                        "remind_at": remind_at_str,
+                        "is_due": is_due,
+                        "is_overdue": is_overdue,
+                        "metadata": metadata,
+                        "created_at": created_at,
+                    }),
+                ));
+            }
+
+            reminders.sort_by(|a, b| {
+                b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| {
+                    a.2["created_at"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .cmp(b.2["created_at"].as_str().unwrap_or_default())
+                })
+            });
+
+            Ok::<_, anyhow::Error>(reminders.into_iter().map(|(_, _, value)| value).collect())
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+
+    async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
+        let conn = Arc::clone(&self.conn);
+        let reminder_id = reminder_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let row: Option<(Option<String>, String)> = conn
+                .query_row(
+                    "SELECT event_type, metadata FROM memories WHERE id = ?1",
+                    params![reminder_id],
+                    |row| Ok((row.get(0).ok(), row.get(1)?)),
+                )
+                .optional()
+                .context("failed to query reminder for dismiss")?;
+
+            let (event_type, metadata_raw) =
+                row.ok_or_else(|| anyhow!("reminder not found for id={reminder_id}"))?;
+            if event_type.as_deref() != Some("reminder") {
+                return Err(anyhow!("memory is not a reminder for id={reminder_id}"));
+            }
+
+            let mut metadata = parse_metadata_from_db(&metadata_raw);
+            let dismissed_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            metadata["reminder_status"] = serde_json::Value::String("dismissed".to_string());
+            metadata["dismissed_at"] = serde_json::Value::String(dismissed_at.clone());
+            let metadata_json = serde_json::to_string(&metadata)
+                .context("failed to serialize dismissed reminder metadata")?;
+
+            conn.execute(
+                "UPDATE memories
+                 SET metadata = ?2,
+                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ?1",
+                params![reminder_id, metadata_json],
+            )
+            .context("failed to update reminder status")?;
+
+            Ok::<_, anyhow::Error>(serde_json::json!({
+                "reminder_id": reminder_id,
+                "status": "dismissed",
+                "dismissed_at": dismissed_at,
+            }))
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl LessonQuerier for SqliteStorage {
+    async fn query_lessons(
+        &self,
+        task: Option<&str>,
+        project: Option<&str>,
+        exclude_session: Option<&str>,
+        agent_type: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = Arc::clone(&self.conn);
+        let task = task.map(ToString::to_string);
+        let project = project.map(ToString::to_string);
+        let exclude_session = exclude_session.map(ToString::to_string);
+        let agent_type = agent_type.map(ToString::to_string);
+        let limit = i64::try_from(limit).context("lessons query limit exceeds i64")?;
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let mut sql = String::from(
+                "SELECT id, content, session_id, access_count, created_at, metadata, project, agent_type
+                 FROM memories
+                 WHERE event_type = 'lesson_learned'",
+            );
+            let mut params_values: Vec<rusqlite::types::Value> = Vec::new();
+            let mut idx = 1;
+
+            if let Some(task_value) = task {
+                sql.push_str(&format!(" AND lower(content) LIKE ?{idx}"));
+                params_values.push(rusqlite::types::Value::Text(format!(
+                    "%{}%",
+                    task_value.to_lowercase()
+                )));
+                idx += 1;
+            }
+
+            sql.push_str(" ORDER BY access_count DESC, created_at DESC");
+            sql.push_str(&format!(" LIMIT ?{idx}"));
+            params_values.push(rusqlite::types::Value::Integer(limit * 4));
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .context("failed to prepare lesson query")?;
+            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &params_values {
+                param_refs.push(value);
+            }
+
+            let rows = stmt
+                .query_map(param_refs.as_slice(), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2).ok().flatten(),
+                        row.get::<_, i64>(3).unwrap_or(0),
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<String>>(6).ok().flatten(),
+                        row.get::<_, Option<String>>(7).ok().flatten(),
+                    ))
+                })
+                .context("failed to execute lesson query")?;
+
+            let mut dedup_keys = HashSet::new();
+            let mut results = Vec::new();
+            for row in rows {
+                let (
+                    id,
+                    content,
+                    session_id,
+                    access_count,
+                    created_at,
+                    metadata_raw,
+                    project_col,
+                    agent_type_col,
+                ) = row.context("failed to decode lesson row")?;
+                let metadata = parse_metadata_from_db(&metadata_raw);
+
+                if let Some(project_filter) = project.as_deref() {
+                    let metadata_project = metadata
+                        .get("project")
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToString::to_string)
+                        .or(project_col);
+                    if metadata_project.as_deref() != Some(project_filter) {
+                        continue;
+                    }
+                }
+
+                if let Some(exclude) = exclude_session.as_deref()
+                    && session_id.as_deref() == Some(exclude)
+                {
+                    continue;
+                }
+
+                if let Some(agent_filter) = agent_type.as_deref() {
+                    let metadata_agent = metadata
+                        .get("agent_type")
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToString::to_string)
+                        .or(agent_type_col);
+                    if metadata_agent.as_deref() != Some(agent_filter) {
+                        continue;
+                    }
+                }
+
+                let dedup_key = content.chars().take(80).collect::<String>().to_lowercase();
+                if !dedup_keys.insert(dedup_key) {
+                    continue;
+                }
+
+                results.push(serde_json::json!({
+                    "content": content,
+                    "lesson_id": id,
+                    "session_id": session_id,
+                    "access_count": access_count,
+                    "created_at": created_at,
+                }));
+            }
+
+            results.sort_by(|a, b| {
+                b["access_count"]
+                    .as_i64()
+                    .unwrap_or(0)
+                    .cmp(&a["access_count"].as_i64().unwrap_or(0))
+            });
+            results.truncate(limit as usize);
+
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
 /// Ensures the parent directory of `path` exists, creating it recursively if needed.
 fn initialize_parent_dir(path: &Path) -> Result<()> {
     let parent = path
@@ -2451,6 +3088,12 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
             rel_type TEXT NOT NULL,
             FOREIGN KEY(source_id) REFERENCES memories(id) ON DELETE CASCADE,
             FOREIGN KEY(target_id) REFERENCES memories(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS user_profile (
+            key TEXT NOT NULL PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         );
 
         CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -2636,10 +3279,11 @@ fn matches_search_options(candidate: &RankedSemanticCandidate, opts: &SearchOpti
 mod tests {
     use super::*;
     use crate::memory_core::{
-        AdvancedSearcher, ExpirationSweeper, FeedbackRecorder, GraphTraverser, PhraseSearcher,
-        Recents, Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, Storage,
+        AdvancedSearcher, CheckpointInput, CheckpointManager, ExpirationSweeper, FeedbackRecorder,
+        GraphTraverser, LessonQuerier, PhraseSearcher, ProfileManager, Recents, ReminderManager,
+        Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, Storage,
         TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater, default_priority_for_event_type,
-        default_ttl_for_event_type, is_valid_event_type,
+        default_ttl_for_event_type, is_valid_event_type, parse_duration,
     };
 
     #[derive(Debug, Clone)]
@@ -5375,6 +6019,429 @@ mod tests {
         assert_eq!(results.len(), 2);
     }
 
+    #[tokio::test]
+    async fn test_profile_set_and_get() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as ProfileManager>::set_profile(
+            &storage,
+            &serde_json::json!({"name": "George", "timezone": "UTC"}),
+        )
+        .await
+        .unwrap();
+
+        let profile = <SqliteStorage as ProfileManager>::get_profile(&storage)
+            .await
+            .unwrap();
+        assert_eq!(profile["name"], "George");
+        assert_eq!(profile["timezone"], "UTC");
+    }
+
+    #[tokio::test]
+    async fn test_profile_update_merge() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as ProfileManager>::set_profile(
+            &storage,
+            &serde_json::json!({"name": "George", "timezone": "UTC"}),
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as ProfileManager>::set_profile(
+            &storage,
+            &serde_json::json!({"timezone": "PST"}),
+        )
+        .await
+        .unwrap();
+
+        let profile = <SqliteStorage as ProfileManager>::get_profile(&storage)
+            .await
+            .unwrap();
+        assert_eq!(profile["name"], "George");
+        assert_eq!(profile["timezone"], "PST");
+    }
+
+    #[tokio::test]
+    async fn test_profile_preferences_augmentation() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, content) in [
+            ("pref-1", "User prefers small PRs"),
+            ("pref-2", "User prefers concise status updates"),
+        ] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                content,
+                &MemoryInput {
+                    event_type: Some("user_preference".to_string()),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let profile = <SqliteStorage as ProfileManager>::get_profile(&storage)
+            .await
+            .unwrap();
+        let prefs = profile["preferences_from_memory"].as_array().unwrap();
+        assert!(prefs.len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_save_and_resume() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let id = <SqliteStorage as CheckpointManager>::save_checkpoint(
+            &storage,
+            CheckpointInput {
+                task_title: "Cross-session work".to_string(),
+                progress: "Added profile trait".to_string(),
+                plan: Some("Implement storage next".to_string()),
+                files_touched: None,
+                decisions: None,
+                key_context: None,
+                next_steps: Some("Add tests".to_string()),
+                session_id: Some("s-1".to_string()),
+                project: Some("romega".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!id.is_empty());
+
+        let resumed =
+            <SqliteStorage as CheckpointManager>::resume_task(&storage, "Cross-session", None, 1)
+                .await
+                .unwrap();
+        assert_eq!(resumed.len(), 1);
+        assert!(
+            resumed[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("## Checkpoint: Cross-session work")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_numbering() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for idx in 1..=3 {
+            <SqliteStorage as CheckpointManager>::save_checkpoint(
+                &storage,
+                CheckpointInput {
+                    task_title: "Repeated task".to_string(),
+                    progress: format!("Progress {idx}"),
+                    plan: None,
+                    files_touched: None,
+                    decisions: None,
+                    key_context: None,
+                    next_steps: None,
+                    session_id: None,
+                    project: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let resumed =
+            <SqliteStorage as CheckpointManager>::resume_task(&storage, "Repeated", None, 3)
+                .await
+                .unwrap();
+        let mut numbers: Vec<i64> = resumed
+            .iter()
+            .map(|entry| entry["metadata"]["checkpoint_number"].as_i64().unwrap())
+            .collect();
+        numbers.sort_unstable();
+        assert_eq!(numbers, vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_project_filter() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (project, progress) in [("proj-a", "A progress"), ("proj-b", "B progress")] {
+            <SqliteStorage as CheckpointManager>::save_checkpoint(
+                &storage,
+                CheckpointInput {
+                    task_title: "Shared task".to_string(),
+                    progress: progress.to_string(),
+                    plan: None,
+                    files_touched: None,
+                    decisions: None,
+                    key_context: None,
+                    next_steps: None,
+                    session_id: None,
+                    project: Some(project.to_string()),
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let resumed = <SqliteStorage as CheckpointManager>::resume_task(
+            &storage,
+            "Shared",
+            Some("proj-b"),
+            5,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resumed.len(), 1);
+        assert!(
+            resumed[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("B progress")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reminder_create_and_list() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let reminder = <SqliteStorage as ReminderManager>::create_reminder(
+            &storage,
+            "Review PR E",
+            "1h",
+            Some("after lunch"),
+            Some("session-1"),
+            Some("romega"),
+        )
+        .await
+        .unwrap();
+
+        let reminder_id = reminder["reminder_id"].as_str().unwrap();
+        let listed = <SqliteStorage as ReminderManager>::list_reminders(&storage, None)
+            .await
+            .unwrap();
+        assert!(
+            listed
+                .iter()
+                .any(|entry| entry["reminder_id"].as_str() == Some(reminder_id))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reminder_dismiss() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let reminder = <SqliteStorage as ReminderManager>::create_reminder(
+            &storage,
+            "Dismiss me",
+            "30m",
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let reminder_id = reminder["reminder_id"].as_str().unwrap();
+
+        let dismissed = <SqliteStorage as ReminderManager>::dismiss_reminder(&storage, reminder_id)
+            .await
+            .unwrap();
+        assert_eq!(dismissed["status"], "dismissed");
+
+        let dismissed_list =
+            <SqliteStorage as ReminderManager>::list_reminders(&storage, Some("dismissed"))
+                .await
+                .unwrap();
+        assert_eq!(dismissed_list.len(), 1);
+        assert_eq!(dismissed_list[0]["status"], "dismissed");
+    }
+
+    #[tokio::test]
+    async fn test_reminder_status_filter() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        let first = <SqliteStorage as ReminderManager>::create_reminder(
+            &storage,
+            "pending item",
+            "1h",
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let second = <SqliteStorage as ReminderManager>::create_reminder(
+            &storage,
+            "to dismiss",
+            "2h",
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as ReminderManager>::dismiss_reminder(
+            &storage,
+            second["reminder_id"].as_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let pending = <SqliteStorage as ReminderManager>::list_reminders(&storage, Some("pending"))
+            .await
+            .unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["reminder_id"], first["reminder_id"]);
+
+        let all = <SqliteStorage as ReminderManager>::list_reminders(&storage, Some("all"))
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_reminder_duration_parsing() {
+        assert_eq!(parse_duration("1h").unwrap().num_minutes(), 60);
+        assert_eq!(parse_duration("30m").unwrap().num_minutes(), 30);
+        assert_eq!(parse_duration("2d").unwrap().num_hours(), 48);
+        assert_eq!(parse_duration("1w").unwrap().num_days(), 7);
+        assert_eq!(parse_duration("1d12h").unwrap().num_hours(), 36);
+    }
+
+    #[test]
+    fn test_reminder_invalid_duration() {
+        for input in ["", "0m", "10x", "1h30", "1m1h", "-1h"] {
+            assert!(parse_duration(input).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_lessons_query_basic() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, content) in [
+            ("lesson-1", "Learned to keep checkpoints small"),
+            ("lesson-2", "Learned to run clippy before commit"),
+        ] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                content,
+                &MemoryInput {
+                    event_type: Some("lesson_learned".to_string()),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
+            &storage,
+            Some("checkpoints"),
+            None,
+            None,
+            None,
+            5,
+        )
+        .await
+        .unwrap();
+        assert_eq!(lessons.len(), 1);
+        assert!(
+            lessons[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("checkpoints")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lessons_exclude_session() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        for (id, session) in [("ls-1", "s1"), ("ls-2", "s2")] {
+            <SqliteStorage as Storage>::store(
+                &storage,
+                id,
+                &format!("Lesson from {session}"),
+                &MemoryInput {
+                    event_type: Some("lesson_learned".to_string()),
+                    session_id: Some(session.to_string()),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
+            &storage,
+            None,
+            None,
+            Some("s2"),
+            None,
+            5,
+        )
+        .await
+        .unwrap();
+        assert_eq!(lessons.len(), 1);
+        assert_eq!(lessons[0]["session_id"], "s1");
+    }
+
+    #[tokio::test]
+    async fn test_lessons_dedup() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "dup-1",
+            "placeholder one",
+            &MemoryInput {
+                event_type: Some("memory".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "dup-2",
+            "placeholder two",
+            &MemoryInput {
+                event_type: Some("memory".to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "dup-1",
+            &MemoryUpdate {
+                content: Some(
+                    "The first eighty characters of this lesson are intentionally identical across both entries AAA111"
+                        .to_string(),
+                ),
+                event_type: Some("lesson_learned".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Updater>::update(
+            &storage,
+            "dup-2",
+            &MemoryUpdate {
+                content: Some(
+                    "The first eighty characters of this lesson are intentionally identical across both entries BBB222 with extra detail"
+                        .to_string(),
+                ),
+                event_type: Some("lesson_learned".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let lessons =
+            <SqliteStorage as LessonQuerier>::query_lessons(&storage, None, None, None, None, 10)
+                .await
+                .unwrap();
+        assert_eq!(lessons.len(), 1);
+    }
+
     #[test]
     fn test_schema_contains_new_columns() {
         let storage = SqliteStorage::new_in_memory().unwrap();
@@ -5408,6 +6475,17 @@ mod tests {
         };
         for col in ["weight", "metadata", "created_at"] {
             assert!(rel_cols.contains(&col.to_string()));
+        }
+
+        let profile_cols: Vec<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(user_profile)").unwrap();
+            stmt.query_map([], |row| row.get::<_, String>(1))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        for col in ["key", "value", "updated_at"] {
+            assert!(profile_cols.contains(&col.to_string()));
         }
     }
 }

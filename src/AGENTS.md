@@ -30,17 +30,17 @@ src/
 
 ## FEATURE SURFACE
 
-### CLI Commands (21)
+### CLI Commands (26)
 
-`ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `stats`, `export`, `import`, `feedback`, `sweep`, `download-model`, `advanced-search`, `similar`, `traverse`, `phrase-search`, `serve`
+`ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `stats`, `export`, `import`, `feedback`, `sweep`, `checkpoint`, `resume-task`, `profile`, `remind`, `lessons`, `download-model`, `advanced-search`, `similar`, `traverse`, `phrase-search`, `serve`
 
-### MCP Tools (21)
+### MCP Tools (26)
 
-`memory_store`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_semantic_search`, `memory_tag_search`, `memory_list`, `memory_recent`, `memory_relations`, `memory_add_relation`, `memory_health`, `memory_stats`, `memory_export`, `memory_import`, `memory_advanced_search`, `memory_similar`, `memory_traverse`, `memory_phrase_search`, `memory_feedback`, `memory_sweep`
+`memory_store`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_semantic_search`, `memory_tag_search`, `memory_list`, `memory_recent`, `memory_relations`, `memory_add_relation`, `memory_health`, `memory_stats`, `memory_export`, `memory_import`, `memory_advanced_search`, `memory_similar`, `memory_traverse`, `memory_phrase_search`, `memory_feedback`, `memory_sweep`, `memory_checkpoint`, `memory_resume_task`, `memory_profile`, `memory_remind`, `memory_lessons`
 
-### Core Traits (19)
+### Core Traits (23)
 
-`Ingestor`, `Processor`, `Storage`, `Retriever`, `Searcher`, `Recents`, `SemanticSearcher`, `Deleter`, `Updater`, `Tagger`, `Lister`, `RelationshipQuerier`, `Embedder`, `AdvancedSearcher`, `GraphTraverser`, `SimilarFinder`, `PhraseSearcher`, `FeedbackRecorder`, `ExpirationSweeper`
+`Ingestor`, `Processor`, `Storage`, `Retriever`, `Searcher`, `Recents`, `SemanticSearcher`, `Deleter`, `Updater`, `Tagger`, `Lister`, `RelationshipQuerier`, `Embedder`, `AdvancedSearcher`, `GraphTraverser`, `SimilarFinder`, `PhraseSearcher`, `FeedbackRecorder`, `ExpirationSweeper`, `ProfileManager`, `CheckpointManager`, `ReminderManager`, `LessonQuerier`
 
 ### Domain Structs
 

@@ -25,9 +25,9 @@ romega-memory/
 | Task | Location | Notes |
 |---|---|---|
 | CLI command wiring | `src/cli.rs`, `src/main.rs` | Add enum variant + match arm together |
-| MCP tool behavior | `src/mcp_server.rs` | 21 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health/stats/export/import/advanced_search/similar/traverse/phrase_search/feedback/sweep |
+| MCP tool behavior | `src/mcp_server.rs` | 26 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health/stats/export/import/advanced_search/similar/traverse/phrase_search/feedback/sweep/checkpoint/resume_task/profile/remind/lessons |
 | Storage schema/ops | `src/memory_core/storage/sqlite.rs` | Uses `spawn_blocking` for DB I/O; FTS5 virtual table for full-text search |
-| Pipeline trait boundaries | `src/memory_core/mod.rs` | 19 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier/Embedder/AdvancedSearcher/GraphTraverser/SimilarFinder/PhraseSearcher/FeedbackRecorder/ExpirationSweeper |
+| Pipeline trait boundaries | `src/memory_core/mod.rs` | 23 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier/Embedder/AdvancedSearcher/GraphTraverser/SimilarFinder/PhraseSearcher/FeedbackRecorder/ExpirationSweeper/ProfileManager/CheckpointManager/ReminderManager/LessonQuerier |
 | Scoring system | `src/memory_core/scoring.rs` | Type weights, priority factors, time decay, word overlap, Jaccard similarity |
 | Embedding system | `src/memory_core/embedder.rs` | `Embedder` trait, `PlaceholderEmbedder`, `OnnxEmbedder` (feature-gated), model download |
 | FTS5 search | `src/memory_core/storage/sqlite.rs` | Standalone FTS5 table synced on store/update/delete; LIKE fallback |
@@ -82,11 +82,12 @@ gh api repos/George-RD/romega-memory/pulls/<num>/comments
 - Feature flag `real-embeddings` (default ON) controls ONNX dependency inclusion.
 - Model auto-downloads from HuggingFace to `~/.romega-memory/models/bge-small-en-v1.5/` on first use.
 - `download-model` CLI command for explicit model pre-download.
-- New CLI operations (delete, update, list, relations, stats, export, import, feedback, sweep) use `mcp_storage` directly, not Pipeline.
+- New CLI operations (delete, update, list, relations, stats, export, import, feedback, sweep, checkpoint, resume-task, profile, remind, lessons) use `mcp_storage` directly, not Pipeline.
 - Tags stored as JSON arrays in the `tags` TEXT column; queried via SQLite `json_each()`.
 - FTS5 full-text search with BM25 ranking; LIKE fallback for edge cases.
 - Memories have importance (0.0–1.0), metadata (JSON), access_count, session_id, event_type, project, priority, entity_id, agent_type, ttl_seconds, canonical_hash fields.
 - Relationships have weight (0.0–1.0), metadata (JSON), and created_at fields.
+- Cross-session profile uses `user_profile` table with key/value JSON payload rows.
 - Export/import supports full JSON data portability including relationships and all extended fields.
 - Traits use struct-based signatures: `MemoryInput` (store), `MemoryUpdate` (update), `SearchOptions` (search/recent/semantic/tag/list).
 - Event types are validated against `VALID_EVENT_TYPES`; priority auto-maps from event type via `default_priority_for_event_type`.

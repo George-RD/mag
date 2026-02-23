@@ -1804,6 +1804,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "clap",
  "ndarray 0.16.1",
  "ort",
