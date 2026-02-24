@@ -72,6 +72,8 @@ pub struct SearchOptions {
     pub created_after: Option<String>,
     pub created_before: Option<String>,
     pub context_tags: Option<Vec<String>>,
+    pub entity_id: Option<String>,
+    pub agent_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -129,7 +131,7 @@ pub fn default_priority_for_event_type(event_type: &str) -> i32 {
 
 pub fn default_ttl_for_event_type(event_type: &str) -> Option<i64> {
     match event_type {
-        "session_summary" => Some(TTL_SHORT_TERM),
+        "session_summary" => Some(TTL_EPHEMERAL),
         "task_completion" => Some(TTL_LONG_TERM),
         "error_pattern" => None,
         "lesson_learned" => None,
@@ -147,7 +149,7 @@ pub fn default_ttl_for_event_type(event_type: &str) -> Option<i64> {
         "coordination_snapshot" => Some(TTL_SHORT_TERM),
         "checkpoint" => Some(604_800),
         "reminder" => None,
-        "memory" => Some(TTL_LONG_TERM),
+        "memory" => Some(TTL_SHORT_TERM),
         "code_chunk" => Some(TTL_EPHEMERAL),
         "file_summary" => Some(TTL_SHORT_TERM),
         _ => Some(TTL_LONG_TERM),
