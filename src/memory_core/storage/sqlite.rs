@@ -968,6 +968,16 @@ impl Searcher for SqliteStorage {
                 params_values.push(SqlValue::Text(session_id));
                 idx += 1;
             }
+            if let Some(entity_id) = opts.entity_id.clone() {
+                sql.push_str(&format!(" AND entity_id = ?{idx}"));
+                params_values.push(SqlValue::Text(entity_id));
+                idx += 1;
+            }
+            if let Some(agent_type) = opts.agent_type.clone() {
+                sql.push_str(&format!(" AND agent_type = ?{idx}"));
+                params_values.push(SqlValue::Text(agent_type));
+                idx += 1;
+            }
             sql.push_str(" ORDER BY last_accessed_at DESC");
             sql.push_str(&format!(" LIMIT ?{idx}"));
             params_values.push(SqlValue::Integer(effective_limit));
@@ -1403,7 +1413,7 @@ impl AdvancedSearcher for SqliteStorage {
                         let priority_value = resolve_priority(event_type.as_deref(), priority);
                         fts_candidates.push((
                             id.clone(),
-                            bm25.abs(), // lower abs(bm25) = better match
+                            bm25.abs(), // higher abs(bm25) = better match
                             RankedSemanticCandidate {
                                 result: SemanticResult {
                                     id,
@@ -1425,8 +1435,8 @@ impl AdvancedSearcher for SqliteStorage {
                 }
             }
             // BM25 returns negative values where more negative = better match,
-            // so sort by abs ascending (lower = better rank)
-            fts_candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
+            // so sort by abs descending (higher abs = better rank for RRF)
+            fts_candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
 
             // Phase 3: RRF fusion — assign reciprocal rank scores and merge
             let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();

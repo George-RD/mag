@@ -31,3 +31,4 @@ reqwest = { version = "0.12", optional = true, default-features = false, feature
 [[bin]]
 name = "longmemeval_bench"
 path = "benches/longmemeval.rs"
+required-features = ["real-embeddings"]

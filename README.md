@@ -7,7 +7,7 @@ A high-performance MCP memory server built in Rust. Inspired by [omega-memory](h
 - **Single binary** — no Python, no pip, no virtualenv. One `cargo build --release` and you're done.
 - **No LLM required** — local ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. Works fully offline.
 - **30 MCP tools** — store, search, relate, checkpoint, profile, remind, and more.
-- **3.8x less memory** than the Python equivalent (12 MB vs 47 MB RSS).
+- **3.9× lower peak RSS** than the Python equivalent (12 MB vs 47 MB).
 - **Sub-second startup** — 14ms cold start from the release binary.
 
 ## Performance
@@ -21,6 +21,8 @@ Benchmarked using the [LongMemEval](https://arxiv.org/abs/2407.15853)-inspired e
 | Run 100 queries | 254 ms | ~170 ms |
 | Binary size | 36 MB (arm64) | ~200 MB (venv) |
 | Startup time | **14 ms** | ~2 s |
+
+> **Note on query times:** Both implementations run 100 queries sequentially on a single thread (Apple M-series). The Rust version performs per-query ONNX embedding inference inline, while the Python version batches embeddings through its runtime. Query throughput is not a bottleneck in practice — real MCP usage issues one query at a time, where both return in <10 ms.
 
 ```
 Retrieval Quality (LongMemEval Local)

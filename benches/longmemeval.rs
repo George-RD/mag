@@ -59,6 +59,7 @@ impl PeakRss {
     }
 }
 
+#[cfg(unix)]
 fn current_rss_kb() -> Result<u64> {
     let pid = std::process::id().to_string();
     let output = Command::new("ps")
@@ -75,6 +76,12 @@ fn current_rss_kb() -> Result<u64> {
         .parse::<u64>()
         .map_err(|e| anyhow!("failed to parse RSS from ps output: {e}"))?;
     Ok(rss)
+}
+
+#[cfg(not(unix))]
+fn current_rss_kb() -> Result<u64> {
+    // RSS measurement via `ps` is Unix-only; return 0 on other platforms.
+    Ok(0)
 }
 
 fn iso(ts: chrono::DateTime<Utc>) -> String {
@@ -528,7 +535,19 @@ async fn query_top3(
                 score: item.score,
             })
             .collect()),
-        Ok(_) | Err(_) => {
+        Ok(_) => {
+            // Advanced search succeeded but returned nothing — fall through to basic search
+            let items = <SqliteStorage as Searcher>::search(storage, query, 3, opts).await?;
+            Ok(items
+                .into_iter()
+                .map(|item| Hit {
+                    content: item.content,
+                    score: 1.0,
+                })
+                .collect())
+        }
+        Err(e) => {
+            eprintln!("warning: advanced_search failed, falling back to basic search: {e}");
             let items = <SqliteStorage as Searcher>::search(storage, query, 3, opts).await?;
             Ok(items
                 .into_iter()
@@ -1137,7 +1156,7 @@ async fn run_benchmark(
         &mut results,
         rss,
         "sprint completions last two weeks",
-        "Sprint 1",
+        "Sprint 1 completed",
         "temporal",
         verbose,
         &two_weeks_opts,
