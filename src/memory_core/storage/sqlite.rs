@@ -22,9 +22,9 @@ use crate::memory_core::{
 
 const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
     ("error_pattern", 0.70),
-    ("session_summary", 0.95),
+    ("session_summary", 0.75),
     ("task_completion", 0.85),
-    ("decision", 0.85),
+    ("decision", 0.80),
     ("lesson_learned", 0.85),
 ];
 
@@ -891,6 +891,16 @@ impl Searcher for SqliteStorage {
                 fts_params.push(SqlValue::Text(session_id));
                 param_idx += 1;
             }
+            if let Some(entity_id) = opts.entity_id.clone() {
+                fts_sql.push_str(&format!(" AND m.entity_id = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(entity_id));
+                param_idx += 1;
+            }
+            if let Some(agent_type) = opts.agent_type.clone() {
+                fts_sql.push_str(&format!(" AND m.agent_type = ?{param_idx}"));
+                fts_params.push(SqlValue::Text(agent_type));
+                param_idx += 1;
+            }
             fts_sql.push_str(" ORDER BY bm25(memories_fts)");
             fts_sql.push_str(&format!(" LIMIT ?{param_idx}"));
             fts_params.push(SqlValue::Integer(effective_limit));
@@ -1246,7 +1256,12 @@ impl AdvancedSearcher for SqliteStorage {
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
-            let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
+            // ── RRF (Reciprocal Rank Fusion) hybrid search ─────────
+            // Rank each signal independently then fuse with 1/(k+rank).
+            const RRF_K: f64 = 60.0;
+
+            // Phase 1: Collect vector candidates sorted by cosine similarity
+            let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
 
             let mut vector_stmt = conn
                 .prepare(
@@ -1287,20 +1302,17 @@ impl AdvancedSearcher for SqliteStorage {
                     priority,
                     created_at,
                 ) = row.context("failed to decode advanced vector row")?;
-                let candidate: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                let candidate_emb: Vec<f32> = serde_json::from_slice(&embedding_blob)
                     .context("failed to decode stored embedding")?;
-                let similarity = cosine_similarity(&query_embedding, &candidate) as f64;
+                let similarity = cosine_similarity(&query_embedding, &candidate_emb) as f64;
                 if similarity < 0.1 {
                     continue;
                 }
 
                 let priority_value = resolve_priority(event_type.as_deref(), priority);
-                let mut score =
-                    similarity * type_weight(event_type.as_deref().unwrap_or("memory"));
-                score *= priority_factor(priority_value);
-
-                ranked.insert(
+                vector_candidates.push((
                     id.clone(),
+                    similarity,
                     RankedSemanticCandidate {
                         result: SemanticResult {
                             id,
@@ -1308,16 +1320,22 @@ impl AdvancedSearcher for SqliteStorage {
                             tags: parse_tags_from_db(&raw_tags),
                             importance,
                             metadata: parse_metadata_from_db(&raw_metadata),
-                            event_type,
+                            event_type: event_type.clone(),
                             session_id,
                             project,
                             score: 0.0,
                         },
                         created_at,
-                        score,
+                        score: type_weight(event_type.as_deref().unwrap_or("memory"))
+                            * priority_factor(priority_value),
                     },
-                );
+                ));
             }
+            // Sort by cosine similarity descending for rank assignment
+            vector_candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+            // Phase 2: Collect FTS candidates sorted by BM25
+            let mut fts_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
 
             let fts_query = build_fts5_query(&query);
             let mut fts_sql = String::from(
@@ -1382,20 +1400,10 @@ impl AdvancedSearcher for SqliteStorage {
                             bm25,
                         ) = row.context("failed to decode advanced FTS row")?;
 
-                        let text_relevance = (1.0 / (1.0 + bm25.abs())).clamp(0.0, 1.0);
-
-                        if let Some(existing) = ranked.get_mut(&id) {
-                            existing.score *= 1.3 + text_relevance * 0.5;
-                            continue;
-                        }
-
                         let priority_value = resolve_priority(event_type.as_deref(), priority);
-                        let mut score = text_relevance
-                            * type_weight(event_type.as_deref().unwrap_or("memory"));
-                        score *= priority_factor(priority_value);
-
-                        ranked.insert(
+                        fts_candidates.push((
                             id.clone(),
+                            bm25.abs(), // lower abs(bm25) = better match
                             RankedSemanticCandidate {
                                 result: SemanticResult {
                                     id,
@@ -1403,16 +1411,42 @@ impl AdvancedSearcher for SqliteStorage {
                                     tags: parse_tags_from_db(&raw_tags),
                                     importance,
                                     metadata: parse_metadata_from_db(&raw_metadata),
-                                    event_type,
+                                    event_type: event_type.clone(),
                                     session_id,
                                     project,
                                     score: 0.0,
                                 },
                                 created_at,
-                                score,
+                                score: type_weight(event_type.as_deref().unwrap_or("memory"))
+                                    * priority_factor(priority_value),
                             },
-                        );
+                        ));
                     }
+                }
+            }
+            // BM25 returns negative values where more negative = better match,
+            // so sort by abs ascending (lower = better rank)
+            fts_candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
+
+            // Phase 3: RRF fusion — assign reciprocal rank scores and merge
+            let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
+
+            for (rank, (id, _sim, candidate)) in vector_candidates.into_iter().enumerate() {
+                let rrf_score = 1.0 / (RRF_K + rank as f64 + 1.0);
+                let mut merged = candidate;
+                merged.score *= rrf_score;
+                ranked.insert(id, merged);
+            }
+
+            for (rank, (id, _bm25, candidate)) in fts_candidates.into_iter().enumerate() {
+                let rrf_score = 1.0 / (RRF_K + rank as f64 + 1.0);
+                if let Some(existing) = ranked.get_mut(&id) {
+                    // Present in both — add the FTS RRF contribution
+                    existing.score += candidate.score * rrf_score;
+                } else {
+                    let mut merged = candidate;
+                    merged.score *= rrf_score;
+                    ranked.insert(id, merged);
                 }
             }
 
@@ -3427,12 +3461,33 @@ impl WelcomeProvider for SqliteStorage {
 
             let recent: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
 
-            Ok::<_, anyhow::Error>((total, recent))
+            // Explicitly surface user_preference and user_fact memories
+            let mut prefs_stmt = conn
+                .prepare(
+                    "SELECT id, content, event_type, importance, created_at FROM memories \
+                     WHERE event_type IN ('user_preference', 'user_fact') \
+                     ORDER BY importance DESC, created_at DESC LIMIT 20",
+                )
+                .context("failed to prepare user preferences query")?;
+            let pref_rows = prefs_stmt
+                .query_map([], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "content": row.get::<_, String>(1)?.chars().take(300).collect::<String>(),
+                        "event_type": row.get::<_, Option<String>>(2)?,
+                        "importance": row.get::<_, f64>(3)?,
+                        "created_at": row.get::<_, String>(4)?,
+                    }))
+                })
+                .context("failed to query user preferences")?;
+            let user_context: Vec<serde_json::Value> = pref_rows.filter_map(|r| r.ok()).collect();
+
+            Ok::<_, anyhow::Error>((total, recent, user_context))
         })
         .await
         .context("spawn_blocking join error")??;
 
-        let (total, recent) = db_result;
+        let (total, recent, user_context) = db_result;
 
         // Get profile and pending reminders via existing trait impls
         let profile = <Self as ProfileManager>::get_profile(self)
@@ -3448,6 +3503,7 @@ impl WelcomeProvider for SqliteStorage {
             "greeting": greeting,
             "memory_count": total,
             "recent_memories": recent,
+            "user_context": user_context,
             "profile": profile,
             "pending_reminders": reminders,
         }))
@@ -3695,6 +3751,11 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")
         .context("failed to enable foreign key enforcement")?;
 
+    // Enable WAL mode for better concurrent read performance
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+    // Truncate WAL on startup to reclaim disk space
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS memories (
             id TEXT PRIMARY KEY,
@@ -3759,6 +3820,22 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
     }
 
     rebuild_fts_index(conn)?;
+
+    // Performance indexes
+    let indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_ttl ON memories(ttl_seconds)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_event_access ON memories(event_type, access_count)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_canonical ON memories(canonical_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id)",
+        "CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id)",
+    ];
+    for idx in &indexes {
+        let _ = conn.execute_batch(idx);
+    }
 
     Ok(())
 }
@@ -5755,7 +5832,7 @@ mod tests {
     fn test_ttl_auto_assignment() {
         assert_eq!(
             default_ttl_for_event_type("session_summary"),
-            Some(TTL_SHORT_TERM)
+            Some(TTL_EPHEMERAL)
         );
         assert_eq!(
             default_ttl_for_event_type("task_completion"),
@@ -6222,6 +6299,8 @@ mod tests {
                     created_after: None,
                     created_before: None,
                     context_tags: None,
+                    entity_id: None,
+                    agent_type: None,
                 },
             )
             .await
@@ -7342,6 +7421,60 @@ mod tests {
         assert_eq!(result["memory_count"], 2);
         assert!(result["greeting"].as_str().unwrap().contains("2 memories"));
         assert_eq!(result["recent_memories"].as_array().unwrap().len(), 2);
+        assert!(result["user_context"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_welcome_surfaces_user_context() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+        // Store a user_preference memory
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "uc-1",
+            "user prefers dark mode for all interfaces",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                importance: 0.9,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        // Store a user_fact memory
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "uc-2",
+            "user lives in San Francisco and works in fintech",
+            &MemoryInput {
+                event_type: Some("user_fact".to_string()),
+                importance: 0.8,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        // Store a regular memory (should not appear in user_context)
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "uc-3",
+            "deployed version 2.1 to production successfully",
+            &MemoryInput {
+                event_type: Some("task_completion".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = <SqliteStorage as WelcomeProvider>::welcome(&storage, None, None)
+            .await
+            .unwrap();
+        assert_eq!(result["memory_count"], 3);
+        let user_ctx = result["user_context"].as_array().unwrap();
+        assert_eq!(user_ctx.len(), 2);
+        // Ordered by importance DESC — user_preference (0.9) first
+        assert_eq!(user_ctx[0]["event_type"], "user_preference");
+        assert_eq!(user_ctx[1]["event_type"], "user_fact");
     }
 
     // ── StatsProvider tests ───────────────────────────────────────

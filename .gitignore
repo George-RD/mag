@@ -1,2 +1,6 @@
 /target
 .cargo-cache/
+
+
+# Local provenance / legal notes (not published)
+PROVENANCE.local.md
