@@ -35,12 +35,10 @@ pub fn time_decay(created_at: &str) -> f64 {
         Ok(duration) => duration.as_secs_f64(),
         Err(_) => return 1.0,
     };
-
     let created = match parse_iso8601_to_unix_seconds(created_at) {
         Some(value) => value,
         None => return 1.0,
     };
-
     let age_seconds = (now - created).max(0.0);
     let days_old = age_seconds / 86_400.0;
     1.0 / (1.0 + (days_old / 30.0))
@@ -94,17 +92,23 @@ pub const ABSTENTION_MIN_TEXT: f64 = 0.30;
 pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.4;
 pub const GRAPH_MIN_EDGE_WEIGHT: f64 = 0.3;
 
-/// Compute feedback dampening/boosting factor from accumulated feedback_score.
-/// Negative feedback suppresses results; positive gives a mild boost (capped at 1.3×).
+/// Weighted RRF fusion — bias toward vector similarity for semantic discrimination.
+/// w_vec > w_fts ensures semantic matches outrank lexical coincidences.
+pub const RRF_WEIGHT_VEC: f64 = 1.5;
+pub const RRF_WEIGHT_FTS: f64 = 1.0;
+
+/// Feedback is an explicit user/system signal — asymmetric by design.
+/// Negative feedback aggressively suppresses (explicit downvote).
+/// Positive feedback gives only a mild boost (prevents displacing unrelated results).
 pub fn feedback_factor(feedback_score: i64) -> f64 {
     if feedback_score <= -3 {
-        0.3 // flagged for review — heavily suppress
+        0.1 // flagged for review — near-total suppress
     } else if feedback_score < 0 {
-        0.7 // negative feedback — mild suppress
+        0.3 // explicit negative — strong suppress
     } else if feedback_score > 0 {
         (1.0 + (feedback_score as f64 * 0.05)).min(1.3)
     } else {
-        1.0 // neutral
+        1.0 // neutral (no feedback = no effect)
     }
 }
 
@@ -255,9 +259,10 @@ mod tests {
             &["rust", "memory", "an"],
             "Rust-based memory system with tags",
         );
+        // "an" filtered (len<=2), "rust" + "memory" match → 2/2 = 1.0
         assert!((ratio - 1.0).abs() < 1e-9);
-
-        let miss_ratio = word_overlap(&["alpha", "beta", "is"], "alpha only present");
+        // partial overlap: "rust" matches, "python" doesn't → 1/2 = 0.5
+        let miss_ratio = word_overlap(&["rust", "python"], "Rust-based memory system with tags");
         assert!((miss_ratio - 0.5).abs() < 1e-9);
     }
 
@@ -273,20 +278,24 @@ mod tests {
     }
 
     #[test]
-    fn test_feedback_factor_mild_suppress() {
-        assert!((feedback_factor(-1) - 0.7).abs() < 1e-9);
-        assert!((feedback_factor(-2) - 0.7).abs() < 1e-9);
+    fn test_feedback_factor_strong_suppress() {
+        // fb=-1 → 0.3 (strong explicit downvote)
+        assert!((feedback_factor(-1) - 0.3).abs() < 1e-9);
+        assert!((feedback_factor(-2) - 0.3).abs() < 1e-9);
     }
 
     #[test]
     fn test_feedback_factor_heavy_suppress() {
-        assert!((feedback_factor(-3) - 0.3).abs() < 1e-9);
-        assert!((feedback_factor(-100) - 0.3).abs() < 1e-9);
+        // fb<=-3 → 0.1 (near-total suppress)
+        assert!((feedback_factor(-3) - 0.1).abs() < 1e-9);
+        assert!((feedback_factor(-100) - 0.1).abs() < 1e-9);
     }
 
     #[test]
     fn test_feedback_factor_positive_boost() {
+        // fb=+1 → 1.05, fb=+2 → 1.1, fb=+6 → 1.3 (capped)
         assert!((feedback_factor(1) - 1.05).abs() < 1e-9);
+        assert!((feedback_factor(2) - 1.1).abs() < 1e-9);
         assert!((feedback_factor(6) - 1.3).abs() < 1e-9);
         assert!((feedback_factor(100) - 1.3).abs() < 1e-9);
     }

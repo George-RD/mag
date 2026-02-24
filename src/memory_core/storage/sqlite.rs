@@ -14,11 +14,12 @@ use crate::memory_core::{
     ABSTENTION_MIN_TEXT, AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter,
     ExpirationSweeper, FeedbackRecorder, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, GraphNode,
     GraphTraverser, LessonQuerier, ListResult, Lister, MaintenanceManager, MemoryInput,
-    MemoryUpdate, PhraseSearcher, ProfileManager, Recents, Relationship, RelationshipQuerier,
-    ReminderManager, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
-    SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger, Updater, WelcomeProvider,
-    default_priority_for_event_type, default_ttl_for_event_type, embedder::Embedder,
-    feedback_factor, jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
+    MemoryUpdate, PhraseSearcher, ProfileManager, RRF_WEIGHT_FTS, RRF_WEIGHT_VEC, Recents,
+    Relationship, RelationshipQuerier, ReminderManager, Retriever, SearchOptions, SearchResult,
+    Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger,
+    Updater, WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
+    embedder::Embedder, feedback_factor, jaccard_similarity, priority_factor, time_decay,
+    type_weight, word_overlap,
 };
 
 const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
@@ -1446,18 +1447,17 @@ impl AdvancedSearcher for SqliteStorage {
             // so sort ascending (most negative first = best rank for RRF)
             fts_candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
 
-            // Phase 3: RRF fusion — assign reciprocal rank scores and merge
+            // Phase 3: Weighted RRF fusion — vector similarity weighted higher
+            // for semantic discrimination (Oracle recommendation)
             let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
-
             for (rank, (id, _sim, candidate)) in vector_candidates.into_iter().enumerate() {
-                let rrf_score = 1.0 / (RRF_K + rank as f64 + 1.0);
+                let rrf_score = RRF_WEIGHT_VEC / (RRF_K + rank as f64 + 1.0);
                 let mut merged = candidate;
                 merged.score *= rrf_score;
                 ranked.insert(id, merged);
             }
-
             for (rank, (id, _bm25, candidate)) in fts_candidates.into_iter().enumerate() {
-                let rrf_score = 1.0 / (RRF_K + rank as f64 + 1.0);
+                let rrf_score = RRF_WEIGHT_FTS / (RRF_K + rank as f64 + 1.0);
                 if let Some(existing) = ranked.get_mut(&id) {
                     // Present in both — add the FTS RRF contribution
                     existing.score += candidate.score * rrf_score;
@@ -1476,10 +1476,17 @@ impl AdvancedSearcher for SqliteStorage {
                 };
                 let overlap = word_overlap(&query_word_refs, &with_tags);
                 candidate.text_overlap = overlap;
-                candidate.score *= 1.0 + overlap * 0.5;
+                let fb_score = candidate
+                    .result
+                    .metadata
+                    .get("feedback_score")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
+                candidate.score *= 1.0 + overlap * 0.5 * fb_dampening;
                 let jaccard = jaccard_similarity(&query, &with_tags, 3);
                 candidate.score *= 1.0 + jaccard * 0.25;
-
+                candidate.score *= feedback_factor(fb_score);
                 candidate.score *= time_decay(&candidate.created_at);
                 candidate.score *= 0.5 + candidate.result.importance * 0.5;
 
@@ -1505,14 +1512,6 @@ impl AdvancedSearcher for SqliteStorage {
                     }
                 }
 
-                // Phase 4b: Feedback score weighting
-                let fb_score = candidate
-                    .result
-                    .metadata
-                    .get("feedback_score")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                candidate.score *= feedback_factor(fb_score);
             }
 
 
@@ -1587,7 +1586,12 @@ impl AdvancedSearcher for SqliteStorage {
                                     format!("{} {}", content, tags.join(" "))
                                 };
                                 let overlap = word_overlap(&query_word_refs, &with_tags);
-                                neighbor_score *= 1.0 + overlap * 0.5;
+                                let fb_score = metadata
+                                    .get("feedback_score")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or(0);
+                                let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
+                                neighbor_score *= 1.0 + overlap * 0.5 * fb_dampening;
                                 neighbor_score *= time_decay(&created_at);
                                 neighbor_score *= 0.5 + importance * 0.5;
 
@@ -1596,11 +1600,6 @@ impl AdvancedSearcher for SqliteStorage {
                                         .ok()
                                         .map(|emb| cosine_similarity(&query_embedding, &emb) as f64)
                                 });
-
-                                let fb_score = metadata
-                                    .get("feedback_score")
-                                    .and_then(|v| v.as_i64())
-                                    .unwrap_or(0);
                                 neighbor_score *= feedback_factor(fb_score);
 
                                 neighbors_to_add.push((
