@@ -23,6 +23,12 @@ pub const TTL_EPHEMERAL: i64 = 3600;
 pub const TTL_SHORT_TERM: i64 = 86_400;
 pub const TTL_LONG_TERM: i64 = 1_209_600;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryKind {
+    Episodic,
+    Semantic,
+}
+
 #[derive(Debug, Clone)]
 pub struct MemoryInput {
     pub content: String,
@@ -120,6 +126,14 @@ pub const VALID_EVENT_TYPES: &[&str] = &[
 
 pub fn is_valid_event_type(event_type: &str) -> bool {
     VALID_EVENT_TYPES.contains(&event_type)
+}
+
+pub fn memory_kind_for_event_type(event_type: &str) -> MemoryKind {
+    match event_type {
+        "error_pattern" | "lesson_learned" | "user_preference" | "git_conflict" | "reminder"
+        | "decision" => MemoryKind::Semantic,
+        _ => MemoryKind::Episodic,
+    }
 }
 
 pub fn default_priority_for_event_type(event_type: &str) -> i32 {
@@ -983,5 +997,18 @@ mod tests {
         assert_eq!(results[0].importance, 0.5);
         assert_eq!(results[0].metadata, json!({}));
         assert!(results[0].score > 0.9);
+    }
+
+    #[test]
+    fn test_memory_kind_for_semantic_event_type() {
+        assert_eq!(memory_kind_for_event_type("decision"), MemoryKind::Semantic);
+    }
+
+    #[test]
+    fn test_memory_kind_defaults_to_episodic_for_unknown_type() {
+        assert_eq!(
+            memory_kind_for_event_type("totally_unknown"),
+            MemoryKind::Episodic
+        );
     }
 }
