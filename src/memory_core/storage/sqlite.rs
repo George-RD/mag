@@ -1487,7 +1487,8 @@ impl AdvancedSearcher for SqliteStorage {
                 let jaccard = jaccard_similarity(&query, &with_tags, 3);
                 candidate.score *= 1.0 + jaccard * 0.25;
                 candidate.score *= feedback_factor(fb_score);
-                candidate.score *= time_decay(&candidate.created_at);
+                let event_type = candidate.result.event_type.as_deref().unwrap_or("");
+                candidate.score *= time_decay(&candidate.created_at, event_type);
                 candidate.score *= 0.5 + candidate.result.importance * 0.5;
 
                 if let Some(context_tags) = opts.context_tags.as_ref() {
@@ -1592,7 +1593,8 @@ impl AdvancedSearcher for SqliteStorage {
                                     .unwrap_or(0);
                                 let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
                                 neighbor_score *= 1.0 + overlap * 0.5 * fb_dampening;
-                                neighbor_score *= time_decay(&created_at);
+                                let event_type_for_decay = event_type.as_deref().unwrap_or("");
+                                neighbor_score *= time_decay(&created_at, event_type_for_decay);
                                 neighbor_score *= 0.5 + importance * 0.5;
 
                                 let vec_sim = embedding_blob.and_then(|blob| {

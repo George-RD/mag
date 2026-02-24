@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::{MemoryKind, memory_kind_for_event_type};
+
 /// Type weights for search scoring — higher = more important in results
 pub const TYPE_WEIGHTS: &[(&str, f64)] = &[
     ("checkpoint", 2.5),
@@ -30,7 +32,11 @@ pub fn priority_factor(priority: u8) -> f64 {
     0.7 + (priority as f64 * 0.08)
 }
 
-pub fn time_decay(created_at: &str) -> f64 {
+pub fn time_decay(created_at: &str, event_type: &str) -> f64 {
+    if memory_kind_for_event_type(event_type) == MemoryKind::Semantic {
+        return 1.0;
+    }
+
     let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_secs_f64(),
         Err(_) => return 1.0,
@@ -242,14 +248,28 @@ mod tests {
     #[test]
     fn test_time_decay_recent() {
         let now = iso_string_days_ago(0.0);
-        let decay = time_decay(&now);
+        let decay = time_decay(&now, "session_summary");
         assert!(decay > 0.99);
     }
 
     #[test]
     fn test_time_decay_old() {
         let old = iso_string_days_ago(30.0);
-        let decay = time_decay(&old);
+        let decay = time_decay(&old, "task_completion");
+        assert!((decay - 0.5).abs() < 0.03);
+    }
+
+    #[test]
+    fn test_time_decay_semantic_type_has_zero_decay() {
+        let old = iso_string_days_ago(3650.0);
+        let decay = time_decay(&old, "decision");
+        assert!((decay - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_time_decay_unknown_type_defaults_to_episodic() {
+        let old = iso_string_days_ago(30.0);
+        let decay = time_decay(&old, "totally_unknown");
         assert!((decay - 0.5).abs() < 0.03);
     }
 
