@@ -84,6 +84,30 @@ pub fn jaccard_similarity(text_a: &str, text_b: &str, min_word_len: usize) -> f6
     }
 }
 
+/// Abstention threshold — collection-level gate on max text overlap.
+/// Dense embeddings (bge-small-en-v1.5) produce 0.80+ cosine similarity even
+/// for unrelated content, so vec_sim is NOT used for abstention.
+/// Text overlap cleanly separates relevant (0.33+) from irrelevant (0.00–0.25).
+pub const ABSTENTION_MIN_TEXT: f64 = 0.30;
+
+/// Graph enrichment — inject 1-hop neighbors from top seed results
+pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.4;
+pub const GRAPH_MIN_EDGE_WEIGHT: f64 = 0.3;
+
+/// Compute feedback dampening/boosting factor from accumulated feedback_score.
+/// Negative feedback suppresses results; positive gives a mild boost (capped at 1.3×).
+pub fn feedback_factor(feedback_score: i64) -> f64 {
+    if feedback_score <= -3 {
+        0.3 // flagged for review — heavily suppress
+    } else if feedback_score < 0 {
+        0.7 // negative feedback — mild suppress
+    } else if feedback_score > 0 {
+        (1.0 + (feedback_score as f64 * 0.05)).min(1.3)
+    } else {
+        1.0 // neutral
+    }
+}
+
 fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .map(str::trim)
@@ -241,5 +265,29 @@ mod tests {
     fn test_jaccard_similarity() {
         let similarity = jaccard_similarity("alpha beta gamma", "beta gamma delta", 2);
         assert!((similarity - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_feedback_factor_neutral() {
+        assert!((feedback_factor(0) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_feedback_factor_mild_suppress() {
+        assert!((feedback_factor(-1) - 0.7).abs() < 1e-9);
+        assert!((feedback_factor(-2) - 0.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_feedback_factor_heavy_suppress() {
+        assert!((feedback_factor(-3) - 0.3).abs() < 1e-9);
+        assert!((feedback_factor(-100) - 0.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_feedback_factor_positive_boost() {
+        assert!((feedback_factor(1) - 1.05).abs() < 1e-9);
+        assert!((feedback_factor(6) - 1.3).abs() < 1e-9);
+        assert!((feedback_factor(100) - 1.3).abs() < 1e-9);
     }
 }

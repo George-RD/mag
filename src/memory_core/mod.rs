@@ -12,7 +12,10 @@ pub mod storage;
 pub use embedder::OnnxEmbedder;
 #[allow(unused_imports)]
 pub use embedder::{Embedder, PlaceholderEmbedder};
-pub use scoring::{jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap};
+pub use scoring::{
+    ABSTENTION_MIN_TEXT, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, feedback_factor,
+    jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
+};
 
 pub const TTL_EPHEMERAL: i64 = 3600;
 pub const TTL_SHORT_TERM: i64 = 86_400;

@@ -4,3 +4,6 @@
 
 # Local provenance / legal notes (not published)
 PROVENANCE.local.md
+
+# Local MCP config (machine-specific paths)
+.mcp.json

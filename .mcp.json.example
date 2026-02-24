@@ -3,7 +3,6 @@
     "romega-memory": {
       "command": "./target/release/romega-memory",
       "args": ["serve"],
-      "cwd": "${workspaceFolder}",
       "env": {
         "RUST_LOG": "info"
       }

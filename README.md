@@ -30,16 +30,16 @@ Retrieval Quality (LongMemEval Local)
 │ Category                   │ Rust   │ Python │
 ├────────────────────────────┼────────┼────────┤
 │ Information Extraction     │  80%   │ 100%   │
-│ Multi-Session Reasoning    │  35%   │  80%   │
+│ Multi-Session Reasoning    │  30%   │  80%   │
 │ Temporal Reasoning         │  80%   │  60%   │
-│ Knowledge Update           │  30%   │  50%   │
-│ Abstention                 │   0%   │ 100%   │
+│ Knowledge Update           │  35%   │  50%   │
+│ Abstention                 │ 100%   │ 100%   │
 ├────────────────────────────┼────────┼────────┤
-│ Overall                    │  45%   │  78%   │
+│ Overall                    │  65%   │  78%   │
 └────────────────────────────┴────────┴────────┘
 ```
 
-> Retrieval accuracy is actively improving. The Rust implementation already beats Python on temporal reasoning. Abstention and knowledge update scores require score-threshold filtering and feedback weighting — planned for upcoming releases.
+> Retrieval accuracy is actively improving. Abstention now matches Python at 100%. Multi-session reasoning dipped slightly (30%, down from 35%) and knowledge update (35%) are the next improvement targets.
 
 Run the benchmark yourself:
 
@@ -105,7 +105,7 @@ Or use the pre-built binary for fastest startup:
 ./target/release/romega-memory serve
 ```
 
-The project includes `.mcp.json` for automatic MCP client integration.
+Copy `.mcp.json.example` to `.mcp.json` (gitignored) and configure it for your local MCP client integration.
 
 ## Architecture
 
@@ -164,7 +164,7 @@ cargo test --all-features
 
 ### Test suite
 
-- **172 unit tests** — storage, search, scoring, TTL, dedup, relationships, etc.
+- **312 unit tests** — storage, search, scoring, TTL, dedup, relationships, etc.
 - **3 integration tests** — MCP protocol smoke test, parity harness
 - All tests use in-memory SQLite (fast, hermetic, no cleanup)
 

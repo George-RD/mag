@@ -11,13 +11,14 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, ExpirationSweeper,
-    FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
-    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
-    Relationship, RelationshipQuerier, ReminderManager, Retriever, SearchOptions, SearchResult,
-    Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger,
-    Updater, WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
-    embedder::Embedder, jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
+    ABSTENTION_MIN_TEXT, AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter,
+    ExpirationSweeper, FeedbackRecorder, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, GraphNode,
+    GraphTraverser, LessonQuerier, ListResult, Lister, MaintenanceManager, MemoryInput,
+    MemoryUpdate, PhraseSearcher, ProfileManager, Recents, Relationship, RelationshipQuerier,
+    ReminderManager, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
+    SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger, Updater, WelcomeProvider,
+    default_priority_for_event_type, default_ttl_for_event_type, embedder::Embedder,
+    feedback_factor, jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
 };
 
 const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
@@ -1230,6 +1231,9 @@ struct RankedSemanticCandidate {
     result: SemanticResult,
     created_at: String,
     score: f64,
+    #[allow(dead_code)] // Stored for diagnostics; abstention uses collection-level text_overlap
+    vec_sim: Option<f64>,
+    text_overlap: f64,
 }
 
 #[async_trait]
@@ -1338,6 +1342,8 @@ impl AdvancedSearcher for SqliteStorage {
                         created_at,
                         score: type_weight(event_type.as_deref().unwrap_or("memory"))
                             * priority_factor(priority_value),
+                        vec_sim: Some(similarity),
+                        text_overlap: 0.0,
                     },
                 ));
             }
@@ -1413,7 +1419,7 @@ impl AdvancedSearcher for SqliteStorage {
                         let priority_value = resolve_priority(event_type.as_deref(), priority);
                         fts_candidates.push((
                             id.clone(),
-                            bm25.abs(), // higher abs(bm25) = better match
+                            bm25, // raw BM25: more negative = better match
                             RankedSemanticCandidate {
                                 result: SemanticResult {
                                     id,
@@ -1429,14 +1435,16 @@ impl AdvancedSearcher for SqliteStorage {
                                 created_at,
                                 score: type_weight(event_type.as_deref().unwrap_or("memory"))
                                     * priority_factor(priority_value),
+                                vec_sim: None,
+                                text_overlap: 0.0,
                             },
                         ));
                     }
                 }
             }
             // BM25 returns negative values where more negative = better match,
-            // so sort by abs descending (higher abs = better rank for RRF)
-            fts_candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
+            // so sort ascending (most negative first = best rank for RRF)
+            fts_candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
 
             // Phase 3: RRF fusion — assign reciprocal rank scores and merge
             let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
@@ -1467,6 +1475,7 @@ impl AdvancedSearcher for SqliteStorage {
                     format!("{} {}", candidate.result.content, candidate.result.tags.join(" "))
                 };
                 let overlap = word_overlap(&query_word_refs, &with_tags);
+                candidate.text_overlap = overlap;
                 candidate.score *= 1.0 + overlap * 0.5;
                 let jaccard = jaccard_similarity(&query, &with_tags, 3);
                 candidate.score *= 1.0 + jaccard * 0.25;
@@ -1495,8 +1504,153 @@ impl AdvancedSearcher for SqliteStorage {
                         candidate.score *= 1.0 + ratio * 0.25;
                     }
                 }
+
+                // Phase 4b: Feedback score weighting
+                let fb_score = candidate
+                    .result
+                    .metadata
+                    .get("feedback_score")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                candidate.score *= feedback_factor(fb_score);
             }
 
+
+            // ── Phase 5: Graph enrichment — inject 1-hop neighbors from top seeds ──
+            {
+                let mut seed_list: Vec<(String, f64)> = ranked
+                    .iter()
+                    .map(|(id, c)| (id.clone(), c.score))
+                    .collect();
+                seed_list.sort_by(|a, b| b.1.total_cmp(&a.1));
+                let k = limit.clamp(5, 8);
+                seed_list.truncate(k);
+
+                let neighbor_sql = "\
+                    SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
+                           m.event_type, m.session_id, m.project, m.priority, m.created_at, \
+                           m.embedding, r.weight \
+                    FROM relationships r \
+                    JOIN memories m ON m.id = CASE \
+                        WHEN r.source_id = ?1 THEN r.target_id \
+                        ELSE r.source_id END \
+                    WHERE (r.source_id = ?1 OR r.target_id = ?1) \
+                      AND r.weight >= ?2 \
+                      AND m.id != ?1";
+
+                let mut neighbors_to_add: Vec<(String, RankedSemanticCandidate)> = Vec::new();
+
+                if let Ok(mut stmt) = conn.prepare(neighbor_sql) {
+                    for (seed_id, seed_score) in &seed_list {
+                        if let Ok(rows) = stmt.query_map(
+                            params![seed_id, GRAPH_MIN_EDGE_WEIGHT],
+                            |row| {
+                                Ok((
+                                    row.get::<_, String>(0)?,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, String>(2)?,
+                                    row.get::<_, f64>(3)?,
+                                    row.get::<_, String>(4)?,
+                                    row.get::<_, Option<String>>(5).ok().flatten(),
+                                    row.get::<_, Option<String>>(6).ok().flatten(),
+                                    row.get::<_, Option<String>>(7).ok().flatten(),
+                                    row.get::<_, Option<i64>>(8).ok().flatten(),
+                                    row.get::<_, String>(9)
+                                        .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string()),
+                                    row.get::<_, Option<Vec<u8>>>(10).ok().flatten(),
+                                    row.get::<_, f64>(11).unwrap_or(0.5),
+                                ))
+                            },
+                        ) {
+                            for row_res in rows {
+                                let row = match row_res {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        eprintln!("warning: failed to decode graph neighbor row: {e}");
+                                        continue;
+                                    }
+                                };
+                                let (
+                                    id, content, raw_tags, importance, raw_metadata,
+                                    event_type, session_id, project, _priority, created_at,
+                                    embedding_blob, edge_weight,
+                                ) = row;
+
+                                let mut neighbor_score =
+                                    GRAPH_NEIGHBOR_FACTOR * seed_score * edge_weight;
+
+                                let tags = parse_tags_from_db(&raw_tags);
+                                let metadata = parse_metadata_from_db(&raw_metadata);
+                                let with_tags = if tags.is_empty() {
+                                    content.clone()
+                                } else {
+                                    format!("{} {}", content, tags.join(" "))
+                                };
+                                let overlap = word_overlap(&query_word_refs, &with_tags);
+                                neighbor_score *= 1.0 + overlap * 0.5;
+                                neighbor_score *= time_decay(&created_at);
+                                neighbor_score *= 0.5 + importance * 0.5;
+
+                                let vec_sim = embedding_blob.and_then(|blob| {
+                                    serde_json::from_slice::<Vec<f32>>(&blob)
+                                        .ok()
+                                        .map(|emb| cosine_similarity(&query_embedding, &emb) as f64)
+                                });
+
+                                let fb_score = metadata
+                                    .get("feedback_score")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or(0);
+                                neighbor_score *= feedback_factor(fb_score);
+
+                                neighbors_to_add.push((
+                                    id.clone(),
+                                    RankedSemanticCandidate {
+                                        result: SemanticResult {
+                                            id,
+                                            content,
+                                            tags,
+                                            importance,
+                                            metadata,
+                                            event_type,
+                                            session_id,
+                                            project,
+                                            score: 0.0,
+                                        },
+                                        created_at,
+                                        score: neighbor_score,
+                                        vec_sim,
+                                        text_overlap: overlap,
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                for (id, neighbor) in neighbors_to_add {
+                    if let Some(existing) = ranked.get_mut(&id) {
+                        if neighbor.score > existing.score {
+                            existing.score = neighbor.score;
+                        }
+                    } else {
+                        ranked.insert(id, neighbor);
+                    }
+                }
+            }
+            // ── Phase 6: Collection-level abstention + dedup ─────────────
+            // Dense embeddings (bge-small-en-v1.5) produce high cosine similarity
+            // (0.80+) even for completely unrelated content, making vec_sim
+            // useless for abstention. Text overlap is the discriminative signal:
+            //   • Legitimate queries: max text_overlap typically ≥ 0.33
+            //   • Irrelevant queries: max text_overlap typically 0.00–0.25
+            // Apply a collection-level gate on the best text overlap.
+            // Skip the abstention gate when the query has no eligible word
+            // tokens (all tokens ≤ 2 chars, e.g. "AI", "C++") — text overlap
+            // would always be 0.0, causing false abstention.
+            // NOTE: Gate is applied AFTER search-option filtering (below) so
+            // that out-of-scope high-overlap candidates don't suppress
+            // abstention for scoped queries.
             let mut deduped = Vec::new();
             let mut seen = HashSet::new();
             for candidate in ranked.into_values() {
@@ -1509,6 +1663,16 @@ impl AdvancedSearcher for SqliteStorage {
                 }
             }
 
+            // Apply abstention gate on the filtered (in-scope) candidates.
+            if !query_word_refs.is_empty() {
+                let max_text_overlap = deduped
+                    .iter()
+                    .map(|c| c.text_overlap)
+                    .fold(0.0f64, f64::max);
+                if max_text_overlap < ABSTENTION_MIN_TEXT {
+                    return Ok::<_, anyhow::Error>(Vec::new());
+                }
+            }
             if deduped.is_empty() {
                 return Ok::<_, anyhow::Error>(Vec::new());
             }
