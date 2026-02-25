@@ -1,17 +1,27 @@
 use std::collections::BTreeMap;
+use std::env;
 use std::process::Command;
-use std::time::Instant;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration as StdDuration, Instant};
 
 use anyhow::{Result, anyhow};
 use chrono::{Duration, SecondsFormat, Utc};
 use clap::Parser;
+use dotenvy::dotenv;
 use romega_memory::memory_core::storage::sqlite::SqliteStorage;
 use romega_memory::memory_core::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Fallback score for basic-search results after abstention.
 /// Must stay below ABSTENTION_MIN_TEXT so the abstention grading gate passes.
 const ABSTENTION_FALLBACK_SCORE: f32 = 0.1;
+const DEFAULT_JUDGE_MODEL: &str = "gpt-4o-mini";
+const INPUT_RATE_PER_1M_GPT_4O_MINI: f64 = 0.15;
+
+static OPENAI_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static OPENAI_API_KEY: OnceLock<String> = OnceLock::new();
+static OPENAI_MODEL: OnceLock<String> = OnceLock::new();
+static BENCH_EVALS: OnceLock<Mutex<Vec<QuestionEvaluation>>> = OnceLock::new();
 
 #[derive(Debug, Parser)]
 #[command(name = "longmemeval_bench")]
@@ -21,6 +31,28 @@ struct Args {
     verbose: bool,
     #[arg(long)]
     json: bool,
+    #[arg(long)]
+    llm_judge: bool,
+    #[arg(long, default_value = DEFAULT_JUDGE_MODEL)]
+    judge_model: String,
+}
+
+#[derive(Debug, Clone)]
+struct QuestionEvaluation {
+    category: String,
+    question_type: String,
+    question: String,
+    expected: String,
+    actual: String,
+    substring_passed: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct JudgeCostEstimate {
+    model: String,
+    input_tokens_estimate: usize,
+    input_rate_per_million_usd: f64,
+    estimated_input_cost_usd: f64,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -46,6 +78,46 @@ struct Summary {
 struct Hit {
     content: String,
     score: f32,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiChatRequest {
+    model: String,
+    temperature: f32,
+    max_tokens: u16,
+    messages: Vec<OpenAiMessage>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiChatResponse {
+    choices: Vec<OpenAiChoice>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiUsage {
+    prompt_tokens: u64,
+    #[allow(dead_code)]
+    completion_tokens: u64,
+    #[allow(dead_code)]
+    total_tokens: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiChoice {
+    message: OpenAiResponseMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiResponseMessage {
+    content: String,
 }
 
 #[derive(Debug, Default)]
@@ -615,6 +687,59 @@ fn record_result(
     }
 }
 
+fn question_type_for_category(category: &str) -> &'static str {
+    match category {
+        "information_extraction" | "multi_session" => "standard",
+        "temporal" => "temporal",
+        "knowledge_update" => "knowledge-update",
+        "abstention" => "abstention",
+        _ => "standard",
+    }
+}
+
+fn bench_evals() -> &'static Mutex<Vec<QuestionEvaluation>> {
+    BENCH_EVALS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn clear_question_evals() {
+    match bench_evals().lock() {
+        Ok(mut guard) => guard.clear(),
+        Err(e) => {
+            eprintln!("warning: failed to lock evaluation data: {e}");
+        }
+    }
+}
+
+fn snapshot_question_evals() -> Vec<QuestionEvaluation> {
+    bench_evals()
+        .lock()
+        .unwrap_or_else(|e| panic!("evaluation data mutex poisoned: {e}"))
+        .clone()
+}
+
+fn record_question_eval(
+    category: &str,
+    question: &str,
+    expected: &str,
+    actual: &str,
+    substring_passed: bool,
+) {
+    let eval = QuestionEvaluation {
+        category: category.to_string(),
+        question_type: question_type_for_category(category).to_string(),
+        question: question.to_string(),
+        expected: expected.to_string(),
+        actual: actual.to_string(),
+        substring_passed,
+    };
+    match bench_evals().lock() {
+        Ok(mut guard) => guard.push(eval),
+        Err(e) => {
+            eprintln!("warning: failed to lock evaluation data: {e}");
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn check_top3(
     storage: &SqliteStorage,
@@ -628,10 +753,20 @@ async fn check_top3(
 ) -> Result<()> {
     let hits = query_top3(storage, query_text, opts).await?;
     rss.sample();
-    let expected = expected_substring.to_lowercase();
-    let passed = hits
+    let passed = substring_match(&hits, expected_substring);
+    let actual = hits
         .iter()
-        .any(|hit| hit.content.to_lowercase().contains(expected.as_str()));
+        .map(|hit| hit.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n---\n");
+    record_question_eval(
+        category,
+        query_text,
+        expected_substring,
+        actual.as_str(),
+        passed,
+    );
+
     let detail = if verbose {
         let status = if passed { "PASS" } else { "FAIL" };
         Some(format!(
@@ -650,11 +785,204 @@ fn truncate(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
 
+fn substring_match(hits: &[Hit], expected_substring: &str) -> bool {
+    let expected = expected_substring.to_lowercase();
+    hits.iter()
+        .any(|hit| hit.content.to_lowercase().contains(expected.as_str()))
+}
+
+fn llm_prompt(question: &str, expected: &str, actual: &str, question_type: &str) -> String {
+    let instruction = match question_type {
+        "temporal" => {
+            "Does the response contain the correct answer? Answer yes or no only. Do not penalize off-by-one errors for days."
+        }
+        "knowledge-update" => {
+            "Does the response contain the correct answer? Answer yes or no only. The response may contain multiple memories — answer yes if ANY of them contains the expected updated information, even if older versions are also present."
+        }
+        // "preference" intentionally omitted — no category produces it
+        "abstention" => {
+            "Does the model correctly identify the question as unanswerable? Answer yes or no only."
+        }
+        _ => {
+            "Does the response contain the correct answer? Answer yes or no only. The response may contain multiple memories — answer yes if ANY of them contains the expected information."
+        }
+    };
+    format!(
+        "Question:\n{question}\n\nExpected answer:\n{expected}\n\nModel response:\n{actual}\n\n{instruction}"
+    )
+}
+
+fn judge_input_tokens_estimate(
+    question: &str,
+    expected: &str,
+    actual: &str,
+    question_type: &str,
+) -> usize {
+    let chars = llm_prompt(question, expected, actual, question_type)
+        .chars()
+        .count();
+    chars.div_ceil(4)
+}
+
+fn input_rate_per_million(model: &str) -> f64 {
+    let _ = model;
+    INPUT_RATE_PER_1M_GPT_4O_MINI
+}
+
+fn load_api_key_from_dotenv() {
+    dotenv().ok();
+}
+
+fn init_llm_judge(model: &str) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(StdDuration::from_secs(30))
+        .build()?;
+    let _ = OPENAI_CLIENT.set(client);
+    let _ = OPENAI_MODEL.set(model.to_string());
+    let api_key = env::var("OPENAI_API_KEY")
+        .map_err(|_| anyhow!("--llm-judge requires OPENAI_API_KEY (env var or .env file)"))?;
+    let _ = OPENAI_API_KEY.set(api_key);
+    Ok(())
+}
+
+async fn llm_judge_eval(
+    question: &str,
+    expected: &str,
+    actual: &str,
+    question_type: &str,
+) -> Result<(bool, usize)> {
+    let client = OPENAI_CLIENT
+        .get()
+        .ok_or_else(|| anyhow!("LLM judge client not initialized"))?;
+    let api_key = OPENAI_API_KEY
+        .get()
+        .ok_or_else(|| anyhow!("LLM judge API key not initialized"))?;
+    let model = OPENAI_MODEL
+        .get()
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_JUDGE_MODEL.to_string());
+    let body = OpenAiChatRequest {
+        model,
+        temperature: 0.0,
+        max_tokens: 10,
+        messages: vec![OpenAiMessage {
+            role: "user".to_string(),
+            content: llm_prompt(question, expected, actual, question_type),
+        }],
+    };
+    let response = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
+    let parsed: OpenAiChatResponse = response.json().await?;
+    let prompt_tokens = parsed
+        .usage
+        .as_ref()
+        .map(|u| u.prompt_tokens as usize)
+        .unwrap_or(0);
+    let answer = parsed
+        .choices
+        .first()
+        .map(|choice| choice.message.content.to_lowercase())
+        .ok_or_else(|| anyhow!("OpenAI response missing choices"))?;
+    Ok((answer.contains("yes"), prompt_tokens))
+}
+
+async fn run_llm_judge(
+    evals: &[QuestionEvaluation],
+    verbose: bool,
+) -> (BTreeMap<String, CategoryResult>, JudgeCostEstimate, usize) {
+    let mut results = BTreeMap::<String, CategoryResult>::new();
+    let model = OPENAI_MODEL
+        .get()
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_JUDGE_MODEL.to_string());
+    let rate = input_rate_per_million(model.as_str());
+    let mut input_tokens = 0usize;
+    let mut fallback_count = 0usize;
+
+    for eval in evals {
+        // Abstention uses score-threshold gating, NOT content matching.
+        // Always use the substring (threshold) result for abstention.
+        if eval.category == "abstention" {
+            let detail = if verbose {
+                let status = if eval.substring_passed {
+                    "PASS"
+                } else {
+                    "FAIL"
+                };
+                Some(format!(
+                    "  [{status}] Q: {}  E: {}",
+                    truncate(eval.question.as_str(), 60),
+                    truncate(eval.expected.as_str(), 40)
+                ))
+            } else {
+                None
+            };
+            record_result(&mut results, "abstention", eval.substring_passed, detail);
+            continue;
+        }
+        let judged = llm_judge_eval(
+            eval.question.as_str(),
+            eval.expected.as_str(),
+            eval.actual.as_str(),
+            eval.question_type.as_str(),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let passed = match judged {
+            Ok((v, tokens)) => {
+                input_tokens += tokens;
+                v
+            }
+            Err(err) => {
+                fallback_count += 1;
+                input_tokens += judge_input_tokens_estimate(
+                    eval.question.as_str(),
+                    eval.expected.as_str(),
+                    eval.actual.as_str(),
+                    eval.question_type.as_str(),
+                );
+                eprintln!(
+                    "warning: LLM judge failed for category '{}', using substring fallback: {}",
+                    eval.category, err
+                );
+                eval.substring_passed
+            }
+        };
+
+        let detail = if verbose {
+            let status = if passed { "PASS" } else { "FAIL" };
+            Some(format!(
+                "  [{status}] Q: {}  E: {}",
+                truncate(eval.question.as_str(), 60),
+                truncate(eval.expected.as_str(), 40)
+            ))
+        } else {
+            None
+        };
+        record_result(&mut results, eval.category.as_str(), passed, detail);
+    }
+
+    let estimated_input_cost_usd = input_tokens as f64 / 1_000_000.0 * rate;
+    let cost = JudgeCostEstimate {
+        model,
+        input_tokens_estimate: input_tokens,
+        input_rate_per_million_usd: rate,
+        estimated_input_cost_usd,
+    };
+    (results, cost, fallback_count)
+}
+
 async fn run_benchmark(
     storage: &SqliteStorage,
     verbose: bool,
     rss: &mut PeakRss,
 ) -> Result<BTreeMap<String, CategoryResult>> {
+    clear_question_evals();
     let mut results = BTreeMap::<String, CategoryResult>::new();
     let no_filter = SearchOptions {
         event_type: None,
@@ -1216,6 +1544,18 @@ async fn run_benchmark(
         } else {
             None
         };
+        let actual = hits
+            .iter()
+            .map(|hit| hit.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        record_question_eval(
+            "temporal",
+            "sprint completion",
+            "no results expected for 80-90 days ago",
+            actual.as_str(),
+            passed,
+        );
         record_result(&mut results, "temporal", passed, detail);
     }
 
@@ -1241,6 +1581,19 @@ async fn run_benchmark(
         } else {
             None
         };
+        let actual = hits
+            .iter()
+            .map(|hit| hit.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        let expected = format!("at least one result expected for last {days_window} days");
+        record_question_eval(
+            "temporal",
+            "sprint deployed feature batch",
+            expected.as_str(),
+            actual.as_str(),
+            passed,
+        );
         record_result(&mut results, "temporal", passed, detail);
     }
 
@@ -1258,7 +1611,20 @@ async fn run_benchmark(
         };
         let hits = query_top3(storage, "sprint completed production", &rolling_opts).await?;
         rss.sample();
-        record_result(&mut results, "temporal", !hits.is_empty(), None);
+        let passed = !hits.is_empty();
+        let actual = hits
+            .iter()
+            .map(|hit| hit.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        record_question_eval(
+            "temporal",
+            "sprint completed production",
+            "at least one result expected within rolling window",
+            actual.as_str(),
+            passed,
+        );
+        record_result(&mut results, "temporal", passed, None);
     }
 
     check_top3(
@@ -1399,6 +1765,19 @@ async fn run_benchmark(
         } else {
             None
         };
+        let actual = hits
+            .iter()
+            .map(|hit| hit.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        let expected = format!("top result should not be old value: {old_substring}");
+        record_question_eval(
+            "knowledge_update",
+            query_text,
+            expected.as_str(),
+            actual.as_str(),
+            passed,
+        );
         record_result(&mut results, "knowledge_update", passed, detail);
     }
 
@@ -1460,6 +1839,18 @@ async fn run_benchmark(
         } else {
             None
         };
+        let actual = hits
+            .iter()
+            .map(|hit| hit.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        record_question_eval(
+            "abstention",
+            query_text,
+            "question should be unanswerable from stored memories",
+            actual.as_str(),
+            passed,
+        );
         record_result(&mut results, "abstention", passed, detail);
     }
 
@@ -1505,10 +1896,86 @@ fn print_results(results: &BTreeMap<String, CategoryResult>) -> (usize, usize, f
     (total_correct, total_questions, overall)
 }
 
+fn print_side_by_side_results(
+    substring: &BTreeMap<String, CategoryResult>,
+    llm: &BTreeMap<String, CategoryResult>,
+) -> ((usize, usize, f64), (usize, usize, f64)) {
+    println!();
+    println!(
+        "===================================================================================================================="
+    );
+    println!("  ROMEGA LongMemEval Benchmark Results (Substring vs LLM Judge)");
+    println!(
+        "===================================================================================================================="
+    );
+    println!(
+        "  {:30} {:>24} {:>24}",
+        "Category", "Substring", "LLM Judge"
+    );
+
+    let mut sub_correct = 0usize;
+    let mut sub_total = 0usize;
+    let mut llm_correct = 0usize;
+    let mut llm_total = 0usize;
+
+    for (key, label) in categories() {
+        let sub = substring.get(key).cloned().unwrap_or_default();
+        let llm_cat = llm.get(key).cloned().unwrap_or_default();
+        let sub_pct = pct(sub.correct, sub.total);
+        let llm_pct = pct(llm_cat.correct, llm_cat.total);
+        println!(
+            "  {label:30} {:>3}/{:<3} {:>6.1}% {:>3}   {:>3}/{:<3} {:>6.1}% {:>3}",
+            sub.correct,
+            sub.total,
+            sub_pct,
+            grade(sub_pct),
+            llm_cat.correct,
+            llm_cat.total,
+            llm_pct,
+            grade(llm_pct),
+        );
+        sub_correct += sub.correct;
+        sub_total += sub.total;
+        llm_correct += llm_cat.correct;
+        llm_total += llm_cat.total;
+    }
+
+    let sub_overall = pct(sub_correct, sub_total);
+    let llm_overall = pct(llm_correct, llm_total);
+    println!(
+        "--------------------------------------------------------------------------------------------------------------------"
+    );
+    println!(
+        "  {:30} {:>3}/{:<3} {:>6.1}% {:>3}   {:>3}/{:<3} {:>6.1}% {:>3}",
+        "OVERALL",
+        sub_correct,
+        sub_total,
+        sub_overall,
+        grade(sub_overall),
+        llm_correct,
+        llm_total,
+        llm_overall,
+        grade(llm_overall),
+    );
+    println!(
+        "--------------------------------------------------------------------------------------------------------------------"
+    );
+
+    (
+        (sub_correct, sub_total, sub_overall),
+        (llm_correct, llm_total, llm_overall),
+    )
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let mut rss = PeakRss::default();
     rss.sample();
+
+    if args.llm_judge {
+        load_api_key_from_dotenv();
+        init_llm_judge(args.judge_model.as_str())?;
+    }
 
     let runtime = tokio::runtime::Runtime::new()?;
     let storage = SqliteStorage::new_in_memory()?;
@@ -1521,14 +1988,56 @@ fn main() -> Result<()> {
     println!("Seeded {seeded_memories} memories.");
 
     println!("Running benchmark...");
+    if args.llm_judge {
+        println!("  (LLM-as-judge mode: {})", args.judge_model);
+    }
     let query_start = Instant::now();
-    let results = runtime.block_on(run_benchmark(&storage, args.verbose, &mut rss))?;
+    let mut llm_judge_calls = 0usize;
+    let substring_results = runtime.block_on(run_benchmark(&storage, args.verbose, &mut rss))?;
     let querying_ms = query_start.elapsed().as_millis();
 
-    let (total_correct, total_questions, overall) = print_results(&results);
+    let evals = snapshot_question_evals();
+    let (total_correct, total_questions, overall);
+    let mut llm_results_summary: Option<BTreeMap<String, CategoryResult>> = None;
+    if args.llm_judge {
+        llm_judge_calls = evals.len();
+        let (llm_results, cost, fallback_count) =
+            runtime.block_on(run_llm_judge(&evals, args.verbose));
+        let (substring_totals, llm_totals) =
+            print_side_by_side_results(&substring_results, &llm_results);
+        llm_results_summary = Some(llm_results);
+        (total_correct, total_questions, overall) = llm_totals;
+        println!(
+            "Substring overall: {}/{} = {:.1}%",
+            substring_totals.0, substring_totals.1, substring_totals.2
+        );
+        println!(
+            "LLM judge overall: {}/{} = {:.1}%",
+            llm_totals.0, llm_totals.1, llm_totals.2
+        );
+        println!(
+            "Estimated input cost: ${:.6} ({} tokens x ${:.2}/1M)",
+            cost.estimated_input_cost_usd,
+            cost.input_tokens_estimate,
+            cost.input_rate_per_million_usd
+        );
+        if fallback_count > 0 {
+            println!("LLM fallback-to-substring count: {fallback_count}");
+        }
+    } else {
+        (total_correct, total_questions, overall) = print_results(&substring_results);
+    }
     println!("Seeding time:  {seeding_ms} ms");
     println!("Query time:    {querying_ms} ms");
+    if args.llm_judge {
+        println!("LLM judge calls: {llm_judge_calls}");
+    }
     println!("Peak RSS:      {} KB", rss.peak_kb);
+
+    let summary_categories = match llm_results_summary {
+        Some(llm_results) => llm_results,
+        None => substring_results.clone(),
+    };
 
     let summary = Summary {
         seeded_memories,
@@ -1538,7 +2047,7 @@ fn main() -> Result<()> {
         total_correct,
         total_questions,
         overall_percentage: overall,
-        categories: results,
+        categories: summary_categories,
     };
 
     if args.json {
