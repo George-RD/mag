@@ -15,8 +15,8 @@ pub use embedder::{Embedder, PlaceholderEmbedder};
 #[allow(unused_imports)]
 pub use scoring::{
     ABSTENTION_MIN_TEXT, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, RRF_WEIGHT_FTS,
-    RRF_WEIGHT_VEC, feedback_factor, jaccard_similarity, priority_factor, time_decay, type_weight,
-    word_overlap,
+    RRF_WEIGHT_VEC, ScoringParams, feedback_factor, jaccard_similarity, priority_factor,
+    time_decay, type_weight, word_overlap,
 };
 
 pub const TTL_EPHEMERAL: i64 = 3600;

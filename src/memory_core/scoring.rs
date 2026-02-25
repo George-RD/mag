@@ -21,6 +21,65 @@ pub const TYPE_WEIGHTS: &[(&str, f64)] = &[
     ("memory", 1.0),
 ];
 
+#[derive(Debug, Clone)]
+pub struct ScoringParams {
+    pub rrf_k: f64,
+    pub rrf_weight_vec: f64,
+    pub rrf_weight_fts: f64,
+    pub abstention_min_text: f64,
+    pub graph_neighbor_factor: f64,
+    pub graph_min_edge_weight: f64,
+    pub word_overlap_weight: f64,
+    pub jaccard_weight: f64,
+    pub importance_floor: f64,
+    pub importance_scale: f64,
+    pub context_tag_weight: f64,
+    pub time_decay_days: f64,
+    pub priority_base: f64,
+    pub priority_scale: f64,
+    pub feedback_heavy_suppress: f64,
+    pub feedback_strong_suppress: f64,
+    pub feedback_positive_scale: f64,
+    pub feedback_positive_cap: f64,
+    pub feedback_heavy_threshold: i64,
+    pub neighbor_word_overlap_weight: f64,
+    pub neighbor_importance_floor: f64,
+    pub neighbor_importance_scale: f64,
+    pub graph_seed_min: usize,
+    pub graph_seed_max: usize,
+}
+
+impl Default for ScoringParams {
+    fn default() -> Self {
+        Self {
+            rrf_k: 60.0,
+            rrf_weight_vec: RRF_WEIGHT_VEC,
+            rrf_weight_fts: RRF_WEIGHT_FTS,
+            abstention_min_text: ABSTENTION_MIN_TEXT,
+            graph_neighbor_factor: GRAPH_NEIGHBOR_FACTOR,
+            graph_min_edge_weight: GRAPH_MIN_EDGE_WEIGHT,
+            word_overlap_weight: 0.5,
+            jaccard_weight: 0.25,
+            importance_floor: 0.5,
+            importance_scale: 0.5,
+            context_tag_weight: 0.25,
+            time_decay_days: 30.0,
+            priority_base: 0.7,
+            priority_scale: 0.08,
+            feedback_heavy_suppress: 0.1,
+            feedback_strong_suppress: 0.3,
+            feedback_positive_scale: 0.05,
+            feedback_positive_cap: 1.3,
+            feedback_heavy_threshold: -3,
+            neighbor_word_overlap_weight: 0.5,
+            neighbor_importance_floor: 0.5,
+            neighbor_importance_scale: 0.5,
+            graph_seed_min: 5,
+            graph_seed_max: 8,
+        }
+    }
+}
+
 pub fn type_weight(event_type: &str) -> f64 {
     TYPE_WEIGHTS
         .iter()
@@ -28,12 +87,16 @@ pub fn type_weight(event_type: &str) -> f64 {
         .unwrap_or(1.0)
 }
 
-pub fn priority_factor(priority: u8) -> f64 {
-    0.7 + (priority as f64 * 0.08)
+pub fn priority_factor(priority: u8, scoring_params: &ScoringParams) -> f64 {
+    scoring_params.priority_base + (priority as f64 * scoring_params.priority_scale)
 }
 
-pub fn time_decay(created_at: &str, event_type: &str) -> f64 {
+pub fn time_decay(created_at: &str, event_type: &str, scoring_params: &ScoringParams) -> f64 {
     if memory_kind_for_event_type(event_type) == MemoryKind::Semantic {
+        return 1.0;
+    }
+
+    if !scoring_params.time_decay_days.is_finite() || scoring_params.time_decay_days <= 0.0 {
         return 1.0;
     }
 
@@ -47,7 +110,7 @@ pub fn time_decay(created_at: &str, event_type: &str) -> f64 {
     };
     let age_seconds = (now - created).max(0.0);
     let days_old = age_seconds / 86_400.0;
-    1.0 / (1.0 + (days_old / 30.0))
+    1.0 / (1.0 + (days_old / scoring_params.time_decay_days))
 }
 
 pub fn word_overlap(query_words: &[&str], text: &str) -> f64 {
@@ -106,13 +169,16 @@ pub const RRF_WEIGHT_FTS: f64 = 1.0;
 /// Feedback is an explicit user/system signal — asymmetric by design.
 /// Negative feedback aggressively suppresses (explicit downvote).
 /// Positive feedback gives only a mild boost (prevents displacing unrelated results).
-pub fn feedback_factor(feedback_score: i64) -> f64 {
-    if feedback_score <= -3 {
-        0.1 // flagged for review — near-total suppress
-    } else if feedback_score < 0 {
-        0.3 // explicit negative — strong suppress
+pub fn feedback_factor(feedback_score: i64, scoring_params: &ScoringParams) -> f64 {
+    if feedback_score < 0 {
+        if feedback_score <= scoring_params.feedback_heavy_threshold {
+            scoring_params.feedback_heavy_suppress // flagged for review — near-total suppress
+        } else {
+            scoring_params.feedback_strong_suppress // explicit negative — strong suppress
+        }
     } else if feedback_score > 0 {
-        (1.0 + (feedback_score as f64 * 0.05)).min(1.3)
+        (1.0 + (feedback_score as f64 * scoring_params.feedback_positive_scale))
+            .min(scoring_params.feedback_positive_cap)
     } else {
         1.0 // neutral (no feedback = no effect)
     }
@@ -241,35 +307,40 @@ mod tests {
 
     #[test]
     fn test_priority_factor() {
-        assert!((priority_factor(1) - 0.78).abs() < 1e-9);
-        assert!((priority_factor(5) - 1.10).abs() < 1e-9);
+        let scoring_params = ScoringParams::default();
+        assert!((priority_factor(1, &scoring_params) - 0.78).abs() < 1e-9);
+        assert!((priority_factor(5, &scoring_params) - 1.10).abs() < 1e-9);
     }
 
     #[test]
     fn test_time_decay_recent() {
+        let scoring_params = ScoringParams::default();
         let now = iso_string_days_ago(0.0);
-        let decay = time_decay(&now, "session_summary");
+        let decay = time_decay(&now, "session_summary", &scoring_params);
         assert!(decay > 0.99);
     }
 
     #[test]
     fn test_time_decay_old() {
+        let scoring_params = ScoringParams::default();
         let old = iso_string_days_ago(30.0);
-        let decay = time_decay(&old, "task_completion");
+        let decay = time_decay(&old, "task_completion", &scoring_params);
         assert!((decay - 0.5).abs() < 0.03);
     }
 
     #[test]
     fn test_time_decay_semantic_type_has_zero_decay() {
+        let scoring_params = ScoringParams::default();
         let old = iso_string_days_ago(3650.0);
-        let decay = time_decay(&old, "decision");
+        let decay = time_decay(&old, "decision", &scoring_params);
         assert!((decay - 1.0).abs() < 1e-9);
     }
 
     #[test]
     fn test_time_decay_unknown_type_defaults_to_episodic() {
+        let scoring_params = ScoringParams::default();
         let old = iso_string_days_ago(30.0);
-        let decay = time_decay(&old, "totally_unknown");
+        let decay = time_decay(&old, "totally_unknown", &scoring_params);
         assert!((decay - 0.5).abs() < 0.03);
     }
 
@@ -294,29 +365,64 @@ mod tests {
 
     #[test]
     fn test_feedback_factor_neutral() {
-        assert!((feedback_factor(0) - 1.0).abs() < 1e-9);
+        let scoring_params = ScoringParams::default();
+        assert!((feedback_factor(0, &scoring_params) - 1.0).abs() < 1e-9);
     }
 
     #[test]
     fn test_feedback_factor_strong_suppress() {
+        let scoring_params = ScoringParams::default();
         // fb=-1 → 0.3 (strong explicit downvote)
-        assert!((feedback_factor(-1) - 0.3).abs() < 1e-9);
-        assert!((feedback_factor(-2) - 0.3).abs() < 1e-9);
+        assert!((feedback_factor(-1, &scoring_params) - 0.3).abs() < 1e-9);
+        assert!((feedback_factor(-2, &scoring_params) - 0.3).abs() < 1e-9);
     }
 
     #[test]
     fn test_feedback_factor_heavy_suppress() {
+        let scoring_params = ScoringParams::default();
         // fb<=-3 → 0.1 (near-total suppress)
-        assert!((feedback_factor(-3) - 0.1).abs() < 1e-9);
-        assert!((feedback_factor(-100) - 0.1).abs() < 1e-9);
+        assert!((feedback_factor(-3, &scoring_params) - 0.1).abs() < 1e-9);
+        assert!((feedback_factor(-100, &scoring_params) - 0.1).abs() < 1e-9);
     }
 
     #[test]
     fn test_feedback_factor_positive_boost() {
+        let scoring_params = ScoringParams::default();
         // fb=+1 → 1.05, fb=+2 → 1.1, fb=+6 → 1.3 (capped)
-        assert!((feedback_factor(1) - 1.05).abs() < 1e-9);
-        assert!((feedback_factor(2) - 1.1).abs() < 1e-9);
-        assert!((feedback_factor(6) - 1.3).abs() < 1e-9);
-        assert!((feedback_factor(100) - 1.3).abs() < 1e-9);
+        assert!((feedback_factor(1, &scoring_params) - 1.05).abs() < 1e-9);
+        assert!((feedback_factor(2, &scoring_params) - 1.1).abs() < 1e-9);
+        assert!((feedback_factor(6, &scoring_params) - 1.3).abs() < 1e-9);
+        assert!((feedback_factor(100, &scoring_params) - 1.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_priority_factor_custom_params() {
+        let params = ScoringParams {
+            priority_base: 1.0,
+            priority_scale: 0.2,
+            ..ScoringParams::default()
+        };
+        assert!((priority_factor(5, &params) - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_time_decay_custom_window() {
+        let old = iso_string_days_ago(60.0);
+        let params = ScoringParams {
+            time_decay_days: 60.0,
+            ..ScoringParams::default()
+        };
+        let decay = time_decay(&old, "task_completion", &params);
+        assert!((decay - 0.5).abs() < 0.03);
+    }
+
+    #[test]
+    fn test_time_decay_zero_days_returns_one() {
+        let old = iso_string_days_ago(30.0);
+        let params = ScoringParams {
+            time_decay_days: 0.0,
+            ..ScoringParams::default()
+        };
+        assert!((time_decay(&old, "task_completion", &params) - 1.0).abs() < 1e-9);
     }
 }

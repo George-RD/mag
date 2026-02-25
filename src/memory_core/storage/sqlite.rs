@@ -11,15 +11,14 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    ABSTENTION_MIN_TEXT, AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter,
-    ExpirationSweeper, FeedbackRecorder, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, GraphNode,
-    GraphTraverser, LessonQuerier, ListResult, Lister, MaintenanceManager, MemoryInput,
-    MemoryUpdate, PhraseSearcher, ProfileManager, RRF_WEIGHT_FTS, RRF_WEIGHT_VEC, Recents,
-    Relationship, RelationshipQuerier, ReminderManager, Retriever, SearchOptions, SearchResult,
-    Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger,
-    Updater, WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
-    embedder::Embedder, feedback_factor, jaccard_similarity, priority_factor, time_decay,
-    type_weight, word_overlap,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, ExpirationSweeper,
+    FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
+    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
+    Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
+    SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
+    Storage, Tagger, Updater, WelcomeProvider, default_priority_for_event_type,
+    default_ttl_for_event_type, embedder::Embedder, feedback_factor, jaccard_similarity,
+    priority_factor, time_decay, type_weight, word_overlap,
 };
 
 const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
@@ -53,6 +52,7 @@ pub enum InitMode {
 pub struct SqliteStorage {
     conn: Arc<Mutex<Connection>>,
     embedder: Arc<dyn Embedder>,
+    scoring_params: ScoringParams,
 }
 
 impl SqliteStorage {
@@ -89,7 +89,20 @@ impl SqliteStorage {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             embedder,
+            scoring_params: ScoringParams::default(),
         })
+    }
+
+    #[allow(dead_code)]
+    pub fn with_scoring_params(mut self, mut params: ScoringParams) -> Self {
+        if params.graph_seed_min > params.graph_seed_max {
+            std::mem::swap(&mut params.graph_seed_min, &mut params.graph_seed_max);
+        }
+        if !params.rrf_k.is_finite() || params.rrf_k <= 0.0 {
+            params.rrf_k = ScoringParams::default().rrf_k;
+        }
+        self.scoring_params = params;
+        self
     }
 
     /// Inserts a directed relationship between two memories.
@@ -464,6 +477,7 @@ impl SqliteStorage {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             embedder,
+            scoring_params: ScoringParams::default(),
         })
     }
 
@@ -1251,6 +1265,7 @@ impl AdvancedSearcher for SqliteStorage {
 
         let conn = Arc::clone(&self.conn);
         let embedder = Arc::clone(&self.embedder);
+        let scoring_params = self.scoring_params.clone();
         let query = query.to_string();
         let opts = opts.clone();
 
@@ -1273,7 +1288,6 @@ impl AdvancedSearcher for SqliteStorage {
 
             // ── RRF (Reciprocal Rank Fusion) hybrid search ─────────
             // Rank each signal independently then fuse with 1/(k+rank).
-            const RRF_K: f64 = 60.0;
 
             // Phase 1: Collect vector candidates sorted by cosine similarity
             let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
@@ -1342,7 +1356,7 @@ impl AdvancedSearcher for SqliteStorage {
                         },
                         created_at,
                         score: type_weight(event_type.as_deref().unwrap_or("memory"))
-                            * priority_factor(priority_value),
+                            * priority_factor(priority_value, &scoring_params),
                         vec_sim: Some(similarity),
                         text_overlap: 0.0,
                     },
@@ -1435,7 +1449,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 },
                                 created_at,
                                 score: type_weight(event_type.as_deref().unwrap_or("memory"))
-                                    * priority_factor(priority_value),
+                                    * priority_factor(priority_value, &scoring_params),
                                 vec_sim: None,
                                 text_overlap: 0.0,
                             },
@@ -1451,13 +1465,15 @@ impl AdvancedSearcher for SqliteStorage {
             // for semantic discrimination (Oracle recommendation)
             let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
             for (rank, (id, _sim, candidate)) in vector_candidates.into_iter().enumerate() {
-                let rrf_score = RRF_WEIGHT_VEC / (RRF_K + rank as f64 + 1.0);
+                let rrf_score =
+                    scoring_params.rrf_weight_vec / (scoring_params.rrf_k + rank as f64 + 1.0);
                 let mut merged = candidate;
                 merged.score *= rrf_score;
                 ranked.insert(id, merged);
             }
             for (rank, (id, _bm25, candidate)) in fts_candidates.into_iter().enumerate() {
-                let rrf_score = RRF_WEIGHT_FTS / (RRF_K + rank as f64 + 1.0);
+                let rrf_score =
+                    scoring_params.rrf_weight_fts / (scoring_params.rrf_k + rank as f64 + 1.0);
                 if let Some(existing) = ranked.get_mut(&id) {
                     // Present in both — add the FTS RRF contribution
                     existing.score += candidate.score * rrf_score;
@@ -1483,13 +1499,15 @@ impl AdvancedSearcher for SqliteStorage {
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0);
                 let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
-                candidate.score *= 1.0 + overlap * 0.5 * fb_dampening;
+                candidate.score *=
+                    1.0 + overlap * scoring_params.word_overlap_weight * fb_dampening;
                 let jaccard = jaccard_similarity(&query, &with_tags, 3);
-                candidate.score *= 1.0 + jaccard * 0.25;
-                candidate.score *= feedback_factor(fb_score);
+                candidate.score *= 1.0 + jaccard * scoring_params.jaccard_weight;
+                candidate.score *= feedback_factor(fb_score, &scoring_params);
                 let event_type = candidate.result.event_type.as_deref().unwrap_or("");
-                candidate.score *= time_decay(&candidate.created_at, event_type);
-                candidate.score *= 0.5 + candidate.result.importance * 0.5;
+                candidate.score *= time_decay(&candidate.created_at, event_type, &scoring_params);
+                candidate.score *= scoring_params.importance_floor
+                    + candidate.result.importance * scoring_params.importance_scale;
 
                 if let Some(context_tags) = opts.context_tags.as_ref() {
                     let candidate_tags: HashSet<String> = candidate
@@ -1509,7 +1527,7 @@ impl AdvancedSearcher for SqliteStorage {
                             .filter(|t| candidate_tags.contains(*t))
                             .count();
                         let ratio = matched as f64 / context_norm.len() as f64;
-                        candidate.score *= 1.0 + ratio * 0.25;
+                        candidate.score *= 1.0 + ratio * scoring_params.context_tag_weight;
                     }
                 }
 
@@ -1523,7 +1541,7 @@ impl AdvancedSearcher for SqliteStorage {
                     .map(|(id, c)| (id.clone(), c.score))
                     .collect();
                 seed_list.sort_by(|a, b| b.1.total_cmp(&a.1));
-                let k = limit.clamp(5, 8);
+                let k = limit.clamp(scoring_params.graph_seed_min, scoring_params.graph_seed_max);
                 seed_list.truncate(k);
 
                 let neighbor_sql = "\
@@ -1543,7 +1561,7 @@ impl AdvancedSearcher for SqliteStorage {
                 if let Ok(mut stmt) = conn.prepare(neighbor_sql) {
                     for (seed_id, seed_score) in &seed_list {
                         if let Ok(rows) = stmt.query_map(
-                            params![seed_id, GRAPH_MIN_EDGE_WEIGHT],
+                            params![seed_id, scoring_params.graph_min_edge_weight],
                             |row| {
                                 Ok((
                                     row.get::<_, String>(0)?,
@@ -1577,7 +1595,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 ) = row;
 
                                 let mut neighbor_score =
-                                    GRAPH_NEIGHBOR_FACTOR * seed_score * edge_weight;
+                                    scoring_params.graph_neighbor_factor * seed_score * edge_weight;
 
                                 let tags = parse_tags_from_db(&raw_tags);
                                 let metadata = parse_metadata_from_db(&raw_metadata);
@@ -1592,17 +1610,22 @@ impl AdvancedSearcher for SqliteStorage {
                                     .and_then(|v| v.as_i64())
                                     .unwrap_or(0);
                                 let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
-                                neighbor_score *= 1.0 + overlap * 0.5 * fb_dampening;
+                                neighbor_score *= 1.0
+                                    + overlap
+                                        * scoring_params.neighbor_word_overlap_weight
+                                        * fb_dampening;
                                 let event_type_for_decay = event_type.as_deref().unwrap_or("");
-                                neighbor_score *= time_decay(&created_at, event_type_for_decay);
-                                neighbor_score *= 0.5 + importance * 0.5;
+                                neighbor_score *=
+                                    time_decay(&created_at, event_type_for_decay, &scoring_params);
+                                neighbor_score *= scoring_params.neighbor_importance_floor
+                                    + importance * scoring_params.neighbor_importance_scale;
 
                                 let vec_sim = embedding_blob.and_then(|blob| {
                                     serde_json::from_slice::<Vec<f32>>(&blob)
                                         .ok()
                                         .map(|emb| cosine_similarity(&query_embedding, &emb) as f64)
                                 });
-                                neighbor_score *= feedback_factor(fb_score);
+                                neighbor_score *= feedback_factor(fb_score, &scoring_params);
 
                                 neighbors_to_add.push((
                                     id.clone(),
@@ -1670,7 +1693,7 @@ impl AdvancedSearcher for SqliteStorage {
                     .iter()
                     .map(|c| c.text_overlap)
                     .fold(0.0f64, f64::max);
-                if max_text_overlap < ABSTENTION_MIN_TEXT {
+                if max_text_overlap < scoring_params.abstention_min_text {
                     return Ok::<_, anyhow::Error>(Vec::new());
                 }
             }
