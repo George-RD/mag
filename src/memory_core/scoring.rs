@@ -58,12 +58,12 @@ impl Default for ScoringParams {
             abstention_min_text: ABSTENTION_MIN_TEXT,
             graph_neighbor_factor: GRAPH_NEIGHBOR_FACTOR,
             graph_min_edge_weight: GRAPH_MIN_EDGE_WEIGHT,
-            word_overlap_weight: 0.5,
+            word_overlap_weight: 0.75,
             jaccard_weight: 0.25,
-            importance_floor: 0.5,
+            importance_floor: 0.3,
             importance_scale: 0.5,
             context_tag_weight: 0.25,
-            time_decay_days: 30.0,
+            time_decay_days: 0.0,
             priority_base: 0.7,
             priority_scale: 0.08,
             feedback_heavy_suppress: 0.1,
@@ -157,13 +157,12 @@ pub fn jaccard_similarity(text_a: &str, text_b: &str, min_word_len: usize) -> f6
 /// Text overlap cleanly separates relevant (0.33+) from irrelevant (0.00–0.25).
 pub const ABSTENTION_MIN_TEXT: f64 = 0.30;
 
-/// Graph enrichment — inject 1-hop neighbors from top seed results
-pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.4;
+/// Graph enrichment — disabled by grid search (neighbor injection hurts accuracy).
+pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.0;
 pub const GRAPH_MIN_EDGE_WEIGHT: f64 = 0.3;
-
-/// Weighted RRF fusion — bias toward vector similarity for semantic discrimination.
-/// w_vec > w_fts ensures semantic matches outrank lexical coincidences.
-pub const RRF_WEIGHT_VEC: f64 = 1.5;
+/// Weighted RRF fusion — equal weight for vector and FTS (grid search optimal).
+/// Previous bias (1.5 vec / 1.0 fts) was suboptimal on LongMemEval.
+pub const RRF_WEIGHT_VEC: f64 = 1.0;
 pub const RRF_WEIGHT_FTS: f64 = 1.0;
 
 /// Feedback is an explicit user/system signal — asymmetric by design.
@@ -317,30 +316,49 @@ mod tests {
         let scoring_params = ScoringParams::default();
         let now = iso_string_days_ago(0.0);
         let decay = time_decay(&now, "session_summary", &scoring_params);
-        assert!(decay > 0.99);
+        // Default time_decay_days=0.0 → always 1.0 (no decay)
+        assert!((decay - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_time_decay_default_disables_decay() {
+        let scoring_params = ScoringParams::default();
+        let old = iso_string_days_ago(365.0);
+        let decay = time_decay(&old, "task_completion", &scoring_params);
+        // Default time_decay_days=0.0 → no decay even for old episodic memories
+        assert!((decay - 1.0).abs() < 1e-9);
     }
 
     #[test]
     fn test_time_decay_old() {
-        let scoring_params = ScoringParams::default();
+        let params = ScoringParams {
+            time_decay_days: 30.0,
+            ..ScoringParams::default()
+        };
         let old = iso_string_days_ago(30.0);
-        let decay = time_decay(&old, "task_completion", &scoring_params);
+        let decay = time_decay(&old, "task_completion", &params);
         assert!((decay - 0.5).abs() < 0.03);
     }
 
     #[test]
     fn test_time_decay_semantic_type_has_zero_decay() {
-        let scoring_params = ScoringParams::default();
+        let params = ScoringParams {
+            time_decay_days: 30.0,
+            ..ScoringParams::default()
+        };
         let old = iso_string_days_ago(3650.0);
-        let decay = time_decay(&old, "decision", &scoring_params);
+        let decay = time_decay(&old, "decision", &params);
         assert!((decay - 1.0).abs() < 1e-9);
     }
 
     #[test]
     fn test_time_decay_unknown_type_defaults_to_episodic() {
-        let scoring_params = ScoringParams::default();
+        let params = ScoringParams {
+            time_decay_days: 30.0,
+            ..ScoringParams::default()
+        };
         let old = iso_string_days_ago(30.0);
-        let decay = time_decay(&old, "totally_unknown", &scoring_params);
+        let decay = time_decay(&old, "totally_unknown", &params);
         assert!((decay - 0.5).abs() < 0.03);
     }
 
