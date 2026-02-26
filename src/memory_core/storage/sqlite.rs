@@ -16,9 +16,9 @@ use crate::memory_core::{
     MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
     Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
     SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
-    Storage, Tagger, Updater, WelcomeProvider, default_priority_for_event_type,
-    default_ttl_for_event_type, embedder::Embedder, feedback_factor, jaccard_similarity,
-    priority_factor, time_decay, type_weight, word_overlap,
+    Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
+    default_priority_for_event_type, default_ttl_for_event_type, embedder::Embedder,
+    feedback_factor, jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
 };
 
 const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
@@ -28,6 +28,20 @@ const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
     ("decision", 0.80),
     ("lesson_learned", 0.85),
 ];
+
+/// Event types that support ingest-time auto-supersession.
+/// These represent facts/preferences that evolve over time - newer replaces older.
+/// Excluded: error_pattern (accumulates), session_summary (episodic), task_completion (one-time).
+const SUPERSESSION_TYPES: &[&str] = &["decision", "lesson_learned", "user_preference"];
+
+/// Cosine similarity threshold for auto-supersession detection (primary signal).
+/// Semantic similarity catches updates even when wording changes significantly.
+const SUPERSESSION_COSINE_THRESHOLD: f32 = 0.70;
+
+/// Jaccard similarity threshold for auto-supersession detection (secondary signal).
+/// Ensures topical overlap — prevents cross-topic false matches from cosine alone.
+/// Must be well below dedup thresholds (0.80-0.85).
+const SUPERSESSION_JACCARD_THRESHOLD: f64 = 0.30;
 
 #[derive(Debug)]
 enum StoreOutcome {
@@ -215,7 +229,8 @@ impl SqliteStorage {
                 .prepare(
                     "SELECT id, content, tags, importance, metadata, embedding, parent_id,
                             created_at, event_at, content_hash, canonical_hash, source_type, last_accessed_at,
-                            access_count, session_id, event_type, project, priority, entity_id, agent_type, ttl_seconds
+                            access_count, session_id, event_type, project, priority, entity_id, agent_type,
+                            ttl_seconds, version_chain_id, superseded_by_id, superseded_at
                      FROM memories ORDER BY created_at",
                 )
                 .context("failed to prepare export query")?;
@@ -242,6 +257,9 @@ impl SqliteStorage {
                     let entity_id: Option<String> = row.get(18).ok();
                     let agent_type: Option<String> = row.get(19).ok();
                     let ttl_seconds: Option<i64> = row.get(20).ok();
+                    let version_chain_id: Option<String> = row.get(21).ok();
+                    let superseded_by_id: Option<String> = row.get(22).ok();
+                    let superseded_at: Option<String> = row.get(23).ok();
                     let tags_value = serde_json::from_str::<serde_json::Value>(&tags)
                         .unwrap_or_else(|_| serde_json::Value::Array(vec![]));
                     let metadata_value = serde_json::from_str::<serde_json::Value>(&metadata)
@@ -267,6 +285,9 @@ impl SqliteStorage {
                         "entity_id": entity_id,
                         "agent_type": agent_type,
                         "ttl_seconds": ttl_seconds,
+                        "version_chain_id": version_chain_id,
+                        "superseded_by_id": superseded_by_id,
+                        "superseded_at": superseded_at,
                     }))
                 })
                 .context("failed to query memories for export")?
@@ -380,12 +401,16 @@ impl SqliteStorage {
                 let entity_id = mem["entity_id"].as_str();
                 let agent_type = mem["agent_type"].as_str();
                 let ttl_seconds = mem["ttl_seconds"].as_i64();
+                let version_chain_id = mem["version_chain_id"].as_str();
+                let superseded_by_id = mem["superseded_by_id"].as_str();
+                let superseded_at = mem["superseded_at"].as_str();
 
                 tx.execute(
                     "INSERT OR REPLACE INTO memories (
                         id, content, content_hash, source_type, tags, importance, metadata, access_count,
-                        session_id, event_type, project, priority, entity_id, agent_type, ttl_seconds, canonical_hash
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                        session_id, event_type, project, priority, entity_id, agent_type, ttl_seconds,
+                        canonical_hash, version_chain_id, superseded_by_id, superseded_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                     params![
                         id,
                         content,
@@ -403,6 +428,9 @@ impl SqliteStorage {
                         agent_type,
                         ttl_seconds,
                         canonical_hash_value,
+                        version_chain_id,
+                        superseded_by_id,
+                        superseded_at,
                     ],
                 )
                 .context("failed to import memory")?;
@@ -535,6 +563,47 @@ impl SqliteStorage {
         value.ok_or_else(|| anyhow!("memory not found for id={id}"))
     }
 
+    #[cfg(test)]
+    fn debug_get_versioning_fields(&self, id: &str) -> Result<(Option<String>, Option<String>)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+        let value: Option<(Option<String>, Option<String>)> = conn
+            .query_row(
+                "SELECT superseded_by_id, version_chain_id FROM memories WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .context("failed to query versioning fields")?;
+
+        value.ok_or_else(|| anyhow!("memory not found for id={id}"))
+    }
+
+    #[cfg(test)]
+    fn debug_has_relationship(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        rel_type: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relationships WHERE source_id = ?1 AND target_id = ?2 AND rel_type = ?3",
+                params![source_id, target_id, rel_type],
+                |row| row.get(0),
+            )
+            .context("failed to query relationship")?;
+        Ok(count > 0)
+    }
+
     async fn try_auto_relate(&self, memory_id: &str) -> Result<()> {
         let conn = Arc::clone(&self.conn);
         let memory_id = memory_id.to_string();
@@ -627,7 +696,7 @@ impl Storage for SqliteStorage {
         let ttl_seconds = input.ttl_seconds;
         let id_for_store = id.clone();
 
-        let outcome = tokio::task::spawn_blocking(move || {
+        let (outcome, superseded_ids) = tokio::task::spawn_blocking(move || {
             let mut hasher = Sha256::new();
             hasher.update(data.as_bytes());
             let content_hash = format!("{:x}", hasher.finalize());
@@ -663,7 +732,7 @@ impl Storage for SqliteStorage {
                 )
                 .context("failed to update access_count for canonical dedup")?;
                 tx.commit().context("failed to commit canonical dedup")?;
-                return Ok::<_, anyhow::Error>(StoreOutcome::Deduped);
+                return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new()));
             }
 
             if let Some(ref event_type_value) = event_type {
@@ -708,9 +777,66 @@ impl Storage for SqliteStorage {
                         )
                         .context("failed to update access_count for Jaccard dedup")?;
                         tx.commit().context("failed to commit Jaccard dedup")?;
-                        return Ok::<_, anyhow::Error>(StoreOutcome::Deduped);
+                        return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new()));
                     }
                 }
+            }
+
+            let mut superseded_ids: Vec<String> = Vec::new();
+            if let Some(ref event_type_value) = event_type
+                && SUPERSESSION_TYPES.contains(&event_type_value.as_str())
+            {
+                let mut sup_stmt = tx
+                    .prepare(
+                        "SELECT id, content, embedding FROM memories
+                         WHERE event_type = ?1
+                           AND id != ?2
+                           AND superseded_by_id IS NULL
+                           AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                         ORDER BY created_at DESC LIMIT 10",
+                    )
+                    .context("failed to prepare supersession query")?;
+
+                let sup_rows = sup_stmt
+                    .query_map(params![event_type_value, &id_for_store], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<Vec<u8>>>(2).ok().flatten(),
+                        ))
+                    })
+                    .context("failed to execute supersession query")?;
+
+                let emb_data: Vec<f32> = serde_json::from_slice(&embedding).unwrap_or_default();
+                for row in sup_rows {
+                    let (candidate_id, candidate_content, candidate_emb) =
+                        row.context("failed to decode supersession row")?;
+
+                    // Primary signal: cosine similarity (catches semantic overlap
+                    // even when wording changes significantly)
+                    let cosine_ok = if let Some(emb_blob) = candidate_emb
+                        && let Ok(candidate_embedding) =
+                            serde_json::from_slice::<Vec<f32>>(&emb_blob)
+                    {
+                        let cosine = cosine_similarity(&emb_data, &candidate_embedding);
+                        cosine >= SUPERSESSION_COSINE_THRESHOLD
+                    } else {
+                        false // No embedding = cannot supersede
+                    };
+                    if !cosine_ok {
+                        continue;
+                    }
+
+                    // Secondary signal: Jaccard word overlap (prevents cross-topic
+                    // false matches from cosine alone)
+                    let jaccard = jaccard_similarity(&data, &candidate_content, 3);
+                    if jaccard < SUPERSESSION_JACCARD_THRESHOLD {
+                        continue;
+                    }
+
+                    superseded_ids.push(candidate_id);
+                }
+                drop(sup_stmt);
             }
 
             tx.execute(
@@ -800,8 +926,71 @@ impl Storage for SqliteStorage {
             )
             .context("failed to insert FTS row during store")?;
 
+            let now_str: String = tx
+                .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .context("failed to get current timestamp from sqlite")?;
+
+            // Determine a single canonical chain_id for all superseded memories
+            let mut canonical_chain_id: Option<String> = None;
+            let mut other_chain_ids: Vec<String> = Vec::new();
+            for old_id in &superseded_ids {
+                tx.execute(
+                    "UPDATE memories SET superseded_by_id = ?1, superseded_at = ?2
+                     WHERE id = ?3 AND superseded_by_id IS NULL",
+                    params![id_for_store, now_str, old_id],
+                )
+                .context("failed to mark memory as superseded")?;
+
+                let old_chain_id: Option<String> = tx
+                    .query_row(
+                        "SELECT version_chain_id FROM memories WHERE id = ?1",
+                        params![old_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .context("failed to query old chain_id")?
+                    .flatten();
+                match (&canonical_chain_id, &old_chain_id) {
+                    (None, Some(chain)) => canonical_chain_id = Some(chain.clone()),
+                    (None, None) => canonical_chain_id = Some(old_id.clone()),
+                    (Some(canonical), Some(chain)) if chain != canonical => {
+                        other_chain_ids.push(chain.clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            let chain_id = canonical_chain_id.unwrap_or_else(|| id_for_store.clone());
+
+            // Merge any divergent chains into the canonical one
+            for other_chain in &other_chain_ids {
+                tx.execute(
+                    "UPDATE memories SET version_chain_id = ?1 WHERE version_chain_id = ?2",
+                    params![chain_id, other_chain],
+                )
+                .context("failed to merge version chains")?;
+            }
+
+            // Set chain_id on old memories that had none
+            for old_id in &superseded_ids {
+                tx.execute(
+                    "UPDATE memories SET version_chain_id = ?1 WHERE id = ?2 AND version_chain_id IS NULL",
+                    params![chain_id, old_id],
+                )
+                .context("failed to set chain_id on old memory")?;
+            }
+
+            // Set chain_id on the new memory
+            tx.execute(
+                "UPDATE memories SET version_chain_id = ?1 WHERE id = ?2",
+                params![chain_id, id_for_store],
+            )
+            .context("failed to set chain_id on new memory")?;
+
             tx.commit().context("failed to commit sqlite transaction")?;
-            Ok::<_, anyhow::Error>(StoreOutcome::Inserted)
+            Ok::<_, anyhow::Error>((StoreOutcome::Inserted, superseded_ids))
         })
         .await
         .context("spawn_blocking join error")??;
@@ -810,6 +999,15 @@ impl Storage for SqliteStorage {
             && let Err(error) = self.try_auto_relate(&id).await
         {
             tracing::warn!(memory_id = %id, error = %error, "auto-relate failed");
+        }
+
+        for old_id in &superseded_ids {
+            if let Err(error) = self
+                .add_relationship(old_id, &id, "SUPERSEDES", 1.0, &serde_json::json!({}))
+                .await
+            {
+                tracing::warn!(old_id = %old_id, new_id = %id, error = %error, "failed to create SUPERSEDES edge");
+            }
         }
 
         Ok(())
@@ -884,12 +1082,16 @@ impl Searcher for SqliteStorage {
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
             let fts_query = build_fts5_query(&query);
+            let include_superseded = opts.include_superseded.unwrap_or(false);
             let mut fts_sql = String::from(
                 "SELECT f.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project
                  FROM memories_fts f
                  JOIN memories m ON m.id = f.id
                  WHERE memories_fts MATCH ?1",
             );
+            if !include_superseded {
+                fts_sql.push_str(" AND m.superseded_by_id IS NULL");
+            }
             let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
             let mut param_idx = 2;
             if let Some(event_type) = opts.event_type.clone() {
@@ -967,6 +1169,9 @@ impl Searcher for SqliteStorage {
                  FROM memories
                  WHERE lower(content) LIKE ?1 ESCAPE '\\'",
             );
+            if !include_superseded {
+                sql.push_str(" AND superseded_by_id IS NULL");
+            }
             let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
             let mut idx = 2;
             if let Some(event_type) = opts.event_type.clone() {
@@ -1049,6 +1254,7 @@ impl Recents for SqliteStorage {
 
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
+            let include_superseded = opts.include_superseded.unwrap_or(false);
 
             let conn = conn
                 .lock()
@@ -1075,6 +1281,9 @@ impl Recents for SqliteStorage {
                 sql.push_str(&format!(" AND session_id = ?{idx}"));
                 params_values.push(SqlValue::Text(session_id));
                 idx += 1;
+            }
+            if !include_superseded {
+                sql.push_str(" AND superseded_by_id IS NULL");
             }
             sql.push_str(" ORDER BY last_accessed_at DESC");
             sql.push_str(&format!(" LIMIT ?{idx}"));
@@ -1138,6 +1347,7 @@ impl SemanticSearcher for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
+            let include_superseded = opts.include_superseded.unwrap_or(false);
             let query_embedding = embedder
                 .embed(&query)
                 .context("failed to compute query embedding")?;
@@ -1151,6 +1361,9 @@ impl SemanticSearcher for SqliteStorage {
                  FROM memories
                  WHERE embedding IS NOT NULL",
             );
+            if !include_superseded {
+                sql.push_str(" AND superseded_by_id IS NULL");
+            }
             let mut params_values: Vec<SqlValue> = Vec::new();
             let mut idx = 1;
             if let Some(event_type) = opts.event_type.clone() {
@@ -1271,6 +1484,7 @@ impl AdvancedSearcher for SqliteStorage {
 
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
+            let include_superseded = opts.include_superseded.unwrap_or(false);
 
             let query_embedding = embedder
                 .embed(&query)
@@ -1292,11 +1506,15 @@ impl AdvancedSearcher for SqliteStorage {
             // Phase 1: Collect vector candidates sorted by cosine similarity
             let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
 
+            let vector_sql = if include_superseded {
+                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at
+                 FROM memories WHERE embedding IS NOT NULL"
+            } else {
+                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at
+                 FROM memories WHERE embedding IS NOT NULL AND superseded_by_id IS NULL"
+            };
             let mut vector_stmt = conn
-                .prepare(
-                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at
-                     FROM memories WHERE embedding IS NOT NULL",
-                )
+                .prepare(vector_sql)
                 .context("failed to prepare advanced vector query")?;
             let vector_rows = vector_stmt
                 .query_map([], |row| {
@@ -1390,6 +1608,9 @@ impl AdvancedSearcher for SqliteStorage {
             if let Some(session_id) = opts.session_id.clone() {
                 fts_sql.push_str(&format!(" AND m.session_id = ?{param_idx}"));
                 fts_params.push(SqlValue::Text(session_id));
+            }
+            if !include_superseded {
+                fts_sql.push_str(" AND m.superseded_by_id IS NULL");
             }
 
             if let Ok(mut stmt) = conn.prepare(&fts_sql) {
@@ -1544,7 +1765,8 @@ impl AdvancedSearcher for SqliteStorage {
                 let k = limit.clamp(scoring_params.graph_seed_min, scoring_params.graph_seed_max);
                 seed_list.truncate(k);
 
-                let neighbor_sql = "\
+                let neighbor_sql = if include_superseded {
+                    "\
                     SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                            m.event_type, m.session_id, m.project, m.priority, m.created_at, \
                            m.embedding, r.weight \
@@ -1554,7 +1776,21 @@ impl AdvancedSearcher for SqliteStorage {
                         ELSE r.source_id END \
                     WHERE (r.source_id = ?1 OR r.target_id = ?1) \
                       AND r.weight >= ?2 \
-                      AND m.id != ?1";
+                      AND m.id != ?1"
+                } else {
+                    "\
+                    SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
+                           m.event_type, m.session_id, m.project, m.priority, m.created_at, \
+                           m.embedding, r.weight \
+                    FROM relationships r \
+                    JOIN memories m ON m.id = CASE \
+                        WHEN r.source_id = ?1 THEN r.target_id \
+                        ELSE r.source_id END \
+                    WHERE (r.source_id = ?1 OR r.target_id = ?1) \
+                      AND r.weight >= ?2 \
+                      AND m.id != ?1 \
+                      AND m.superseded_by_id IS NULL"
+                };
 
                 let mut neighbors_to_add: Vec<(String, RankedSemanticCandidate)> = Vec::new();
 
@@ -1890,7 +2126,7 @@ impl SimilarFinder for SqliteStorage {
             let mut stmt = conn
                 .prepare(
                     "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
-                     FROM memories WHERE embedding IS NOT NULL AND id != ?1",
+                     FROM memories WHERE embedding IS NOT NULL AND id != ?1 AND superseded_by_id IS NULL",
                 )
                 .context("failed to prepare similar query")?;
             let rows = stmt
@@ -1967,6 +2203,7 @@ impl PhraseSearcher for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
+            let include_superseded = opts.include_superseded.unwrap_or(false);
             let conn = conn
                 .lock()
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
@@ -1983,6 +2220,9 @@ impl PhraseSearcher for SqliteStorage {
                  FROM memories
                  WHERE lower(content) LIKE ?1 ESCAPE '\\'",
             );
+            if !include_superseded {
+                sql.push_str(" AND superseded_by_id IS NULL");
+            }
             let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
             let mut idx = 2;
             if let Some(event_type) = opts.event_type.clone() {
@@ -2479,6 +2719,7 @@ impl Tagger for SqliteStorage {
 impl Lister for SqliteStorage {
     async fn list(&self, offset: usize, limit: usize, opts: &SearchOptions) -> Result<ListResult> {
         let opts = opts.clone();
+        let include_superseded = opts.include_superseded.unwrap_or(false);
         if limit == 0 {
             let conn = Arc::clone(&self.conn);
             let count_opts = opts.clone();
@@ -2489,6 +2730,9 @@ impl Lister for SqliteStorage {
                     .lock()
                     .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
                 let mut sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
+                if !include_superseded {
+                    sql.push_str(" AND superseded_by_id IS NULL");
+                }
                 let mut params_values: Vec<SqlValue> = Vec::new();
                 let mut idx = 1;
                 if let Some(event_type) = count_opts.event_type {
@@ -2537,6 +2781,9 @@ impl Lister for SqliteStorage {
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
             let mut count_sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
+            if !include_superseded {
+                count_sql.push_str(" AND superseded_by_id IS NULL");
+            }
             let mut filter_params: Vec<SqlValue> = Vec::new();
             let mut idx = 1;
             if let Some(event_type) = opts.event_type.clone() {
@@ -2568,6 +2815,9 @@ impl Lister for SqliteStorage {
             let mut data_sql = String::from(
                 "SELECT id, content, tags, importance, metadata, event_type, session_id, project FROM memories WHERE 1 = 1",
             );
+            if !include_superseded {
+                data_sql.push_str(" AND superseded_by_id IS NULL");
+            }
             let mut data_params: Vec<SqlValue> = Vec::new();
             let mut next_idx = 1;
             if let Some(event_type) = opts.event_type.clone() {
@@ -2673,6 +2923,224 @@ impl RelationshipQuerier for SqliteStorage {
                 results.push(row.context("failed to decode relationship row")?);
             }
             Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl VersionChainQuerier for SqliteStorage {
+    async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>> {
+        let conn = Arc::clone(&self.conn);
+        let memory_id = memory_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            use rusqlite::types::Value as SqlValue;
+
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+
+            let chain_id: Option<String> = conn
+                .query_row(
+                    "SELECT version_chain_id FROM memories WHERE id = ?1",
+                    params![&memory_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query version chain id")?
+                .flatten();
+
+            let missing_id = memory_id.clone();
+            let (sql, params_values): (&str, Vec<SqlValue>) = if let Some(chain_id) = chain_id {
+                (
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, project,
+                            superseded_by_id, superseded_at, version_chain_id
+                     FROM memories WHERE version_chain_id = ?1 ORDER BY created_at ASC",
+                    vec![SqlValue::Text(chain_id)],
+                )
+            } else {
+                (
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, project,
+                            superseded_by_id, superseded_at, version_chain_id
+                     FROM memories WHERE id = ?1 ORDER BY created_at ASC",
+                    vec![SqlValue::Text(memory_id.clone())],
+                )
+            };
+
+            let mut stmt = conn
+                .prepare(sql)
+                .context("failed to prepare version chain query")?;
+
+            let mut refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for value in &params_values {
+                refs.push(value);
+            }
+
+            let rows = stmt
+                .query_map(refs.as_slice(), |row| {
+                    let raw_tags: String = row.get(2)?;
+                    let raw_metadata: String = row.get(4)?;
+                    let mut metadata = parse_metadata_from_db(&raw_metadata);
+                    if let Some(object) = metadata.as_object_mut() {
+                        object.insert(
+                            "superseded_by_id".to_string(),
+                            row.get::<_, Option<String>>(8)
+                                .ok()
+                                .flatten()
+                                .map_or(serde_json::Value::Null, serde_json::Value::String),
+                        );
+                        object.insert(
+                            "superseded_at".to_string(),
+                            row.get::<_, Option<String>>(9)
+                                .ok()
+                                .flatten()
+                                .map_or(serde_json::Value::Null, serde_json::Value::String),
+                        );
+                        object.insert(
+                            "version_chain_id".to_string(),
+                            row.get::<_, Option<String>>(10)
+                                .ok()
+                                .flatten()
+                                .map_or(serde_json::Value::Null, serde_json::Value::String),
+                        );
+                    }
+                    Ok(SearchResult {
+                        id: row.get(0)?,
+                        content: row.get(1)?,
+                        tags: parse_tags_from_db(&raw_tags),
+                        importance: row.get(3)?,
+                        metadata,
+                        event_type: row.get(5).ok(),
+                        session_id: row.get(6).ok(),
+                        project: row.get(7).ok(),
+                    })
+                })
+                .context("failed to execute version chain query")?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.context("failed to decode version chain row")?);
+            }
+            if results.is_empty() {
+                return Err(anyhow!("memory not found for id={missing_id}"));
+            }
+
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+
+    async fn supersede_memory(&self, old_id: &str, new_id: &str) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        let old_id = old_id.to_string();
+        let new_id = new_id.to_string();
+        if old_id == new_id {
+            return Err(anyhow!("cannot supersede memory with itself"));
+        }
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let tx = conn
+                .unchecked_transaction()
+                .context("failed to start supersede transaction")?;
+
+            let old_exists: Option<String> = tx
+                .query_row("SELECT id FROM memories WHERE id = ?1", params![old_id], |row| {
+                    row.get(0)
+                })
+                .optional()
+                .context("failed to query old memory")?;
+            if old_exists.is_none() {
+                return Err(anyhow!("memory not found for id={old_id}"));
+            }
+
+            let new_exists: Option<String> = tx
+                .query_row("SELECT id FROM memories WHERE id = ?1", params![new_id], |row| {
+                    row.get(0)
+                })
+                .optional()
+                .context("failed to query new memory")?;
+            if new_exists.is_none() {
+                return Err(anyhow!("memory not found for id={new_id}"));
+            }
+
+            let old_chain_id: Option<String> = tx
+                .query_row(
+                    "SELECT version_chain_id FROM memories WHERE id = ?1",
+                    params![old_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query old chain id")?
+                .flatten();
+            let new_chain_id: Option<String> = tx
+                .query_row(
+                    "SELECT version_chain_id FROM memories WHERE id = ?1",
+                    params![new_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query new chain id")?
+                .flatten();
+            let chain_id = old_chain_id
+                .clone()
+                .or(new_chain_id.clone())
+                .unwrap_or_else(|| old_id.clone());
+            // Merge chains if old and new belonged to different chains
+            if let (Some(old_c), Some(new_c)) = (&old_chain_id, &new_chain_id)
+                && old_c != new_c
+            {
+                tx.execute(
+                    "UPDATE memories SET version_chain_id = ?1 WHERE version_chain_id = ?2",
+                    params![chain_id, new_c],
+                )
+                .context("failed to merge version chains in supersede_memory")?;
+            }
+
+            let now_str: String = tx
+                .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .context("failed to get current timestamp from sqlite")?;
+
+            tx.execute(
+                "UPDATE memories
+                 SET superseded_by_id = ?1,
+                     superseded_at = ?2,
+                     version_chain_id = COALESCE(version_chain_id, ?3)
+                 WHERE id = ?4",
+                params![new_id, now_str, chain_id, old_id],
+            )
+            .context("failed to mark old memory as superseded")?;
+
+            tx.execute(
+                "UPDATE memories SET version_chain_id = ?1 WHERE id = ?2",
+                params![chain_id, new_id],
+            )
+            .context("failed to set chain id on new memory")?;
+
+            tx.execute(
+                "INSERT INTO relationships (id, source_id, target_id, rel_type, weight, metadata, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    old_id,
+                    new_id,
+                    "SUPERSEDES",
+                    1.0f64,
+                    "{}",
+                    now_str,
+                ],
+            )
+            .context("failed to create SUPERSEDES relationship")?;
+
+            tx.commit().context("failed to commit supersede transaction")?;
+            Ok::<_, anyhow::Error>(())
         })
         .await
         .context("spawn_blocking join error")?
@@ -3168,7 +3636,7 @@ impl LessonQuerier for SqliteStorage {
             let mut sql = String::from(
                 "SELECT id, content, session_id, access_count, created_at, metadata, project, agent_type
                  FROM memories
-                 WHERE event_type = 'lesson_learned'",
+                 WHERE event_type = 'lesson_learned' AND superseded_by_id IS NULL",
             );
             let mut params_values: Vec<rusqlite::types::Value> = Vec::new();
             let mut idx = 1;
@@ -3623,15 +4091,15 @@ impl WelcomeProvider for SqliteStorage {
                 .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
 
             let total: i64 = conn
-                .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+                .query_row("SELECT COUNT(*) FROM memories WHERE superseded_by_id IS NULL", [], |row| row.get(0))
                 .context("failed to count memories")?;
 
             let mut sql =
-                String::from("SELECT id, content, event_type, priority, created_at FROM memories");
+                String::from("SELECT id, content, event_type, priority, created_at FROM memories WHERE superseded_by_id IS NULL");
             let mut params_values: Vec<rusqlite::types::Value> = Vec::new();
 
             if let Some(ref proj) = project {
-                sql.push_str(" WHERE project = ?1");
+                sql.push_str(" AND project = ?1");
                 params_values.push(rusqlite::types::Value::Text(proj.clone()));
             }
 
@@ -3664,6 +4132,7 @@ impl WelcomeProvider for SqliteStorage {
                 .prepare(
                     "SELECT id, content, event_type, importance, created_at FROM memories \
                      WHERE event_type IN ('user_preference', 'user_fact') \
+                     AND superseded_by_id IS NULL \
                      ORDER BY importance DESC, created_at DESC LIMIT 20",
                 )
                 .context("failed to prepare user preferences query")?;
@@ -4003,6 +4472,9 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
         "ALTER TABLE memories ADD COLUMN agent_type TEXT",
         "ALTER TABLE memories ADD COLUMN ttl_seconds INTEGER",
         "ALTER TABLE memories ADD COLUMN canonical_hash TEXT",
+        "ALTER TABLE memories ADD COLUMN version_chain_id TEXT",
+        "ALTER TABLE memories ADD COLUMN superseded_by_id TEXT",
+        "ALTER TABLE memories ADD COLUMN superseded_at TEXT",
     ];
     for alter in &new_columns {
         let _ = conn.execute_batch(alter);
@@ -4028,6 +4500,8 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project)",
         "CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)",
         "CREATE INDEX IF NOT EXISTS idx_memories_canonical ON memories(canonical_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_version_chain ON memories(version_chain_id)",
+        "CREATE INDEX IF NOT EXISTS idx_memories_superseded ON memories(superseded_by_id)",
         "CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id)",
         "CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id)",
     ];
@@ -4189,8 +4663,8 @@ mod tests {
         GraphTraverser, LessonQuerier, MaintenanceManager, PhraseSearcher, ProfileManager, Recents,
         ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder,
         StatsProvider, Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater,
-        WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
-        is_valid_event_type, parse_duration,
+        VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
+        default_ttl_for_event_type, is_valid_event_type, parse_duration,
     };
 
     #[derive(Debug, Clone)]
@@ -4265,6 +4739,9 @@ mod tests {
             "agent_type",
             "ttl_seconds",
             "canonical_hash",
+            "version_chain_id",
+            "superseded_by_id",
+            "superseded_at",
         ] {
             assert!(memories_cols.iter().any(|c| c == col));
         }
@@ -6165,6 +6642,318 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_supersession_detection_at_ingest() {
+        let storage =
+            SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sup-a",
+            "alpha user prefers concise commit messages with why first",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sup-b",
+            "alpha user now prefers concise commit messages with rationale first",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (superseded_by, chain_a) = storage.debug_get_versioning_fields("sup-a").unwrap();
+        let (_, chain_b) = storage.debug_get_versioning_fields("sup-b").unwrap();
+        assert_eq!(superseded_by.as_deref(), Some("sup-b"));
+        assert_eq!(chain_a, chain_b);
+        assert!(
+            storage
+                .debug_has_relationship("sup-a", "sup-b", "SUPERSEDES")
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_superseded_filtered_from_advanced_search() {
+        let storage =
+            SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "adv-old",
+            "alpha preference: use compact commit titles",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "adv-new",
+            "alpha preference updated: use compact commit titles with scope",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+            &storage,
+            "compact commit titles",
+            10,
+            &SearchOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert!(results.iter().all(|r| r.id != "adv-old"));
+        assert!(results.iter().any(|r| r.id == "adv-new"));
+    }
+
+    #[tokio::test]
+    async fn test_superseded_filtered_from_find_similar() {
+        let storage =
+            SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sim-source",
+            "alpha source memory",
+            &MemoryInput::default(),
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sim-old",
+            "alpha preference old",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "sim-new",
+            "alpha preference new",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        storage
+            .supersede_memory("sim-old", "sim-new")
+            .await
+            .unwrap();
+
+        let results = <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim-source", 10)
+            .await
+            .unwrap();
+        assert!(results.iter().all(|r| r.id != "sim-old"));
+    }
+
+    #[tokio::test]
+    async fn test_superseded_filtered_from_get_recent() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "recent-old",
+            "old memory",
+            &MemoryInput::default(),
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "recent-new",
+            "new memory",
+            &MemoryInput::default(),
+        )
+        .await
+        .unwrap();
+        storage
+            .supersede_memory("recent-old", "recent-new")
+            .await
+            .unwrap();
+
+        let results = storage.recent(10, &SearchOptions::default()).await.unwrap();
+        assert!(results.iter().all(|r| r.id != "recent-old"));
+        assert!(results.iter().any(|r| r.id == "recent-new"));
+    }
+
+    #[tokio::test]
+    async fn test_include_superseded_shows_all() {
+        let storage =
+            SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "hist-old",
+            "alpha preference: concise commits",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "hist-new",
+            "alpha preference updated: concise commits with scope",
+            &MemoryInput {
+                event_type: Some("user_preference".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+            &storage,
+            "concise commits",
+            10,
+            &SearchOptions {
+                include_superseded: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert!(results.iter().any(|r| r.id == "hist-old"));
+        assert!(results.iter().any(|r| r.id == "hist-new"));
+    }
+
+    #[tokio::test]
+    async fn test_version_chain_retrieval() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        <SqliteStorage as Storage>::store(&storage, "vc-a", "A", &MemoryInput::default())
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "vc-b", "B", &MemoryInput::default())
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "vc-c", "C", &MemoryInput::default())
+            .await
+            .unwrap();
+
+        storage.supersede_memory("vc-a", "vc-b").await.unwrap();
+        storage.supersede_memory("vc-b", "vc-c").await.unwrap();
+
+        let from_c = storage.get_version_chain("vc-c").await.unwrap();
+        assert_eq!(
+            from_c.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["vc-a", "vc-b", "vc-c"]
+        );
+
+        let from_a = storage.get_version_chain("vc-a").await.unwrap();
+        assert_eq!(
+            from_a.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["vc-a", "vc-b", "vc-c"]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_manual_supersede() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        <SqliteStorage as Storage>::store(&storage, "man-old", "old", &MemoryInput::default())
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "man-new", "new", &MemoryInput::default())
+            .await
+            .unwrap();
+
+        storage
+            .supersede_memory("man-old", "man-new")
+            .await
+            .unwrap();
+
+        let (superseded_by, _) = storage.debug_get_versioning_fields("man-old").unwrap();
+        assert_eq!(superseded_by.as_deref(), Some("man-new"));
+        assert!(
+            storage
+                .debug_has_relationship("man-old", "man-new", "SUPERSEDES")
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_supersession_types_dont_supersede() {
+        let storage =
+            SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "err-a",
+            "alpha error timeout while fetching profile from api",
+            &MemoryInput {
+                event_type: Some("error_pattern".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "err-b",
+            "alpha error timeout while saving settings through api",
+            &MemoryInput {
+                event_type: Some("error_pattern".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (superseded_by, _) = storage.debug_get_versioning_fields("err-a").unwrap();
+        assert!(superseded_by.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_export_import_preserves_versioning() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        <SqliteStorage as Storage>::store(&storage, "exp-old", "old", &MemoryInput::default())
+            .await
+            .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "exp-new", "new", &MemoryInput::default())
+            .await
+            .unwrap();
+        storage
+            .supersede_memory("exp-old", "exp-new")
+            .await
+            .unwrap();
+
+        let exported = storage.export_all().await.unwrap();
+
+        let restored = SqliteStorage::new_in_memory().unwrap();
+        restored.import_all(&exported).await.unwrap();
+
+        let (old_superseded_by, old_chain) =
+            restored.debug_get_versioning_fields("exp-old").unwrap();
+        let (_, new_chain) = restored.debug_get_versioning_fields("exp-new").unwrap();
+        assert_eq!(old_superseded_by.as_deref(), Some("exp-new"));
+        assert_eq!(old_chain, new_chain);
+    }
+
+    #[tokio::test]
     async fn test_auto_relate_creates_edges() {
         let storage =
             SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
@@ -6450,6 +7239,9 @@ mod tests {
         assert!(export.contains("agent_type"));
         assert!(export.contains("weight"));
         assert!(export.contains("created_at"));
+        assert!(export.contains("version_chain_id"));
+        assert!(export.contains("superseded_by_id"));
+        assert!(export.contains("superseded_at"));
     }
 
     #[tokio::test]
@@ -6470,7 +7262,10 @@ mod tests {
                 "project":"proj_i",
                 "priority":4,
                 "entity_id":"e1",
-                "agent_type":"assistant"
+                "agent_type":"assistant",
+                "version_chain_id":"imx1",
+                "superseded_by_id":null,
+                "superseded_at":null
             }],
             "relationships":[{
                 "id":"rel_i",
@@ -6493,6 +7288,7 @@ mod tests {
                     event_type: Some("decision".to_string()),
                     project: Some("proj_i".to_string()),
                     session_id: Some("ses_i".to_string()),
+                    include_superseded: None,
                     importance_min: None,
                     created_after: None,
                     created_before: None,
@@ -6698,6 +7494,7 @@ mod tests {
             &SearchOptions {
                 event_type: Some("decision".to_string()),
                 project: Some("project-a".to_string()),
+                include_superseded: None,
                 importance_min: Some(0.5),
                 ..Default::default()
             },

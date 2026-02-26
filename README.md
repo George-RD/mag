@@ -6,7 +6,7 @@ A high-performance MCP memory server built in Rust. Inspired by [omega-memory](h
 
 - **Single binary** — no Python, no pip, no virtualenv. One `cargo build --release` and you're done.
 - **No LLM required** — local ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. Works fully offline.
-- **30 MCP tools** — store, search, relate, checkpoint, profile, remind, and more.
+- **31 MCP tools** — store, search, relate, checkpoint, profile, remind, version chain, and more.
 - **3.9× lower peak RSS** than the Python equivalent (12 MB vs 47 MB).
 - **Sub-second startup** — 14ms cold start from the release binary.
 
@@ -26,23 +26,24 @@ Retrieval Quality (LongMemEval Local)
 ┌─────────────────────────────────┬───────────┬───────────┐
 │ Category                        │ Rust      │ Python    │
 ├─────────────────────────────────┼───────────┼───────────┤
-│ Information Extraction            │  80%      │ 100%      │
-│ Multi-Session Reasoning           │  35%      │  80%      │
+│ Information Extraction            │  95%      │ 100%      │
+│ Multi-Session Reasoning           │  80%      │  80%      │
 │ Temporal Reasoning                │  80%      │  60%      │
-│ Knowledge Update                  │  50%      │  50%      │
+│ Knowledge Update                  │  95%      │  50%      │
 │ Abstention                        │ 100%      │ 100%      │
 ├─────────────────────────────────┼───────────┼───────────┤
-│ Overall                           │  69%      │  78%      │
+│ Overall                           │  90%      │  78%      │
 └─────────────────────────────────┴───────────┴───────────┘
 ```
 
-> Scoring parameters were optimized via grid search across 2,880 combinations. Temporal reasoning beats Python (80% vs 60%). Multi-session reasoning (35%) and knowledge update (50%) are the next improvement targets. LLM-as-judge evaluation shows MS at 45% (partial credit for multi-part answers).
+> Benchmark uses real ONNX embeddings (bge-small-en-v1.5) with knowledge versioning for automatic supersession detection. Scoring parameters optimized via grid search across 2,880 combinations. Temporal reasoning (80%) is the remaining improvement target.
 
 Run the benchmark yourself:
+
 ```bash
 cargo run --release --bin longmemeval_bench                # table output
 cargo run --release --bin longmemeval_bench -- --json       # machine-readable
-cargo run --release --bin longmemeval_bench -- -v           # per-question detail
+cargo run --release --bin longmemeval_bench -- --verbose    # per-question detail
 cargo run --release --bin longmemeval_bench -- --llm-judge  # LLM-as-judge (requires OPENAI_API_KEY)
 cargo run --release --bin longmemeval_bench -- --grid-search # parameter optimization
 ```
@@ -110,11 +111,11 @@ Copy `.mcp.json.example` to `.mcp.json` (gitignored) and configure it for your l
 ```
 romega-memory
 ├── src/
-│   ├── main.rs              # CLI dispatch (30 commands)
+│   ├── main.rs              # CLI dispatch (31 commands)
 │   ├── cli.rs               # Clap command definitions
-│   ├── mcp_server.rs        # MCP stdio server (30 tools)
+│   ├── mcp_server.rs        # MCP stdio server (31 tools)
 │   └── memory_core/
-│       ├── mod.rs            # 26 traits + Pipeline orchestration
+│       ├── mod.rs            # 27 traits + Pipeline orchestration
 │       ├── embedder.rs       # ONNX embedder (bge-small-en-v1.5, 384-dim)
 │       ├── scoring.rs        # Type weights, priority, time decay, Jaccard
 │       └── storage/
@@ -126,13 +127,13 @@ romega-memory
     └── parity_harness.rs     # Cross-implementation parity test
 ```
 
-### MCP Tools (30)
+### MCP Tools (31)
 
 | Category | Tools |
 |----------|-------|
 | **Core** | `memory_store`, `memory_retrieve`, `memory_delete`, `memory_update` |
 | **Search** | `memory_search`, `memory_semantic_search`, `memory_advanced_search`, `memory_tag_search`, `memory_phrase_search`, `memory_similar` |
-| **Browse** | `memory_list`, `memory_recent`, `memory_relations`, `memory_traverse` |
+| **Browse** | `memory_list`, `memory_recent`, `memory_relations`, `memory_traverse`, `memory_version_chain` |
 | **Lifecycle** | `memory_feedback`, `memory_sweep`, `memory_maintain` |
 | **Session** | `memory_checkpoint`, `memory_resume_task`, `memory_profile`, `memory_welcome`, `memory_protocol` |
 | **Admin** | `memory_health`, `memory_stats`, `memory_stats_extended`, `memory_export`, `memory_import`, `memory_remind`, `memory_lessons`, `memory_add_relation` |
@@ -175,7 +176,7 @@ cargo test --all-features
 
 ### Test suite
 
-- **312 unit tests** — storage, search, scoring, TTL, dedup, relationships, etc.
+- **348 unit tests** — storage, search, scoring, TTL, dedup, relationships, versioning, etc.
 - **3 integration tests** — MCP protocol smoke test, parity harness
 - All tests use in-memory SQLite (fast, hermetic, no cleanup)
 

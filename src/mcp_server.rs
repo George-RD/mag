@@ -17,8 +17,8 @@ use crate::memory_core::{
     FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
     MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager,
     Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, StatsProvider, Storage,
-    Tagger, Updater, WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
-    is_valid_event_type,
+    Tagger, Updater, VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
+    default_ttl_for_event_type, is_valid_event_type,
 };
 
 #[derive(Clone)]
@@ -70,6 +70,7 @@ struct SearchRequest {
     event_type: Option<String>,
     project: Option<String>,
     session_id: Option<String>,
+    include_superseded: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -79,6 +80,7 @@ struct SemanticSearchRequest {
     event_type: Option<String>,
     project: Option<String>,
     session_id: Option<String>,
+    include_superseded: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -88,10 +90,16 @@ struct AdvancedSearchRequest {
     event_type: Option<String>,
     project: Option<String>,
     session_id: Option<String>,
+    include_superseded: Option<bool>,
     importance_min: Option<f64>,
     created_after: Option<String>,
     created_before: Option<String>,
     context_tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct VersionChainRequest {
+    memory_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -112,6 +120,7 @@ struct PhraseSearchRequest {
     phrase: String,
     limit: Option<usize>,
     event_type: Option<String>,
+    include_superseded: Option<bool>,
     project: Option<String>,
     session_id: Option<String>,
 }
@@ -122,6 +131,7 @@ struct RecentRequest {
     event_type: Option<String>,
     project: Option<String>,
     session_id: Option<String>,
+    include_superseded: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -191,6 +201,7 @@ struct TagSearchRequest {
     event_type: Option<String>,
     project: Option<String>,
     session_id: Option<String>,
+    include_superseded: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -200,6 +211,7 @@ struct ListRequest {
     event_type: Option<String>,
     project: Option<String>,
     session_id: Option<String>,
+    include_superseded: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -366,6 +378,7 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            include_superseded: params.0.include_superseded,
             importance_min: None,
             created_after: None,
             created_before: None,
@@ -420,6 +433,7 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            include_superseded: params.0.include_superseded,
             importance_min: None,
             created_after: None,
             created_before: None,
@@ -476,6 +490,7 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            include_superseded: params.0.include_superseded,
             importance_min: params.0.importance_min,
             created_after: params.0.created_after.clone(),
             created_before: params.0.created_before.clone(),
@@ -565,6 +580,43 @@ impl McpMemoryServer {
     }
 
     #[tool(
+        name = "memory_version_chain",
+        description = "Get the full version history chain for a memory"
+    )]
+    async fn memory_version_chain(
+        &self,
+        params: Parameters<VersionChainRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let results = self
+            .storage
+            .get_version_chain(&params.0.memory_id)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("failed to get version chain: {e}"), None)
+            })?;
+
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "content": r.content,
+                    "tags": r.tags,
+                    "importance": r.importance,
+                    "metadata": r.metadata,
+                    "event_type": r.event_type,
+                    "session_id": r.session_id,
+                    "project": r.project
+                })
+            })
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "chain": payload }).to_string(),
+        )]))
+    }
+
+    #[tool(
         name = "memory_traverse",
         description = "Traverse related memories using graph relationships"
     )]
@@ -635,6 +687,7 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            include_superseded: params.0.include_superseded,
             importance_min: None,
             created_after: None,
             created_before: None,
@@ -692,6 +745,7 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            include_superseded: params.0.include_superseded,
             importance_min: None,
             created_after: None,
             created_before: None,
@@ -1031,6 +1085,7 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            include_superseded: params.0.include_superseded,
             importance_min: None,
             created_after: None,
             created_before: None,
@@ -1086,6 +1141,7 @@ impl McpMemoryServer {
             event_type: params.0.event_type.clone(),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
+            include_superseded: params.0.include_superseded,
             importance_min: None,
             created_after: None,
             created_before: None,
@@ -1400,7 +1456,7 @@ impl McpMemoryServer {
     ) -> Result<CallToolResult, McpError> {
         let protocol = r#"# romega-memory Protocol
 
-## Available Tools (30)
+## Available Tools (31)
 
 ### Storage & Retrieval
 - **memory_store** — Store new memory content with tags, importance, metadata
@@ -1423,6 +1479,7 @@ impl McpMemoryServer {
 ### Relationships & Graph
 - **memory_relations** — Get relationships for a memory
 - **memory_add_relation** — Create a directed relationship
+- **memory_version_chain** — Retrieve full version chain for a memory
 - **memory_traverse** — Graph traversal via BFS
 
 ### Lifecycle

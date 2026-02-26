@@ -1296,6 +1296,7 @@ async fn run_benchmark(
         event_type: None,
         project: None,
         session_id: None,
+        include_superseded: None,
         importance_min: None,
         created_after: None,
         created_before: None,
@@ -1753,6 +1754,7 @@ async fn run_benchmark(
         event_type: None,
         project: None,
         session_id: None,
+        include_superseded: None,
         importance_min: None,
         created_after: Some(week_ago.clone()),
         created_before: Some(now_iso.clone()),
@@ -1787,6 +1789,7 @@ async fn run_benchmark(
         event_type: None,
         project: None,
         session_id: None,
+        include_superseded: None,
         importance_min: None,
         created_after: Some(iso(now - Duration::days(14))),
         created_before: Some(now_iso.clone()),
@@ -1810,6 +1813,7 @@ async fn run_benchmark(
         event_type: None,
         project: None,
         session_id: None,
+        include_superseded: None,
         importance_min: None,
         created_after: Some(iso(now - Duration::days(30))),
         created_before: Some(now_iso.clone()),
@@ -1834,6 +1838,7 @@ async fn run_benchmark(
             event_type: None,
             project: None,
             session_id: None,
+            include_superseded: None,
             importance_min: None,
             created_after: Some(iso(now - Duration::days(90))),
             created_before: Some(iso(now - Duration::days(80))),
@@ -1872,6 +1877,7 @@ async fn run_benchmark(
             event_type: None,
             project: None,
             session_id: None,
+            include_superseded: None,
             importance_min: None,
             created_after: Some(iso(now - Duration::days(days_window))),
             created_before: Some(now_iso.clone()),
@@ -1910,6 +1916,7 @@ async fn run_benchmark(
             event_type: None,
             project: None,
             session_id: None,
+            include_superseded: None,
             importance_min: None,
             created_after: Some(iso(now - Duration::days(10 + i * 10))),
             created_before: Some(iso(now - Duration::days(i * 10))),
@@ -2167,9 +2174,11 @@ async fn run_grid_search(verbose: bool) -> Result<Vec<GridSearchResult>> {
     let total = parameter_sets.len();
     let mut results = Vec::with_capacity(total);
 
+    let embedder = std::sync::Arc::new(OnnxEmbedder::new()?);
     for (index, (label, params)) in parameter_sets.into_iter().enumerate() {
         let start = Instant::now();
-        let storage = SqliteStorage::new_in_memory()?.with_scoring_params(params.clone());
+        let storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?
+            .with_scoring_params(params.clone());
         let mut rss = PeakRss::default();
         rss.sample();
 
@@ -2343,7 +2352,8 @@ fn main() -> Result<()> {
         load_api_key_from_dotenv();
         init_llm_judge(args.judge_model.as_str())?;
     }
-    let storage = SqliteStorage::new_in_memory()?;
+    let storage =
+        SqliteStorage::new_in_memory_with_embedder(std::sync::Arc::new(OnnxEmbedder::new()?))?;
 
     println!("Creating benchmark database...");
     println!("Seeding memories...");

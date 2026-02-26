@@ -79,6 +79,7 @@ pub struct SearchOptions {
     pub event_type: Option<String>,
     pub project: Option<String>,
     pub session_id: Option<String>,
+    pub include_superseded: Option<bool>,
     pub importance_min: Option<f64>,
     pub created_after: Option<String>,
     pub created_before: Option<String>,
@@ -446,6 +447,18 @@ pub trait Lister: Send + Sync {
 pub trait RelationshipQuerier: Send + Sync {
     /// Returns all relationships where `memory_id` is either source or target.
     async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>;
+}
+
+#[async_trait]
+pub trait VersionChainQuerier: Send + Sync {
+    /// Returns the full version chain for a memory, ordered by created_at ascending.
+    /// Includes the memory itself and all versions in its chain.
+    async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>;
+
+    /// Manually supersede an old memory with a new one.
+    /// Creates SUPERSEDES relationship and sets superseded_by_id on the old memory.
+    #[allow(dead_code)]
+    async fn supersede_memory(&self, old_id: &str, new_id: &str) -> Result<()>;
 }
 
 #[async_trait]

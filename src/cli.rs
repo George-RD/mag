@@ -128,6 +128,8 @@ pub enum Commands {
         project: Option<String>,
         #[arg(long)]
         session_id: Option<String>,
+        #[arg(long)]
+        include_superseded: bool,
     },
     /// Shows relationships for a given memory.
     Relations {
@@ -144,6 +146,8 @@ pub enum Commands {
         project: Option<String>,
         #[arg(long)]
         session_id: Option<String>,
+        #[arg(long)]
+        include_superseded: bool,
     },
     /// Performs semantic search over stored memories.
     SemanticSearch {
@@ -156,6 +160,8 @@ pub enum Commands {
         project: Option<String>,
         #[arg(long)]
         session_id: Option<String>,
+        #[arg(long)]
+        include_superseded: bool,
     },
     /// Advanced multi-phase search with scoring.
     AdvancedSearch {
@@ -166,6 +172,13 @@ pub enum Commands {
         event_type: Option<String>,
         #[arg(long)]
         project: Option<String>,
+        #[arg(long)]
+        include_superseded: bool,
+    },
+    /// Get the version history chain for a memory.
+    VersionChain {
+        /// Memory ID to get chain for.
+        id: String,
     },
     /// Find similar memories by embedding.
     Similar {
@@ -188,6 +201,8 @@ pub enum Commands {
         limit: usize,
         #[arg(long)]
         event_type: Option<String>,
+        #[arg(long)]
+        include_superseded: bool,
     },
     /// Lists recently accessed memories.
     Recent {
@@ -199,6 +214,8 @@ pub enum Commands {
         project: Option<String>,
         #[arg(long)]
         session_id: Option<String>,
+        #[arg(long)]
+        include_superseded: bool,
     },
     /// Shows memory store statistics.
     Stats,
@@ -591,11 +608,39 @@ mod tests {
         let args = vec!["romega", "advanced-search", "query", "--limit", "7"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::AdvancedSearch { query, limit, .. } => {
+            Commands::AdvancedSearch {
+                query,
+                limit,
+                include_superseded,
+                ..
+            } => {
                 assert_eq!(query, "query");
                 assert_eq!(limit, 7);
+                assert!(!include_superseded);
             }
             _ => panic!("Expected AdvancedSearch command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_advanced_search_include_superseded_flag() {
+        let args = vec!["romega", "advanced-search", "query", "--include-superseded"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::AdvancedSearch {
+                include_superseded, ..
+            } => assert!(include_superseded),
+            _ => panic!("Expected AdvancedSearch command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_version_chain_command() {
+        let args = vec!["romega", "version-chain", "abc123"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::VersionChain { id } => assert_eq!(id, "abc123"),
+            _ => panic!("Expected VersionChain command"),
         }
     }
 

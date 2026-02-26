@@ -6,8 +6,8 @@ use memory_core::{
     FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
     MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager,
     RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder, StatsProvider, Updater,
-    WelcomeProvider, default_priority_for_event_type, default_ttl_for_event_type,
-    is_valid_event_type,
+    VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
+    default_ttl_for_event_type, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -217,6 +217,7 @@ async fn main() -> anyhow::Result<()> {
             event_type,
             project,
             session_id,
+            include_superseded,
         } => {
             info!(offset = *offset, limit = *limit, "Listing memories");
             if let Some(kind) = event_type.as_deref()
@@ -228,6 +229,7 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                include_superseded: Some(*include_superseded),
                 importance_min: None,
                 created_after: None,
                 created_before: None,
@@ -277,6 +279,7 @@ async fn main() -> anyhow::Result<()> {
             event_type,
             project,
             session_id,
+            include_superseded,
         } => {
             info!(
                 query_len = query.len(),
@@ -292,6 +295,7 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                include_superseded: Some(*include_superseded),
                 importance_min: None,
                 created_after: None,
                 created_before: None,
@@ -324,6 +328,7 @@ async fn main() -> anyhow::Result<()> {
             event_type,
             project,
             session_id,
+            include_superseded,
         } => {
             info!(
                 query_len = query.len(),
@@ -339,6 +344,7 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                include_superseded: Some(*include_superseded),
                 importance_min: None,
                 created_after: None,
                 created_before: None,
@@ -371,6 +377,7 @@ async fn main() -> anyhow::Result<()> {
             limit,
             event_type,
             project,
+            include_superseded,
         } => {
             if let Some(kind) = event_type.as_deref()
                 && !is_valid_event_type(kind)
@@ -381,6 +388,7 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: None,
+                include_superseded: Some(*include_superseded),
                 importance_min: None,
                 created_after: None,
                 created_before: None,
@@ -412,6 +420,35 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .collect();
             println!("{}", json!({ "results": payload }));
+        }
+        Commands::VersionChain { id } => {
+            let chain = mcp_storage.get_version_chain(id).await?;
+            for memory in &chain {
+                let superseded = memory
+                    .metadata
+                    .get("superseded_by_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| format!(" [superseded by {s}]"))
+                    .unwrap_or_default();
+                info!(id = %memory.id, event_type = ?memory.event_type, content_len = memory.content.len(), "{}", superseded);
+            }
+            info!("Chain length: {}", chain.len());
+            let payload: Vec<_> = chain
+                .into_iter()
+                .map(|memory| {
+                    json!({
+                        "id": memory.id,
+                        "content": memory.content,
+                        "tags": memory.tags,
+                        "importance": memory.importance,
+                        "metadata": memory.metadata,
+                        "event_type": memory.event_type,
+                        "session_id": memory.session_id,
+                        "project": memory.project,
+                    })
+                })
+                .collect();
+            println!("{}", json!({ "chain": payload }));
         }
         Commands::Similar { id, limit } => {
             let results =
@@ -473,6 +510,7 @@ async fn main() -> anyhow::Result<()> {
             phrase,
             limit,
             event_type,
+            include_superseded,
         } => {
             if let Some(kind) = event_type.as_deref()
                 && !is_valid_event_type(kind)
@@ -483,6 +521,7 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: None,
                 session_id: None,
+                include_superseded: Some(*include_superseded),
                 importance_min: None,
                 created_after: None,
                 created_before: None,
@@ -519,6 +558,7 @@ async fn main() -> anyhow::Result<()> {
             event_type,
             project,
             session_id,
+            include_superseded,
         } => {
             info!(limit = *limit, "Listing recent memories");
             if let Some(kind) = event_type.as_deref()
@@ -530,6 +570,7 @@ async fn main() -> anyhow::Result<()> {
                 event_type: event_type.clone(),
                 project: project.clone(),
                 session_id: session_id.clone(),
+                include_superseded: Some(*include_superseded),
                 importance_min: None,
                 created_after: None,
                 created_before: None,
@@ -828,13 +869,14 @@ async fn main() -> anyhow::Result<()> {
                     "memory_similar", "memory_traverse", "memory_phrase_search",
                     "memory_tag_search", "memory_list", "memory_recent",
                     "memory_relations", "memory_add_relation",
+                    "memory_version_chain",
                     "memory_feedback", "memory_sweep",
                     "memory_profile", "memory_checkpoint", "memory_resume_task",
                     "memory_remind", "memory_lessons",
                     "memory_health", "memory_stats", "memory_export", "memory_import",
                     "memory_maintain", "memory_welcome", "memory_protocol", "memory_stats_extended",
                 ],
-                "tool_count": 30,
+                "tool_count": 31,
             });
             println!("{protocol}");
         }
