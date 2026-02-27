@@ -194,4 +194,4 @@ romega-memory is an independent Rust reimplementation inspired by [omega-memory]
 
 ## License
 
-MIT
+Apache-2.0
