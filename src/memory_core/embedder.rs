@@ -95,8 +95,16 @@ impl OnnxEmbedder {
                     files.model_path.display()
                 )
             })?;
-        let tokenizer = tokenizers::Tokenizer::from_file(&files.tokenizer_path)
+        let mut tokenizer = tokenizers::Tokenizer::from_file(&files.tokenizer_path)
             .map_err(|e| anyhow!("failed to load tokenizer: {e}"))?;
+        // bge-small-en-v1.5 supports max 512 tokens. Truncate longer inputs to avoid
+        // ONNX positional-encoding broadcast errors.
+        tokenizer
+            .with_truncation(Some(tokenizers::TruncationParams {
+                max_length: 512,
+                ..Default::default()
+            }))
+            .map_err(|e| anyhow!("failed to configure tokenizer truncation: {e}"))?;
         Ok(OnnxRuntime {
             session: std::sync::Mutex::new(session),
             tokenizer,
