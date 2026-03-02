@@ -9,4 +9,6 @@ PROVENANCE.local.md
 .mcp.json
 
 # Benchmark datasets (large, downloaded separately)
-data/
+data/*
+# But track the local benchmark definition
+!data/local_benchmark.json

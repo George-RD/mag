@@ -31,5 +31,5 @@ dotenvy = { version = "0.15", optional = true }
 
 [[bin]]
 name = "longmemeval_bench"
-path = "benches/longmemeval.rs"
+path = "benches/longmemeval/main.rs"
 required-features = ["real-embeddings"]

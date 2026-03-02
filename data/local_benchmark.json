@@ -1,0 +1,190 @@
+{
+  "seed_memories": {
+    "information_extraction": [
+      { "content": "Python's GIL prevents true parallel execution of CPU-bound threads. Use multiprocessing for CPU parallelism.", "event_type": "lesson_learned", "priority": 4, "tags": ["python", "threading"] },
+      { "content": "SQLite WAL mode allows concurrent reads while writing. Set PRAGMA journal_mode=WAL on connection.", "event_type": "decision", "priority": 4, "tags": ["sqlite"] },
+      { "content": "ONNX Runtime CPU inference uses ~337MB RAM for bge-small-en-v1.5 model.", "event_type": "lesson_learned", "priority": 4, "tags": ["onnx", "embedding"] },
+      { "content": "React useEffect cleanup function runs before each re-execution and on unmount.", "event_type": "lesson_learned", "priority": 4, "tags": ["react", "javascript"] },
+      { "content": "Docker layer caching: put rarely-changing instructions (apt-get) before frequently-changing ones (COPY .).", "event_type": "lesson_learned", "priority": 4, "tags": ["docker"] },
+      { "content": "PostgreSQL VACUUM ANALYZE should be scheduled weekly for tables with heavy UPDATE/DELETE traffic.", "event_type": "decision", "priority": 3, "tags": ["postgres"] },
+      { "content": "TypeScript discriminated unions use a literal type field to narrow union members in switch statements.", "event_type": "lesson_learned", "priority": 4, "tags": ["typescript"] },
+      { "content": "Redis SCAN is preferred over KEYS in production - KEYS blocks the single-threaded event loop.", "event_type": "error_pattern", "priority": 4, "tags": ["redis"] },
+      { "content": "Git rebase --onto allows moving a branch from one base to another without replaying all commits.", "event_type": "lesson_learned", "priority": 4, "tags": ["git"] },
+      { "content": "Kubernetes liveness probes should NOT check dependencies. Readiness probes should.", "event_type": "lesson_learned", "priority": 4, "tags": ["kubernetes"] },
+      { "content": "The user prefers Tailwind CSS over styled-components for styling React applications.", "event_type": "user_preference", "priority": 5, "tags": ["react", "tailwind", "css"] },
+      { "content": "Always use parameterized queries to prevent SQL injection - never concatenate user input.", "event_type": "lesson_learned", "priority": 4, "tags": ["sql", "security"] },
+      { "content": "Python asyncio.gather() runs coroutines concurrently. Use return_exceptions=True to avoid one failure cancelling others.", "event_type": "lesson_learned", "priority": 4, "tags": ["python", "async"] },
+      { "content": "Nginx proxy_pass with trailing slash strips the location prefix from the proxied URL.", "event_type": "error_pattern", "priority": 4, "tags": ["nginx"] },
+      { "content": "JWT tokens should be short-lived (15 min) with refresh tokens for session continuity.", "event_type": "decision", "priority": 4, "tags": ["auth", "security"] },
+      { "content": "The user's timezone is America/New_York (EST/EDT).", "event_type": "user_preference", "priority": 5, "tags": ["profile"] },
+      { "content": "Rust's borrow checker prevents data races at compile time. Use Arc<Mutex<T>> for shared mutable state across threads.", "event_type": "lesson_learned", "priority": 4, "tags": ["rust"] },
+      { "content": "Next.js App Router uses React Server Components by default. Add 'use client' directive for client-side interactivity.", "event_type": "lesson_learned", "priority": 4, "tags": ["next.js", "react"] },
+      { "content": "CoreML causes memory leaks on Apple Silicon when loading models repeatedly. Use ONNX CPU backend instead.", "event_type": "error_pattern", "priority": 4, "tags": ["onnx", "apple"] },
+      { "content": "The project uses Zustand for state management instead of Redux - simpler API, less boilerplate.", "event_type": "decision", "priority": 4, "tags": ["zustand", "react"] }
+    ],
+    "multi_session": [
+      { "content": "Decided to use SQLite for the OMEGA backend because it's zero-config and embedded.", "session_id": "bench-ms-1", "event_type": "decision", "priority": 4, "tags": ["sqlite", "omega"] },
+      { "content": "Added sqlite-vec extension for vector similarity search in OMEGA.", "session_id": "bench-ms-2", "event_type": "task_completion", "priority": 3, "tags": ["sqlite", "omega"] },
+      { "content": "FTS5 full-text search index added to OMEGA for fast keyword queries.", "session_id": "bench-ms-3", "event_type": "task_completion", "priority": 3, "tags": ["sqlite", "omega"] },
+      { "content": "OMEGA schema migration system uses ALTER TABLE for backwards-compatible upgrades.", "session_id": "bench-ms-4", "event_type": "decision", "priority": 4, "tags": ["sqlite", "omega"] },
+      { "content": "The API server uses FastAPI with uvicorn for the HTTP layer.", "session_id": "bench-ms-1", "event_type": "decision", "priority": 4, "tags": ["fastapi", "python"] },
+      { "content": "Added rate limiting middleware to the API - 100 req/min per IP.", "session_id": "bench-ms-2", "event_type": "task_completion", "priority": 3, "tags": ["fastapi", "security"] },
+      { "content": "Switched from JSON file storage to PostgreSQL for the main application database.", "session_id": "bench-ms-1", "event_type": "decision", "priority": 4, "tags": ["postgres"] },
+      { "content": "Added connection pooling with pgbouncer to handle concurrent database connections.", "session_id": "bench-ms-3", "event_type": "task_completion", "priority": 3, "tags": ["postgres"] },
+      { "content": "Implemented retry logic with exponential backoff for external API calls.", "session_id": "bench-ms-2", "event_type": "lesson_learned", "priority": 4, "tags": ["python", "api"] },
+      { "content": "The retry decorator uses jitter to prevent thundering herd in distributed systems.", "session_id": "bench-ms-4", "event_type": "lesson_learned", "priority": 4, "tags": ["python", "distributed"] },
+      { "content": "Deployed the application to AWS ECS with Fargate for serverless container management.", "session_id": "bench-ms-1", "event_type": "task_completion", "priority": 3, "tags": ["aws", "docker"] },
+      { "content": "Added CloudWatch alarms for CPU > 80% and memory > 90% on ECS tasks.", "session_id": "bench-ms-3", "event_type": "decision", "priority": 4, "tags": ["aws", "monitoring"] },
+      { "content": "The CI/CD pipeline uses GitHub Actions with separate staging and production workflows.", "session_id": "bench-ms-2", "event_type": "decision", "priority": 4, "tags": ["git"] },
+      { "content": "Added automated database migration step to the CI/CD pipeline before deployment.", "session_id": "bench-ms-4", "event_type": "task_completion", "priority": 3, "tags": ["git"] },
+      { "content": "Implemented feature flags using LaunchDarkly for gradual rollouts.", "session_id": "bench-ms-1", "event_type": "decision", "priority": 4, "tags": [] },
+      { "content": "Feature flags reduced deployment risk - can disable new features without redeploying.", "session_id": "bench-ms-3", "event_type": "lesson_learned", "priority": 4, "tags": [] },
+      { "content": "The user authentication flow uses OAuth 2.0 with Google and GitHub providers.", "session_id": "bench-ms-2", "event_type": "decision", "priority": 4, "tags": ["auth"] },
+      { "content": "Added PKCE flow for the OAuth implementation to prevent authorization code interception.", "session_id": "bench-ms-4", "event_type": "task_completion", "priority": 3, "tags": ["auth", "security"] },
+      { "content": "Monitoring stack uses Prometheus for metrics and Grafana for dashboards.", "session_id": "bench-ms-1", "event_type": "decision", "priority": 4, "tags": [] },
+      { "content": "Added custom Prometheus metrics for business KPIs: user signups, API latency p99.", "session_id": "bench-ms-3", "event_type": "task_completion", "priority": 3, "tags": [] }
+    ],
+    "temporal": {
+      "sprint_count": 20,
+      "interval_days": 3
+    },
+    "knowledge_update": [
+      { "old_content": "The API response format uses XML for all endpoints.", "new_content": "The API response format was migrated from XML to JSON for all endpoints." },
+      { "old_content": "Database backups run daily at 2 AM UTC.", "new_content": "Database backups now run every 6 hours (4x daily) after the data loss incident." },
+      { "old_content": "The frontend uses Create React App for build tooling.", "new_content": "Migrated from Create React App to Vite for 10x faster builds." },
+      { "old_content": "Authentication tokens expire after 24 hours.", "new_content": "Authentication tokens now expire after 15 minutes with refresh token rotation." },
+      { "old_content": "The application runs on a single EC2 instance.", "new_content": "Migrated from single EC2 to ECS Fargate with auto-scaling (2-10 tasks)." },
+      { "old_content": "Logging uses console.log statements throughout the codebase.", "new_content": "Implemented structured logging with Winston - all console.log replaced." },
+      { "old_content": "Tests run manually before each deployment.", "new_content": "CI/CD pipeline runs tests automatically on every pull request." },
+      { "old_content": "The database schema has no migration system.", "new_content": "Added Alembic for database schema migrations with version tracking." },
+      { "old_content": "Error handling returns generic 500 responses.", "new_content": "Implemented error classification: 400/401/403/404/422/500 with error codes." },
+      { "old_content": "The search feature uses LIKE queries on PostgreSQL.", "new_content": "Search upgraded to use PostgreSQL full-text search with tsvector indexes." }
+    ]
+  },
+  "questions": {
+    "information_extraction": [
+      { "query": "Python GIL threading", "expected": "GIL prevents true parallel" },
+      { "query": "SQLite WAL mode concurrent reads", "expected": "WAL mode allows concurrent" },
+      { "query": "ONNX Runtime memory usage", "expected": "337MB RAM" },
+      { "query": "React useEffect cleanup", "expected": "cleanup function runs" },
+      { "query": "Docker layer caching strategy", "expected": "rarely-changing instructions" },
+      { "query": "PostgreSQL VACUUM schedule", "expected": "VACUUM ANALYZE" },
+      { "query": "TypeScript discriminated unions", "expected": "literal type field" },
+      { "query": "Redis KEYS command production", "expected": "SCAN is preferred" },
+      { "query": "git rebase onto", "expected": "rebase --onto" },
+      { "query": "Kubernetes liveness readiness probes", "expected": "liveness probes should NOT check" },
+      { "query": "user preferred CSS framework", "expected": "Tailwind CSS" },
+      { "query": "SQL injection prevention", "expected": "parameterized queries" },
+      { "query": "asyncio gather exceptions", "expected": "return_exceptions=True" },
+      { "query": "nginx proxy_pass trailing slash", "expected": "strips the location prefix" },
+      { "query": "JWT token expiration best practice", "expected": "short-lived" },
+      { "query": "user timezone", "expected": "America/New_York" },
+      { "query": "Rust shared mutable state threads", "expected": "Arc<Mutex<T>>" },
+      { "query": "Next.js server components client", "expected": "use client" },
+      { "query": "CoreML memory leak Apple Silicon", "expected": "memory leaks" },
+      { "query": "state management library choice", "expected": "Zustand" }
+    ],
+    "multi_session": [
+      { "query": "OMEGA database backend decision", "expected": "SQLite for the OMEGA backend" },
+      { "query": "OMEGA vector search implementation", "expected": "sqlite-vec extension" },
+      { "query": "OMEGA text search", "expected": "FTS5 full-text search" },
+      { "query": "API framework choice", "expected": "FastAPI" },
+      { "query": "rate limiting configuration", "expected": "100 req/min" },
+      { "query": "main database migration from JSON", "expected": "PostgreSQL for the main application" },
+      { "query": "connection pooling solution", "expected": "pgbouncer" },
+      { "query": "retry logic external API", "expected": "exponential backoff" },
+      { "query": "thundering herd prevention", "expected": "jitter" },
+      { "query": "container deployment platform", "expected": "ECS with Fargate" },
+      { "query": "monitoring alerts thresholds", "expected": "CPU > 80%" },
+      { "query": "CI/CD pipeline platform", "expected": "GitHub Actions" },
+      { "query": "database migration in CI/CD", "expected": "migration step" },
+      { "query": "feature flag service", "expected": "LaunchDarkly" },
+      { "query": "deployment risk reduction strategy", "expected": "disable new features" },
+      { "query": "OAuth authentication providers", "expected": "Google and GitHub" },
+      { "query": "PKCE authorization code", "expected": "prevent authorization code interception" },
+      { "query": "metrics collection tool", "expected": "Prometheus" },
+      { "query": "dashboard visualization", "expected": "Grafana" },
+      { "query": "business KPI metrics", "expected": "user signups" }
+    ],
+    "temporal": {
+      "recent_week": [
+        { "query": "recent sprint completions", "expected": "Sprint 20 completed" },
+        { "query": "sprint deployments last week", "expected": "deployed feature batch" }
+      ],
+      "two_weeks": [
+        { "query": "sprint completions last two weeks", "expected": "Sprint 16 completed" }
+      ],
+      "month": [
+        { "query": "what was deployed last month", "expected": "Sprint" }
+      ],
+      "empty_old_range": {
+        "query": "sprint completion",
+        "expected_description": "no results expected for 80-90 days ago",
+        "count": 4,
+        "range_start_days_ago": 90,
+        "range_end_days_ago": 80
+      },
+      "window_checks": {
+        "query": "sprint deployed feature batch",
+        "expected_description_template": "at least one result expected for last {days} days",
+        "windows_days": [3, 7, 14, 21, 30, 45, 60]
+      },
+      "rolling_windows": {
+        "query": "sprint completed production",
+        "expected_description": "at least one result expected within rolling window",
+        "count": 5,
+        "window_size_days": 10
+      }
+    },
+    "knowledge_update": {
+      "new_value": [
+        { "query": "API response format", "expected": "JSON for all endpoints" },
+        { "query": "database backup frequency", "expected": "every 6 hours" },
+        { "query": "frontend build tooling", "expected": "Vite for 10x faster" },
+        { "query": "authentication token expiration", "expected": "15 minutes with refresh" },
+        { "query": "application hosting infrastructure", "expected": "ECS Fargate with auto-scaling" },
+        { "query": "logging implementation", "expected": "structured logging with Winston" },
+        { "query": "test execution workflow", "expected": "automatically on every pull request" },
+        { "query": "database schema migration system", "expected": "Alembic for database schema" },
+        { "query": "error handling HTTP responses", "expected": "error classification" },
+        { "query": "search implementation", "expected": "full-text search with tsvector" }
+      ],
+      "old_not_ranked_first": [
+        { "query": "API response format", "old_substring": "XML for all endpoints" },
+        { "query": "database backup frequency", "old_substring": "daily at 2 AM" },
+        { "query": "frontend build tooling", "old_substring": "uses Create React App" },
+        { "query": "authentication token expiration", "old_substring": "expire after 24 hours" },
+        { "query": "application hosting", "old_substring": "single EC2 instance" }
+      ],
+      "additional_new": [
+        { "query": "logging approach", "expected": "structured logging" },
+        { "query": "test automation", "expected": "automatically" },
+        { "query": "migration system", "expected": "Alembic" },
+        { "query": "error responses", "expected": "classification" },
+        { "query": "search upgrade", "expected": "tsvector" }
+      ]
+    },
+    "abstention": [
+      "quantum computing superconductor temperature",
+      "recipe for chocolate cake ingredients",
+      "stock market prediction algorithm",
+      "ancient Roman history gladiator battles",
+      "knitting patterns for winter sweaters",
+      "deep sea marine biology bioluminescence",
+      "amateur radio frequency bands",
+      "origami crane folding instructions",
+      "volcanic eruption prediction methods",
+      "medieval castle architecture design",
+      "astrophotography camera settings Milky Way",
+      "woodworking dovetail joint techniques",
+      "cheese aging cave temperature humidity",
+      "hot air balloon flight physics",
+      "crossword puzzle solving strategies",
+      "beekeeping hive inspection schedule",
+      "surfboard shaping foam blank",
+      "calligraphy brush stroke techniques",
+      "gem cutting faceting angles",
+      "sourdough bread starter maintenance"
+    ]
+  }
+}
