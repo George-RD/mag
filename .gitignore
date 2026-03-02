@@ -7,3 +7,6 @@ PROVENANCE.local.md
 
 # Local MCP config (machine-specific paths)
 .mcp.json
+
+# Benchmark datasets (large, downloaded separately)
+data/
