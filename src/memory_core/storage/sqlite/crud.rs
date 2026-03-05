@@ -23,15 +23,11 @@ impl Storage for SqliteStorage {
         let id_for_store = id.clone();
 
         let (outcome, superseded_ids) = tokio::task::spawn_blocking(move || {
-            let mut hasher = Sha256::new();
-            hasher.update(data.as_bytes());
-            let content_hash = format!("{:x}", hasher.finalize());
+            let c_hash = content_hash(&data);
             let normalized_hash = canonical_hash(&data);
             let embedding = serde_json::to_vec(&embedder.embed(&data)?)
                 .context("failed to serialize embedding")?;
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start sqlite transaction")?;
@@ -228,7 +224,7 @@ impl Storage for SqliteStorage {
                     id_for_store,
                     data,
                     embedding,
-                    content_hash,
+                    c_hash,
                     tags_json,
                     importance,
                     metadata_json,
@@ -347,9 +343,7 @@ impl Retriever for SqliteStorage {
         let id = id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start sqlite transaction")?;
@@ -390,9 +384,7 @@ impl Deleter for SqliteStorage {
         let id = id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start delete transaction")?;
@@ -446,9 +438,7 @@ impl Updater for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             let content_fields = match content.as_deref() {
                 Some(new_content) => {
-                    let mut hasher = Sha256::new();
-                    hasher.update(new_content.as_bytes());
-                    let hash = format!("{:x}", hasher.finalize());
+                    let hash = content_hash(new_content);
                     let canonical = canonical_hash(new_content);
                     let emb = serde_json::to_vec(&embedder.embed(new_content)?)
                         .context("failed to serialize embedding")?;
@@ -458,9 +448,7 @@ impl Updater for SqliteStorage {
             };
             use rusqlite::types::Value as SqlValue;
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut set_clauses = Vec::new();
             let mut values: Vec<SqlValue> = Vec::new();
@@ -526,7 +514,11 @@ impl Updater for SqliteStorage {
                 params.push(value);
             }
 
-            let changes = conn
+            let tx = conn
+                .unchecked_transaction()
+                .context("failed to start update transaction")?;
+
+            let changes = tx
                 .execute(&sql, params.as_slice())
                 .context("failed to update memory")?;
 
@@ -535,14 +527,16 @@ impl Updater for SqliteStorage {
             }
 
             if let Some((new_content, _, _, _)) = &content_fields {
-                conn.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
+                tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
                     .context("failed to delete existing FTS row during update")?;
-                conn.execute(
+                tx.execute(
                     "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
                     params![id, new_content],
                 )
                 .context("failed to insert FTS row during update")?;
             }
+
+            tx.commit().context("failed to commit update transaction")?;
 
             Ok::<_, anyhow::Error>(())
         })
@@ -571,9 +565,7 @@ impl Tagger for SqliteStorage {
         let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             // Build dynamic WHERE clause with dual-read support:
             // - JSON tags: json_valid + json_each
@@ -630,20 +622,7 @@ impl Tagger for SqliteStorage {
             param_refs.push(&effective_limit);
 
             let rows = stmt
-                .query_map(param_refs.as_slice(), |row| {
-                    let raw_tags: String = row.get(2)?;
-                    let raw_metadata: String = row.get(4)?;
-                    Ok(SearchResult {
-                        id: row.get(0)?,
-                        content: row.get(1)?,
-                        tags: parse_tags_from_db(&raw_tags),
-                        importance: row.get(3)?,
-                        metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type: row.get(5).ok(),
-                        session_id: row.get(6).ok(),
-                        project: row.get(7).ok(),
-                    })
-                })
+                .query_map(param_refs.as_slice(), search_result_from_row)
                 .context("failed to execute tag search query")?;
 
             let mut results = Vec::new();

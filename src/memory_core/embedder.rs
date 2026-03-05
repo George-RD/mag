@@ -84,6 +84,25 @@ impl OnnxEmbedder {
         })
     }
 
+    /// Eagerly load the ONNX session so the first `embed()` call doesn't pay
+    /// the cold-start penalty. Must be called from an async context (uses
+    /// `spawn_blocking` internally since ONNX init creates a mini runtime).
+    pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()> {
+        if self.runtime.get().is_some() {
+            return Ok(());
+        }
+        let this = std::sync::Arc::clone(self);
+        tokio::task::spawn_blocking(move || {
+            if this.runtime.get().is_none() {
+                let rt = this.init_runtime()?;
+                let _ = this.runtime.set(rt);
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+
     fn init_runtime(&self) -> Result<OnnxRuntime> {
         let files = ensure_model_files_blocking(self.model_dir.clone())?;
         let session = ort::session::Session::builder()?

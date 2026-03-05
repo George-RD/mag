@@ -1,4 +1,11 @@
+use std::sync::MutexGuard;
+
 use super::*;
+
+pub(super) fn lock_conn(conn: &Mutex<Connection>) -> Result<MutexGuard<'_, Connection>> {
+    conn.lock()
+        .map_err(|_| anyhow!("sqlite connection mutex poisoned"))
+}
 
 pub(super) fn canonicalize(content: &str) -> String {
     let stripped: String = content
@@ -22,6 +29,12 @@ pub(super) fn canonical_hash(content: &str) -> String {
     let canonical = canonicalize(content);
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+pub(super) fn content_hash(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
@@ -79,6 +92,30 @@ pub(super) fn normalize_for_dedup(content: &str) -> String {
         .join(" ")
         .to_lowercase();
     collapsed.chars().take(150).collect()
+}
+
+pub(super) fn escape_like_pattern(input: &str) -> String {
+    let escaped = input
+        .to_lowercase()
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+pub(super) fn search_result_from_row(row: &rusqlite::Row) -> rusqlite::Result<SearchResult> {
+    let raw_tags: String = row.get(2)?;
+    let raw_metadata: String = row.get(4)?;
+    Ok(SearchResult {
+        id: row.get(0)?,
+        content: row.get(1)?,
+        tags: parse_tags_from_db(&raw_tags),
+        importance: row.get(3)?,
+        metadata: parse_metadata_from_db(&raw_metadata),
+        event_type: row.get(5).ok(),
+        session_id: row.get(6).ok(),
+        project: row.get(7).ok(),
+    })
 }
 
 pub(super) fn matches_search_options(

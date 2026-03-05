@@ -32,9 +32,7 @@ impl AdvancedSearcher for SqliteStorage {
                 .collect();
             let query_word_refs: Vec<&str> = query_words_owned.iter().map(String::as_str).collect();
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             // ── RRF (Reciprocal Rank Fusion) hybrid search ─────────
             // Rank each signal independently then fuse with 1/(k+rank).

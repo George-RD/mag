@@ -20,9 +20,7 @@ impl GraphTraverser for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut frontier = vec![start_id.clone()];
             let mut visited: HashSet<String> = HashSet::from([start_id.clone()]);
@@ -151,9 +149,7 @@ impl SimilarFinder for SqliteStorage {
         let memory_id = memory_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let source_embedding: Vec<u8> = conn
                 .query_row(
@@ -234,9 +230,7 @@ impl RelationshipQuerier for SqliteStorage {
         let memory_id = memory_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut stmt = conn
                 .prepare(
@@ -282,9 +276,7 @@ impl VersionChainQuerier for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let chain_id: Option<String> = conn
                 .query_row(
@@ -386,9 +378,7 @@ impl VersionChainQuerier for SqliteStorage {
         }
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start supersede transaction")?;

@@ -21,9 +21,7 @@ impl FeedbackRecorder for SqliteStorage {
         let reason = reason.map(ToString::to_string);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let metadata_raw: Option<String> = conn
                 .query_row(
@@ -96,9 +94,7 @@ impl ExpirationSweeper for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start sweep transaction")?;
@@ -151,9 +147,7 @@ impl Lister for SqliteStorage {
             let total = tokio::task::spawn_blocking(move || {
                 use rusqlite::types::Value as SqlValue;
 
-                let conn = conn
-                    .lock()
-                    .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+                let conn = lock_conn(&conn)?;
                 let mut sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
                 if !include_superseded {
                     sql.push_str(" AND superseded_by_id IS NULL");
@@ -201,9 +195,7 @@ impl Lister for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut count_sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
             if !include_superseded {
@@ -277,20 +269,7 @@ impl Lister for SqliteStorage {
             }
 
             let rows = stmt
-                .query_map(data_param_refs.as_slice(), |row| {
-                    let raw_tags: String = row.get(2)?;
-                    let raw_metadata: String = row.get(4)?;
-                    Ok(SearchResult {
-                        id: row.get(0)?,
-                        content: row.get(1)?,
-                        tags: parse_tags_from_db(&raw_tags),
-                        importance: row.get(3)?,
-                        metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type: row.get(5).ok(),
-                        session_id: row.get(6).ok(),
-                        project: row.get(7).ok(),
-                    })
-                })
+                .query_map(data_param_refs.as_slice(), search_result_from_row)
                 .context("failed to execute list query")?;
 
             let mut memories = Vec::new();

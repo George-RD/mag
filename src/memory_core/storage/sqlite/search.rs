@@ -20,9 +20,7 @@ impl Searcher for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let fts_query = build_fts5_query(&query);
             let include_superseded = opts.include_superseded.unwrap_or(false);
@@ -73,20 +71,8 @@ impl Searcher for SqliteStorage {
                 for value in &fts_params {
                     fts_param_refs.push(value);
                 }
-                let rows = stmt.query_map(fts_param_refs.as_slice(), |row| {
-                    let raw_tags: String = row.get(2)?;
-                    let raw_metadata: String = row.get(4)?;
-                    Ok(SearchResult {
-                        id: row.get(0)?,
-                        content: row.get(1)?,
-                        tags: parse_tags_from_db(&raw_tags),
-                        importance: row.get(3)?,
-                        metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type: row.get(5).ok(),
-                        session_id: row.get(6).ok(),
-                        project: row.get(7).ok(),
-                    })
-                });
+                let rows = stmt
+                    .query_map(fts_param_refs.as_slice(), search_result_from_row);
 
                 if let Err(ref e) = rows {
                     tracing::warn!("FTS5 search failed, falling back to LIKE: {e}");
@@ -103,12 +89,7 @@ impl Searcher for SqliteStorage {
                 }
             }
 
-            let escaped = query
-                .to_lowercase()
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            let pattern = format!("%{escaped}%");
+            let pattern = escape_like_pattern(&query);
 
             let mut sql = String::from(
                 "SELECT id, content, tags, importance, metadata, event_type, session_id, project
@@ -159,20 +140,7 @@ impl Searcher for SqliteStorage {
             }
 
             let rows = stmt
-                .query_map(like_param_refs.as_slice(), |row| {
-                    let raw_tags: String = row.get(2)?;
-                    let raw_metadata: String = row.get(4)?;
-                    Ok(SearchResult {
-                        id: row.get(0)?,
-                        content: row.get(1)?,
-                        tags: parse_tags_from_db(&raw_tags),
-                        importance: row.get(3)?,
-                        metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type: row.get(5).ok(),
-                        session_id: row.get(6).ok(),
-                        project: row.get(7).ok(),
-                    })
-                })
+                .query_map(like_param_refs.as_slice(), search_result_from_row)
                 .context("failed to execute LIKE search query")?;
 
             let mut results = Vec::new();
@@ -202,9 +170,7 @@ impl Recents for SqliteStorage {
             use rusqlite::types::Value as SqlValue;
             let include_superseded = opts.include_superseded.unwrap_or(false);
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut sql = String::from(
                 "SELECT id, content, tags, importance, metadata, event_type, session_id, project
@@ -245,20 +211,7 @@ impl Recents for SqliteStorage {
             }
 
             let rows = stmt
-                .query_map(param_refs.as_slice(), |row| {
-                    let raw_tags: String = row.get(2)?;
-                    let raw_metadata: String = row.get(4)?;
-                    Ok(SearchResult {
-                        id: row.get(0)?,
-                        content: row.get(1)?,
-                        tags: parse_tags_from_db(&raw_tags),
-                        importance: row.get(3)?,
-                        metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type: row.get(5).ok(),
-                        session_id: row.get(6).ok(),
-                        project: row.get(7).ok(),
-                    })
-                })
+                .query_map(param_refs.as_slice(), search_result_from_row)
                 .context("failed to execute recent query")?;
 
             let mut results = Vec::new();
@@ -298,9 +251,7 @@ impl SemanticSearcher for SqliteStorage {
                 .embed(&query)
                 .context("failed to compute query embedding")?;
 
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut sql = String::from(
                 "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
@@ -421,16 +372,9 @@ impl PhraseSearcher for SqliteStorage {
             use rusqlite::types::Value as SqlValue;
 
             let include_superseded = opts.include_superseded.unwrap_or(false);
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
-            let escaped = phrase
-                .to_lowercase()
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            let pattern = format!("%{escaped}%");
+            let pattern = escape_like_pattern(&phrase);
 
             let mut sql = String::from(
                 "SELECT id, content, tags, importance, metadata, event_type, session_id, project
@@ -485,20 +429,7 @@ impl PhraseSearcher for SqliteStorage {
             }
 
             let rows = stmt
-                .query_map(refs.as_slice(), |row| {
-                    let raw_tags: String = row.get(2)?;
-                    let raw_metadata: String = row.get(4)?;
-                    Ok(SearchResult {
-                        id: row.get(0)?,
-                        content: row.get(1)?,
-                        tags: parse_tags_from_db(&raw_tags),
-                        importance: row.get(3)?,
-                        metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type: row.get(5).ok(),
-                        session_id: row.get(6).ok(),
-                        project: row.get(7).ok(),
-                    })
-                })
+                .query_map(refs.as_slice(), search_result_from_row)
                 .context("failed to execute phrase search query")?;
 
             let mut out = Vec::new();

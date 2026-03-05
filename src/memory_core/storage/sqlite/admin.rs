@@ -11,9 +11,7 @@ impl MaintenanceManager for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let node_count: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
@@ -76,9 +74,7 @@ impl MaintenanceManager for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let before: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
@@ -136,7 +132,7 @@ impl MaintenanceManager for SqliteStorage {
             // Sync FTS
             let _fts_cleaned = conn
                 .execute(
-                    "DELETE FROM memories_fts WHERE rowid NOT IN (SELECT rowid FROM memories)",
+                    "DELETE FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)",
                     [],
                 )
                 .unwrap_or_else(|e| {
@@ -171,9 +167,7 @@ impl MaintenanceManager for SqliteStorage {
         let event_type = event_type.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             // Get candidates
             let mut stmt = conn
@@ -250,11 +244,7 @@ impl MaintenanceManager for SqliteStorage {
             let mut cluster_details: Vec<serde_json::Value> = Vec::new();
 
             for cluster in &valid_clusters {
-                let preview: String = candidates[cluster[0]]
-                    .1
-                    .chars()
-                    .take(100)
-                    .collect();
+                let preview: String = candidates[cluster[0]].1.chars().take(100).collect();
 
                 cluster_details.push(serde_json::json!({
                     "size": cluster.len(),
@@ -270,27 +260,35 @@ impl MaintenanceManager for SqliteStorage {
                         .join("\n---\n");
 
                     let keep_id = &candidates[cluster[0]].0;
-                    conn.execute(
+
+                    let tx = conn
+                        .unchecked_transaction()
+                        .context("failed to start compaction transaction")?;
+
+                    tx.execute(
                         "UPDATE memories SET content = ?1 WHERE id = ?2",
                         params![merged_content, keep_id],
                     )
                     .context("failed to update merged memory")?;
 
-                    // Wrap compaction mutations in a transaction for atomicity.
-                    let tx = conn
-                        .unchecked_transaction()
-                        .context("failed to start compaction transaction")?;
-
-                    // Update FTS
-                    let _fts = tx.execute(
-                        "UPDATE memories_fts SET content = ?1 WHERE rowid = (SELECT rowid FROM memories WHERE id = ?2)",
-                        params![merged_content, keep_id],
-                    );
+                    // Update FTS (keyed by id, not rowid)
+                    tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![keep_id])
+                        .context("failed to delete existing FTS row for merged memory")?;
+                    tx.execute(
+                        "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+                        params![keep_id, merged_content],
+                    )
+                    .context("failed to update FTS during compaction")?;
 
                     for &idx in &cluster[1..] {
                         let del_id = &candidates[idx].0;
-                        tx.execute("DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?1)", params![del_id]).ok();
-                        tx.execute("DELETE FROM relationships WHERE source_id = ?1 OR target_id = ?1", params![del_id]).ok();
+                        tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![del_id])
+                            .context("failed to delete compacted memory from FTS")?;
+                        tx.execute(
+                            "DELETE FROM relationships WHERE source_id = ?1 OR target_id = ?1",
+                            params![del_id],
+                        )
+                        .context("failed to delete relationships for compacted memory")?;
                         tx.execute("DELETE FROM memories WHERE id = ?1", params![del_id])
                             .context("failed to delete compacted memory")?;
                     }
@@ -318,29 +316,34 @@ impl MaintenanceManager for SqliteStorage {
         let session_id = session_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
+
+            let tx = conn
+                .unchecked_transaction()
+                .context("failed to start clear_session transaction")?;
 
             // Delete relationships first
-            conn.execute(
+            tx.execute(
                 "DELETE FROM relationships WHERE source_id IN (SELECT id FROM memories WHERE session_id = ?1) OR target_id IN (SELECT id FROM memories WHERE session_id = ?1)",
                 params![session_id],
-            ).ok();
+            ).context("failed to delete session relationships")?;
 
             // Delete FTS entries
-            conn.execute(
-                "DELETE FROM memories_fts WHERE rowid IN (SELECT rowid FROM memories WHERE session_id = ?1)",
+            tx.execute(
+                "DELETE FROM memories_fts WHERE id IN (SELECT id FROM memories WHERE session_id = ?1)",
                 params![session_id],
-            ).ok();
+            ).context("failed to delete session FTS entries")?;
 
             // Delete memories
-            let deleted = conn
+            let deleted = tx
                 .execute(
                     "DELETE FROM memories WHERE session_id = ?1",
                     params![session_id],
                 )
                 .context("failed to clear session memories")?;
+
+            tx.commit()
+                .context("failed to commit clear_session transaction")?;
 
             Ok::<_, anyhow::Error>(deleted)
         })
@@ -360,9 +363,7 @@ impl WelcomeProvider for SqliteStorage {
         let project = project.map(ToString::to_string);
 
         let db_result = tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let total: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories WHERE superseded_by_id IS NULL", [], |row| row.get(0))
@@ -457,9 +458,7 @@ impl StatsProvider for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut stmt = conn
                 .prepare("SELECT COALESCE(event_type, 'untyped') as etype, COUNT(*) as cnt FROM memories GROUP BY event_type ORDER BY cnt DESC")
@@ -490,9 +489,7 @@ impl StatsProvider for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut stmt = conn
                 .prepare("SELECT session_id, COUNT(*) as cnt FROM memories WHERE session_id IS NOT NULL GROUP BY session_id ORDER BY cnt DESC LIMIT 20")
@@ -533,37 +530,44 @@ impl StatsProvider for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let total: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
                 .unwrap_or(0);
 
+            if days <= 0 {
+                anyhow::bail!("days must be > 0");
+            }
+            let prev_days = days
+                .checked_mul(2)
+                .ok_or_else(|| anyhow::anyhow!("days value is too large"))?;
+            let days_str = format!("-{days} days");
+            let prev_days_str = format!("-{prev_days} days");
+
             let period_new: i64 = conn
                 .query_row(
-                    &format!("SELECT COUNT(*) FROM memories WHERE datetime(created_at) >= datetime('now', '-{days} days')"),
-                    [],
+                    "SELECT COUNT(*) FROM memories WHERE datetime(created_at) >= datetime('now', ?1)",
+                    params![days_str],
                     |row| row.get(0),
                 )
                 .unwrap_or(0);
 
             let session_count: i64 = conn
                 .query_row(
-                    &format!("SELECT COUNT(DISTINCT session_id) FROM memories WHERE datetime(created_at) >= datetime('now', '-{days} days') AND session_id IS NOT NULL"),
-                    [],
+                    "SELECT COUNT(DISTINCT session_id) FROM memories WHERE datetime(created_at) >= datetime('now', ?1) AND session_id IS NOT NULL",
+                    params![days_str],
                     |row| row.get(0),
                 )
                 .unwrap_or(0);
 
             // Type breakdown in period
             let mut stmt = conn
-                .prepare(&format!("SELECT COALESCE(event_type, 'untyped'), COUNT(*) FROM memories WHERE datetime(created_at) >= datetime('now', '-{days} days') GROUP BY event_type ORDER BY COUNT(*) DESC"))
+                .prepare("SELECT COALESCE(event_type, 'untyped'), COUNT(*) FROM memories WHERE datetime(created_at) >= datetime('now', ?1) GROUP BY event_type ORDER BY COUNT(*) DESC")
                 .context("failed to prepare digest type breakdown")?;
 
             let breakdown_rows = stmt
-                .query_map([], |row| {
+                .query_map(params![days_str], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
                 })
                 .context("failed to query type breakdown")?;
@@ -576,8 +580,8 @@ impl StatsProvider for SqliteStorage {
             // Previous period count for growth calc
             let prev_count: i64 = conn
                 .query_row(
-                    &format!("SELECT COUNT(*) FROM memories WHERE datetime(created_at) >= datetime('now', '-{} days') AND datetime(created_at) < datetime('now', '-{days} days')", days * 2),
-                    [],
+                    "SELECT COUNT(*) FROM memories WHERE datetime(created_at) >= datetime('now', ?1) AND datetime(created_at) < datetime('now', ?2)",
+                    params![prev_days_str, days_str],
                     |row| row.get(0),
                 )
                 .unwrap_or(0);
@@ -608,9 +612,7 @@ impl StatsProvider for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let total: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))

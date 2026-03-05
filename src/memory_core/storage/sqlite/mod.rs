@@ -145,9 +145,7 @@ impl SqliteStorage {
         let rid = rel_id.clone();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
             conn.execute(
                 "INSERT INTO relationships (id, source_id, target_id, rel_type, weight, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![rid, source_id, target_id, rel_type, weight, metadata_json],
@@ -176,9 +174,7 @@ impl SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let total_memories: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
@@ -226,9 +222,7 @@ impl SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut mem_stmt = conn
                 .prepare(
@@ -372,9 +366,7 @@ impl SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let tx = conn
                 .unchecked_transaction()
@@ -528,10 +520,7 @@ impl SqliteStorage {
 
     #[cfg(test)]
     fn debug_get_last_accessed_at(&self, id: &str) -> Result<String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+        let conn = lock_conn(&self.conn)?;
 
         let value: Option<String> = conn
             .query_row(
@@ -547,10 +536,7 @@ impl SqliteStorage {
 
     #[cfg(test)]
     fn debug_force_last_accessed_at(&self, id: &str, timestamp: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+        let conn = lock_conn(&self.conn)?;
 
         conn.execute(
             "UPDATE memories SET last_accessed_at = ?2 WHERE id = ?1",
@@ -563,10 +549,7 @@ impl SqliteStorage {
 
     #[cfg(test)]
     fn debug_get_access_count(&self, id: &str) -> Result<i64> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+        let conn = lock_conn(&self.conn)?;
 
         let value: Option<i64> = conn
             .query_row(
@@ -582,10 +565,7 @@ impl SqliteStorage {
 
     #[cfg(test)]
     fn debug_get_versioning_fields(&self, id: &str) -> Result<(Option<String>, Option<String>)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+        let conn = lock_conn(&self.conn)?;
 
         let value: Option<(Option<String>, Option<String>)> = conn
             .query_row(
@@ -606,10 +586,7 @@ impl SqliteStorage {
         target_id: &str,
         rel_type: &str,
     ) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+        let conn = lock_conn(&self.conn)?;
 
         let count: i64 = conn
             .query_row(
@@ -627,9 +604,7 @@ impl SqliteStorage {
         let source_id_for_query = memory_id.clone();
 
         let similar_ids = tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let source_embedding: Vec<u8> = conn
                 .query_row(
@@ -717,8 +692,9 @@ mod session;
 
 pub(crate) use helpers::cosine_similarity;
 use helpers::{
-    build_fts5_query, canonical_hash, matches_search_options, normalize_for_dedup,
-    parse_metadata_from_db, parse_tags_from_db, resolve_priority,
+    build_fts5_query, canonical_hash, content_hash, escape_like_pattern, lock_conn,
+    matches_search_options, normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db,
+    resolve_priority, search_result_from_row,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 

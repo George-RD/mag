@@ -48,7 +48,8 @@ async fn main() -> anyhow::Result<()> {
         InitModeArg::Default => InitMode::Default,
         InitModeArg::Advanced => InitMode::Advanced,
     };
-    let embedder = build_embedder()?;
+    let warmup = matches!(&cli.command, Commands::Serve);
+    let embedder = build_embedder(warmup).await?;
     let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
     let mcp_storage = sqlite_storage.clone();
 
@@ -915,11 +916,14 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_embedder() -> anyhow::Result<Arc<dyn Embedder>> {
+async fn build_embedder(warmup: bool) -> anyhow::Result<Arc<dyn Embedder>> {
     #[cfg(feature = "real-embeddings")]
     {
-        let onnx = memory_core::OnnxEmbedder::new()?;
-        Ok(Arc::new(onnx))
+        let onnx = Arc::new(memory_core::OnnxEmbedder::new()?);
+        if warmup {
+            onnx.warmup().await?;
+        }
+        Ok(onnx)
     }
 
     #[cfg(not(feature = "real-embeddings"))]

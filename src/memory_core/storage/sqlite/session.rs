@@ -6,9 +6,7 @@ impl ProfileManager for SqliteStorage {
         let conn = Arc::clone(&self.conn);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut profile = serde_json::Map::new();
             let mut stmt = conn
@@ -71,9 +69,7 @@ impl ProfileManager for SqliteStorage {
             let updates_obj = updates
                 .as_object()
                 .ok_or_else(|| anyhow!("profile updates must be a JSON object"))?;
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             for (key, value) in updates_obj {
                 let value_json = serde_json::to_string(value)
@@ -102,22 +98,14 @@ impl CheckpointManager for SqliteStorage {
         let task_title = input.task_title.clone();
         let task_marker = format!("## Checkpoint: {}", task_title);
         let existing_count = tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
             let mut stmt = conn
                 .prepare(
                     "SELECT COUNT(*) FROM memories
                      WHERE event_type = 'checkpoint' AND lower(content) LIKE lower(?1) ESCAPE '\\'",
                 )
                 .context("failed to prepare checkpoint count query")?;
-            let pattern = format!(
-                "%{}%",
-                task_marker
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_")
-            );
+            let pattern = escape_like_pattern(&task_marker);
             let count: i64 = stmt
                 .query_row(params![pattern], |row| row.get(0))
                 .context("failed to count matching checkpoints")?;
@@ -207,9 +195,7 @@ impl CheckpointManager for SqliteStorage {
         let limit = i64::try_from(limit).context("resume_task limit exceeds i64")?;
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut sql = String::from(
                 "SELECT content, metadata, created_at
@@ -221,12 +207,7 @@ impl CheckpointManager for SqliteStorage {
 
             if !query.trim().is_empty() {
                 sql.push_str(&format!(" AND lower(content) LIKE ?{idx} ESCAPE '\\'"));
-                let escaped = query
-                    .to_lowercase()
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                params_values.push(rusqlite::types::Value::Text(format!("%{escaped}%")));
+                params_values.push(rusqlite::types::Value::Text(escape_like_pattern(&query)));
                 idx += 1;
             }
 
@@ -331,9 +312,7 @@ impl ReminderManager for SqliteStorage {
         let status = status.map(ToString::to_string);
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut stmt = conn
                 .prepare(
@@ -422,9 +401,7 @@ impl ReminderManager for SqliteStorage {
         let reminder_id = reminder_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let row: Option<(Option<String>, String)> = conn
                 .query_row(
@@ -490,9 +467,7 @@ impl LessonQuerier for SqliteStorage {
         let limit = i64::try_from(limit).context("lessons query limit exceeds i64")?;
 
         tokio::task::spawn_blocking(move || {
-            let conn = conn
-                .lock()
-                .map_err(|_| anyhow!("sqlite connection mutex poisoned"))?;
+            let conn = lock_conn(&conn)?;
 
             let mut sql = String::from(
                 "SELECT id, content, session_id, access_count, created_at, metadata, project, agent_type
@@ -504,12 +479,7 @@ impl LessonQuerier for SqliteStorage {
 
             if let Some(task_value) = task {
                 sql.push_str(&format!(" AND lower(content) LIKE ?{idx} ESCAPE '\\'"));
-                let escaped = task_value
-                    .to_lowercase()
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                params_values.push(rusqlite::types::Value::Text(format!("%{escaped}%")));
+                params_values.push(rusqlite::types::Value::Text(escape_like_pattern(&task_value)));
                 idx += 1;
             }
 
