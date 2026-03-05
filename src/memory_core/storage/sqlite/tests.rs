@@ -2611,13 +2611,7 @@ async fn test_import_with_new_fields() {
                 event_type: Some("decision".to_string()),
                 project: Some("proj_i".to_string()),
                 session_id: Some("ses_i".to_string()),
-                include_superseded: None,
-                importance_min: None,
-                created_after: None,
-                created_before: None,
-                context_tags: None,
-                entity_id: None,
-                agent_type: None,
+                ..Default::default()
             },
         )
         .await

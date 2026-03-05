@@ -379,12 +379,7 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
-            importance_min: None,
-            created_after: None,
-            created_before: None,
-            context_tags: None,
-            entity_id: None,
-            agent_type: None,
+            ..Default::default()
         };
         let results = self
             .storage
@@ -434,12 +429,7 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
-            importance_min: None,
-            created_after: None,
-            created_before: None,
-            context_tags: None,
-            entity_id: None,
-            agent_type: None,
+            ..Default::default()
         };
         let results = self
             .storage
@@ -495,8 +485,7 @@ impl McpMemoryServer {
             created_after: params.0.created_after.clone(),
             created_before: params.0.created_before.clone(),
             context_tags: params.0.context_tags.clone(),
-            entity_id: None,
-            agent_type: None,
+            ..Default::default()
         };
         let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
             &self.storage,
@@ -688,12 +677,7 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
-            importance_min: None,
-            created_after: None,
-            created_before: None,
-            context_tags: None,
-            entity_id: None,
-            agent_type: None,
+            ..Default::default()
         };
         let results = <SqliteStorage as PhraseSearcher>::phrase_search(
             &self.storage,
@@ -746,12 +730,7 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
-            importance_min: None,
-            created_after: None,
-            created_before: None,
-            context_tags: None,
-            entity_id: None,
-            agent_type: None,
+            ..Default::default()
         };
         let results =
             self.storage.recent(limit, &opts).await.map_err(|e| {
@@ -1086,12 +1065,7 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
-            importance_min: None,
-            created_after: None,
-            created_before: None,
-            context_tags: None,
-            entity_id: None,
-            agent_type: None,
+            ..Default::default()
         };
         let results = self
             .storage
@@ -1142,12 +1116,7 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
-            importance_min: None,
-            created_after: None,
-            created_before: None,
-            context_tags: None,
-            entity_id: None,
-            agent_type: None,
+            ..Default::default()
         };
         let result =
             self.storage.list(offset, limit, &opts).await.map_err(|e| {

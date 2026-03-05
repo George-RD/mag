@@ -235,12 +235,7 @@ async fn main() -> anyhow::Result<()> {
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
-                importance_min: None,
-                created_after: None,
-                created_before: None,
-                context_tags: None,
-                entity_id: None,
-                agent_type: None,
+                ..Default::default()
             };
             let result = mcp_storage.list(*offset, *limit, &opts).await?;
             info!(
@@ -301,12 +296,7 @@ async fn main() -> anyhow::Result<()> {
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
-                importance_min: None,
-                created_after: None,
-                created_before: None,
-                context_tags: None,
-                entity_id: None,
-                agent_type: None,
+                ..Default::default()
             };
             let results = pipeline.search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Search completed");
@@ -350,12 +340,7 @@ async fn main() -> anyhow::Result<()> {
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
-                importance_min: None,
-                created_after: None,
-                created_before: None,
-                context_tags: None,
-                entity_id: None,
-                agent_type: None,
+                ..Default::default()
             };
             let results = pipeline.semantic_search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Semantic search completed");
@@ -392,14 +377,8 @@ async fn main() -> anyhow::Result<()> {
             let opts = SearchOptions {
                 event_type: event_type.clone(),
                 project: project.clone(),
-                session_id: None,
                 include_superseded: Some(*include_superseded),
-                importance_min: None,
-                created_after: None,
-                created_before: None,
-                context_tags: None,
-                entity_id: None,
-                agent_type: None,
+                ..Default::default()
             };
             let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
                 &mcp_storage,
@@ -524,15 +503,8 @@ async fn main() -> anyhow::Result<()> {
             }
             let opts = SearchOptions {
                 event_type: event_type.clone(),
-                project: None,
-                session_id: None,
                 include_superseded: Some(*include_superseded),
-                importance_min: None,
-                created_after: None,
-                created_before: None,
-                context_tags: None,
-                entity_id: None,
-                agent_type: None,
+                ..Default::default()
             };
             let results = <SqliteStorage as PhraseSearcher>::phrase_search(
                 &mcp_storage,
@@ -576,12 +548,7 @@ async fn main() -> anyhow::Result<()> {
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
-                importance_min: None,
-                created_after: None,
-                created_before: None,
-                context_tags: None,
-                entity_id: None,
-                agent_type: None,
+                ..Default::default()
             };
             let results = pipeline.recent(*limit, &opts).await?;
             info!(result_count = results.len(), "Recent list completed");
