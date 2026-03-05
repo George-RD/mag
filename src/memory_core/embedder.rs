@@ -54,10 +54,14 @@ const TOKENIZER_URL: &str =
     "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json";
 
 #[cfg(feature = "real-embeddings")]
+const EMBEDDING_CACHE_CAPACITY: std::num::NonZeroUsize = std::num::NonZeroUsize::new(2048).unwrap();
+
+#[cfg(feature = "real-embeddings")]
 #[derive(Debug)]
 pub struct OnnxEmbedder {
     model_dir: PathBuf,
     runtime: std::sync::OnceLock<OnnxRuntime>,
+    cache: std::sync::Mutex<lru::LruCache<[u8; 32], Vec<f32>>>,
 }
 
 #[cfg(feature = "real-embeddings")]
@@ -81,6 +85,7 @@ impl OnnxEmbedder {
         Ok(Self {
             model_dir: default_model_dir()?,
             runtime: std::sync::OnceLock::new(),
+            cache: std::sync::Mutex::new(lru::LruCache::new(EMBEDDING_CACHE_CAPACITY)),
         })
     }
 
@@ -139,8 +144,21 @@ impl Embedder for OnnxEmbedder {
     }
 
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        // Try to get the cached runtime, or initialize it.
-        // If initialization fails, we DON'T cache the error so retries can succeed.
+        // Cache lookup by SHA256 hash of input text
+        let mut hasher = Sha256::new();
+        hasher.update(text.as_bytes());
+        let key: [u8; 32] = hasher.finalize().into();
+
+        match self.cache.lock() {
+            Ok(mut cache) => {
+                if let Some(cached) = cache.get(&key) {
+                    return Ok(cached.clone());
+                }
+            }
+            Err(_) => tracing::warn!("embedding cache mutex poisoned, bypassing cache"),
+        }
+
+        // Cache miss — compute embedding
         let runtime = match self.runtime.get() {
             Some(rt) => rt,
             None => {
@@ -234,7 +252,17 @@ impl Embedder for OnnxEmbedder {
             *value /= mask_sum;
         }
         normalize_embedding(&mut pooled);
-        Ok(pooled)
+
+        // Cache the result before returning
+        let result = pooled.clone();
+        match self.cache.lock() {
+            Ok(mut cache) => {
+                cache.put(key, pooled);
+            }
+            Err(_) => tracing::warn!("embedding cache mutex poisoned, bypassing cache"),
+        }
+
+        Ok(result)
     }
 }
 
