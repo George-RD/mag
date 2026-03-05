@@ -64,7 +64,7 @@ impl AdvancedSearcher for SqliteStorage {
                         row.get::<_, Option<String>>(8).ok().flatten(),
                         row.get::<_, Option<i64>>(9).ok().flatten(),
                         row.get::<_, String>(10)
-                            .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string()),
+                            .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                     ))
                 })
                 .context("failed to execute advanced vector query")?;
@@ -165,7 +165,7 @@ impl AdvancedSearcher for SqliteStorage {
                         row.get::<_, Option<String>>(7).ok().flatten(),
                         row.get::<_, Option<i64>>(8).ok().flatten(),
                         row.get::<_, String>(9)
-                            .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string()),
+                            .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                         row.get::<_, f64>(10).unwrap_or(1.0),
                     ))
                 });
@@ -344,7 +344,7 @@ impl AdvancedSearcher for SqliteStorage {
                                     row.get::<_, Option<String>>(7).ok().flatten(),
                                     row.get::<_, Option<i64>>(8).ok().flatten(),
                                     row.get::<_, String>(9)
-                                        .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string()),
+                                        .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                                     row.get::<_, Option<Vec<u8>>>(10).ok().flatten(),
                                     row.get::<_, f64>(11).unwrap_or(0.5),
                                 ))

@@ -21,7 +21,7 @@ pub const TYPE_WEIGHTS: &[(&str, f64)] = &[
     ("memory", 1.0),
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ScoringParams {
     pub rrf_k: f64,
     pub rrf_weight_vec: f64,

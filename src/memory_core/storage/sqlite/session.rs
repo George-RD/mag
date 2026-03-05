@@ -354,7 +354,7 @@ impl ReminderManager for SqliteStorage {
                 let remind_at_str = metadata
                     .get("remind_at")
                     .and_then(serde_json::Value::as_str)
-                    .unwrap_or("1970-01-01T00:00:00.000Z");
+                    .unwrap_or(EPOCH_FALLBACK);
                 let remind_at = DateTime::parse_from_rfc3339(remind_at_str)
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| {

@@ -692,7 +692,7 @@ mod session;
 
 pub(crate) use helpers::cosine_similarity;
 use helpers::{
-    build_fts5_query, canonical_hash, content_hash, escape_like_pattern, lock_conn,
+    EPOCH_FALLBACK, build_fts5_query, canonical_hash, content_hash, escape_like_pattern, lock_conn,
     matches_search_options, normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db,
     resolve_priority, search_result_from_row,
 };

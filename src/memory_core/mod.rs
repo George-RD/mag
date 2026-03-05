@@ -109,6 +109,7 @@ pub const VALID_EVENT_TYPES: &[&str] = &[
     "decision",
     "blocked_context",
     "user_preference",
+    "user_fact",
     "advisor_insight",
     "git_commit",
     "git_merge",

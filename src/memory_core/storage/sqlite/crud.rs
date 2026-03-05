@@ -25,8 +25,6 @@ impl Storage for SqliteStorage {
         let (outcome, superseded_ids) = tokio::task::spawn_blocking(move || {
             let c_hash = content_hash(&data);
             let normalized_hash = canonical_hash(&data);
-            let embedding = serde_json::to_vec(&embedder.embed(&data)?)
-                .context("failed to serialize embedding")?;
             let conn = lock_conn(&conn)?;
             let tx = conn
                 .unchecked_transaction()
@@ -104,6 +102,11 @@ impl Storage for SqliteStorage {
                 }
             }
 
+            // Defer embedding until after cheap dedup checks pass
+            let embedding_vec = embedder.embed(&data)?;
+            let embedding = serde_json::to_vec(&embedding_vec)
+                .context("failed to serialize embedding")?;
+
             let mut superseded_ids: Vec<String> = Vec::new();
             if let Some(ref event_type_value) = event_type
                 && SUPERSESSION_TYPES.contains(&event_type_value.as_str())
@@ -129,7 +132,7 @@ impl Storage for SqliteStorage {
                     })
                     .context("failed to execute supersession query")?;
 
-                let emb_data: Vec<f32> = serde_json::from_slice(&embedding).unwrap_or_default();
+                let emb_data = &embedding_vec;
                 for row in sup_rows {
                     let (candidate_id, candidate_content, candidate_emb) =
                         row.context("failed to decode supersession row")?;
@@ -140,7 +143,7 @@ impl Storage for SqliteStorage {
                         && let Ok(candidate_embedding) =
                             serde_json::from_slice::<Vec<f32>>(&emb_blob)
                     {
-                        let cosine = cosine_similarity(&emb_data, &candidate_embedding);
+                        let cosine = cosine_similarity(emb_data, &candidate_embedding);
                         cosine >= SUPERSESSION_COSINE_THRESHOLD
                     } else {
                         false // No embedding = cannot supersede
@@ -248,11 +251,7 @@ impl Storage for SqliteStorage {
             )
             .context("failed to insert FTS row during store")?;
 
-            let now_str: String = tx
-                .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
-                    row.get::<_, String>(0)
-                })
-                .context("failed to get current timestamp from sqlite")?;
+            let now_str = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
             // Determine a single canonical chain_id for all superseded memories
             let mut canonical_chain_id: Option<String> = None;

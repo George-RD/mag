@@ -8,9 +8,7 @@ use romega_memory::memory_core::{OnnxEmbedder, ScoringParams};
 
 use crate::helpers::{PeakRss, category_percentage, compact_decimal, summarize_totals, truncate};
 use crate::local::{run_benchmark, seed_memories};
-use crate::types::{
-    GridSearchResult, GridSearchResultSummary, GridSearchSummary, ScoringParamsSnapshot,
-};
+use crate::types::{GridSearchResult, GridSearchResultSummary, GridSearchSummary};
 
 pub(crate) fn grid_search_label(params: &ScoringParams) -> String {
     format!(
@@ -96,7 +94,7 @@ pub(crate) fn format_scoring_params_literal(params: &ScoringParams) -> String {
 fn as_grid_search_summary(result: &GridSearchResult) -> GridSearchResultSummary {
     GridSearchResultSummary {
         label: result.label.clone(),
-        params: ScoringParamsSnapshot::from(&result.params),
+        params: result.params.clone(),
         total_correct: result.total_correct,
         total_questions: result.total_questions,
         overall_percentage: result.overall_percentage,

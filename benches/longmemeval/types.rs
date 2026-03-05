@@ -111,68 +111,9 @@ pub(crate) struct GridSearchResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct ScoringParamsSnapshot {
-    pub rrf_k: f64,
-    pub rrf_weight_vec: f64,
-    pub rrf_weight_fts: f64,
-    pub abstention_min_text: f64,
-    pub graph_neighbor_factor: f64,
-    pub graph_min_edge_weight: f64,
-    pub word_overlap_weight: f64,
-    pub jaccard_weight: f64,
-    pub importance_floor: f64,
-    pub importance_scale: f64,
-    pub context_tag_weight: f64,
-    pub time_decay_days: f64,
-    pub priority_base: f64,
-    pub priority_scale: f64,
-    pub feedback_heavy_suppress: f64,
-    pub feedback_strong_suppress: f64,
-    pub feedback_positive_scale: f64,
-    pub feedback_positive_cap: f64,
-    pub feedback_heavy_threshold: i64,
-    pub neighbor_word_overlap_weight: f64,
-    pub neighbor_importance_floor: f64,
-    pub neighbor_importance_scale: f64,
-    pub graph_seed_min: usize,
-    pub graph_seed_max: usize,
-}
-
-impl From<&ScoringParams> for ScoringParamsSnapshot {
-    fn from(params: &ScoringParams) -> Self {
-        Self {
-            rrf_k: params.rrf_k,
-            rrf_weight_vec: params.rrf_weight_vec,
-            rrf_weight_fts: params.rrf_weight_fts,
-            abstention_min_text: params.abstention_min_text,
-            graph_neighbor_factor: params.graph_neighbor_factor,
-            graph_min_edge_weight: params.graph_min_edge_weight,
-            word_overlap_weight: params.word_overlap_weight,
-            jaccard_weight: params.jaccard_weight,
-            importance_floor: params.importance_floor,
-            importance_scale: params.importance_scale,
-            context_tag_weight: params.context_tag_weight,
-            time_decay_days: params.time_decay_days,
-            priority_base: params.priority_base,
-            priority_scale: params.priority_scale,
-            feedback_heavy_suppress: params.feedback_heavy_suppress,
-            feedback_strong_suppress: params.feedback_strong_suppress,
-            feedback_positive_scale: params.feedback_positive_scale,
-            feedback_positive_cap: params.feedback_positive_cap,
-            feedback_heavy_threshold: params.feedback_heavy_threshold,
-            neighbor_word_overlap_weight: params.neighbor_word_overlap_weight,
-            neighbor_importance_floor: params.neighbor_importance_floor,
-            neighbor_importance_scale: params.neighbor_importance_scale,
-            graph_seed_min: params.graph_seed_min,
-            graph_seed_max: params.graph_seed_max,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub(crate) struct GridSearchResultSummary {
     pub label: String,
-    pub params: ScoringParamsSnapshot,
+    pub params: ScoringParams,
     pub total_correct: usize,
     pub total_questions: usize,
     pub overall_percentage: f64,

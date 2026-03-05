@@ -2,6 +2,9 @@ use std::sync::MutexGuard;
 
 use super::*;
 
+/// Fallback timestamp used when a row's `created_at` column is missing or unparseable.
+pub(super) const EPOCH_FALLBACK: &str = "1970-01-01T00:00:00.000Z";
+
 pub(super) fn lock_conn(conn: &Mutex<Connection>) -> Result<MutexGuard<'_, Connection>> {
     conn.lock()
         .map_err(|_| anyhow!("sqlite connection mutex poisoned"))

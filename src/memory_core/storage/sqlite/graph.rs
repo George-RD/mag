@@ -102,9 +102,8 @@ impl GraphTraverser for SqliteStorage {
                                         row.get::<_, Option<String>>(1).ok().flatten(),
                                         row.get::<_, String>(2)
                                             .unwrap_or_else(|_| "{}".to_string()),
-                                        row.get::<_, String>(3).unwrap_or_else(|_| {
-                                            "1970-01-01T00:00:00.000Z".to_string()
-                                        }),
+                                        row.get::<_, String>(3)
+                                            .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                                     ))
                                 },
                             )
