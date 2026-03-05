@@ -25,13 +25,6 @@ impl AdvancedSearcher for SqliteStorage {
             let query_embedding = embedder
                 .embed(&query)
                 .context("failed to compute query embedding")?;
-            let query_words_owned: Vec<String> = query
-                .split(|c: char| !c.is_alphanumeric())
-                .filter(|w| w.len() > 2)
-                .map(|w| w.to_lowercase())
-                .collect();
-            let query_word_refs: Vec<&str> = query_words_owned.iter().map(String::as_str).collect();
-
             let conn = lock_conn(&conn)?;
 
             // ── RRF (Reciprocal Rank Fusion) hybrid search ─────────
@@ -239,13 +232,16 @@ impl AdvancedSearcher for SqliteStorage {
                 }
             }
 
+            let query_tokens = token_set(&query, 3);
             for candidate in ranked.values_mut() {
                 let with_tags = if candidate.result.tags.is_empty() {
                     candidate.result.content.clone()
                 } else {
                     format!("{} {}", candidate.result.content, candidate.result.tags.join(" "))
                 };
-                let overlap = word_overlap(&query_word_refs, &with_tags);
+                // Pre-tokenize once for this candidate
+                let candidate_tokens = token_set(&with_tags, 3);
+                let overlap = word_overlap_pre(&query_tokens, &candidate_tokens);
                 candidate.text_overlap = overlap;
                 let fb_score = candidate
                     .result
@@ -256,7 +252,7 @@ impl AdvancedSearcher for SqliteStorage {
                 let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
                 candidate.score *=
                     1.0 + overlap * scoring_params.word_overlap_weight * fb_dampening;
-                let jaccard = jaccard_similarity(&query, &with_tags, 3);
+                let jaccard = jaccard_pre(&query_tokens, &candidate_tokens);
                 candidate.score *= 1.0 + jaccard * scoring_params.jaccard_weight;
                 candidate.score *= feedback_factor(fb_score, &scoring_params);
                 let event_type = candidate.result.event_type.as_deref().unwrap_or("");
@@ -374,7 +370,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 } else {
                                     format!("{} {}", content, tags.join(" "))
                                 };
-                                let overlap = word_overlap(&query_word_refs, &with_tags);
+                                let overlap = word_overlap_pre(&query_tokens, &token_set(&with_tags, 3));
                                 let fb_score = metadata
                                     .get("feedback_score")
                                     .and_then(|v| v.as_i64())
@@ -458,7 +454,7 @@ impl AdvancedSearcher for SqliteStorage {
             }
 
             // Apply abstention gate on the filtered (in-scope) candidates.
-            if !query_word_refs.is_empty() {
+            if !query_tokens.is_empty() {
                 let max_text_overlap = deduped
                     .iter()
                     .map(|c| c.text_overlap)

@@ -18,7 +18,8 @@ use crate::memory_core::{
     SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
     Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
     default_priority_for_event_type, default_ttl_for_event_type, embedder::Embedder,
-    feedback_factor, jaccard_similarity, priority_factor, time_decay, type_weight, word_overlap,
+    feedback_factor, jaccard_pre, jaccard_similarity, priority_factor, time_decay, token_set,
+    type_weight, word_overlap_pre,
 };
 
 const DEDUP_THRESHOLDS: &[(&str, f64)] = &[

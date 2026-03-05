@@ -113,7 +113,8 @@ pub fn time_decay(created_at: &str, event_type: &str, scoring_params: &ScoringPa
     1.0 / (1.0 + (days_old / scoring_params.time_decay_days))
 }
 
-pub fn word_overlap(query_words: &[&str], text: &str) -> f64 {
+#[cfg(test)]
+fn word_overlap(query_words: &[&str], text: &str) -> f64 {
     let text_words = token_set(text, 3);
     let filtered_query: HashSet<String> = query_words
         .iter()
@@ -183,12 +184,42 @@ pub fn feedback_factor(feedback_score: i64, scoring_params: &ScoringParams) -> f
     }
 }
 
-fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
+pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .map(str::trim)
         .filter(|word| word.len() >= min_word_len)
         .map(|word| word.to_lowercase())
         .collect()
+}
+
+/// Like `word_overlap`, but accepts pre-computed token sets for both query and candidate.
+pub fn word_overlap_pre(query_tokens: &HashSet<String>, text_tokens: &HashSet<String>) -> f64 {
+    if query_tokens.is_empty() {
+        return 0.0;
+    }
+
+    let overlap = query_tokens
+        .iter()
+        .filter(|w| text_tokens.contains(*w))
+        .count();
+
+    overlap as f64 / query_tokens.len() as f64
+}
+
+/// Like `jaccard_similarity`, but accepts pre-computed token sets.
+pub fn jaccard_pre(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
+    if a.is_empty() && b.is_empty() {
+        return 0.0;
+    }
+
+    let intersection = a.intersection(b).count();
+    let union = a.union(b).count();
+
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f64 / union as f64
+    }
 }
 
 fn parse_iso8601_to_unix_seconds(value: &str) -> Option<f64> {
@@ -442,5 +473,22 @@ mod tests {
             ..ScoringParams::default()
         };
         assert!((time_decay(&old, "task_completion", &params) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_word_overlap_pre() {
+        let query_tokens = token_set("rust memory an", 3);
+        let text_tokens = token_set("Rust-based memory system with tags", 3);
+        // "an" filtered (len<3), "rust" + "memory" match → 2/2 = 1.0
+        let ratio = word_overlap_pre(&query_tokens, &text_tokens);
+        assert!((ratio - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_jaccard_pre() {
+        let a = token_set("alpha beta gamma", 2);
+        let b = token_set("beta gamma delta", 2);
+        let similarity = jaccard_pre(&a, &b);
+        assert!((similarity - 0.5).abs() < 1e-9);
     }
 }
