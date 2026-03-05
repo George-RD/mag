@@ -106,7 +106,8 @@ impl OnnxEmbedder {
     fn init_runtime(&self) -> Result<OnnxRuntime> {
         let files = ensure_model_files_blocking(self.model_dir.clone())?;
         let session = ort::session::Session::builder()?
-            .with_intra_threads(1)?
+            .with_intra_threads(0)?
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .commit_from_file(&files.model_path)
             .with_context(|| {
                 format!(

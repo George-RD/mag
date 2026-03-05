@@ -7,6 +7,7 @@ autobenches = false
 [features]
 default = ["real-embeddings"]
 real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:reqwest", "dep:dotenvy"]
+mimalloc = ["dep:mimalloc"]
 
 [dependencies]
 anyhow = "1.0.101"
@@ -28,8 +29,14 @@ tokenizers = { version = "0.22", optional = true, default-features = false, feat
 ndarray = { version = "0.16", optional = true }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls", "json"] }
 dotenvy = { version = "0.15", optional = true }
+mimalloc = { version = "0.1", optional = true }
 
 [[bin]]
 name = "longmemeval_bench"
 path = "benches/longmemeval/main.rs"
+required-features = ["real-embeddings"]
+
+[[bin]]
+name = "onnx_profile"
+path = "benches/onnx_profile.rs"
 required-features = ["real-embeddings"]
