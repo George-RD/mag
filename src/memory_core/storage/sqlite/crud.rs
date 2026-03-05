@@ -104,8 +104,7 @@ impl Storage for SqliteStorage {
 
             // Defer embedding until after cheap dedup checks pass
             let embedding_vec = embedder.embed(&data)?;
-            let embedding = serde_json::to_vec(&embedding_vec)
-                .context("failed to serialize embedding")?;
+            let embedding = encode_embedding(&embedding_vec);
 
             let mut superseded_ids: Vec<String> = Vec::new();
             if let Some(ref event_type_value) = event_type
@@ -141,7 +140,7 @@ impl Storage for SqliteStorage {
                     // even when wording changes significantly)
                     let cosine_ok = if let Some(emb_blob) = candidate_emb
                         && let Ok(candidate_embedding) =
-                            serde_json::from_slice::<Vec<f32>>(&emb_blob)
+                            decode_embedding(&emb_blob)
                     {
                         let cosine = cosine_similarity(emb_data, &candidate_embedding);
                         cosine >= SUPERSESSION_COSINE_THRESHOLD
@@ -439,8 +438,7 @@ impl Updater for SqliteStorage {
                 Some(new_content) => {
                     let hash = content_hash(new_content);
                     let canonical = canonical_hash(new_content);
-                    let emb = serde_json::to_vec(&embedder.embed(new_content)?)
-                        .context("failed to serialize embedding")?;
+                    let emb = encode_embedding(&embedder.embed(new_content)?);
                     Some((new_content.to_string(), hash, canonical, emb))
                 }
                 None => None,

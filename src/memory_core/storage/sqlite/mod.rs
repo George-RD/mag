@@ -616,7 +616,7 @@ impl SqliteStorage {
                 .optional()
                 .context("failed to query source embedding for auto relate")?
                 .ok_or_else(|| anyhow!("memory not found for auto relate"))?;
-            let source_embedding: Vec<f32> = serde_json::from_slice(&source_embedding)
+            let source_embedding: Vec<f32> = decode_embedding(&source_embedding)
                 .context("failed to decode source embedding for auto relate")?;
 
             let mut stmt = conn
@@ -636,7 +636,7 @@ impl SqliteStorage {
             let mut ranked = Vec::new();
             for row in rows {
                 let (id, embedding_blob) = row.context("failed to decode auto relate row")?;
-                let embedding: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                let embedding: Vec<f32> = decode_embedding(&embedding_blob)
                     .context("failed to decode candidate embedding for auto relate")?;
                 let score = cosine_similarity(&source_embedding, &embedding);
                 if score >= 0.45 {
@@ -693,9 +693,9 @@ mod session;
 
 pub(crate) use helpers::cosine_similarity;
 use helpers::{
-    EPOCH_FALLBACK, build_fts5_query, canonical_hash, content_hash, escape_like_pattern, lock_conn,
-    matches_search_options, normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db,
-    resolve_priority, search_result_from_row,
+    EPOCH_FALLBACK, build_fts5_query, canonical_hash, content_hash, decode_embedding,
+    encode_embedding, escape_like_pattern, lock_conn, matches_search_options, normalize_for_dedup,
+    parse_metadata_from_db, parse_tags_from_db, resolve_priority, search_result_from_row,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 

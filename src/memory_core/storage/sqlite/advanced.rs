@@ -76,7 +76,7 @@ impl AdvancedSearcher for SqliteStorage {
                     priority,
                     created_at,
                 ) = row.context("failed to decode advanced vector row")?;
-                let candidate_emb: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                let candidate_emb: Vec<f32> = decode_embedding(&embedding_blob)
                     .context("failed to decode stored embedding")?;
                 let similarity = cosine_similarity(&query_embedding, &candidate_emb) as f64;
                 if similarity < 0.1 {
@@ -387,7 +387,7 @@ impl AdvancedSearcher for SqliteStorage {
                                     + importance * scoring_params.neighbor_importance_scale;
 
                                 let vec_sim = embedding_blob.and_then(|blob| {
-                                    serde_json::from_slice::<Vec<f32>>(&blob)
+                                    decode_embedding(&blob)
                                         .ok()
                                         .map(|emb| cosine_similarity(&query_embedding, &emb) as f64)
                                 });

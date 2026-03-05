@@ -159,7 +159,7 @@ impl SimilarFinder for SqliteStorage {
                 .optional()
                 .context("failed to query source embedding")?
                 .ok_or_else(|| anyhow!("memory not found for id={memory_id}"))?;
-            let source_embedding: Vec<f32> = serde_json::from_slice(&source_embedding)
+            let source_embedding: Vec<f32> = decode_embedding(&source_embedding)
                 .context("failed to decode source embedding")?;
 
             let mut stmt = conn
@@ -197,7 +197,7 @@ impl SimilarFinder for SqliteStorage {
                     session_id,
                     project,
                 ) = row.context("failed to decode similar row")?;
-                let embedding: Vec<f32> = serde_json::from_slice(&embedding_blob)
+                let embedding: Vec<f32> = decode_embedding(&embedding_blob)
                     .context("failed to decode candidate embedding")?;
                 let score = cosine_similarity(&source_embedding, &embedding);
                 ranked.push(SemanticResult {
