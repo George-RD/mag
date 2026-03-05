@@ -679,6 +679,10 @@ struct RankedSemanticCandidate {
     #[allow(dead_code)] // Stored for diagnostics; abstention uses collection-level text_overlap
     vec_sim: Option<f64>,
     text_overlap: f64,
+    /// Stored for in-memory filtering; not exposed in SemanticResult.
+    entity_id: Option<String>,
+    /// Stored for in-memory filtering; not exposed in SemanticResult.
+    agent_type: Option<String>,
 }
 
 mod admin;
@@ -693,9 +697,10 @@ mod session;
 
 pub(crate) use helpers::cosine_similarity;
 use helpers::{
-    EPOCH_FALLBACK, build_fts5_query, canonical_hash, content_hash, decode_embedding,
-    encode_embedding, escape_like_pattern, lock_conn, matches_search_options, normalize_for_dedup,
-    parse_metadata_from_db, parse_tags_from_db, resolve_priority, search_result_from_row,
+    EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash, content_hash,
+    decode_embedding, encode_embedding, escape_like_pattern, lock_conn, matches_search_options,
+    normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, resolve_priority,
+    search_result_from_row, to_param_refs,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 

@@ -154,24 +154,8 @@ impl Lister for SqliteStorage {
                 }
                 let mut params_values: Vec<SqlValue> = Vec::new();
                 let mut idx = 1;
-                if let Some(event_type) = count_opts.event_type {
-                    sql.push_str(&format!(" AND event_type = ?{idx}"));
-                    params_values.push(SqlValue::Text(event_type));
-                    idx += 1;
-                }
-                if let Some(project) = count_opts.project {
-                    sql.push_str(&format!(" AND project = ?{idx}"));
-                    params_values.push(SqlValue::Text(project));
-                    idx += 1;
-                }
-                if let Some(session_id) = count_opts.session_id {
-                    sql.push_str(&format!(" AND session_id = ?{idx}"));
-                    params_values.push(SqlValue::Text(session_id));
-                }
-                let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-                for value in &params_values {
-                    param_refs.push(value);
-                }
+                append_search_filters(&mut sql, &mut params_values, &mut idx, &count_opts, "");
+                let param_refs = to_param_refs(&params_values);
                 let mut stmt = conn
                     .prepare(&sql)
                     .context("failed to prepare list count query")?;
@@ -203,28 +187,12 @@ impl Lister for SqliteStorage {
             }
             let mut filter_params: Vec<SqlValue> = Vec::new();
             let mut idx = 1;
-            if let Some(event_type) = opts.event_type.clone() {
-                count_sql.push_str(&format!(" AND event_type = ?{idx}"));
-                filter_params.push(SqlValue::Text(event_type));
-                idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                count_sql.push_str(&format!(" AND project = ?{idx}"));
-                filter_params.push(SqlValue::Text(project));
-                idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                count_sql.push_str(&format!(" AND session_id = ?{idx}"));
-                filter_params.push(SqlValue::Text(session_id));
-            }
+            append_search_filters(&mut count_sql, &mut filter_params, &mut idx, &opts, "");
 
             let mut count_stmt = conn
                 .prepare(&count_sql)
                 .context("failed to prepare list count query")?;
-            let mut count_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-            for value in &filter_params {
-                count_param_refs.push(value);
-            }
+            let count_param_refs = to_param_refs(&filter_params);
             let total: i64 = count_stmt
                 .query_row(count_param_refs.as_slice(), |row| row.get(0))
                 .context("failed to count memories")?;
@@ -237,21 +205,7 @@ impl Lister for SqliteStorage {
             }
             let mut data_params: Vec<SqlValue> = Vec::new();
             let mut next_idx = 1;
-            if let Some(event_type) = opts.event_type.clone() {
-                data_sql.push_str(&format!(" AND event_type = ?{next_idx}"));
-                data_params.push(SqlValue::Text(event_type));
-                next_idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                data_sql.push_str(&format!(" AND project = ?{next_idx}"));
-                data_params.push(SqlValue::Text(project));
-                next_idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                data_sql.push_str(&format!(" AND session_id = ?{next_idx}"));
-                data_params.push(SqlValue::Text(session_id));
-                next_idx += 1;
-            }
+            append_search_filters(&mut data_sql, &mut data_params, &mut next_idx, &opts, "");
             data_sql.push_str(" ORDER BY created_at DESC");
             data_sql.push_str(&format!(" LIMIT ?{next_idx}"));
             data_params.push(SqlValue::Integer(effective_limit));
@@ -263,10 +217,7 @@ impl Lister for SqliteStorage {
                 .prepare(&data_sql)
                 .context("failed to prepare list query")?;
 
-            let mut data_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-            for value in &data_params {
-                data_param_refs.push(value);
-            }
+            let data_param_refs = to_param_refs(&data_params);
 
             let rows = stmt
                 .query_map(data_param_refs.as_slice(), search_result_from_row)

@@ -34,10 +34,10 @@ impl AdvancedSearcher for SqliteStorage {
             let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
 
             let vector_sql = if include_superseded {
-                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at
+                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
                  FROM memories WHERE embedding IS NOT NULL"
             } else {
-                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at
+                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
                  FROM memories WHERE embedding IS NOT NULL AND superseded_by_id IS NULL"
             };
             let mut vector_stmt = conn
@@ -58,6 +58,8 @@ impl AdvancedSearcher for SqliteStorage {
                         row.get::<_, Option<i64>>(9).ok().flatten(),
                         row.get::<_, String>(10)
                             .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                        row.get::<_, Option<String>>(11).ok().flatten(),
+                        row.get::<_, Option<String>>(12).ok().flatten(),
                     ))
                 })
                 .context("failed to execute advanced vector query")?;
@@ -75,6 +77,8 @@ impl AdvancedSearcher for SqliteStorage {
                     project,
                     priority,
                     created_at,
+                    entity_id,
+                    agent_type,
                 ) = row.context("failed to decode advanced vector row")?;
                 let candidate_emb: Vec<f32> = decode_embedding(&embedding_blob)
                     .context("failed to decode stored embedding")?;
@@ -104,6 +108,8 @@ impl AdvancedSearcher for SqliteStorage {
                             * priority_factor(priority_value, &scoring_params),
                         vec_sim: Some(similarity),
                         text_overlap: 0.0,
+                        entity_id,
+                        agent_type,
                     },
                 ));
             }
@@ -115,36 +121,20 @@ impl AdvancedSearcher for SqliteStorage {
 
             let fts_query = build_fts5_query(&query);
             let mut fts_sql = String::from(
-                "SELECT m.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project, m.priority, m.created_at, bm25(memories_fts)
+                "SELECT m.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project, m.priority, m.created_at, bm25(memories_fts), m.entity_id, m.agent_type
                  FROM memories_fts
                  JOIN memories m ON m.id = memories_fts.id
                  WHERE memories_fts MATCH ?1",
             );
             let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
             let mut param_idx = 2;
-            if let Some(event_type) = opts.event_type.clone() {
-                fts_sql.push_str(&format!(" AND m.event_type = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(event_type));
-                param_idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                fts_sql.push_str(&format!(" AND m.project = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(project));
-                param_idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                fts_sql.push_str(&format!(" AND m.session_id = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(session_id));
-            }
+            append_search_filters(&mut fts_sql, &mut fts_params, &mut param_idx, &opts, "m.");
             if !include_superseded {
                 fts_sql.push_str(" AND m.superseded_by_id IS NULL");
             }
 
             if let Ok(mut stmt) = conn.prepare(&fts_sql) {
-                let mut refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-                for value in &fts_params {
-                    refs.push(value);
-                }
+                let refs = to_param_refs(&fts_params);
 
                 let rows = stmt.query_map(refs.as_slice(), |row| {
                     Ok((
@@ -160,6 +150,8 @@ impl AdvancedSearcher for SqliteStorage {
                         row.get::<_, String>(9)
                             .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                         row.get::<_, f64>(10).unwrap_or(1.0),
+                        row.get::<_, Option<String>>(11).ok().flatten(),
+                        row.get::<_, Option<String>>(12).ok().flatten(),
                     ))
                 });
 
@@ -177,6 +169,8 @@ impl AdvancedSearcher for SqliteStorage {
                             priority,
                             created_at,
                             bm25,
+                            entity_id,
+                            agent_type,
                         ) = row.context("failed to decode advanced FTS row")?;
 
                         let priority_value = resolve_priority(event_type.as_deref(), priority);
@@ -200,6 +194,8 @@ impl AdvancedSearcher for SqliteStorage {
                                     * priority_factor(priority_value, &scoring_params),
                                 vec_sim: None,
                                 text_overlap: 0.0,
+                                entity_id,
+                                agent_type,
                             },
                         ));
                     }
@@ -299,7 +295,7 @@ impl AdvancedSearcher for SqliteStorage {
                     "\
                     SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                            m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                           m.embedding, r.weight \
+                           m.embedding, r.weight, m.entity_id, m.agent_type \
                     FROM relationships r \
                     JOIN memories m ON m.id = CASE \
                         WHEN r.source_id = ?1 THEN r.target_id \
@@ -311,7 +307,7 @@ impl AdvancedSearcher for SqliteStorage {
                     "\
                     SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                            m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                           m.embedding, r.weight \
+                           m.embedding, r.weight, m.entity_id, m.agent_type \
                     FROM relationships r \
                     JOIN memories m ON m.id = CASE \
                         WHEN r.source_id = ?1 THEN r.target_id \
@@ -343,6 +339,8 @@ impl AdvancedSearcher for SqliteStorage {
                                         .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                                     row.get::<_, Option<Vec<u8>>>(10).ok().flatten(),
                                     row.get::<_, f64>(11).unwrap_or(0.5),
+                                    row.get::<_, Option<String>>(12).ok().flatten(),
+                                    row.get::<_, Option<String>>(13).ok().flatten(),
                                 ))
                             },
                         ) {
@@ -357,7 +355,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 let (
                                     id, content, raw_tags, importance, raw_metadata,
                                     event_type, session_id, project, _priority, created_at,
-                                    embedding_blob, edge_weight,
+                                    embedding_blob, edge_weight, entity_id, agent_type,
                                 ) = row;
 
                                 let mut neighbor_score =
@@ -411,6 +409,8 @@ impl AdvancedSearcher for SqliteStorage {
                                         score: neighbor_score,
                                         vec_sim,
                                         text_overlap: overlap,
+                                        entity_id,
+                                        agent_type,
                                     },
                                 ));
                             }

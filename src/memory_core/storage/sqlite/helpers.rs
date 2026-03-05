@@ -163,6 +163,69 @@ pub(super) fn search_result_from_row(row: &rusqlite::Row) -> rusqlite::Result<Se
     })
 }
 
+/// Appends WHERE-clause fragments for every non-None field in `opts` to `sql`,
+/// pushing corresponding values into `params`. `idx` is the next `?N` placeholder
+/// index and is updated in place. `col_prefix` is prepended to column names
+/// (e.g. `"m."` for joined queries, `""` for direct table queries).
+pub(super) fn append_search_filters(
+    sql: &mut String,
+    params: &mut Vec<rusqlite::types::Value>,
+    idx: &mut usize,
+    opts: &SearchOptions,
+    col_prefix: &str,
+) {
+    use rusqlite::types::Value as SqlValue;
+
+    if let Some(ref event_type) = opts.event_type {
+        sql.push_str(&format!(" AND {}event_type = ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(event_type.clone()));
+        *idx += 1;
+    }
+    if let Some(ref project) = opts.project {
+        sql.push_str(&format!(" AND {}project = ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(project.clone()));
+        *idx += 1;
+    }
+    if let Some(ref session_id) = opts.session_id {
+        sql.push_str(&format!(" AND {}session_id = ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(session_id.clone()));
+        *idx += 1;
+    }
+    if let Some(ref entity_id) = opts.entity_id {
+        sql.push_str(&format!(" AND {}entity_id = ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(entity_id.clone()));
+        *idx += 1;
+    }
+    if let Some(ref agent_type) = opts.agent_type {
+        sql.push_str(&format!(" AND {}agent_type = ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(agent_type.clone()));
+        *idx += 1;
+    }
+    if let Some(importance_min) = opts.importance_min {
+        sql.push_str(&format!(" AND {}importance >= ?{}", col_prefix, *idx));
+        params.push(SqlValue::Real(importance_min));
+        *idx += 1;
+    }
+    if let Some(ref created_after) = opts.created_after {
+        sql.push_str(&format!(" AND {}created_at >= ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(created_after.clone()));
+        *idx += 1;
+    }
+    if let Some(ref created_before) = opts.created_before {
+        sql.push_str(&format!(" AND {}created_at <= ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(created_before.clone()));
+        *idx += 1;
+    }
+}
+
+/// Converts a `Vec<SqlValue>` to a `Vec<&dyn ToSql>` for rusqlite parameter binding.
+pub(super) fn to_param_refs(values: &[rusqlite::types::Value]) -> Vec<&dyn rusqlite::types::ToSql> {
+    values
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect()
+}
+
 pub(super) fn matches_search_options(
     candidate: &RankedSemanticCandidate,
     opts: &SearchOptions,
@@ -194,6 +257,16 @@ pub(super) fn matches_search_options(
     }
     if let Some(created_before) = opts.created_before.as_deref()
         && candidate.created_at.as_str() > created_before
+    {
+        return false;
+    }
+    if let Some(entity_id) = opts.entity_id.as_deref()
+        && candidate.entity_id.as_deref() != Some(entity_id)
+    {
+        return false;
+    }
+    if let Some(agent_type) = opts.agent_type.as_deref()
+        && candidate.agent_type.as_deref() != Some(agent_type)
     {
         return false;
     }

@@ -35,31 +35,7 @@ impl Searcher for SqliteStorage {
             }
             let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
             let mut param_idx = 2;
-            if let Some(event_type) = opts.event_type.clone() {
-                fts_sql.push_str(&format!(" AND m.event_type = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(event_type));
-                param_idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                fts_sql.push_str(&format!(" AND m.project = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(project));
-                param_idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                fts_sql.push_str(&format!(" AND m.session_id = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(session_id));
-                param_idx += 1;
-            }
-            if let Some(entity_id) = opts.entity_id.clone() {
-                fts_sql.push_str(&format!(" AND m.entity_id = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(entity_id));
-                param_idx += 1;
-            }
-            if let Some(agent_type) = opts.agent_type.clone() {
-                fts_sql.push_str(&format!(" AND m.agent_type = ?{param_idx}"));
-                fts_params.push(SqlValue::Text(agent_type));
-                param_idx += 1;
-            }
+            append_search_filters(&mut fts_sql, &mut fts_params, &mut param_idx, &opts, "m.");
             fts_sql.push_str(" ORDER BY bm25(memories_fts)");
             fts_sql.push_str(&format!(" LIMIT ?{param_idx}"));
             fts_params.push(SqlValue::Integer(effective_limit));
@@ -67,10 +43,7 @@ impl Searcher for SqliteStorage {
             let fts_result = conn.prepare(&fts_sql);
 
             if let Ok(mut stmt) = fts_result {
-                let mut fts_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-                for value in &fts_params {
-                    fts_param_refs.push(value);
-                }
+                let fts_param_refs = to_param_refs(&fts_params);
                 let rows = stmt
                     .query_map(fts_param_refs.as_slice(), search_result_from_row);
 
@@ -101,31 +74,7 @@ impl Searcher for SqliteStorage {
             }
             let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
             let mut idx = 2;
-            if let Some(event_type) = opts.event_type.clone() {
-                sql.push_str(&format!(" AND event_type = ?{idx}"));
-                params_values.push(SqlValue::Text(event_type));
-                idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                sql.push_str(&format!(" AND project = ?{idx}"));
-                params_values.push(SqlValue::Text(project));
-                idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                sql.push_str(&format!(" AND session_id = ?{idx}"));
-                params_values.push(SqlValue::Text(session_id));
-                idx += 1;
-            }
-            if let Some(entity_id) = opts.entity_id.clone() {
-                sql.push_str(&format!(" AND entity_id = ?{idx}"));
-                params_values.push(SqlValue::Text(entity_id));
-                idx += 1;
-            }
-            if let Some(agent_type) = opts.agent_type.clone() {
-                sql.push_str(&format!(" AND agent_type = ?{idx}"));
-                params_values.push(SqlValue::Text(agent_type));
-                idx += 1;
-            }
+            append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
             sql.push_str(" ORDER BY last_accessed_at DESC");
             sql.push_str(&format!(" LIMIT ?{idx}"));
             params_values.push(SqlValue::Integer(effective_limit));
@@ -134,10 +83,7 @@ impl Searcher for SqliteStorage {
                 .prepare(&sql)
                 .context("failed to prepare LIKE search query")?;
 
-            let mut like_param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-            for value in &params_values {
-                like_param_refs.push(value);
-            }
+            let like_param_refs = to_param_refs(&params_values);
 
             let rows = stmt
                 .query_map(like_param_refs.as_slice(), search_result_from_row)
@@ -179,21 +125,7 @@ impl Recents for SqliteStorage {
             );
             let mut params_values: Vec<SqlValue> = Vec::new();
             let mut idx = 1;
-            if let Some(event_type) = opts.event_type.clone() {
-                sql.push_str(&format!(" AND event_type = ?{idx}"));
-                params_values.push(SqlValue::Text(event_type));
-                idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                sql.push_str(&format!(" AND project = ?{idx}"));
-                params_values.push(SqlValue::Text(project));
-                idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                sql.push_str(&format!(" AND session_id = ?{idx}"));
-                params_values.push(SqlValue::Text(session_id));
-                idx += 1;
-            }
+            append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
             if !include_superseded {
                 sql.push_str(" AND superseded_by_id IS NULL");
             }
@@ -205,10 +137,7 @@ impl Recents for SqliteStorage {
                 .prepare(&sql)
                 .context("failed to prepare recent query")?;
 
-            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-            for value in &params_values {
-                param_refs.push(value);
-            }
+            let param_refs = to_param_refs(&params_values);
 
             let rows = stmt
                 .query_map(param_refs.as_slice(), search_result_from_row)
@@ -263,29 +192,13 @@ impl SemanticSearcher for SqliteStorage {
             }
             let mut params_values: Vec<SqlValue> = Vec::new();
             let mut idx = 1;
-            if let Some(event_type) = opts.event_type.clone() {
-                sql.push_str(&format!(" AND event_type = ?{idx}"));
-                params_values.push(SqlValue::Text(event_type));
-                idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                sql.push_str(&format!(" AND project = ?{idx}"));
-                params_values.push(SqlValue::Text(project));
-                idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                sql.push_str(&format!(" AND session_id = ?{idx}"));
-                params_values.push(SqlValue::Text(session_id));
-            }
+            append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
 
             let mut stmt = conn
                 .prepare(&sql)
                 .context("failed to prepare semantic search query")?;
 
-            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-            for value in &params_values {
-                param_refs.push(value);
-            }
+            let param_refs = to_param_refs(&params_values);
 
             let rows = stmt
                 .query_map(param_refs.as_slice(), |row| {
@@ -386,36 +299,7 @@ impl PhraseSearcher for SqliteStorage {
             }
             let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
             let mut idx = 2;
-            if let Some(event_type) = opts.event_type.clone() {
-                sql.push_str(&format!(" AND event_type = ?{idx}"));
-                params_values.push(SqlValue::Text(event_type));
-                idx += 1;
-            }
-            if let Some(project) = opts.project.clone() {
-                sql.push_str(&format!(" AND project = ?{idx}"));
-                params_values.push(SqlValue::Text(project));
-                idx += 1;
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                sql.push_str(&format!(" AND session_id = ?{idx}"));
-                params_values.push(SqlValue::Text(session_id));
-                idx += 1;
-            }
-            if let Some(importance_min) = opts.importance_min {
-                sql.push_str(&format!(" AND importance >= ?{idx}"));
-                params_values.push(SqlValue::Real(importance_min));
-                idx += 1;
-            }
-            if let Some(created_after) = opts.created_after.clone() {
-                sql.push_str(&format!(" AND created_at >= ?{idx}"));
-                params_values.push(SqlValue::Text(created_after));
-                idx += 1;
-            }
-            if let Some(created_before) = opts.created_before.clone() {
-                sql.push_str(&format!(" AND created_at <= ?{idx}"));
-                params_values.push(SqlValue::Text(created_before));
-                idx += 1;
-            }
+            append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
             sql.push_str(" ORDER BY created_at DESC");
             sql.push_str(&format!(" LIMIT ?{idx}"));
             params_values.push(SqlValue::Integer(limit));
@@ -423,10 +307,7 @@ impl PhraseSearcher for SqliteStorage {
             let mut stmt = conn
                 .prepare(&sql)
                 .context("failed to prepare phrase search query")?;
-            let mut refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-            for value in &params_values {
-                refs.push(value);
-            }
+            let refs = to_param_refs(&params_values);
 
             let rows = stmt
                 .query_map(refs.as_slice(), search_result_from_row)
