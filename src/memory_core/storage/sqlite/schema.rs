@@ -11,7 +11,7 @@ pub(super) fn initialize_parent_dir(path: &Path) -> Result<()> {
 }
 
 /// Creates the `memories` and `relationships` tables if they don't exist and enables foreign keys.
-pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
+pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")
         .context("failed to enable foreign key enforcement")?;
 
@@ -19,6 +19,11 @@ pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
     // Truncate WAL on startup to reclaim disk space
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+
+    // Performance PRAGMAs
+    let _ = conn.execute_batch(
+        "PRAGMA cache_size=-16000; PRAGMA mmap_size=33554432; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY;",
+    );
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS memories (
@@ -104,6 +109,129 @@ pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
     ];
     for idx in &indexes {
         let _ = conn.execute_batch(idx);
+    }
+
+    #[cfg(feature = "sqlite-vec")]
+    initialize_vec_table(conn, embedding_dim)?;
+
+    #[cfg(not(feature = "sqlite-vec"))]
+    let _ = embedding_dim;
+
+    Ok(())
+}
+
+#[cfg(feature = "sqlite-vec")]
+pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> Result<()> {
+    // Check if vec_memories already exists with a different dimension.
+    // vec0 shadow tables store column metadata; if dimension mismatches we must
+    // recreate. We detect this by attempting a probe insert with a zero vector
+    // of the expected dimension — a dimension mismatch produces an error.
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='vec_memories'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .context("failed to check sqlite_master for vec_memories")?
+        > 0;
+
+    if table_exists {
+        let probe = vec![0.0_f32; embedding_dim];
+        let probe_blob = encode_embedding(&probe);
+        match conn.execute(
+            "INSERT INTO vec_memories(memory_id, embedding) VALUES ('__dim_probe__', ?1)",
+            params![probe_blob],
+        ) {
+            Ok(_) => {
+                let _ = conn.execute(
+                    "DELETE FROM vec_memories WHERE memory_id = '__dim_probe__'",
+                    [],
+                );
+            }
+            Err(e) => {
+                let msg = e.to_string().to_lowercase();
+                if msg.contains("dimension") || msg.contains("size") {
+                    tracing::warn!(
+                        "vec_memories dimension mismatch detected — recreating with {embedding_dim} dims"
+                    );
+                    conn.execute_batch("DROP TABLE vec_memories;")
+                        .context("failed to drop stale vec_memories")?;
+                } else {
+                    return Err(e)
+                        .context("vec_memories probe insert failed (not a dimension mismatch)");
+                }
+            }
+        }
+    }
+
+    conn.execute_batch(&format!(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
+            memory_id text primary key,
+            embedding float[{embedding_dim}] distance_metric=cosine
+        );"
+    ))
+    .context("failed to create vec_memories virtual table")?;
+
+    // Idempotent migration: populate from existing embeddings.
+    // Uses streaming decode/re-encode to handle legacy JSON embeddings.
+    let vec_count: i64 = conn
+        .query_row("SELECT count(*) FROM vec_memories", [], |row| row.get(0))
+        .context("failed to count vec_memories rows")?;
+    if vec_count == 0 {
+        let tx = conn
+            .unchecked_transaction()
+            .context("failed to begin vec migration transaction")?;
+
+        let mut read_stmt = tx
+            .prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL")
+            .context("failed to prepare migration read query")?;
+        let mut insert_stmt = tx
+            .prepare("INSERT INTO vec_memories(memory_id, embedding) VALUES (?1, ?2)")
+            .context("failed to prepare migration insert")?;
+
+        let rows = read_stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
+            .context("failed to read embeddings for migration")?;
+
+        let mut migrated = 0_u64;
+        let mut skipped = 0_u64;
+        for row in rows {
+            let (id, blob) = row.context("failed to decode migration row")?;
+            match decode_embedding(&blob) {
+                Ok(vec) if vec.len() == embedding_dim => {
+                    let encoded = encode_embedding(&vec);
+                    if let Err(e) = insert_stmt.execute(params![id, encoded]) {
+                        tracing::warn!("skipping vec migration for {id}: {e}");
+                        skipped += 1;
+                    } else {
+                        migrated += 1;
+                    }
+                }
+                Ok(vec) => {
+                    tracing::warn!(
+                        "skipping vec migration for {id}: dimension {} != expected {embedding_dim}",
+                        vec.len()
+                    );
+                    skipped += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("skipping vec migration for {id}: {e}");
+                    skipped += 1;
+                }
+            }
+        }
+
+        // Drop statements before committing to release borrows on tx
+        drop(insert_stmt);
+        drop(read_stmt);
+        tx.commit()
+            .context("failed to commit vec migration transaction")?;
+
+        if migrated > 0 || skipped > 0 {
+            tracing::info!("vec_memories migration: {migrated} migrated, {skipped} skipped");
+        }
     }
 
     Ok(())

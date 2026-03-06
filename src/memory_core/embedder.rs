@@ -57,10 +57,14 @@ const TOKENIZER_URL: &str =
 const EMBEDDING_CACHE_CAPACITY: std::num::NonZeroUsize = std::num::NonZeroUsize::new(2048).unwrap();
 
 #[cfg(feature = "real-embeddings")]
+const IDLE_TIMEOUT_SECS: u64 = 600; // 10 minutes
+
+#[cfg(feature = "real-embeddings")]
 #[derive(Debug)]
 pub struct OnnxEmbedder {
     model_dir: PathBuf,
-    runtime: std::sync::OnceLock<OnnxRuntime>,
+    runtime: std::sync::Mutex<Option<OnnxRuntime>>,
+    last_used: std::sync::atomic::AtomicU64,
     cache: std::sync::Mutex<lru::LruCache<[u8; 32], Vec<f32>>>,
 }
 
@@ -84,28 +88,82 @@ impl OnnxEmbedder {
     pub fn new() -> Result<Self> {
         Ok(Self {
             model_dir: default_model_dir()?,
-            runtime: std::sync::OnceLock::new(),
+            runtime: std::sync::Mutex::new(None),
+            last_used: std::sync::atomic::AtomicU64::new(0),
             cache: std::sync::Mutex::new(lru::LruCache::new(EMBEDDING_CACHE_CAPACITY)),
         })
+    }
+
+    fn epoch_secs() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    fn touch_last_used(&self) {
+        self.last_used
+            .store(Self::epoch_secs(), std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Eagerly load the ONNX session so the first `embed()` call doesn't pay
     /// the cold-start penalty. Must be called from an async context (uses
     /// `spawn_blocking` internally since ONNX init creates a mini runtime).
     pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()> {
-        if self.runtime.get().is_some() {
-            return Ok(());
+        {
+            let guard = self
+                .runtime
+                .lock()
+                .map_err(|_| anyhow!("onnx runtime mutex poisoned"))?;
+            if guard.is_some() {
+                return Ok(());
+            }
         }
         let this = std::sync::Arc::clone(self);
         tokio::task::spawn_blocking(move || {
-            if this.runtime.get().is_none() {
+            let mut guard = this
+                .runtime
+                .lock()
+                .map_err(|_| anyhow!("onnx runtime mutex poisoned"))?;
+            if guard.is_none() {
                 let rt = this.init_runtime()?;
-                let _ = this.runtime.set(rt);
+                *guard = Some(rt);
+                this.touch_last_used();
             }
             Ok::<_, anyhow::Error>(())
         })
         .await
         .context("spawn_blocking join error")?
+    }
+
+    /// Drops the ONNX session if it has been idle for longer than the timeout,
+    /// freeing ~240 MB RSS. The LRU embedding cache is preserved. The session
+    /// is re-initialised transparently on the next `embed()` call.
+    pub fn try_unload_if_idle(&self) -> bool {
+        let last = self.last_used.load(std::sync::atomic::Ordering::Relaxed);
+        if last == 0 {
+            return false; // never loaded
+        }
+        if Self::epoch_secs().saturating_sub(last) < IDLE_TIMEOUT_SECS {
+            return false;
+        }
+        if let Ok(mut guard) = self.runtime.lock()
+            && guard.is_some()
+        {
+            *guard = None;
+            tracing::info!("unloaded idle ONNX session after {IDLE_TIMEOUT_SECS}s");
+            return true;
+        }
+        false
+    }
+
+    /// Periodic maintenance entry-point. Call from a tokio interval timer.
+    pub async fn maintenance_tick(self: &std::sync::Arc<Self>) {
+        let this = std::sync::Arc::clone(self);
+        let _ = tokio::task::spawn_blocking(move || {
+            this.try_unload_if_idle();
+        })
+        .await;
     }
 
     fn init_runtime(&self) -> Result<OnnxRuntime> {
@@ -158,100 +216,107 @@ impl Embedder for OnnxEmbedder {
             Err(_) => tracing::warn!("embedding cache mutex poisoned, bypassing cache"),
         }
 
-        // Cache miss — compute embedding
-        let runtime = match self.runtime.get() {
-            Some(rt) => rt,
-            None => {
-                let rt = self.init_runtime()?;
-                // Ignore set errors (another thread may have set it concurrently)
-                let _ = self.runtime.set(rt);
-                self.runtime
-                    .get()
-                    .ok_or_else(|| anyhow!("failed to retrieve runtime after initialization"))?
+        // Cache miss — compute embedding.
+        // Acquire the runtime, initialising on demand if it was unloaded.
+        // Scoped so all ONNX borrows are released before caching.
+        let pooled = {
+            let mut rt_guard = self
+                .runtime
+                .lock()
+                .map_err(|_| anyhow!("onnx runtime mutex poisoned"))?;
+            if rt_guard.is_none() {
+                *rt_guard = Some(self.init_runtime()?);
+                self.touch_last_used();
             }
+            let runtime = rt_guard
+                .as_ref()
+                .ok_or_else(|| anyhow!("runtime missing after init"))?;
+
+            let encoding = runtime
+                .tokenizer
+                .encode(text, true)
+                .map_err(|e| anyhow!("tokenization failed: {e}"))?;
+            let input_ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
+            let attention_mask: Vec<i64> = encoding
+                .get_attention_mask()
+                .iter()
+                .map(|&m| m as i64)
+                .collect();
+            if input_ids.is_empty() || input_ids.len() != attention_mask.len() {
+                return Err(anyhow!("invalid tokenization output for embedding"));
+            }
+
+            let seq_len = input_ids.len();
+            let token_type_ids = vec![0_i64; seq_len];
+            let input_ids_value = ort::value::Value::from_array(([1_usize, seq_len], input_ids))
+                .context("failed to create ONNX input_ids value")?;
+            let token_type_ids_value =
+                ort::value::Value::from_array(([1_usize, seq_len], token_type_ids))
+                    .context("failed to create ONNX token_type_ids value")?;
+            let attention_mask_value =
+                ort::value::Value::from_array(([1_usize, seq_len], attention_mask))
+                    .context("failed to create ONNX attention_mask value")?;
+
+            let mut session = runtime
+                .session
+                .lock()
+                .map_err(|_| anyhow!("onnx session mutex poisoned"))?;
+            let outputs = session
+                .run(ort::inputs![
+                    input_ids_value,
+                    attention_mask_value,
+                    token_type_ids_value
+                ])
+                .context("ONNX inference failed")?;
+            let first_output = outputs
+                .get("last_hidden_state")
+                .ok_or_else(|| anyhow!("missing ONNX output tensor 'last_hidden_state'"))?;
+            let (shape, output) = first_output
+                .try_extract_tensor::<f32>()
+                .context("failed to extract ONNX output tensor")?;
+
+            if shape.len() != 3 || shape[0] != 1 {
+                return Err(anyhow!("unexpected ONNX output shape: {shape:?}"));
+            }
+            let output_seq_len =
+                usize::try_from(shape[1]).context("invalid output sequence length")?;
+            let hidden_size = usize::try_from(shape[2]).context("invalid output hidden size")?;
+            if hidden_size != self.dimension() {
+                return Err(anyhow!(
+                    "unexpected embedding dimension: got {hidden_size}, expected {}",
+                    self.dimension()
+                ));
+            }
+            if output_seq_len == 0 {
+                return Err(anyhow!("ONNX output sequence length is zero"));
+            }
+
+            let effective_len = output_seq_len.min(seq_len);
+            let mut pooled = vec![0.0f32; hidden_size];
+            let mut mask_sum = 0.0f32;
+
+            for token_idx in 0..effective_len {
+                let mask_value = encoding.get_attention_mask()[token_idx] as f32;
+                if mask_value <= 0.0 {
+                    continue;
+                }
+                mask_sum += mask_value;
+                for (dim, pooled_value) in pooled.iter_mut().enumerate() {
+                    let flat_index = token_idx * hidden_size + dim;
+                    *pooled_value += output[flat_index] * mask_value;
+                }
+            }
+
+            if mask_sum <= 0.0 {
+                return Err(anyhow!("attention mask sum is zero during mean pooling"));
+            }
+            for value in &mut pooled {
+                *value /= mask_sum;
+            }
+            normalize_embedding(&mut pooled);
+            pooled
         };
-
-        let encoding = runtime
-            .tokenizer
-            .encode(text, true)
-            .map_err(|e| anyhow!("tokenization failed: {e}"))?;
-        let input_ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
-        let attention_mask: Vec<i64> = encoding
-            .get_attention_mask()
-            .iter()
-            .map(|&m| m as i64)
-            .collect();
-        if input_ids.is_empty() || input_ids.len() != attention_mask.len() {
-            return Err(anyhow!("invalid tokenization output for embedding"));
-        }
-
-        let seq_len = input_ids.len();
-        let token_type_ids = vec![0_i64; seq_len];
-        let input_ids_value = ort::value::Value::from_array(([1_usize, seq_len], input_ids))
-            .context("failed to create ONNX input_ids value")?;
-        let token_type_ids_value =
-            ort::value::Value::from_array(([1_usize, seq_len], token_type_ids))
-                .context("failed to create ONNX token_type_ids value")?;
-        let attention_mask_value =
-            ort::value::Value::from_array(([1_usize, seq_len], attention_mask))
-                .context("failed to create ONNX attention_mask value")?;
-
-        let mut session = runtime
-            .session
-            .lock()
-            .map_err(|_| anyhow!("onnx session mutex poisoned"))?;
-        let outputs = session
-            .run(ort::inputs![
-                input_ids_value,
-                attention_mask_value,
-                token_type_ids_value
-            ])
-            .context("ONNX inference failed")?;
-        let first_output = outputs
-            .get("last_hidden_state")
-            .ok_or_else(|| anyhow!("missing ONNX output tensor 'last_hidden_state'"))?;
-        let (shape, output) = first_output
-            .try_extract_tensor::<f32>()
-            .context("failed to extract ONNX output tensor")?;
-
-        if shape.len() != 3 || shape[0] != 1 {
-            return Err(anyhow!("unexpected ONNX output shape: {shape:?}"));
-        }
-        let output_seq_len = usize::try_from(shape[1]).context("invalid output sequence length")?;
-        let hidden_size = usize::try_from(shape[2]).context("invalid output hidden size")?;
-        if hidden_size != self.dimension() {
-            return Err(anyhow!(
-                "unexpected embedding dimension: got {hidden_size}, expected {}",
-                self.dimension()
-            ));
-        }
-        if output_seq_len == 0 {
-            return Err(anyhow!("ONNX output sequence length is zero"));
-        }
-
-        let effective_len = output_seq_len.min(seq_len);
-        let mut pooled = vec![0.0f32; hidden_size];
-        let mut mask_sum = 0.0f32;
-
-        for token_idx in 0..effective_len {
-            let mask_value = encoding.get_attention_mask()[token_idx] as f32;
-            if mask_value <= 0.0 {
-                continue;
-            }
-            mask_sum += mask_value;
-            for (dim, pooled_value) in pooled.iter_mut().enumerate() {
-                let flat_index = token_idx * hidden_size + dim;
-                *pooled_value += output[flat_index] * mask_value;
-            }
-        }
-
-        if mask_sum <= 0.0 {
-            return Err(anyhow!("attention mask sum is zero during mean pooling"));
-        }
-        for value in &mut pooled {
-            *value /= mask_sum;
-        }
-        normalize_embedding(&mut pooled);
+        self.touch_last_used();
 
         // Cache the result before returning
         let result = pooled.clone();

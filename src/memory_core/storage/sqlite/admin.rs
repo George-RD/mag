@@ -140,6 +140,20 @@ impl MaintenanceManager for SqliteStorage {
                     0
                 });
 
+            // Sync vec_memories
+            #[cfg(feature = "sqlite-vec")]
+            {
+                let _ = conn
+                    .execute(
+                        "DELETE FROM vec_memories WHERE memory_id NOT IN (SELECT id FROM memories)",
+                        [],
+                    )
+                    .unwrap_or_else(|e| {
+                        tracing::warn!("maintenance: failed to sync vec_memories orphans: {e}");
+                        0
+                    });
+            }
+
             let after: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
                 .context("failed to count memories after consolidation")?;
@@ -284,6 +298,10 @@ impl MaintenanceManager for SqliteStorage {
                         let del_id = &candidates[idx].0;
                         tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![del_id])
                             .context("failed to delete compacted memory from FTS")?;
+
+                        #[cfg(feature = "sqlite-vec")]
+                        vec_delete(&tx, del_id)?;
+
                         tx.execute(
                             "DELETE FROM relationships WHERE source_id = ?1 OR target_id = ?1",
                             params![del_id],
@@ -333,6 +351,15 @@ impl MaintenanceManager for SqliteStorage {
                 "DELETE FROM memories_fts WHERE id IN (SELECT id FROM memories WHERE session_id = ?1)",
                 params![session_id],
             ).context("failed to delete session FTS entries")?;
+
+            // Delete vec_memories entries
+            #[cfg(feature = "sqlite-vec")]
+            {
+                tx.execute(
+                    "DELETE FROM vec_memories WHERE memory_id IN (SELECT id FROM memories WHERE session_id = ?1)",
+                    params![session_id],
+                ).context("failed to delete session vec_memories entries")?;
+            }
 
             // Delete memories
             let deleted = tx

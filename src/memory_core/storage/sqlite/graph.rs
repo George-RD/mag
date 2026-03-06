@@ -162,59 +162,114 @@ impl SimilarFinder for SqliteStorage {
             let source_embedding: Vec<f32> = decode_embedding(&source_embedding)
                 .context("failed to decode source embedding")?;
 
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
-                     FROM memories WHERE embedding IS NOT NULL AND id != ?1 AND superseded_by_id IS NULL",
-                )
-                .context("failed to prepare similar query")?;
-            let rows = stmt
-                .query_map(params![memory_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Vec<u8>>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, f64>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, Option<String>>(6).ok().flatten(),
-                        row.get::<_, Option<String>>(7).ok().flatten(),
-                        row.get::<_, Option<String>>(8).ok().flatten(),
-                    ))
-                })
-                .context("failed to execute similar query")?;
-
             let mut ranked = Vec::new();
-            for row in rows {
-                let (
-                    id,
-                    content,
-                    embedding_blob,
-                    raw_tags,
-                    importance,
-                    raw_metadata,
-                    event_type,
-                    session_id,
-                    project,
-                ) = row.context("failed to decode similar row")?;
-                let embedding: Vec<f32> = decode_embedding(&embedding_blob)
-                    .context("failed to decode candidate embedding")?;
-                let score = cosine_similarity(&source_embedding, &embedding);
-                ranked.push(SemanticResult {
-                    id,
-                    content,
-                    tags: parse_tags_from_db(&raw_tags),
-                    importance,
-                    metadata: parse_metadata_from_db(&raw_metadata),
-                    event_type,
-                    session_id,
-                    project,
-                    score,
-                });
+
+            #[cfg(feature = "sqlite-vec")]
+            {
+                let knn_limit = limit.saturating_mul(5).clamp(50, 5_000);
+                let knn_results = vec_knn_search(&conn, &source_embedding, knn_limit)?;
+                let mut row_stmt = conn
+                    .prepare(
+                        "SELECT content, tags, importance, metadata, event_type, session_id, project
+                         FROM memories WHERE id = ?1 AND superseded_by_id IS NULL",
+                    )
+                    .context("failed to prepare vec similar lookup")?;
+
+                for (candidate_id, distance) in knn_results {
+                    if candidate_id == memory_id {
+                        continue;
+                    }
+                    if ranked.len() >= limit {
+                        break;
+                    }
+                    let similarity = vec_distance_to_similarity(distance) as f32;
+
+                    let row_data = row_stmt
+                        .query_row(params![candidate_id], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, f64>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, Option<String>>(4).ok().flatten(),
+                                row.get::<_, Option<String>>(5).ok().flatten(),
+                                row.get::<_, Option<String>>(6).ok().flatten(),
+                            ))
+                        })
+                        .optional()
+                        .context("failed to fetch memory for vec similar result")?;
+
+                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project)) = row_data {
+                        ranked.push(SemanticResult {
+                            id: candidate_id,
+                            content,
+                            tags: parse_tags_from_db(&raw_tags),
+                            importance,
+                            metadata: parse_metadata_from_db(&raw_metadata),
+                            event_type,
+                            session_id,
+                            project,
+                            score: similarity,
+                        });
+                    }
+                }
             }
 
-            ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
-            ranked.truncate(limit);
+            #[cfg(not(feature = "sqlite-vec"))]
+            {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
+                         FROM memories WHERE embedding IS NOT NULL AND id != ?1 AND superseded_by_id IS NULL",
+                    )
+                    .context("failed to prepare similar query")?;
+                let rows = stmt
+                    .query_map(params![memory_id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Vec<u8>>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, f64>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, Option<String>>(6).ok().flatten(),
+                            row.get::<_, Option<String>>(7).ok().flatten(),
+                            row.get::<_, Option<String>>(8).ok().flatten(),
+                        ))
+                    })
+                    .context("failed to execute similar query")?;
+
+                for row in rows {
+                    let (
+                        id,
+                        content,
+                        embedding_blob,
+                        raw_tags,
+                        importance,
+                        raw_metadata,
+                        event_type,
+                        session_id,
+                        project,
+                    ) = row.context("failed to decode similar row")?;
+                    let embedding: Vec<f32> = decode_embedding(&embedding_blob)
+                        .context("failed to decode candidate embedding")?;
+                    let score = cosine_similarity(&source_embedding, &embedding);
+                    ranked.push(SemanticResult {
+                        id,
+                        content,
+                        tags: parse_tags_from_db(&raw_tags),
+                        importance,
+                        metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type,
+                        session_id,
+                        project,
+                        score,
+                    });
+                }
+
+                ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
+                ranked.truncate(limit);
+            }
             Ok::<_, anyhow::Error>(ranked)
         })
         .await

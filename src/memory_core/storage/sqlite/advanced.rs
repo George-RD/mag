@@ -33,85 +33,156 @@ impl AdvancedSearcher for SqliteStorage {
             // Phase 1: Collect vector candidates sorted by cosine similarity
             let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
 
-            let vector_sql = if include_superseded {
-                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
-                 FROM memories WHERE embedding IS NOT NULL"
-            } else {
-                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
-                 FROM memories WHERE embedding IS NOT NULL AND superseded_by_id IS NULL"
-            };
-            let mut vector_stmt = conn
-                .prepare(vector_sql)
-                .context("failed to prepare advanced vector query")?;
-            let vector_rows = vector_stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Vec<u8>>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, f64>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, Option<String>>(6).ok().flatten(),
-                        row.get::<_, Option<String>>(7).ok().flatten(),
-                        row.get::<_, Option<String>>(8).ok().flatten(),
-                        row.get::<_, Option<i64>>(9).ok().flatten(),
-                        row.get::<_, String>(10)
-                            .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
-                        row.get::<_, Option<String>>(11).ok().flatten(),
-                        row.get::<_, Option<String>>(12).ok().flatten(),
-                    ))
-                })
-                .context("failed to execute advanced vector query")?;
-
-            for row in vector_rows {
-                let (
-                    id,
-                    content,
-                    embedding_blob,
-                    raw_tags,
-                    importance,
-                    raw_metadata,
-                    event_type,
-                    session_id,
-                    project,
-                    priority,
-                    created_at,
-                    entity_id,
-                    agent_type,
-                ) = row.context("failed to decode advanced vector row")?;
-                let candidate_emb: Vec<f32> = decode_embedding(&embedding_blob)
-                    .context("failed to decode stored embedding")?;
-                let similarity = cosine_similarity(&query_embedding, &candidate_emb) as f64;
-                if similarity < 0.1 {
-                    continue;
+            #[cfg(feature = "sqlite-vec")]
+            {
+                let knn_limit = limit.saturating_mul(10).clamp(200, 10_000);
+                let knn_results = vec_knn_search(&conn, &query_embedding, knn_limit)?;
+                let row_sql = if include_superseded {
+                    "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                     FROM memories WHERE id = ?1"
+                } else {
+                    "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                     FROM memories WHERE id = ?1 AND superseded_by_id IS NULL"
+                };
+                let mut row_stmt = conn
+                    .prepare(row_sql)
+                    .context("failed to prepare vec result lookup")?;
+                for (memory_id, distance) in knn_results {
+                    let similarity = vec_distance_to_similarity(distance);
+                    if similarity < 0.1 {
+                        continue;
+                    }
+                    let row_data = row_stmt
+                        .query_row(params![memory_id], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, f64>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, Option<String>>(4).ok().flatten(),
+                                row.get::<_, Option<String>>(5).ok().flatten(),
+                                row.get::<_, Option<String>>(6).ok().flatten(),
+                                row.get::<_, Option<i64>>(7).ok().flatten(),
+                                row.get::<_, String>(8)
+                                    .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                                row.get::<_, Option<String>>(9).ok().flatten(),
+                                row.get::<_, Option<String>>(10).ok().flatten(),
+                            ))
+                        })
+                        .optional()
+                        .context("failed to fetch memory for vec result")?;
+                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type)) = row_data {
+                        let priority_value = resolve_priority(event_type.as_deref(), priority);
+                        vector_candidates.push((
+                            memory_id.clone(),
+                            similarity,
+                            RankedSemanticCandidate {
+                                result: SemanticResult {
+                                    id: memory_id,
+                                    content,
+                                    tags: parse_tags_from_db(&raw_tags),
+                                    importance,
+                                    metadata: parse_metadata_from_db(&raw_metadata),
+                                    event_type: event_type.clone(),
+                                    session_id,
+                                    project,
+                                    score: 0.0,
+                                },
+                                created_at,
+                                score: type_weight(event_type.as_deref().unwrap_or("memory"))
+                                    * priority_factor(priority_value, &scoring_params),
+                                vec_sim: Some(similarity),
+                                text_overlap: 0.0,
+                                entity_id,
+                                agent_type,
+                            },
+                        ));
+                    }
                 }
+            }
 
-                let priority_value = resolve_priority(event_type.as_deref(), priority);
-                vector_candidates.push((
-                    id.clone(),
-                    similarity,
-                    RankedSemanticCandidate {
-                        result: SemanticResult {
-                            id,
-                            content,
-                            tags: parse_tags_from_db(&raw_tags),
-                            importance,
-                            metadata: parse_metadata_from_db(&raw_metadata),
-                            event_type: event_type.clone(),
-                            session_id,
-                            project,
-                            score: 0.0,
-                        },
+            #[cfg(not(feature = "sqlite-vec"))]
+            {
+                let vector_sql = if include_superseded {
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                     FROM memories WHERE embedding IS NOT NULL"
+                } else {
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                     FROM memories WHERE embedding IS NOT NULL AND superseded_by_id IS NULL"
+                };
+                let mut vector_stmt = conn
+                    .prepare(vector_sql)
+                    .context("failed to prepare advanced vector query")?;
+                let vector_rows = vector_stmt
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Vec<u8>>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, f64>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, Option<String>>(6).ok().flatten(),
+                            row.get::<_, Option<String>>(7).ok().flatten(),
+                            row.get::<_, Option<String>>(8).ok().flatten(),
+                            row.get::<_, Option<i64>>(9).ok().flatten(),
+                            row.get::<_, String>(10)
+                                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                            row.get::<_, Option<String>>(11).ok().flatten(),
+                            row.get::<_, Option<String>>(12).ok().flatten(),
+                        ))
+                    })
+                    .context("failed to execute advanced vector query")?;
+
+                for row in vector_rows {
+                    let (
+                        id,
+                        content,
+                        embedding_blob,
+                        raw_tags,
+                        importance,
+                        raw_metadata,
+                        event_type,
+                        session_id,
+                        project,
+                        priority,
                         created_at,
-                        score: type_weight(event_type.as_deref().unwrap_or("memory"))
-                            * priority_factor(priority_value, &scoring_params),
-                        vec_sim: Some(similarity),
-                        text_overlap: 0.0,
                         entity_id,
                         agent_type,
-                    },
-                ));
+                    ) = row.context("failed to decode advanced vector row")?;
+                    let candidate_emb: Vec<f32> = decode_embedding(&embedding_blob)
+                        .context("failed to decode stored embedding")?;
+                    let similarity = cosine_similarity(&query_embedding, &candidate_emb) as f64;
+                    if similarity < 0.1 {
+                        continue;
+                    }
+
+                    let priority_value = resolve_priority(event_type.as_deref(), priority);
+                    vector_candidates.push((
+                        id.clone(),
+                        similarity,
+                        RankedSemanticCandidate {
+                            result: SemanticResult {
+                                id,
+                                content,
+                                tags: parse_tags_from_db(&raw_tags),
+                                importance,
+                                metadata: parse_metadata_from_db(&raw_metadata),
+                                event_type: event_type.clone(),
+                                session_id,
+                                project,
+                                score: 0.0,
+                            },
+                            created_at,
+                            score: type_weight(event_type.as_deref().unwrap_or("memory"))
+                                * priority_factor(priority_value, &scoring_params),
+                            vec_sim: Some(similarity),
+                            text_overlap: 0.0,
+                            entity_id,
+                            agent_type,
+                        },
+                    ));
+                }
             }
             // Sort by cosine similarity descending for rank assignment
             vector_candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -128,7 +199,14 @@ impl AdvancedSearcher for SqliteStorage {
             );
             let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
             let mut param_idx = 2;
-            append_search_filters(&mut fts_sql, &mut fts_params, &mut param_idx, &opts, "m.");
+            // Strip temporal filters for FTS: time_decay() handles temporal
+            // scoring post-RRF, so we avoid removing candidates before fusion.
+            let fts_opts = SearchOptions {
+                created_after: None,
+                created_before: None,
+                ..opts.clone()
+            };
+            append_search_filters(&mut fts_sql, &mut fts_params, &mut param_idx, &fts_opts, "m.");
             if !include_superseded {
                 fts_sql.push_str(" AND m.superseded_by_id IS NULL");
             }

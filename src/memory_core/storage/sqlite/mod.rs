@@ -70,6 +70,24 @@ pub struct SqliteStorage {
     scoring_params: ScoringParams,
 }
 
+#[cfg(feature = "sqlite-vec")]
+fn ensure_vec_extension_registered() {
+    use std::sync::Once;
+    static VEC_INIT: Once = Once::new();
+    VEC_INIT.call_once(|| unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut rusqlite::ffi::sqlite3,
+                *mut *mut i8,
+                *const rusqlite::ffi::sqlite3_api_routines,
+            ) -> i32,
+        >(
+            sqlite_vec::sqlite3_vec_init as *const ()
+        )));
+    });
+}
+
 impl SqliteStorage {
     /// Creates a new `SqliteStorage` using the given [`InitMode`].
     pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self> {
@@ -95,17 +113,34 @@ impl SqliteStorage {
     /// Performs blocking filesystem and SQLite I/O. Call before entering the
     /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
     pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self> {
+        #[cfg(feature = "sqlite-vec")]
+        ensure_vec_extension_registered();
+
         initialize_parent_dir(&path)?;
         let conn = Connection::open(&path)
             .with_context(|| format!("failed to open sqlite database at {}", path.display()))?;
 
-        initialize_schema(&conn)?;
+        initialize_schema(&conn, embedder.dimension())?;
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             embedder,
             scoring_params: ScoringParams::default(),
         })
+    }
+
+    /// Runs `PRAGMA optimize` to update SQLite query planner statistics.
+    /// Call periodically (e.g. on shutdown or after large writes).
+    pub async fn optimize(&self) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || {
+            let conn = lock_conn(&conn)?;
+            conn.execute_batch("PRAGMA optimize;")
+                .context("failed to run PRAGMA optimize")?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("spawn_blocking join error")?
     }
 
     #[allow(dead_code)]
@@ -510,8 +545,11 @@ impl SqliteStorage {
 
     #[cfg(test)]
     pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
+        #[cfg(feature = "sqlite-vec")]
+        ensure_vec_extension_registered();
+
         let conn = Connection::open_in_memory().context("failed to open in-memory sqlite")?;
-        initialize_schema(&conn)?;
+        initialize_schema(&conn, embedder.dimension())?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             embedder,
@@ -619,33 +657,68 @@ impl SqliteStorage {
             let source_embedding: Vec<f32> = decode_embedding(&source_embedding)
                 .context("failed to decode source embedding for auto relate")?;
 
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND id != ?1
-                     AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
-                     ORDER BY created_at DESC LIMIT 100",
-                )
-                .context("failed to prepare auto relate query")?;
-
-            let rows = stmt
-                .query_map(params![source_id_for_query], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-                })
-                .context("failed to execute auto relate query")?;
-
             let mut ranked = Vec::new();
-            for row in rows {
-                let (id, embedding_blob) = row.context("failed to decode auto relate row")?;
-                let embedding: Vec<f32> = decode_embedding(&embedding_blob)
-                    .context("failed to decode candidate embedding for auto relate")?;
-                let score = cosine_similarity(&source_embedding, &embedding);
-                if score >= 0.45 {
-                    ranked.push((id, score));
+
+            #[cfg(feature = "sqlite-vec")]
+            {
+                let knn_results = vec_knn_search(&conn, &source_embedding, 20)?;
+                let mut ttl_stmt = conn
+                    .prepare(
+                        "SELECT 1 FROM memories WHERE id = ?1
+                         AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))",
+                    )
+                    .context("failed to prepare TTL check for auto relate")?;
+                for (candidate_id, distance) in knn_results {
+                    if candidate_id == source_id_for_query {
+                        continue;
+                    }
+                    let similarity = vec_distance_to_similarity(distance) as f32;
+                    if similarity < 0.45 {
+                        continue;
+                    }
+                    let valid: bool = ttl_stmt
+                        .query_row(params![candidate_id], |_| Ok(true))
+                        .optional()
+                        .context("failed to check TTL for auto relate")?
+                        .unwrap_or(false);
+                    if valid {
+                        ranked.push((candidate_id, similarity));
+                    }
                 }
+                ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+                ranked.truncate(3);
             }
 
-            ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
-            ranked.truncate(3);
+            #[cfg(not(feature = "sqlite-vec"))]
+            {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND id != ?1
+                         AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                         ORDER BY created_at DESC LIMIT 100",
+                    )
+                    .context("failed to prepare auto relate query")?;
+
+                let rows = stmt
+                    .query_map(params![source_id_for_query], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+                    })
+                    .context("failed to execute auto relate query")?;
+
+                for row in rows {
+                    let (id, embedding_blob) =
+                        row.context("failed to decode auto relate row")?;
+                    let embedding: Vec<f32> = decode_embedding(&embedding_blob)
+                        .context("failed to decode candidate embedding for auto relate")?;
+                    let score = cosine_similarity(&source_embedding, &embedding);
+                    if score >= 0.45 {
+                        ranked.push((id, score));
+                    }
+                }
+
+                ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+                ranked.truncate(3);
+            }
 
             Ok::<_, anyhow::Error>(ranked)
         })
@@ -703,6 +776,9 @@ use helpers::{
     search_result_from_row, to_param_refs,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
+
+#[cfg(feature = "sqlite-vec")]
+use helpers::{vec_delete, vec_distance_to_similarity, vec_knn_search, vec_upsert};
 
 #[cfg(test)]
 mod tests;

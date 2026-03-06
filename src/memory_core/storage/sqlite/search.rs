@@ -182,80 +182,150 @@ impl SemanticSearcher for SqliteStorage {
 
             let conn = lock_conn(&conn)?;
 
-            let mut sql = String::from(
-                "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
-                 FROM memories
-                 WHERE embedding IS NOT NULL",
-            );
-            if !include_superseded {
-                sql.push_str(" AND superseded_by_id IS NULL");
+            let mut ranked = Vec::new();
+
+            #[cfg(feature = "sqlite-vec")]
+            {
+                let knn_limit = limit.saturating_mul(5).clamp(100, 5_000);
+                let knn_results = vec_knn_search(&conn, &query_embedding, knn_limit)?;
+
+                let mut check_sql = String::from(
+                    "SELECT content, tags, importance, metadata, event_type, session_id, project
+                     FROM memories WHERE id = ?1",
+                );
+                if !include_superseded {
+                    check_sql.push_str(" AND superseded_by_id IS NULL");
+                }
+                let mut filter_params: Vec<SqlValue> = Vec::new();
+                let mut check_idx = 2;
+                append_search_filters(
+                    &mut check_sql,
+                    &mut filter_params,
+                    &mut check_idx,
+                    &opts,
+                    "",
+                );
+                let mut row_stmt = conn
+                    .prepare(&check_sql)
+                    .context("failed to prepare vec result lookup")?;
+
+                for (memory_id, distance) in knn_results {
+                    if ranked.len() >= limit {
+                        break;
+                    }
+                    let similarity = vec_distance_to_similarity(distance) as f32;
+
+                    let mut bound_params: Vec<SqlValue> =
+                        vec![SqlValue::Text(memory_id.clone())];
+                    bound_params.extend(filter_params.iter().cloned());
+                    let refs = to_param_refs(&bound_params);
+                    let row_data = row_stmt
+                        .query_row(refs.as_slice(), |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, f64>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, Option<String>>(4).ok().flatten(),
+                                row.get::<_, Option<String>>(5).ok().flatten(),
+                                row.get::<_, Option<String>>(6).ok().flatten(),
+                            ))
+                        })
+                        .optional()
+                        .context("failed to fetch memory for vec result")?;
+
+                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project)) = row_data {
+                        ranked.push(SemanticResult {
+                            id: memory_id,
+                            content,
+                            tags: parse_tags_from_db(&raw_tags),
+                            importance,
+                            metadata: parse_metadata_from_db(&raw_metadata),
+                            event_type,
+                            session_id,
+                            project,
+                            score: similarity,
+                        });
+                    }
+                }
             }
-            let mut params_values: Vec<SqlValue> = Vec::new();
-            let mut idx = 1;
-            append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
 
-            let mut stmt = conn
-                .prepare(&sql)
-                .context("failed to prepare semantic search query")?;
+            #[cfg(not(feature = "sqlite-vec"))]
+            {
+                let mut sql = String::from(
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
+                     FROM memories
+                     WHERE embedding IS NOT NULL",
+                );
+                if !include_superseded {
+                    sql.push_str(" AND superseded_by_id IS NULL");
+                }
+                let mut params_values: Vec<SqlValue> = Vec::new();
+                let mut idx = 1;
+                append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
 
-            let param_refs = to_param_refs(&params_values);
+                let mut stmt = conn
+                    .prepare(&sql)
+                    .context("failed to prepare semantic search query")?;
 
-            let rows = stmt
-                .query_map(param_refs.as_slice(), |row| {
-                    let id: String = row.get(0)?;
-                    let content: String = row.get(1)?;
-                    let embedding_blob: Vec<u8> = row.get(2)?;
-                    let tags: String = row.get(3)?;
-                    let importance: f64 = row.get(4)?;
-                    let metadata: String = row.get(5)?;
-                    let event_type: Option<String> = row.get(6).ok();
-                    let session_id: Option<String> = row.get(7).ok();
-                    let project: Option<String> = row.get(8).ok();
-                    Ok((
+                let param_refs = to_param_refs(&params_values);
+
+                let rows = stmt
+                    .query_map(param_refs.as_slice(), |row| {
+                        let id: String = row.get(0)?;
+                        let content: String = row.get(1)?;
+                        let embedding_blob: Vec<u8> = row.get(2)?;
+                        let tags: String = row.get(3)?;
+                        let importance: f64 = row.get(4)?;
+                        let metadata: String = row.get(5)?;
+                        let event_type: Option<String> = row.get(6).ok();
+                        let session_id: Option<String> = row.get(7).ok();
+                        let project: Option<String> = row.get(8).ok();
+                        Ok((
+                            id,
+                            content,
+                            embedding_blob,
+                            tags,
+                            importance,
+                            metadata,
+                            event_type,
+                            session_id,
+                            project,
+                        ))
+                    })
+                    .context("failed to execute semantic search query")?;
+
+                for row in rows {
+                    let (
                         id,
                         content,
                         embedding_blob,
-                        tags,
+                        raw_tags,
                         importance,
-                        metadata,
+                        raw_metadata,
                         event_type,
                         session_id,
                         project,
-                    ))
-                })
-                .context("failed to execute semantic search query")?;
+                    ) = row.context("failed to decode semantic search row")?;
+                    let candidate: Vec<f32> = decode_embedding(&embedding_blob)
+                        .context("failed to decode stored embedding")?;
+                    let score = cosine_similarity(&query_embedding, &candidate);
+                    ranked.push(SemanticResult {
+                        id,
+                        content,
+                        tags: parse_tags_from_db(&raw_tags),
+                        importance,
+                        metadata: parse_metadata_from_db(&raw_metadata),
+                        event_type,
+                        session_id,
+                        project,
+                        score,
+                    });
+                }
 
-            let mut ranked = Vec::new();
-            for row in rows {
-                let (
-                    id,
-                    content,
-                    embedding_blob,
-                    raw_tags,
-                    importance,
-                    raw_metadata,
-                    event_type,
-                    session_id,
-                    project,
-                ) = row.context("failed to decode semantic search row")?;
-                let candidate: Vec<f32> = decode_embedding(&embedding_blob)
-                    .context("failed to decode stored embedding")?;
-                let score = cosine_similarity(&query_embedding, &candidate);
-                ranked.push(SemanticResult {
-                    id,
-                    content,
-                    tags: parse_tags_from_db(&raw_tags),
-                    importance,
-                    metadata: parse_metadata_from_db(&raw_metadata),
-                    event_type,
-                    session_id,
-                    project,
-                    score,
-                });
+                ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
+                ranked.truncate(limit);
             }
-
-            ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
-            ranked.truncate(limit);
 
             Ok::<_, anyhow::Error>(ranked)
         })

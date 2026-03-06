@@ -272,3 +272,57 @@ pub(super) fn matches_search_options(
     }
     true
 }
+
+#[cfg(feature = "sqlite-vec")]
+pub(super) fn vec_distance_to_similarity(distance: f64) -> f64 {
+    (1.0 - distance).max(0.0)
+}
+
+#[cfg(feature = "sqlite-vec")]
+pub(super) fn vec_delete(conn: &rusqlite::Connection, memory_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM vec_memories WHERE memory_id = ?1",
+        params![memory_id],
+    )
+    .context("failed to delete from vec_memories")?;
+    Ok(())
+}
+
+#[cfg(feature = "sqlite-vec")]
+pub(super) fn vec_upsert(
+    conn: &rusqlite::Connection,
+    memory_id: &str,
+    embedding: &[u8],
+) -> Result<()> {
+    // vec0 virtual tables don't support INSERT OR REPLACE; delete first then insert.
+    vec_delete(conn, memory_id)?;
+    conn.execute(
+        "INSERT INTO vec_memories(memory_id, embedding) VALUES (?1, ?2)",
+        params![memory_id, embedding],
+    )
+    .context("failed to upsert into vec_memories")?;
+    Ok(())
+}
+
+#[cfg(feature = "sqlite-vec")]
+pub(super) fn vec_knn_search(
+    conn: &rusqlite::Connection,
+    query_embedding: &[f32],
+    k: usize,
+) -> Result<Vec<(String, f64)>> {
+    let embedding_blob = encode_embedding(query_embedding);
+    let k = k as i64;
+    let mut stmt = conn
+        .prepare("SELECT memory_id, distance FROM vec_memories WHERE embedding MATCH ?1 AND k = ?2")
+        .context("failed to prepare vec KNN query")?;
+    let rows = stmt
+        .query_map(params![embedding_blob, k], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        })
+        .context("failed to execute vec KNN query")?;
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.context("failed to decode vec KNN row")?);
+    }
+    Ok(results)
+}

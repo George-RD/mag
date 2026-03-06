@@ -124,6 +124,10 @@ impl ExpirationSweeper for SqliteStorage {
                 .context("failed to delete relationships during sweep")?;
                 tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
                     .context("failed to delete FTS during sweep")?;
+
+                #[cfg(feature = "sqlite-vec")]
+                vec_delete(&tx, id)?;
+
                 tx.execute("DELETE FROM memories WHERE id = ?1", params![id])
                     .context("failed to delete memory during sweep")?;
             }

@@ -53,7 +53,20 @@ async fn main() -> anyhow::Result<()> {
         InitModeArg::Advanced => InitMode::Advanced,
     };
     let warmup = matches!(&cli.command, Commands::Serve);
-    let embedder = build_embedder(warmup).await?;
+
+    #[cfg(feature = "real-embeddings")]
+    let onnx_embedder_ref = {
+        let onnx = std::sync::Arc::new(memory_core::OnnxEmbedder::new()?);
+        if warmup {
+            onnx.warmup().await?;
+        }
+        onnx
+    };
+    #[cfg(feature = "real-embeddings")]
+    let embedder: Arc<dyn Embedder> = onnx_embedder_ref.clone();
+
+    #[cfg(not(feature = "real-embeddings"))]
+    let embedder: Arc<dyn Embedder> = Arc::new(PlaceholderEmbedder);
     let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
     let mcp_storage = sqlite_storage.clone();
 
@@ -880,27 +893,37 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Serve => {
             info!("Starting MCP server over stdio");
+
+            #[cfg(feature = "real-embeddings")]
+            {
+                let onnx_for_tick = onnx_embedder_ref.clone();
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                    loop {
+                        interval.tick().await;
+                        onnx_for_tick.maintenance_tick().await;
+                    }
+                });
+            }
+
+            {
+                let storage_for_optimize = mcp_storage.clone();
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+                    loop {
+                        interval.tick().await;
+                        if let Err(e) = storage_for_optimize.optimize().await {
+                            tracing::warn!("PRAGMA optimize failed: {e}");
+                        }
+                    }
+                });
+            }
+
             McpMemoryServer::new(mcp_storage).serve_stdio().await?;
         }
     }
 
     Ok(())
-}
-
-async fn build_embedder(warmup: bool) -> anyhow::Result<Arc<dyn Embedder>> {
-    #[cfg(feature = "real-embeddings")]
-    {
-        let onnx = Arc::new(memory_core::OnnxEmbedder::new()?);
-        if warmup {
-            onnx.warmup().await?;
-        }
-        Ok(onnx)
-    }
-
-    #[cfg(not(feature = "real-embeddings"))]
-    {
-        Ok(Arc::new(PlaceholderEmbedder))
-    }
 }
 
 fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {

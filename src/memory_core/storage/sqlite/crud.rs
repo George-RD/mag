@@ -250,6 +250,9 @@ impl Storage for SqliteStorage {
             )
             .context("failed to insert FTS row during store")?;
 
+            #[cfg(feature = "sqlite-vec")]
+            vec_upsert(&tx, &id_for_store, &embedding)?;
+
             let now_str = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
             // Determine a single canonical chain_id for all superseded memories
@@ -388,6 +391,10 @@ impl Deleter for SqliteStorage {
                 .context("failed to start delete transaction")?;
             tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
                 .context("failed to delete memory from FTS index")?;
+
+            #[cfg(feature = "sqlite-vec")]
+            vec_delete(&tx, &id)?;
+
             let changes = tx
                 .execute("DELETE FROM memories WHERE id = ?1", params![id])
                 .context("failed to delete memory")?;
@@ -523,7 +530,7 @@ impl Updater for SqliteStorage {
                 return Err(anyhow!("memory not found for id={id}"));
             }
 
-            if let Some((new_content, _, _, _)) = &content_fields {
+            if let Some((new_content, _, _, ref _embedding)) = content_fields {
                 tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
                     .context("failed to delete existing FTS row during update")?;
                 tx.execute(
@@ -531,6 +538,9 @@ impl Updater for SqliteStorage {
                     params![id, new_content],
                 )
                 .context("failed to insert FTS row during update")?;
+
+                #[cfg(feature = "sqlite-vec")]
+                vec_upsert(&tx, &id, _embedding)?;
             }
 
             tx.commit().context("failed to commit update transaction")?;
