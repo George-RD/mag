@@ -44,3 +44,8 @@ required-features = ["real-embeddings"]
 name = "onnx_profile"
 path = "benches/onnx_profile.rs"
 required-features = ["real-embeddings"]
+
+[[bin]]
+name = "scale_bench"
+path = "benches/scale_bench.rs"
+required-features = ["real-embeddings"]
