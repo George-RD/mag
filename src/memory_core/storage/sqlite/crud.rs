@@ -21,6 +21,7 @@ impl Storage for SqliteStorage {
         let entity_id = input.entity_id.clone();
         let agent_type = input.agent_type.clone();
         let ttl_seconds = input.ttl_seconds;
+        let referenced_date = input.referenced_date.clone();
         let id_for_store = id.clone();
 
         let (outcome, superseded_ids) = tokio::task::spawn_blocking(move || {
@@ -196,6 +197,11 @@ impl Storage for SqliteStorage {
                 drop(sup_stmt);
             }
 
+            // Use referenced_date for event_at when provided, otherwise default to now.
+            let event_at_value: Option<String> = referenced_date.clone().and_then(|d| {
+                if validate_iso8601(&d) { Some(d) } else { None }
+            });
+
             // ── Phase 4: INSERT memory + FTS5 sync ──
             tx.execute(
                 "INSERT INTO memories (
@@ -223,7 +229,7 @@ impl Storage for SqliteStorage {
                     ?2,
                     ?3,
                     NULL,
-                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    COALESCE(?16, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                     ?4,
                     'cli_input',
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
@@ -255,6 +261,7 @@ impl Storage for SqliteStorage {
                     agent_type = excluded.agent_type,
                     ttl_seconds = excluded.ttl_seconds,
                     canonical_hash = excluded.canonical_hash,
+                    event_at = excluded.event_at,
                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 params![
                     id_for_store,
@@ -272,6 +279,7 @@ impl Storage for SqliteStorage {
                     agent_type,
                     ttl_seconds,
                     normalized_hash,
+                    event_at_value,
                 ],
             )
             .context("failed to insert memory")?;

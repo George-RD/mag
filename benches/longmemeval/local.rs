@@ -152,6 +152,7 @@ fn default_input(
         entity_id: None,
         agent_type: None,
         ttl_seconds: None,
+        referenced_date: None,
     }
 }
 
@@ -370,6 +371,8 @@ pub(crate) async fn run_benchmark(
         context_tags: None,
         entity_id: None,
         agent_type: None,
+        event_after: None,
+        event_before: None,
     };
 
     // ── Information extraction questions ───────────────────────────────
@@ -419,6 +422,8 @@ pub(crate) async fn run_benchmark(
         context_tags: None,
         entity_id: None,
         agent_type: None,
+        event_after: None,
+        event_before: None,
     };
     for q in &data.questions.temporal.recent_week {
         check_top3(
@@ -446,6 +451,8 @@ pub(crate) async fn run_benchmark(
         context_tags: None,
         entity_id: None,
         agent_type: None,
+        event_after: None,
+        event_before: None,
     };
     for q in &data.questions.temporal.two_weeks {
         check_top3(
@@ -473,6 +480,8 @@ pub(crate) async fn run_benchmark(
         context_tags: None,
         entity_id: None,
         agent_type: None,
+        event_after: None,
+        event_before: None,
     };
     for q in &data.questions.temporal.month {
         check_top3(
@@ -503,6 +512,8 @@ pub(crate) async fn run_benchmark(
             context_tags: None,
             entity_id: None,
             agent_type: None,
+            event_after: None,
+            event_before: None,
         };
         let hits = query_top3(storage, &eor.query, top_k, &old_opts).await?;
         rss.sample();
@@ -549,6 +560,8 @@ pub(crate) async fn run_benchmark(
             context_tags: None,
             entity_id: None,
             agent_type: None,
+            event_after: None,
+            event_before: None,
         };
         let hits = query_top3(storage, &wc.query, top_k, &window_opts).await?;
         rss.sample();
@@ -592,6 +605,8 @@ pub(crate) async fn run_benchmark(
             context_tags: None,
             entity_id: None,
             agent_type: None,
+            event_after: None,
+            event_before: None,
         };
         let hits = query_top3(storage, &rw.query, top_k, &rolling_opts).await?;
         rss.sample();

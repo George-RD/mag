@@ -3926,7 +3926,7 @@ async fn test_dual_match_boost_applied() {
         "dm1",
         "alpha context information details",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -3940,7 +3940,7 @@ async fn test_dual_match_boost_applied() {
         "dm2",
         "alpha context notes records",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -3979,7 +3979,7 @@ async fn test_dual_match_boost_disabled() {
         "ndb1",
         "alpha context information details",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -4019,7 +4019,7 @@ async fn test_dual_match_boost_increases_score() {
             "boost1",
             "alpha context searchable text data",
             &MemoryInput {
-                event_type: Some("decision".to_string()),
+                event_type: Some(EventType::Decision),
                 metadata: serde_json::json!({}),
                 ..Default::default()
             },
@@ -4041,4 +4041,362 @@ async fn test_dual_match_boost_increases_score() {
             "expected results with dual_match_boost={boost}"
         );
     }
+}
+
+// ── Temporal filtering tests ──────────────────────────────────────────
+
+#[test]
+fn test_validate_iso8601_accepts_valid_formats() {
+    assert!(validate_iso8601("2024-01-15"));
+    assert!(validate_iso8601("2024-01-15T10:30:00Z"));
+    assert!(validate_iso8601("2024-01-15T10:30:00.000Z"));
+    assert!(validate_iso8601("2024-12-31T23:59:59+05:00"));
+}
+
+#[test]
+fn test_validate_iso8601_rejects_invalid_formats() {
+    assert!(!validate_iso8601(""));
+    assert!(!validate_iso8601("not-a-date"));
+    assert!(!validate_iso8601("2024"));
+    assert!(!validate_iso8601("2024-1-1"));
+    assert!(!validate_iso8601("01-15-2024"));
+}
+
+#[tokio::test]
+async fn test_store_with_referenced_date_sets_event_at() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let input = MemoryInput {
+        content: "event happened in the past".to_string(),
+        referenced_date: Some("2023-06-15T12:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("ref-date-1", "event happened in the past", &input)
+        .await
+        .unwrap();
+
+    let conn = storage.test_conn().unwrap();
+    let event_at: String = conn
+        .query_row(
+            "SELECT event_at FROM memories WHERE id = ?1",
+            params!["ref-date-1"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(event_at, "2023-06-15T12:00:00Z");
+}
+
+#[tokio::test]
+async fn test_store_without_referenced_date_defaults_event_at_to_now() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let input = MemoryInput {
+        content: "no referenced date".to_string(),
+        ..Default::default()
+    };
+    storage
+        .store("ref-date-2", "no referenced date", &input)
+        .await
+        .unwrap();
+
+    let conn = storage.test_conn().unwrap();
+    let event_at: String = conn
+        .query_row(
+            "SELECT event_at FROM memories WHERE id = ?1",
+            params!["ref-date-2"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    // event_at should be a recent timestamp (within the last minute)
+    assert!(event_at.starts_with("20"));
+    assert!(event_at.contains('T'));
+}
+
+#[tokio::test]
+async fn test_store_with_invalid_referenced_date_falls_back_to_now() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let input = MemoryInput {
+        content: "bad date format".to_string(),
+        referenced_date: Some("not-a-date".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("ref-date-3", "bad date format", &input)
+        .await
+        .unwrap();
+
+    let conn = storage.test_conn().unwrap();
+    let event_at: String = conn
+        .query_row(
+            "SELECT event_at FROM memories WHERE id = ?1",
+            params!["ref-date-3"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    // Should have fallen back to now() since "not-a-date" fails validation
+    assert!(event_at.starts_with("20"));
+    assert_ne!(event_at, "not-a-date");
+}
+
+#[tokio::test]
+async fn test_search_with_event_after_filter() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store a memory with event_at in the past
+    let input_old = MemoryInput {
+        content: "old event content".to_string(),
+        referenced_date: Some("2023-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("ev-old", "old event content", &input_old)
+        .await
+        .unwrap();
+
+    // Store a memory with event_at more recent
+    let input_new = MemoryInput {
+        content: "new event content".to_string(),
+        referenced_date: Some("2025-06-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("ev-new", "new event content", &input_new)
+        .await
+        .unwrap();
+
+    // Search with event_after that excludes the old event
+    let opts = SearchOptions {
+        event_after: Some("2024-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let results = storage.search("event content", 10, &opts).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "ev-new");
+}
+
+#[tokio::test]
+async fn test_search_with_event_before_filter() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let input_old = MemoryInput {
+        content: "old event data".to_string(),
+        referenced_date: Some("2023-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("evb-old", "old event data", &input_old)
+        .await
+        .unwrap();
+
+    let input_new = MemoryInput {
+        content: "new event data".to_string(),
+        referenced_date: Some("2025-06-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("evb-new", "new event data", &input_new)
+        .await
+        .unwrap();
+
+    // Search with event_before that excludes the new event
+    let opts = SearchOptions {
+        event_before: Some("2024-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let results = storage.search("event data", 10, &opts).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "evb-old");
+}
+
+#[tokio::test]
+async fn test_search_with_event_after_and_event_before_window() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let items = [
+        (
+            "win-1",
+            "window test alpha first content",
+            "2022-06-01T00:00:00Z",
+        ),
+        (
+            "win-2",
+            "window test alpha second content",
+            "2023-06-01T00:00:00Z",
+        ),
+        (
+            "win-3",
+            "window test alpha third content",
+            "2024-06-01T00:00:00Z",
+        ),
+        (
+            "win-4",
+            "window test alpha fourth content",
+            "2025-06-01T00:00:00Z",
+        ),
+    ];
+    for (id, content, date) in &items {
+        let input = MemoryInput {
+            content: content.to_string(),
+            referenced_date: Some(date.to_string()),
+            ..Default::default()
+        };
+        storage.store(id, content, &input).await.unwrap();
+    }
+
+    // Window between 2023 and 2024 should match win-2 and win-3
+    let opts = SearchOptions {
+        event_after: Some("2023-01-01T00:00:00Z".to_string()),
+        event_before: Some("2024-12-31T23:59:59Z".to_string()),
+        ..Default::default()
+    };
+    let results = storage
+        .search("window test alpha", 10, &opts)
+        .await
+        .unwrap();
+    let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+    assert!(
+        ids.contains(&"win-2"),
+        "expected win-2 in results, got: {:?}",
+        ids
+    );
+    assert!(
+        ids.contains(&"win-3"),
+        "expected win-3 in results, got: {:?}",
+        ids
+    );
+    assert!(
+        !ids.contains(&"win-1"),
+        "expected win-1 NOT in results, got: {:?}",
+        ids
+    );
+    assert!(
+        !ids.contains(&"win-4"),
+        "expected win-4 NOT in results, got: {:?}",
+        ids
+    );
+}
+
+#[tokio::test]
+async fn test_recent_with_event_after_filter() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let input_old = MemoryInput {
+        content: "old recent test".to_string(),
+        referenced_date: Some("2023-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("rec-old", "old recent test", &input_old)
+        .await
+        .unwrap();
+
+    let input_new = MemoryInput {
+        content: "new recent test".to_string(),
+        referenced_date: Some("2025-06-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("rec-new", "new recent test", &input_new)
+        .await
+        .unwrap();
+
+    let opts = SearchOptions {
+        event_after: Some("2024-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let results = storage.recent(10, &opts).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "rec-new");
+}
+
+#[tokio::test]
+async fn test_list_with_event_before_filter() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let input_old = MemoryInput {
+        content: "list old test".to_string(),
+        referenced_date: Some("2023-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("lst-old", "list old test", &input_old)
+        .await
+        .unwrap();
+
+    let input_new = MemoryInput {
+        content: "list new test".to_string(),
+        referenced_date: Some("2025-06-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("lst-new", "list new test", &input_new)
+        .await
+        .unwrap();
+
+    let opts = SearchOptions {
+        event_before: Some("2024-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let result = storage.list(0, 10, &opts).await.unwrap();
+    assert_eq!(result.memories.len(), 1);
+    assert_eq!(result.memories[0].id, "lst-old");
+}
+
+#[tokio::test]
+async fn test_phrase_search_with_event_after_filter() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let input_old = MemoryInput {
+        content: "unique phrase old".to_string(),
+        referenced_date: Some("2023-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("ph-old", "unique phrase old", &input_old)
+        .await
+        .unwrap();
+
+    let input_new = MemoryInput {
+        content: "unique phrase new".to_string(),
+        referenced_date: Some("2025-06-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("ph-new", "unique phrase new", &input_new)
+        .await
+        .unwrap();
+
+    let opts = SearchOptions {
+        event_after: Some("2024-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let results =
+        <SqliteStorage as PhraseSearcher>::phrase_search(&storage, "unique phrase", 10, &opts)
+            .await
+            .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "ph-new");
+}
+
+#[tokio::test]
+async fn test_referenced_date_date_only_format() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let input = MemoryInput {
+        content: "date only test".to_string(),
+        referenced_date: Some("2023-06-15".to_string()),
+        ..Default::default()
+    };
+    storage
+        .store("date-only-1", "date only test", &input)
+        .await
+        .unwrap();
+
+    let conn = storage.test_conn().unwrap();
+    let event_at: String = conn
+        .query_row(
+            "SELECT event_at FROM memories WHERE id = ?1",
+            params!["date-only-1"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(event_at, "2023-06-15");
 }
