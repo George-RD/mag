@@ -61,11 +61,12 @@ pub enum InitMode {
 
 /// SQLite-backed persistent storage for the memory system.
 ///
-/// Wraps a shared `rusqlite::Connection` behind `Arc<Mutex<_>>` so it can
+/// Uses a connection pool with one writer and N readers (WAL mode) for
+/// concurrent read access. The pool is behind `Arc` so the struct can
 /// be cloned into both the `Storage` and `Retriever` roles of a [`Pipeline`].
 #[derive(Clone)]
 pub struct SqliteStorage {
-    conn: Arc<Mutex<Connection>>,
+    pool: Arc<ConnPool>,
     embedder: Arc<dyn Embedder>,
     scoring_params: ScoringParams,
 }
@@ -110,20 +111,21 @@ impl SqliteStorage {
 
     /// Opens (or creates) a database at the given `path`, creating parent directories as needed.
     ///
+    /// If `path` is `:memory:`, an in-memory single-connection pool is used
+    /// (reader pool is skipped because in-memory databases cannot share state
+    /// across connections).
+    ///
     /// Performs blocking filesystem and SQLite I/O. Call before entering the
     /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
     pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self> {
-        #[cfg(feature = "sqlite-vec")]
-        ensure_vec_extension_registered();
-
-        initialize_parent_dir(&path)?;
-        let conn = Connection::open(&path)
-            .with_context(|| format!("failed to open sqlite database at {}", path.display()))?;
-
-        initialize_schema(&conn, embedder.dimension())?;
+        let pool = if path.as_os_str() == ":memory:" {
+            ConnPool::open_in_memory(embedder.dimension())?
+        } else {
+            ConnPool::open_file(&path, embedder.dimension())?
+        };
 
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            pool: Arc::new(pool),
             embedder,
             scoring_params: ScoringParams::default(),
         })
@@ -132,9 +134,9 @@ impl SqliteStorage {
     /// Runs `PRAGMA optimize` to update SQLite query planner statistics.
     /// Call periodically (e.g. on shutdown or after large writes).
     pub async fn optimize(&self) -> Result<()> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
             conn.execute_batch("PRAGMA optimize;")
                 .context("failed to run PRAGMA optimize")?;
             Ok::<_, anyhow::Error>(())
@@ -172,7 +174,7 @@ impl SqliteStorage {
             ));
         }
         let rel_id = Uuid::new_v4().to_string();
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let source_id = source_id.to_string();
         let target_id = target_id.to_string();
         let rel_type = rel_type.to_string();
@@ -181,7 +183,7 @@ impl SqliteStorage {
         let rid = rel_id.clone();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
             conn.execute(
                 "INSERT INTO relationships (id, source_id, target_id, rel_type, weight, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![rid, source_id, target_id, rel_type, weight, metadata_json],
@@ -207,10 +209,10 @@ impl SqliteStorage {
 
     /// Returns storage statistics as a JSON Value.
     pub async fn stats(&self) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let total_memories: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
@@ -255,10 +257,10 @@ impl SqliteStorage {
 
     /// Exports all memories and relationships as a JSON string.
     pub async fn export_all(&self) -> Result<String> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut mem_stmt = conn
                 .prepare(
@@ -399,10 +401,10 @@ impl SqliteStorage {
             .cloned()
             .unwrap_or_default();
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             let tx = conn
                 .unchecked_transaction()
@@ -545,21 +547,26 @@ impl SqliteStorage {
 
     #[cfg(test)]
     pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
-        #[cfg(feature = "sqlite-vec")]
-        ensure_vec_extension_registered();
-
-        let conn = Connection::open_in_memory().context("failed to open in-memory sqlite")?;
-        initialize_schema(&conn, embedder.dimension())?;
+        let pool = ConnPool::open_in_memory(embedder.dimension())?;
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            pool: Arc::new(pool),
             embedder,
             scoring_params: ScoringParams::default(),
         })
     }
 
+    /// Returns a guard to the writer connection for test assertions.
+    ///
+    /// In single-connection (in-memory) mode this is the only connection;
+    /// in pooled mode it is the dedicated writer.
+    #[cfg(test)]
+    pub(super) fn test_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.pool.writer()
+    }
+
     #[cfg(test)]
     fn debug_get_last_accessed_at(&self, id: &str) -> Result<String> {
-        let conn = lock_conn(&self.conn)?;
+        let conn = self.pool.reader()?;
 
         let value: Option<String> = conn
             .query_row(
@@ -575,7 +582,7 @@ impl SqliteStorage {
 
     #[cfg(test)]
     fn debug_force_last_accessed_at(&self, id: &str, timestamp: &str) -> Result<()> {
-        let conn = lock_conn(&self.conn)?;
+        let conn = self.pool.writer()?;
 
         conn.execute(
             "UPDATE memories SET last_accessed_at = ?2 WHERE id = ?1",
@@ -588,7 +595,7 @@ impl SqliteStorage {
 
     #[cfg(test)]
     fn debug_get_access_count(&self, id: &str) -> Result<i64> {
-        let conn = lock_conn(&self.conn)?;
+        let conn = self.pool.reader()?;
 
         let value: Option<i64> = conn
             .query_row(
@@ -604,7 +611,7 @@ impl SqliteStorage {
 
     #[cfg(test)]
     fn debug_get_versioning_fields(&self, id: &str) -> Result<(Option<String>, Option<String>)> {
-        let conn = lock_conn(&self.conn)?;
+        let conn = self.pool.reader()?;
 
         let value: Option<(Option<String>, Option<String>)> = conn
             .query_row(
@@ -625,7 +632,7 @@ impl SqliteStorage {
         target_id: &str,
         rel_type: &str,
     ) -> Result<bool> {
-        let conn = lock_conn(&self.conn)?;
+        let conn = self.pool.reader()?;
 
         let count: i64 = conn
             .query_row(
@@ -638,12 +645,12 @@ impl SqliteStorage {
     }
 
     async fn try_auto_relate(&self, memory_id: &str) -> Result<()> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
         let source_id_for_query = memory_id.clone();
 
         let similar_ids = tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let source_embedding: Vec<u8> = conn
                 .query_row(
@@ -770,8 +777,8 @@ mod session;
 
 pub(crate) use helpers::cosine_similarity;
 use helpers::{
-    EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash, content_hash,
-    decode_embedding, encode_embedding, escape_like_pattern, lock_conn, matches_search_options,
+    ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
+    content_hash, decode_embedding, encode_embedding, escape_like_pattern, matches_search_options,
     normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, resolve_priority,
     search_result_from_row, to_param_refs,
 };

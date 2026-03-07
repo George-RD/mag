@@ -9,7 +9,7 @@ impl GraphTraverser for SqliteStorage {
         min_weight: f64,
         edge_types: Option<&[String]>,
     ) -> Result<Vec<GraphNode>> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let start_id = start_id.to_string();
         let hop_limit = max_hops.clamp(1, 5);
         if max_hops > 5 {
@@ -20,7 +20,7 @@ impl GraphTraverser for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut frontier = vec![start_id.clone()];
             let mut visited: HashSet<String> = HashSet::from([start_id.clone()]);
@@ -144,11 +144,11 @@ impl SimilarFinder for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let source_embedding: Vec<u8> = conn
                 .query_row(
@@ -280,11 +280,11 @@ impl SimilarFinder for SqliteStorage {
 #[async_trait]
 impl RelationshipQuerier for SqliteStorage {
     async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut stmt = conn
                 .prepare(
@@ -324,13 +324,13 @@ impl RelationshipQuerier for SqliteStorage {
 #[async_trait]
 impl VersionChainQuerier for SqliteStorage {
     async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
 
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let chain_id: Option<String> = conn
                 .query_row(
@@ -424,7 +424,7 @@ impl VersionChainQuerier for SqliteStorage {
     }
 
     async fn supersede_memory(&self, old_id: &str, new_id: &str) -> Result<()> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let old_id = old_id.to_string();
         let new_id = new_id.to_string();
         if old_id == new_id {
@@ -432,7 +432,7 @@ impl VersionChainQuerier for SqliteStorage {
         }
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start supersede transaction")?;

@@ -12,7 +12,7 @@ impl AdvancedSearcher for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let scoring_params = self.scoring_params.clone();
         let query = query.to_string();
@@ -25,7 +25,7 @@ impl AdvancedSearcher for SqliteStorage {
             let query_embedding = embedder
                 .embed(&query)
                 .context("failed to compute query embedding")?;
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             // ── RRF (Reciprocal Rank Fusion) hybrid search ─────────
             // Rank each signal independently then fuse with 1/(k+rank).

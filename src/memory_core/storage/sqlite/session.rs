@@ -3,10 +3,10 @@ use super::*;
 #[async_trait]
 impl ProfileManager for SqliteStorage {
     async fn get_profile(&self) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut profile = serde_json::Map::new();
             let mut stmt = conn
@@ -63,13 +63,13 @@ impl ProfileManager for SqliteStorage {
 
     async fn set_profile(&self, updates: &serde_json::Value) -> Result<()> {
         let updates = updates.clone();
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
             let updates_obj = updates
                 .as_object()
                 .ok_or_else(|| anyhow!("profile updates must be a JSON object"))?;
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             for (key, value) in updates_obj {
                 let value_json = serde_json::to_string(value)
@@ -94,11 +94,11 @@ impl ProfileManager for SqliteStorage {
 #[async_trait]
 impl CheckpointManager for SqliteStorage {
     async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let task_title = input.task_title.clone();
         let task_marker = format!("## Checkpoint: {}", task_title);
         let existing_count = tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
             let mut stmt = conn
                 .prepare(
                     "SELECT COUNT(*) FROM memories
@@ -189,13 +189,13 @@ impl CheckpointManager for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let query = query.to_string();
         let project = project.map(ToString::to_string);
         let limit = i64::try_from(limit).context("resume_task limit exceeds i64")?;
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut sql = String::from(
                 "SELECT content, metadata, created_at
@@ -308,11 +308,11 @@ impl ReminderManager for SqliteStorage {
     }
 
     async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let status = status.map(ToString::to_string);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut stmt = conn
                 .prepare(
@@ -397,11 +397,11 @@ impl ReminderManager for SqliteStorage {
     }
 
     async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let reminder_id = reminder_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             let row: Option<(Option<String>, String)> = conn
                 .query_row(
@@ -459,7 +459,7 @@ impl LessonQuerier for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let task = task.map(ToString::to_string);
         let project = project.map(ToString::to_string);
         let exclude_session = exclude_session.map(ToString::to_string);
@@ -467,7 +467,7 @@ impl LessonQuerier for SqliteStorage {
         let limit = i64::try_from(limit).context("lessons query limit exceeds i64")?;
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut sql = String::from(
                 "SELECT id, content, session_id, access_count, created_at, metadata, project, agent_type

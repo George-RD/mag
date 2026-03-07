@@ -12,7 +12,7 @@ impl Searcher for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let query = query.to_string();
         let effective_limit = i64::try_from(limit).context("search limit exceeds i64")?;
         let opts = opts.clone();
@@ -20,7 +20,7 @@ impl Searcher for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let fts_query = build_fts5_query(&query);
             let include_superseded = opts.include_superseded.unwrap_or(false);
@@ -108,7 +108,7 @@ impl Recents for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let effective_limit = i64::try_from(limit).context("recent limit exceeds i64")?;
         let opts = opts.clone();
 
@@ -116,7 +116,7 @@ impl Recents for SqliteStorage {
             use rusqlite::types::Value as SqlValue;
             let include_superseded = opts.include_superseded.unwrap_or(false);
 
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut sql = String::from(
                 "SELECT id, content, tags, importance, metadata, event_type, session_id, project
@@ -167,7 +167,7 @@ impl SemanticSearcher for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let query = query.to_string();
         let opts = opts.clone();
@@ -180,7 +180,7 @@ impl SemanticSearcher for SqliteStorage {
                 .embed(&query)
                 .context("failed to compute query embedding")?;
 
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut ranked = Vec::new();
 
@@ -346,7 +346,7 @@ impl PhraseSearcher for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let phrase = phrase.to_string();
         let limit = i64::try_from(limit).context("phrase search limit exceeds i64")?;
         let opts = opts.clone();
@@ -355,7 +355,7 @@ impl PhraseSearcher for SqliteStorage {
             use rusqlite::types::Value as SqlValue;
 
             let include_superseded = opts.include_superseded.unwrap_or(false);
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let pattern = escape_like_pattern(&phrase);
 

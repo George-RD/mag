@@ -5,9 +5,115 @@ use super::*;
 /// Fallback timestamp used when a row's `created_at` column is missing or unparseable.
 pub(super) const EPOCH_FALLBACK: &str = "1970-01-01T00:00:00.000Z";
 
-pub(super) fn lock_conn(conn: &Mutex<Connection>) -> Result<MutexGuard<'_, Connection>> {
-    conn.lock()
-        .map_err(|_| anyhow!("sqlite connection mutex poisoned"))
+/// Default number of reader connections in the pool for file-backed databases.
+const DEFAULT_READER_COUNT: usize = 4;
+
+/// Connection pool providing one writer connection and N reader connections.
+///
+/// In WAL mode, SQLite allows concurrent readers while a single writer holds
+/// the write lock. `rusqlite::Connection` is `!Sync`, so each connection is
+/// wrapped in its own `Mutex`.
+///
+/// For in-memory databases (`:memory:` or `file::memory:`) that cannot share
+/// state across connections, the pool falls back to single-connection mode
+/// where all operations use the writer.
+#[derive(Debug)]
+pub(super) struct ConnPool {
+    writer: Mutex<Connection>,
+    readers: Vec<Mutex<Connection>>,
+    /// Round-robin counter for reader selection.
+    reader_idx: std::sync::atomic::AtomicUsize,
+}
+
+impl ConnPool {
+    /// Opens a file-backed connection pool: one writer + N readers.
+    ///
+    /// All connections share the same SQLite database file and run in WAL mode.
+    pub(super) fn open_file(path: &Path, embedding_dim: usize) -> Result<Self> {
+        #[cfg(feature = "sqlite-vec")]
+        super::ensure_vec_extension_registered();
+
+        super::initialize_parent_dir(path)?;
+
+        let writer = open_connection(path)?;
+        // Writer sets WAL mode; readers inherit it from the file.
+        initialize_schema(&writer, embedding_dim)?;
+
+        let mut readers = Vec::with_capacity(DEFAULT_READER_COUNT);
+        for _ in 0..DEFAULT_READER_COUNT {
+            let reader = open_connection(path)?;
+            configure_reader(&reader)?;
+            readers.push(Mutex::new(reader));
+        }
+
+        Ok(Self {
+            writer: Mutex::new(writer),
+            readers,
+            reader_idx: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    /// Opens an in-memory pool (single connection, no reader pool).
+    ///
+    /// Used for tests and non-file-backed scenarios where multiple connections
+    /// cannot share state.
+    pub(super) fn open_in_memory(embedding_dim: usize) -> Result<Self> {
+        #[cfg(feature = "sqlite-vec")]
+        super::ensure_vec_extension_registered();
+
+        let conn = Connection::open_in_memory().context("failed to open in-memory sqlite")?;
+        initialize_schema(&conn, embedding_dim)?;
+
+        Ok(Self {
+            writer: Mutex::new(conn),
+            readers: Vec::new(),
+            reader_idx: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    /// Acquires the writer connection.
+    pub(super) fn writer(&self) -> Result<MutexGuard<'_, Connection>> {
+        self.writer
+            .lock()
+            .map_err(|_| anyhow!("sqlite writer mutex poisoned"))
+    }
+
+    /// Acquires a reader connection via round-robin. Falls back to the writer
+    /// when no dedicated readers exist (in-memory mode).
+    pub(super) fn reader(&self) -> Result<MutexGuard<'_, Connection>> {
+        if self.readers.is_empty() {
+            return self.writer();
+        }
+        let idx = self
+            .reader_idx
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.readers.len();
+        self.readers[idx]
+            .lock()
+            .map_err(|_| anyhow!("sqlite reader mutex poisoned"))
+    }
+}
+
+/// Opens a single SQLite connection with standard PRAGMAs.
+fn open_connection(path: &Path) -> Result<Connection> {
+    let conn = Connection::open(path)
+        .with_context(|| format!("failed to open sqlite database at {}", path.display()))?;
+    configure_reader(&conn)?;
+    Ok(conn)
+}
+
+/// Applies read-oriented PRAGMAs shared by all connections (writer and readers).
+fn configure_reader(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;\
+         PRAGMA busy_timeout=5000;\
+         PRAGMA cache_size=-16000;\
+         PRAGMA mmap_size=33554432;\
+         PRAGMA synchronous=NORMAL;\
+         PRAGMA temp_store=MEMORY;",
+    )
+    .context("failed to set connection PRAGMAs")?;
+    Ok(())
 }
 
 pub(super) fn canonicalize(content: &str) -> String {
