@@ -47,6 +47,10 @@ pub struct ScoringParams {
     pub neighbor_importance_scale: f64,
     pub graph_seed_min: usize,
     pub graph_seed_max: usize,
+    /// Multiplicative boost for candidates appearing in both vector and FTS
+    /// result lists during RRF fusion.  Applied after the combined RRF score
+    /// is computed but before score refinement.  Default 1.2 (20 % boost).
+    pub dual_match_boost: f64,
 }
 
 impl Default for ScoringParams {
@@ -76,6 +80,7 @@ impl Default for ScoringParams {
             neighbor_importance_scale: 0.5,
             graph_seed_min: 5,
             graph_seed_max: 8,
+            dual_match_boost: 1.2,
         }
     }
 }
@@ -490,5 +495,11 @@ mod tests {
         let b = token_set("beta gamma delta", 2);
         let similarity = jaccard_pre(&a, &b);
         assert!((similarity - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_dual_match_boost_default() {
+        let params = ScoringParams::default();
+        assert!((params.dual_match_boost - 1.2).abs() < 1e-9);
     }
 }

@@ -293,16 +293,28 @@ impl AdvancedSearcher for SqliteStorage {
                 merged.score *= rrf_score;
                 ranked.insert(id, merged);
             }
+            let mut dual_match_ids: HashSet<String> = HashSet::new();
             for (rank, (id, _bm25, candidate)) in fts_candidates.into_iter().enumerate() {
                 let rrf_score =
                     scoring_params.rrf_weight_fts / (scoring_params.rrf_k + rank as f64 + 1.0);
                 if let Some(existing) = ranked.get_mut(&id) {
                     // Present in both — add the FTS RRF contribution
                     existing.score += candidate.score * rrf_score;
+                    dual_match_ids.insert(id);
                 } else {
                     let mut merged = candidate;
                     merged.score *= rrf_score;
                     ranked.insert(id, merged);
+                }
+            }
+            // Apply dual-match boost: candidates in both vector and FTS lists
+            // get a multiplicative boost on their fused RRF score (before
+            // score refinement).
+            if scoring_params.dual_match_boost != 1.0 {
+                for id in &dual_match_ids {
+                    if let Some(candidate) = ranked.get_mut(id) {
+                        candidate.score *= scoring_params.dual_match_boost;
+                    }
                 }
             }
 
