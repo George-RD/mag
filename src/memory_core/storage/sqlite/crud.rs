@@ -13,7 +13,8 @@ impl Storage for SqliteStorage {
         let id = id.to_string();
         let data = data.to_string();
         let importance = input.importance;
-        let event_type = input.event_type.clone();
+        let event_type = event_type_to_sql(&input.event_type);
+        let event_type_enum = input.event_type.clone();
         let session_id = input.session_id.clone();
         let project = input.project.clone();
         let priority = input.priority;
@@ -56,10 +57,7 @@ impl Storage for SqliteStorage {
             }
 
             if let Some(ref event_type_value) = event_type {
-                let threshold = DEDUP_THRESHOLDS
-                    .iter()
-                    .find(|(kind, _)| kind == &event_type_value.as_str())
-                    .map(|(_, threshold)| *threshold);
+                let threshold = event_type_enum.as_ref().and_then(|et| et.dedup_threshold());
 
                 if let Some(threshold) = threshold {
                     let mut stmt = tx
@@ -108,7 +106,7 @@ impl Storage for SqliteStorage {
 
             let mut superseded_ids: Vec<String> = Vec::new();
             if let Some(ref event_type_value) = event_type
-                && SUPERSESSION_TYPES.contains(&event_type_value.as_str())
+                && event_type_enum.as_ref().is_some_and(|et| et.is_supersession_type())
             {
                 let mut sup_stmt = tx
                     .prepare(
@@ -431,7 +429,7 @@ impl Updater for SqliteStorage {
             .as_ref()
             .map(|metadata| serde_json::to_string(metadata).context("failed to serialize metadata"))
             .transpose()?;
-        let event_type = input.event_type.clone();
+        let event_type = event_type_to_sql(&input.event_type);
         let priority = input.priority;
         let importance = input.importance;
         let content = input.content.clone();
@@ -600,10 +598,10 @@ impl Tagger for SqliteStorage {
             );
 
             let mut next_idx = param_values.len();
-            if let Some(event_type) = opts.event_type.clone() {
+            if let Some(ref event_type) = opts.event_type {
                 next_idx += 1;
                 sql.push_str(&format!(" AND event_type = ?{next_idx}"));
-                param_values.push(event_type);
+                param_values.push(event_type.to_string());
             }
             if let Some(project) = opts.project.clone() {
                 next_idx += 1;

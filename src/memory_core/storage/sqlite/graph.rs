@@ -110,12 +110,12 @@ impl GraphTraverser for SqliteStorage {
                             .optional()
                             .context("failed to fetch neighbor memory")?;
 
-                        if let Some((content, event_type, metadata_raw, created_at)) = memory {
+                        if let Some((content, event_type_str, metadata_raw, created_at)) = memory {
                             next_frontier.push(neighbor.clone());
                             nodes.push(GraphNode {
                                 id: neighbor,
                                 content,
-                                event_type,
+                                event_type: event_type_from_sql(event_type_str),
                                 metadata: parse_metadata_from_db(&metadata_raw),
                                 hop,
                                 weight,
@@ -199,14 +199,14 @@ impl SimilarFinder for SqliteStorage {
                         .optional()
                         .context("failed to fetch memory for vec similar result")?;
 
-                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project)) = row_data {
+                    if let Some((content, raw_tags, importance, raw_metadata, event_type_str, session_id, project)) = row_data {
                         ranked.push(SemanticResult {
                             id: candidate_id,
                             content,
                             tags: parse_tags_from_db(&raw_tags),
                             importance,
                             metadata: parse_metadata_from_db(&raw_metadata),
-                            event_type,
+                            event_type: event_type_from_sql(event_type_str),
                             session_id,
                             project,
                             score: similarity,
@@ -247,7 +247,7 @@ impl SimilarFinder for SqliteStorage {
                         raw_tags,
                         importance,
                         raw_metadata,
-                        event_type,
+                        event_type_str,
                         session_id,
                         project,
                     ) = row.context("failed to decode similar row")?;
@@ -260,7 +260,7 @@ impl SimilarFinder for SqliteStorage {
                         tags: parse_tags_from_db(&raw_tags),
                         importance,
                         metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type,
+                        event_type: event_type_from_sql(event_type_str),
                         session_id,
                         project,
                         score,
@@ -396,13 +396,14 @@ impl VersionChainQuerier for SqliteStorage {
                                 .map_or(serde_json::Value::Null, serde_json::Value::String),
                         );
                     }
+                    let event_type_str: Option<String> = row.get(5).ok();
                     Ok(SearchResult {
                         id: row.get(0)?,
                         content: row.get(1)?,
                         tags: parse_tags_from_db(&raw_tags),
                         importance: row.get(3)?,
                         metadata,
-                        event_type: row.get(5).ok(),
+                        event_type: event_type_from_sql(event_type_str),
                         session_id: row.get(6).ok(),
                         project: row.get(7).ok(),
                     })

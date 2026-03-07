@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, ExpirationSweeper,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
     MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
     Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
@@ -21,19 +21,6 @@ use crate::memory_core::{
     feedback_factor, jaccard_pre, jaccard_similarity, priority_factor, time_decay, token_set,
     type_weight, word_overlap_pre,
 };
-
-const DEDUP_THRESHOLDS: &[(&str, f64)] = &[
-    ("error_pattern", 0.70),
-    ("session_summary", 0.75),
-    ("task_completion", 0.85),
-    ("decision", 0.80),
-    ("lesson_learned", 0.85),
-];
-
-/// Event types that support ingest-time auto-supersession.
-/// These represent facts/preferences that evolve over time - newer replaces older.
-/// Excluded: error_pattern (accumulates), session_summary (episodic), task_completion (one-time).
-const SUPERSESSION_TYPES: &[&str] = &["decision", "lesson_learned", "user_preference"];
 
 /// Cosine similarity threshold for auto-supersession detection (primary signal).
 /// Semantic similarity catches updates even when wording changes significantly.
@@ -771,9 +758,10 @@ mod session;
 pub(crate) use helpers::cosine_similarity;
 use helpers::{
     EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash, content_hash,
-    decode_embedding, encode_embedding, escape_like_pattern, lock_conn, matches_search_options,
-    normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, resolve_priority,
-    search_result_from_row, to_param_refs,
+    decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
+    event_type_to_sql, lock_conn, matches_search_options, normalize_for_dedup,
+    parse_metadata_from_db, parse_tags_from_db, resolve_priority, search_result_from_row,
+    to_param_refs,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 

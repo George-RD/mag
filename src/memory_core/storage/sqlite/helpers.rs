@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::MutexGuard;
 
 use super::*;
@@ -151,16 +152,27 @@ pub(super) fn escape_like_pattern(input: &str) -> String {
 pub(super) fn search_result_from_row(row: &rusqlite::Row) -> rusqlite::Result<SearchResult> {
     let raw_tags: String = row.get(2)?;
     let raw_metadata: String = row.get(4)?;
+    let event_type_str: Option<String> = row.get(5).ok();
     Ok(SearchResult {
         id: row.get(0)?,
         content: row.get(1)?,
         tags: parse_tags_from_db(&raw_tags),
         importance: row.get(3)?,
         metadata: parse_metadata_from_db(&raw_metadata),
-        event_type: row.get(5).ok(),
+        event_type: event_type_str.map(|s| EventType::from_str(&s).unwrap_or_else(|e| match e {})),
         session_id: row.get(6).ok(),
         project: row.get(7).ok(),
     })
+}
+
+/// Converts an `Option<EventType>` to an `Option<String>` for SQL parameter binding.
+pub(super) fn event_type_to_sql(et: &Option<EventType>) -> Option<String> {
+    et.as_ref().map(|e| e.to_string())
+}
+
+/// Parses an `Option<String>` from the DB into an `Option<EventType>`.
+pub(super) fn event_type_from_sql(s: Option<String>) -> Option<EventType> {
+    s.map(|v| EventType::from_str(&v).unwrap_or_else(|e| match e {}))
 }
 
 /// Appends WHERE-clause fragments for every non-None field in `opts` to `sql`,
@@ -178,7 +190,7 @@ pub(super) fn append_search_filters(
 
     if let Some(ref event_type) = opts.event_type {
         sql.push_str(&format!(" AND {}event_type = ?{}", col_prefix, *idx));
-        params.push(SqlValue::Text(event_type.clone()));
+        params.push(SqlValue::Text(event_type.to_string()));
         *idx += 1;
     }
     if let Some(ref project) = opts.project {
@@ -230,8 +242,8 @@ pub(super) fn matches_search_options(
     candidate: &RankedSemanticCandidate,
     opts: &SearchOptions,
 ) -> bool {
-    if let Some(event_type) = opts.event_type.as_deref()
-        && candidate.result.event_type.as_deref() != Some(event_type)
+    if let Some(ref event_type) = opts.event_type
+        && candidate.result.event_type.as_ref() != Some(event_type)
     {
         return false;
     }

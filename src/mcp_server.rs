@@ -11,15 +11,23 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use std::str::FromStr;
+
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, ExpirationSweeper,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
     MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager,
     Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, StatsProvider, Storage,
     Tagger, Updater, VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
     default_ttl_for_event_type, is_valid_event_type,
 };
+
+/// Converts an `Option<String>` (from JSON request) into `Option<EventType>`.
+fn parse_event_type(s: &Option<String>) -> Option<EventType> {
+    s.as_ref()
+        .map(|v| EventType::from_str(v).unwrap_or_else(|e| match e {}))
+}
 
 #[derive(Clone)]
 pub struct McpMemoryServer {
@@ -306,9 +314,9 @@ impl McpMemoryServer {
             .id
             .clone()
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let event_type = params.0.event_type.clone();
+        let event_type_str = params.0.event_type.clone();
         let ttl_seconds = params.0.ttl_seconds.or_else(|| {
-            event_type
+            event_type_str
                 .as_deref()
                 .map(default_ttl_for_event_type)
                 .unwrap_or(Some(crate::memory_core::TTL_LONG_TERM))
@@ -323,11 +331,12 @@ impl McpMemoryServer {
                 .metadata
                 .clone()
                 .unwrap_or_else(|| serde_json::json!({})),
-            priority: params
-                .0
-                .priority
-                .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
-            event_type,
+            priority: params.0.priority.or_else(|| {
+                event_type_str
+                    .as_deref()
+                    .map(default_priority_for_event_type)
+            }),
+            event_type: parse_event_type(&event_type_str),
             session_id: params.0.session_id.clone(),
             project: params.0.project.clone(),
             entity_id: params.0.entity_id.clone(),
@@ -375,7 +384,7 @@ impl McpMemoryServer {
         }
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -425,7 +434,7 @@ impl McpMemoryServer {
         }
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -477,7 +486,7 @@ impl McpMemoryServer {
 
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -673,7 +682,7 @@ impl McpMemoryServer {
 
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -726,7 +735,7 @@ impl McpMemoryServer {
         }
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -1029,7 +1038,7 @@ impl McpMemoryServer {
             tags: params.0.tags.clone(),
             importance: params.0.importance,
             metadata: params.0.metadata.clone(),
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             priority: params.0.priority,
         };
         <SqliteStorage as Updater>::update(&self.storage, &params.0.id, &update)
@@ -1061,7 +1070,7 @@ impl McpMemoryServer {
         }
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -1112,7 +1121,7 @@ impl McpMemoryServer {
         let offset = params.0.offset.unwrap_or(0);
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: params.0.event_type.clone(),
+            event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,

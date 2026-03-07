@@ -1,25 +1,7 @@
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{MemoryKind, memory_kind_for_event_type};
-
-/// Type weights for search scoring — higher = more important in results
-pub const TYPE_WEIGHTS: &[(&str, f64)] = &[
-    ("checkpoint", 2.5),
-    ("reminder", 3.0),
-    ("decision", 2.0),
-    ("lesson_learned", 2.0),
-    ("error_pattern", 2.0),
-    ("user_preference", 2.0),
-    ("task_completion", 1.4),
-    ("session_summary", 1.2),
-    ("blocked_context", 1.0),
-    ("git_commit", 1.0),
-    ("git_merge", 1.0),
-    ("git_conflict", 1.0),
-    ("coordination_snapshot", 0.2),
-    ("memory", 1.0),
-];
+use super::{EventType, MemoryKind};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScoringParams {
@@ -81,10 +63,10 @@ impl Default for ScoringParams {
 }
 
 pub fn type_weight(event_type: &str) -> f64 {
-    TYPE_WEIGHTS
-        .iter()
-        .find_map(|(kind, weight)| (*kind == event_type).then_some(*weight))
-        .unwrap_or(1.0)
+    let et = event_type
+        .parse::<EventType>()
+        .unwrap_or_else(|e| match e {});
+    et.type_weight()
 }
 
 pub fn priority_factor(priority: u8, scoring_params: &ScoringParams) -> f64 {
@@ -92,7 +74,10 @@ pub fn priority_factor(priority: u8, scoring_params: &ScoringParams) -> f64 {
 }
 
 pub fn time_decay(created_at: &str, event_type: &str, scoring_params: &ScoringParams) -> f64 {
-    if memory_kind_for_event_type(event_type) == MemoryKind::Semantic {
+    let et = event_type
+        .parse::<EventType>()
+        .unwrap_or_else(|e| match e {});
+    if et.memory_kind() == MemoryKind::Semantic {
         return 1.0;
     }
 

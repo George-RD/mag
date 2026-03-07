@@ -234,14 +234,14 @@ impl SemanticSearcher for SqliteStorage {
                         .optional()
                         .context("failed to fetch memory for vec result")?;
 
-                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project)) = row_data {
+                    if let Some((content, raw_tags, importance, raw_metadata, event_type_str, session_id, project)) = row_data {
                         ranked.push(SemanticResult {
                             id: memory_id,
                             content,
                             tags: parse_tags_from_db(&raw_tags),
                             importance,
                             metadata: parse_metadata_from_db(&raw_metadata),
-                            event_type,
+                            event_type: event_type_from_sql(event_type_str),
                             session_id,
                             project,
                             score: similarity,
@@ -303,7 +303,7 @@ impl SemanticSearcher for SqliteStorage {
                         raw_tags,
                         importance,
                         raw_metadata,
-                        event_type,
+                        event_type_str,
                         session_id,
                         project,
                     ) = row.context("failed to decode semantic search row")?;
@@ -316,7 +316,7 @@ impl SemanticSearcher for SqliteStorage {
                         tags: parse_tags_from_db(&raw_tags),
                         importance,
                         metadata: parse_metadata_from_db(&raw_metadata),
-                        event_type,
+                        event_type: event_type_from_sql(event_type_str),
                         session_id,
                         project,
                         score,
