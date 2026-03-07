@@ -16,7 +16,9 @@ use anyhow::{Result, anyhow};
 use clap::Parser;
 
 use romega_memory::memory_core::storage::sqlite::SqliteStorage;
-use romega_memory::memory_core::{AdvancedSearcher, MemoryInput, OnnxEmbedder, SearchOptions};
+use romega_memory::memory_core::{
+    AdvancedSearcher, EventType, MemoryInput, OnnxEmbedder, SearchOptions,
+};
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -146,13 +148,14 @@ fn generate_input(index: usize) -> MemoryInput {
         tags: vec![tag1.to_string(), tag2.to_string()],
         importance: 0.3 + (index % 7) as f64 * 0.1, // 0.3 to 0.9
         metadata: serde_json::json!({}),
-        event_type: Some(event_type.to_string()),
+        event_type: Some(event_type.parse::<EventType>().unwrap_or(EventType::Memory)),
         session_id: Some(format!("scale-session-{}", index % 50)),
         project: Some(format!("project-{}", index % 7)),
         priority: None,
         entity_id: None,
         agent_type: None,
         ttl_seconds: None,
+        referenced_date: None,
     }
 }
 
@@ -370,13 +373,14 @@ async fn run_benchmark(args: &Args) -> Result<Vec<ScaleResult>> {
             tags: vec!["needle".to_string(), "scale-bench".to_string()],
             importance: 0.8,
             metadata: serde_json::json!({}),
-            event_type: Some("lesson_learned".to_string()),
+            event_type: Some(EventType::LessonLearned),
             session_id: Some("needle-session".to_string()),
             project: Some("needle-project".to_string()),
             priority: Some(4),
             entity_id: None,
             agent_type: None,
             ttl_seconds: None,
+            referenced_date: None,
         };
         storage.store(&needle.id, &needle.content, &input).await?;
     }
