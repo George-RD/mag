@@ -30,19 +30,77 @@ impl Storage for SqliteStorage {
                 .unchecked_transaction()
                 .context("failed to start sqlite transaction")?;
 
-            let existing_canonical_id: Option<String> = tx
-                .query_row(
-                    "SELECT id FROM memories
-                     WHERE canonical_hash = ?1
-                       AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
-                     LIMIT 1",
-                    params![normalized_hash],
-                    |row| row.get(0),
-                )
-                .optional()
-                .context("failed to query canonical hash dedup")?;
+            // ── Phase 1: Combined canonical-hash + Jaccard dedup (single query) ──
+            //
+            // Fetch the canonical-hash match (if any) AND Jaccard candidates in one
+            // CTE-based round-trip, eliminating the previous two separate SELECTs.
+            let jaccard_threshold = event_type.as_deref().and_then(|et| {
+                DEDUP_THRESHOLDS
+                    .iter()
+                    .find(|(kind, _)| *kind == et)
+                    .map(|(_, t)| *t)
+            });
+            // We only need Jaccard candidates when a threshold exists for this event type.
+            let need_jaccard = jaccard_threshold.is_some();
 
-            if let Some(existing_id) = existing_canonical_id {
+            // result_kind: 'canonical' for a canonical-hash hit, 'jaccard' for a candidate row
+            let mut dedup_stmt = tx
+                .prepare(
+                    "WITH canonical_hit AS (
+                         SELECT id, 'canonical' AS kind
+                         FROM memories
+                         WHERE canonical_hash = ?1
+                           AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                         LIMIT 1
+                     ),
+                     jaccard_candidates AS (
+                         SELECT id, content
+                         FROM memories
+                         WHERE ?2 AND event_type = ?3
+                           AND NOT EXISTS (SELECT 1 FROM canonical_hit)
+                           AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                         ORDER BY created_at DESC
+                         LIMIT 5
+                     )
+                     SELECT kind, id, NULL AS content FROM canonical_hit
+                     UNION ALL
+                     SELECT 'jaccard' AS kind, id, content FROM jaccard_candidates",
+                )
+                .context("failed to prepare combined dedup query")?;
+
+            let event_type_param = event_type.as_deref().unwrap_or("");
+            let dedup_rows = dedup_stmt
+                .query_map(
+                    params![normalized_hash, need_jaccard, event_type_param],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .context("failed to execute combined dedup query")?;
+
+            let mut canonical_dedup_id: Option<String> = None;
+            let mut jaccard_candidates: Vec<(String, String)> = Vec::new();
+            for row in dedup_rows {
+                let (kind, row_id, content) = row.context("failed to decode combined dedup row")?;
+                match kind.as_str() {
+                    "canonical" => {
+                        canonical_dedup_id = Some(row_id);
+                    }
+                    _ => {
+                        if let Some(c) = content {
+                            jaccard_candidates.push((row_id, c));
+                        }
+                    }
+                }
+            }
+            drop(dedup_stmt);
+
+            // Canonical-hash early return (cheapest dedup — skips embedding entirely)
+            if let Some(existing_id) = canonical_dedup_id {
                 tx.execute(
                     "UPDATE memories
                      SET access_count = access_count + 1,
@@ -55,57 +113,36 @@ impl Storage for SqliteStorage {
                 return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new()));
             }
 
-            if let Some(ref event_type_value) = event_type {
-                let threshold = DEDUP_THRESHOLDS
-                    .iter()
-                    .find(|(kind, _)| kind == &event_type_value.as_str())
-                    .map(|(_, threshold)| *threshold);
-
-                if let Some(threshold) = threshold {
-                    let mut stmt = tx
-                        .prepare(
-                            "SELECT id, content FROM memories WHERE event_type = ?1
-                             AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
-                             ORDER BY created_at DESC LIMIT 5",
-                        )
-                        .context("failed to prepare Jaccard dedup query")?;
-                    let rows = stmt
-                        .query_map(params![event_type_value], |row| {
-                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                        })
-                        .context("failed to execute Jaccard dedup query")?;
-
-                    let mut matched_id: Option<String> = None;
-                    for row in rows {
-                        let (candidate_id, candidate_content) =
-                            row.context("failed to decode Jaccard dedup row")?;
-                        let similarity = jaccard_similarity(&data, &candidate_content, 3);
-                        if similarity >= threshold {
-                            matched_id = Some(candidate_id);
-                            break;
-                        }
+            // Jaccard dedup check (Rust-side similarity on pre-fetched candidates)
+            if let Some(threshold) = jaccard_threshold {
+                let matched_id = jaccard_candidates.iter().find_map(|(cid, ccontent)| {
+                    let similarity = jaccard_similarity(&data, ccontent, 3);
+                    if similarity >= threshold {
+                        Some(cid.clone())
+                    } else {
+                        None
                     }
+                });
 
-                    if let Some(existing_id) = matched_id {
-                        drop(stmt);
-                        tx.execute(
-                            "UPDATE memories
-                             SET access_count = access_count + 1,
-                                 last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                             WHERE id = ?1",
-                            params![existing_id],
-                        )
-                        .context("failed to update access_count for Jaccard dedup")?;
-                        tx.commit().context("failed to commit Jaccard dedup")?;
-                        return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new()));
-                    }
+                if let Some(existing_id) = matched_id {
+                    tx.execute(
+                        "UPDATE memories
+                         SET access_count = access_count + 1,
+                             last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                         WHERE id = ?1",
+                        params![existing_id],
+                    )
+                    .context("failed to update access_count for Jaccard dedup")?;
+                    tx.commit().context("failed to commit Jaccard dedup")?;
+                    return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new()));
                 }
             }
 
-            // Defer embedding until after cheap dedup checks pass
+            // ── Phase 2: Embedding (the real bottleneck, ~8ms) ──
             let embedding_vec = embedder.embed(&data)?;
             let embedding = encode_embedding(&embedding_vec);
 
+            // ── Phase 3: Supersession detection ──
             let mut superseded_ids: Vec<String> = Vec::new();
             if let Some(ref event_type_value) = event_type
                 && SUPERSESSION_TYPES.contains(&event_type_value.as_str())
@@ -163,6 +200,7 @@ impl Storage for SqliteStorage {
                 drop(sup_stmt);
             }
 
+            // ── Phase 4: INSERT memory + FTS5 sync ──
             tx.execute(
                 "INSERT INTO memories (
                     id,
@@ -253,64 +291,81 @@ impl Storage for SqliteStorage {
             #[cfg(feature = "sqlite-vec")]
             vec_upsert(&tx, &id_for_store, &embedding)?;
 
-            let now_str = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+            // ── Phase 5: Batched supersession chain management ──
+            if !superseded_ids.is_empty() {
+                let now_str =
+                    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
-            // Determine a single canonical chain_id for all superseded memories
-            let mut canonical_chain_id: Option<String> = None;
-            let mut other_chain_ids: Vec<String> = Vec::new();
-            for old_id in &superseded_ids {
-                tx.execute(
-                    "UPDATE memories SET superseded_by_id = ?1, superseded_at = ?2
-                     WHERE id = ?3 AND superseded_by_id IS NULL",
-                    params![id_for_store, now_str, old_id],
-                )
-                .context("failed to mark memory as superseded")?;
+                // Batch-mark all superseded memories and collect their chain_ids in
+                // a single pass (replaces per-id UPDATE + SELECT pair).
+                let mut canonical_chain_id: Option<String> = None;
+                let mut other_chain_ids: Vec<String> = Vec::new();
 
-                let old_chain_id: Option<String> = tx
-                    .query_row(
-                        "SELECT version_chain_id FROM memories WHERE id = ?1",
-                        params![old_id],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .context("failed to query old chain_id")?
-                    .flatten();
-                match (&canonical_chain_id, &old_chain_id) {
-                    (None, Some(chain)) => canonical_chain_id = Some(chain.clone()),
-                    (None, None) => canonical_chain_id = Some(old_id.clone()),
-                    (Some(canonical), Some(chain)) if chain != canonical => {
-                        other_chain_ids.push(chain.clone());
+                for old_id in &superseded_ids {
+                    // UPDATE ... RETURNING merges the mark + chain_id fetch into one
+                    // round-trip per row. SQLite 3.35+ required (bundled ≥ 3.45).
+                    let old_chain_id: Option<String> = tx
+                        .query_row(
+                            "UPDATE memories
+                             SET superseded_by_id = ?1, superseded_at = ?2
+                             WHERE id = ?3 AND superseded_by_id IS NULL
+                             RETURNING version_chain_id",
+                            params![id_for_store, now_str, old_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .context("failed to mark memory as superseded")?
+                        .flatten();
+
+                    match (&canonical_chain_id, &old_chain_id) {
+                        (None, Some(chain)) => canonical_chain_id = Some(chain.clone()),
+                        (None, None) => canonical_chain_id = Some(old_id.clone()),
+                        (Some(canonical), Some(chain)) if chain != canonical => {
+                            other_chain_ids.push(chain.clone());
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
+
+                let chain_id =
+                    canonical_chain_id.unwrap_or_else(|| id_for_store.clone());
+
+                // Merge divergent chains into the canonical one
+                for other_chain in &other_chain_ids {
+                    tx.execute(
+                        "UPDATE memories SET version_chain_id = ?1 WHERE version_chain_id = ?2",
+                        params![chain_id, other_chain],
+                    )
+                    .context("failed to merge version chains")?;
+                }
+
+                // Batch-set chain_id on old memories that had none + the new memory
+                // in a single UPDATE using IN(...) + OR, replacing N+1 separate UPDATEs.
+                let id_placeholders: String = (0..superseded_ids.len())
+                    .map(|i| format!("?{}", i + 3))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let batch_sql = format!(
+                    "UPDATE memories SET version_chain_id = ?1
+                     WHERE (id IN ({id_placeholders}) AND version_chain_id IS NULL)
+                        OR id = ?2"
+                );
+                let mut param_values: Vec<rusqlite::types::Value> = Vec::with_capacity(
+                    superseded_ids.len() + 2,
+                );
+                param_values
+                    .push(rusqlite::types::Value::Text(chain_id));
+                param_values
+                    .push(rusqlite::types::Value::Text(id_for_store.clone()));
+                for old_id in &superseded_ids {
+                    param_values.push(rusqlite::types::Value::Text(
+                        old_id.clone(),
+                    ));
+                }
+                let param_refs = to_param_refs(&param_values);
+                tx.execute(&batch_sql, param_refs.as_slice())
+                    .context("failed to batch-set version chain ids")?;
             }
-
-            let chain_id = canonical_chain_id.unwrap_or_else(|| id_for_store.clone());
-
-            // Merge any divergent chains into the canonical one
-            for other_chain in &other_chain_ids {
-                tx.execute(
-                    "UPDATE memories SET version_chain_id = ?1 WHERE version_chain_id = ?2",
-                    params![chain_id, other_chain],
-                )
-                .context("failed to merge version chains")?;
-            }
-
-            // Set chain_id on old memories that had none
-            for old_id in &superseded_ids {
-                tx.execute(
-                    "UPDATE memories SET version_chain_id = ?1 WHERE id = ?2 AND version_chain_id IS NULL",
-                    params![chain_id, old_id],
-                )
-                .context("failed to set chain_id on old memory")?;
-            }
-
-            // Set chain_id on the new memory
-            tx.execute(
-                "UPDATE memories SET version_chain_id = ?1 WHERE id = ?2",
-                params![chain_id, id_for_store],
-            )
-            .context("failed to set chain_id on new memory")?;
 
             tx.commit().context("failed to commit sqlite transaction")?;
             Ok::<_, anyhow::Error>((StoreOutcome::Inserted, superseded_ids))
