@@ -4538,3 +4538,108 @@ async fn test_advanced_search_abstention_returns_empty() {
     .unwrap();
     assert!(results.is_empty(), "Abstention should return empty vec");
 }
+
+// ── Abstention gate regression tests ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_abstention_gate_fires_for_unrelated_query() {
+    // Store memories about Rust programming, then query about something
+    // completely unrelated (French pastry). The abstention gate should
+    // fire because max text_overlap will be well below the 0.30 threshold.
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    for (id, content) in [
+        (
+            "abs-gate1",
+            "Rust borrow checker enforces ownership rules at compile time",
+        ),
+        (
+            "abs-gate2",
+            "Tokio runtime provides async task scheduling for Rust applications",
+        ),
+        (
+            "abs-gate3",
+            "SQLite database supports full-text search via FTS5 extension",
+        ),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                event_type: Some(EventType::Decision),
+                tags: vec!["rust".to_string(), "programming".to_string()],
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Query about something completely unrelated — no word overlap expected
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "What is the best French pastry recipe for croissants",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        results.is_empty(),
+        "abstention gate should return empty results for unrelated query, got {} results",
+        results.len()
+    );
+}
+
+#[tokio::test]
+async fn test_abstention_gate_does_not_fire_for_relevant_query() {
+    // Store memories about Rust programming, then query about Rust.
+    // The abstention gate should NOT fire because text_overlap will
+    // exceed the 0.30 threshold.
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    for (id, content) in [
+        (
+            "rel1",
+            "Rust borrow checker enforces ownership rules at compile time",
+        ),
+        (
+            "rel2",
+            "Tokio runtime provides async task scheduling for Rust applications",
+        ),
+        (
+            "rel3",
+            "SQLite database supports full-text search via FTS5 extension",
+        ),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                event_type: Some(EventType::Decision),
+                tags: vec!["rust".to_string(), "programming".to_string()],
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Query about Rust — overlapping words should pass the gate
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "How does the Rust borrow checker work",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        !results.is_empty(),
+        "abstention gate should NOT fire for a relevant query with word overlap"
+    );
+}
