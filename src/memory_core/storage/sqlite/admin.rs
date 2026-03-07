@@ -8,10 +8,10 @@ impl MaintenanceManager for SqliteStorage {
         critical_mb: f64,
         max_nodes: i64,
     ) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let node_count: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
@@ -71,10 +71,10 @@ impl MaintenanceManager for SqliteStorage {
     }
 
     async fn consolidate(&self, prune_days: i64, max_summaries: i64) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             let before: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
@@ -177,11 +177,11 @@ impl MaintenanceManager for SqliteStorage {
         min_cluster_size: usize,
         dry_run: bool,
     ) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let event_type = event_type.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             // Get candidates
             let mut stmt = conn
@@ -330,11 +330,11 @@ impl MaintenanceManager for SqliteStorage {
     }
 
     async fn clear_session(&self, session_id: &str) -> Result<usize> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let session_id = session_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             let tx = conn
                 .unchecked_transaction()
@@ -386,11 +386,11 @@ impl WelcomeProvider for SqliteStorage {
         _session_id: Option<&str>,
         project: Option<&str>,
     ) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let project = project.map(ToString::to_string);
 
         let db_result = tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let total: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories WHERE superseded_by_id IS NULL", [], |row| row.get(0))
@@ -482,10 +482,10 @@ impl WelcomeProvider for SqliteStorage {
 #[async_trait]
 impl StatsProvider for SqliteStorage {
     async fn type_stats(&self) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut stmt = conn
                 .prepare("SELECT COALESCE(event_type, 'untyped') as etype, COUNT(*) as cnt FROM memories GROUP BY event_type ORDER BY cnt DESC")
@@ -513,10 +513,10 @@ impl StatsProvider for SqliteStorage {
     }
 
     async fn session_stats(&self) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut stmt = conn
                 .prepare("SELECT session_id, COUNT(*) as cnt FROM memories WHERE session_id IS NOT NULL GROUP BY session_id ORDER BY cnt DESC LIMIT 20")
@@ -554,10 +554,10 @@ impl StatsProvider for SqliteStorage {
     }
 
     async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let total: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
@@ -636,10 +636,10 @@ impl StatsProvider for SqliteStorage {
     }
 
     async fn access_rate_stats(&self) -> Result<serde_json::Value> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let total: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))

@@ -46,11 +46,7 @@ fn test_new_with_path_creates_parent_and_db() {
 #[test]
 fn test_schema_contains_required_tables_and_columns() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let conn = storage
-        .conn
-        .lock()
-        .map_err(|_| anyhow!("sqlite connection mutex poisoned"))
-        .unwrap();
+    let conn = storage.test_conn().unwrap();
 
     let memories_cols: Vec<String> = {
         let mut stmt = conn.prepare("PRAGMA table_info(memories)").unwrap();
@@ -109,11 +105,7 @@ fn test_schema_contains_required_tables_and_columns() {
 #[test]
 fn test_schema_contains_fts5_table() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let conn = storage
-        .conn
-        .lock()
-        .map_err(|_| anyhow!("sqlite connection mutex poisoned"))
-        .unwrap();
+    let conn = storage.test_conn().unwrap();
 
     let count: i64 = conn
         .query_row(
@@ -212,11 +204,7 @@ async fn test_add_relationship() {
         .await
         .unwrap();
 
-    let conn = storage
-        .conn
-        .lock()
-        .map_err(|_| anyhow!("sqlite connection mutex poisoned"))
-        .unwrap();
+    let conn = storage.test_conn().unwrap();
 
     let stored_rel_type: String = conn
         .query_row(
@@ -1014,7 +1002,7 @@ async fn test_get_by_tags_legacy_csv_backward_compat() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     // Insert a row with legacy CSV tags directly via raw SQL
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.execute(
             "INSERT INTO memories (id, content, content_hash, source_type, tags)
                  VALUES ('csv1', 'legacy data', 'hash1', 'test', 'rust,memory')",
@@ -1445,7 +1433,7 @@ async fn test_search_returns_importance_and_metadata() {
 async fn test_default_importance_is_half() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.execute(
             "INSERT INTO memories (id, content, content_hash, source_type, tags)
                  VALUES ('defimp', 'default importance', 'hash-default', 'test', '[]')",
@@ -1514,7 +1502,7 @@ async fn test_store_with_project_and_priority() {
     .await
     .unwrap();
 
-    let conn = storage.conn.lock().unwrap();
+    let conn = storage.test_conn().unwrap();
     let got: (Option<String>, Option<i64>) = conn
         .query_row(
             "SELECT project, priority FROM memories WHERE id='evt2'",
@@ -1816,7 +1804,7 @@ async fn test_update_priority() {
     .await
     .unwrap();
 
-    let conn = storage.conn.lock().unwrap();
+    let conn = storage.test_conn().unwrap();
     let priority: Option<i64> = conn
         .query_row(
             "SELECT priority FROM memories WHERE id='upprio'",
@@ -2309,7 +2297,7 @@ async fn test_auto_relate_creates_edges() {
     .await
     .unwrap();
 
-    let conn = storage.conn.lock().unwrap();
+    let conn = storage.test_conn().unwrap();
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM relationships WHERE source_id = 'rel-c' AND rel_type = 'related'",
@@ -2324,7 +2312,7 @@ async fn test_auto_relate_creates_edges() {
 async fn test_auto_relate_failure_doesnt_fail_store() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.execute(
                 "INSERT INTO memories (id, content, embedding, content_hash, source_type, tags, metadata)
                  VALUES ('broken', 'broken embedding', x'00', 'h-broken', 'test', '[]', '{}')",
@@ -2386,7 +2374,7 @@ async fn test_feedback_unhelpful_flagged() {
         .unwrap();
     }
 
-    let conn = storage.conn.lock().unwrap();
+    let conn = storage.test_conn().unwrap();
     let metadata_raw: String = conn
         .query_row(
             "SELECT metadata FROM memories WHERE id = 'fb-2'",
@@ -2415,7 +2403,7 @@ async fn test_sweep_expired() {
     .unwrap();
 
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.execute(
             "UPDATE memories SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = 'ttl-exp'",
             [],
@@ -2446,7 +2434,7 @@ async fn test_sweep_preserves_permanent() {
     .unwrap();
 
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.execute(
             "UPDATE memories SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = 'ttl-perm'",
             [],
@@ -2476,7 +2464,7 @@ async fn test_ttl_seconds_stored() {
     .await
     .unwrap();
 
-    let conn = storage.conn.lock().unwrap();
+    let conn = storage.test_conn().unwrap();
     let ttl: Option<i64> = conn
         .query_row(
             "SELECT ttl_seconds FROM memories WHERE id = 'ttl-set'",
@@ -3457,7 +3445,7 @@ async fn test_lessons_dedup() {
 #[test]
 fn test_schema_contains_new_columns() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let conn = storage.conn.lock().unwrap();
+    let conn = storage.test_conn().unwrap();
     let memories_cols: Vec<String> = {
         let mut stmt = conn.prepare("PRAGMA table_info(memories)").unwrap();
         stmt.query_map([], |row| row.get::<_, String>(1))
@@ -3536,7 +3524,7 @@ async fn test_consolidate_prunes_stale() {
         .unwrap();
     // Back-date the memory and ensure zero access
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.execute(
                 "UPDATE memories SET created_at = datetime('now', '-60 days'), access_count = 0 WHERE id = ?1",
                 params!["stale-1"],
@@ -3563,7 +3551,7 @@ async fn test_consolidate_caps_summaries() {
         "Epsilon frontend performance optimization reduced load times significantly",
     ];
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         for (i, content) in contents.iter().enumerate() {
             conn.execute(
                     "INSERT INTO memories (id, content, content_hash, source_type, event_type, tags, importance, metadata, access_count)
@@ -3586,7 +3574,7 @@ async fn test_compact_dry_run() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     // Insert directly via SQL to bypass store-time dedup
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         for i in 0..3 {
             conn.execute(
                     "INSERT INTO memories (id, content, content_hash, source_type, event_type, tags, importance, metadata, access_count)
@@ -3610,7 +3598,7 @@ async fn test_compact_merges() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     // Insert directly via SQL to bypass store-time dedup
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         for i in 0..3 {
             conn.execute(
                     "INSERT INTO memories (id, content, content_hash, source_type, event_type, tags, importance, metadata, access_count)
@@ -3685,7 +3673,7 @@ async fn test_clear_session() {
 
     // Verify only sess-b remains
     let remaining: i64 = {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
             .unwrap()
     };
@@ -3894,7 +3882,7 @@ async fn test_access_rate_stats() {
     .unwrap();
     // Set access_count on one
     {
-        let conn = storage.conn.lock().unwrap();
+        let conn = storage.test_conn().unwrap();
         conn.execute(
             "UPDATE memories SET access_count = 5 WHERE id = ?1",
             params!["ar-1"],

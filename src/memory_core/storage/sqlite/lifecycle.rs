@@ -15,13 +15,13 @@ impl FeedbackRecorder for SqliteStorage {
             _ => return Err(anyhow!("invalid rating: {rating}")),
         };
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
         let rating = rating.to_string();
         let reason = reason.map(ToString::to_string);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             let metadata_raw: Option<String> = conn
                 .query_row(
@@ -91,10 +91,10 @@ impl FeedbackRecorder for SqliteStorage {
 #[async_trait]
 impl ExpirationSweeper for SqliteStorage {
     async fn sweep_expired(&self) -> Result<usize> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start sweep transaction")?;
@@ -146,12 +146,12 @@ impl Lister for SqliteStorage {
         let opts = opts.clone();
         let include_superseded = opts.include_superseded.unwrap_or(false);
         if limit == 0 {
-            let conn = Arc::clone(&self.conn);
+            let pool = Arc::clone(&self.pool);
             let count_opts = opts.clone();
             let total = tokio::task::spawn_blocking(move || {
                 use rusqlite::types::Value as SqlValue;
 
-                let conn = lock_conn(&conn)?;
+                let conn = pool.reader()?;
                 let mut sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
                 if !include_superseded {
                     sql.push_str(" AND superseded_by_id IS NULL");
@@ -176,14 +176,14 @@ impl Lister for SqliteStorage {
             });
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let effective_limit = i64::try_from(limit).context("list limit exceeds i64")?;
         let effective_offset = i64::try_from(offset).context("list offset exceeds i64")?;
 
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
 
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             let mut count_sql = String::from("SELECT COUNT(*) FROM memories WHERE 1 = 1");
             if !include_superseded {

@@ -8,7 +8,7 @@ impl Storage for SqliteStorage {
         let metadata_json = serde_json::to_string(&input.metadata)
             .context("failed to serialize metadata to JSON")?;
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let id = id.to_string();
         let data = data.to_string();
@@ -25,7 +25,7 @@ impl Storage for SqliteStorage {
         let (outcome, superseded_ids) = tokio::task::spawn_blocking(move || {
             let c_hash = content_hash(&data);
             let normalized_hash = canonical_hash(&data);
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start sqlite transaction")?;
@@ -395,11 +395,11 @@ impl Storage for SqliteStorage {
 #[async_trait]
 impl Retriever for SqliteStorage {
     async fn retrieve(&self, id: &str) -> Result<String> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let id = id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start sqlite transaction")?;
@@ -436,11 +436,11 @@ impl Retriever for SqliteStorage {
 #[async_trait]
 impl Deleter for SqliteStorage {
     async fn delete(&self, id: &str) -> Result<bool> {
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let id = id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
             let tx = conn
                 .unchecked_transaction()
                 .context("failed to start delete transaction")?;
@@ -491,7 +491,7 @@ impl Updater for SqliteStorage {
         let importance = input.importance;
         let content = input.content.clone();
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let id = id.to_string();
 
@@ -507,7 +507,7 @@ impl Updater for SqliteStorage {
             };
             use rusqlite::types::Value as SqlValue;
 
-            let conn = lock_conn(&conn)?;
+            let conn = pool.writer()?;
 
             let mut set_clauses = Vec::new();
             let mut values: Vec<SqlValue> = Vec::new();
@@ -621,13 +621,13 @@ impl Tagger for SqliteStorage {
             return Ok(Vec::new());
         }
 
-        let conn = Arc::clone(&self.conn);
+        let pool = Arc::clone(&self.pool);
         let tags = tags.to_vec();
         let effective_limit = i64::try_from(limit).context("tag search limit exceeds i64")?;
         let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
-            let conn = lock_conn(&conn)?;
+            let conn = pool.reader()?;
 
             // Build dynamic WHERE clause with dual-read support:
             // - JSON tags: json_valid + json_each
