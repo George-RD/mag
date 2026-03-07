@@ -4643,3 +4643,458 @@ async fn test_abstention_gate_does_not_fire_for_relevant_query() {
         "abstention gate should NOT fire for a relevant query with word overlap"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Cross-project isolation tests (issue #46)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_cross_project_isolation_search() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store memories for two distinct projects
+    for (id, content, project) in [
+        ("iso_a1", "alpha architecture notes", "alpha"),
+        ("iso_a2", "alpha deployment config", "alpha"),
+        ("iso_b1", "beta architecture notes", "beta"),
+        ("iso_b2", "beta deployment config", "beta"),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                project: Some(project.to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Search with project="alpha" — only alpha memories should appear
+    let results = storage
+        .search(
+            "architecture",
+            10,
+            &SearchOptions {
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        assert!(
+            r.id.starts_with("iso_a"),
+            "expected alpha memory, got id={}",
+            r.id
+        );
+    }
+
+    // Search with project="beta" — only beta memories should appear
+    let results = storage
+        .search(
+            "architecture",
+            10,
+            &SearchOptions {
+                project: Some("beta".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        assert!(
+            r.id.starts_with("iso_b"),
+            "expected beta memory, got id={}",
+            r.id
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_cross_project_isolation_advanced_search() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Content must share key query words so FTS5 BM25 matches, but differ
+    // enough per row to avoid canonical-hash and Jaccard dedup at store time.
+    // Use event_type "reminder" which has no Jaccard dedup threshold.
+    for (id, content, project) in [
+        (
+            "adv_a1",
+            "design decision target for the alpha project first memo",
+            "alpha",
+        ),
+        (
+            "adv_b1",
+            "design decision target for the beta project first memo",
+            "beta",
+        ),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                project: Some(project.to_string()),
+                event_type: Some(EventType::Reminder),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Advanced search filtered to project="alpha"
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "design decision target",
+        10,
+        &SearchOptions {
+            project: Some("alpha".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        assert!(
+            r.id.starts_with("adv_a"),
+            "expected alpha memory in advanced_search, got id={}",
+            r.id
+        );
+    }
+
+    // Advanced search filtered to project="beta"
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "design decision target",
+        10,
+        &SearchOptions {
+            project: Some("beta".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        assert!(
+            r.id.starts_with("adv_b"),
+            "expected beta memory in advanced_search, got id={}",
+            r.id
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_cross_project_isolation_recent() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    for (id, content, project) in [
+        ("rec_a1", "alpha recent note one", "alpha"),
+        ("rec_a2", "alpha recent note two", "alpha"),
+        ("rec_b1", "beta recent note one", "beta"),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                project: Some(project.to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Recent with project="alpha" — should return only alpha memories
+    let results = storage
+        .recent(
+            10,
+            &SearchOptions {
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 2);
+    for r in &results {
+        assert!(
+            r.id.starts_with("rec_a"),
+            "expected alpha memory in recent, got id={}",
+            r.id
+        );
+    }
+
+    // Recent with project="beta" — should return only beta memory
+    let results = storage
+        .recent(
+            10,
+            &SearchOptions {
+                project: Some("beta".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "rec_b1");
+}
+
+#[tokio::test]
+async fn test_cross_project_isolation_by_tags() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Both projects share the same tag "infra"
+    for (id, content, project) in [
+        ("tag_a1", "alpha infra setup", "alpha"),
+        ("tag_b1", "beta infra setup", "beta"),
+        ("tag_b2", "beta infra monitoring", "beta"),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                tags: vec!["infra".to_string()],
+                project: Some(project.to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Query by tag "infra" with project="alpha" — only alpha memory
+    let results = storage
+        .get_by_tags(
+            &["infra".to_string()],
+            10,
+            &SearchOptions {
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "tag_a1");
+
+    // Query by tag "infra" with project="beta" — only beta memories
+    let results = storage
+        .get_by_tags(
+            &["infra".to_string()],
+            10,
+            &SearchOptions {
+                project: Some("beta".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 2);
+    let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+    assert!(ids.contains(&"tag_b1"));
+    assert!(ids.contains(&"tag_b2"));
+}
+
+#[tokio::test]
+async fn test_cross_project_no_filter_returns_all() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    for (id, content, project) in [
+        ("all_a1", "alpha global content", "alpha"),
+        ("all_b1", "beta global content", "beta"),
+        ("all_c1", "gamma global content", "gamma"),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                project: Some(project.to_string()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Search WITHOUT project filter — all memories should be returned
+    let results = storage
+        .search("global content", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 3);
+    let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+    assert!(ids.contains(&"all_a1"));
+    assert!(ids.contains(&"all_b1"));
+    assert!(ids.contains(&"all_c1"));
+
+    // Recent WITHOUT project filter — all memories should be returned
+    let results = storage.recent(10, &SearchOptions::default()).await.unwrap();
+    assert!(results.len() >= 3);
+}
+
+// ---------------------------------------------------------------------------
+// Negation test cases (issue #46)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_negation_query_doesnt_match_positive() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "neg_pos",
+        "always use async for IO operations",
+        &MemoryInput {
+            event_type: Some(EventType::Decision),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "neg_neg",
+        "never use blocking calls in the event loop",
+        &MemoryInput {
+            event_type: Some(EventType::LessonLearned),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Search for "never use async" — the positive statement "always use async"
+    // should NOT be the top result; the negative statement is more relevant.
+    let results = storage
+        .search("never use blocking", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert!(!results.is_empty());
+    // The top result should be the memory that actually contains "never use blocking"
+    assert_eq!(
+        results[0].id, "neg_neg",
+        "expected the negation memory to rank first"
+    );
+}
+
+#[tokio::test]
+async fn test_project_null_memories_not_in_project_search() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store a memory with NO project set
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "null_proj",
+        "unscoped memory with no project",
+        &MemoryInput {
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Store a memory WITH project="alpha"
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "alpha_proj",
+        "alpha scoped memory with project",
+        &MemoryInput {
+            project: Some("alpha".to_string()),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Search with project="alpha" — the null-project memory must NOT appear
+    let results = storage
+        .search(
+            "memory",
+            10,
+            &SearchOptions {
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "alpha_proj");
+
+    // Recent with project="alpha" — the null-project memory must NOT appear
+    let results = storage
+        .recent(
+            10,
+            &SearchOptions {
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "alpha_proj");
+
+    // Tags query with project="alpha" — null-project memory must NOT appear
+    // First, store tagged versions
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "null_tagged",
+        "unscoped tagged memory",
+        &MemoryInput {
+            tags: vec!["common".to_string()],
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "alpha_tagged",
+        "alpha tagged memory",
+        &MemoryInput {
+            tags: vec!["common".to_string()],
+            project: Some("alpha".to_string()),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let results = storage
+        .get_by_tags(
+            &["common".to_string()],
+            10,
+            &SearchOptions {
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "alpha_tagged");
+}
