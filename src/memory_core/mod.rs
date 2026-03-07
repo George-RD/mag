@@ -1,5 +1,9 @@
+use std::fmt;
+use std::str::FromStr;
+
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 
@@ -31,6 +35,262 @@ pub enum MemoryKind {
     Semantic,
 }
 
+/// Strongly-typed event type for memories.
+///
+/// Serializes to/from its snake_case string representation for SQLite TEXT
+/// column backward compatibility and MCP JSON protocol compatibility.
+/// The `Unknown(String)` variant provides forward compatibility for
+/// event types not yet defined in the enum.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EventType {
+    SessionSummary,
+    TaskCompletion,
+    ErrorPattern,
+    LessonLearned,
+    Decision,
+    BlockedContext,
+    UserPreference,
+    UserFact,
+    AdvisorInsight,
+    GitCommit,
+    GitMerge,
+    GitConflict,
+    SessionStart,
+    SessionEnd,
+    ContextWarning,
+    BudgetAlert,
+    CoordinationSnapshot,
+    Checkpoint,
+    Reminder,
+    Memory,
+    CodeChunk,
+    FileSummary,
+    /// Forward-compatibility variant for unknown event types.
+    Unknown(String),
+}
+
+impl EventType {
+    /// Returns `true` if this is a known (non-Unknown) event type.
+    pub fn is_valid(&self) -> bool {
+        !matches!(self, EventType::Unknown(_))
+    }
+
+    /// Returns the memory kind for this event type.
+    pub fn memory_kind(&self) -> MemoryKind {
+        match self {
+            EventType::ErrorPattern
+            | EventType::LessonLearned
+            | EventType::UserPreference
+            | EventType::GitConflict
+            | EventType::Reminder
+            | EventType::Decision => MemoryKind::Semantic,
+            EventType::Unknown(_) => MemoryKind::Episodic,
+            _ => MemoryKind::Episodic,
+        }
+    }
+
+    /// Returns the default priority for this event type.
+    pub fn default_priority(&self) -> i32 {
+        match self {
+            EventType::ErrorPattern
+            | EventType::LessonLearned
+            | EventType::UserPreference
+            | EventType::GitConflict => 4,
+            EventType::Decision | EventType::TaskCompletion | EventType::AdvisorInsight => 3,
+            EventType::GitCommit
+            | EventType::GitMerge
+            | EventType::SessionEnd
+            | EventType::BudgetAlert => 2,
+            EventType::SessionSummary
+            | EventType::SessionStart
+            | EventType::ContextWarning
+            | EventType::CoordinationSnapshot => 1,
+            EventType::BlockedContext
+            | EventType::Checkpoint
+            | EventType::Reminder
+            | EventType::Memory
+            | EventType::FileSummary => 1,
+            EventType::CodeChunk => 0,
+            EventType::UserFact => 4,
+            EventType::Unknown(_) => 0,
+        }
+    }
+
+    /// Returns the default TTL for this event type.
+    pub fn default_ttl(&self) -> Option<i64> {
+        match self {
+            EventType::SessionSummary => Some(TTL_EPHEMERAL),
+            EventType::TaskCompletion => Some(TTL_LONG_TERM),
+            EventType::ErrorPattern => None,
+            EventType::LessonLearned => None,
+            EventType::Decision => Some(TTL_LONG_TERM),
+            EventType::BlockedContext => Some(TTL_SHORT_TERM),
+            EventType::UserPreference => None,
+            EventType::UserFact => None,
+            EventType::AdvisorInsight => Some(TTL_LONG_TERM),
+            EventType::GitCommit => Some(TTL_LONG_TERM),
+            EventType::GitMerge => Some(TTL_LONG_TERM),
+            EventType::GitConflict => None,
+            EventType::SessionStart => Some(TTL_SHORT_TERM),
+            EventType::SessionEnd => Some(TTL_LONG_TERM),
+            EventType::ContextWarning => Some(TTL_SHORT_TERM),
+            EventType::BudgetAlert => Some(TTL_LONG_TERM),
+            EventType::CoordinationSnapshot => Some(TTL_SHORT_TERM),
+            EventType::Checkpoint => Some(604_800),
+            EventType::Reminder => None,
+            EventType::Memory => Some(TTL_SHORT_TERM),
+            EventType::CodeChunk => Some(TTL_EPHEMERAL),
+            EventType::FileSummary => Some(TTL_SHORT_TERM),
+            EventType::Unknown(_) => Some(TTL_LONG_TERM),
+        }
+    }
+
+    /// Returns the type weight for search scoring.
+    pub fn type_weight(&self) -> f64 {
+        match self {
+            EventType::Checkpoint => 2.5,
+            EventType::Reminder => 3.0,
+            EventType::Decision => 2.0,
+            EventType::LessonLearned => 2.0,
+            EventType::ErrorPattern => 2.0,
+            EventType::UserPreference => 2.0,
+            EventType::TaskCompletion => 1.4,
+            EventType::SessionSummary => 1.2,
+            EventType::BlockedContext => 1.0,
+            EventType::GitCommit => 1.0,
+            EventType::GitMerge => 1.0,
+            EventType::GitConflict => 1.0,
+            EventType::CoordinationSnapshot => 0.2,
+            EventType::Memory => 1.0,
+            _ => 1.0,
+        }
+    }
+
+    /// Returns the dedup threshold for this event type, if applicable.
+    pub fn dedup_threshold(&self) -> Option<f64> {
+        match self {
+            EventType::ErrorPattern => Some(0.70),
+            EventType::SessionSummary => Some(0.75),
+            EventType::TaskCompletion => Some(0.85),
+            EventType::Decision => Some(0.80),
+            EventType::LessonLearned => Some(0.85),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this event type supports auto-supersession.
+    pub fn is_supersession_type(&self) -> bool {
+        matches!(
+            self,
+            EventType::Decision | EventType::LessonLearned | EventType::UserPreference
+        )
+    }
+}
+
+impl fmt::Display for EventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            EventType::SessionSummary => "session_summary",
+            EventType::TaskCompletion => "task_completion",
+            EventType::ErrorPattern => "error_pattern",
+            EventType::LessonLearned => "lesson_learned",
+            EventType::Decision => "decision",
+            EventType::BlockedContext => "blocked_context",
+            EventType::UserPreference => "user_preference",
+            EventType::UserFact => "user_fact",
+            EventType::AdvisorInsight => "advisor_insight",
+            EventType::GitCommit => "git_commit",
+            EventType::GitMerge => "git_merge",
+            EventType::GitConflict => "git_conflict",
+            EventType::SessionStart => "session_start",
+            EventType::SessionEnd => "session_end",
+            EventType::ContextWarning => "context_warning",
+            EventType::BudgetAlert => "budget_alert",
+            EventType::CoordinationSnapshot => "coordination_snapshot",
+            EventType::Checkpoint => "checkpoint",
+            EventType::Reminder => "reminder",
+            EventType::Memory => "memory",
+            EventType::CodeChunk => "code_chunk",
+            EventType::FileSummary => "file_summary",
+            EventType::Unknown(s) => s.as_str(),
+        };
+        write!(f, "{s}")
+    }
+}
+
+impl FromStr for EventType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "session_summary" => EventType::SessionSummary,
+            "task_completion" => EventType::TaskCompletion,
+            "error_pattern" => EventType::ErrorPattern,
+            "lesson_learned" => EventType::LessonLearned,
+            "decision" => EventType::Decision,
+            "blocked_context" => EventType::BlockedContext,
+            "user_preference" => EventType::UserPreference,
+            "user_fact" => EventType::UserFact,
+            "advisor_insight" => EventType::AdvisorInsight,
+            "git_commit" => EventType::GitCommit,
+            "git_merge" => EventType::GitMerge,
+            "git_conflict" => EventType::GitConflict,
+            "session_start" => EventType::SessionStart,
+            "session_end" => EventType::SessionEnd,
+            "context_warning" => EventType::ContextWarning,
+            "budget_alert" => EventType::BudgetAlert,
+            "coordination_snapshot" => EventType::CoordinationSnapshot,
+            "checkpoint" => EventType::Checkpoint,
+            "reminder" => EventType::Reminder,
+            "memory" => EventType::Memory,
+            "code_chunk" => EventType::CodeChunk,
+            "file_summary" => EventType::FileSummary,
+            other => EventType::Unknown(other.to_string()),
+        })
+    }
+}
+
+impl Serialize for EventType {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for EventType {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        // FromStr is infallible for EventType
+        Ok(EventType::from_str(&s).unwrap_or_else(|e| match e {}))
+    }
+}
+
+impl schemars::JsonSchema for EventType {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("EventType")
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "Memory event type",
+            "enum": [
+                "session_summary", "task_completion", "error_pattern", "lesson_learned",
+                "decision", "blocked_context", "user_preference", "user_fact",
+                "advisor_insight", "git_commit", "git_merge", "git_conflict",
+                "session_start", "session_end", "context_warning", "budget_alert",
+                "coordination_snapshot", "checkpoint", "reminder", "memory",
+                "code_chunk", "file_summary"
+            ]
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MemoryInput {
     pub content: String,
@@ -38,7 +298,7 @@ pub struct MemoryInput {
     pub tags: Vec<String>,
     pub importance: f64,
     pub metadata: serde_json::Value,
-    pub event_type: Option<String>,
+    pub event_type: Option<EventType>,
     pub session_id: Option<String>,
     pub project: Option<String>,
     pub priority: Option<i32>,
@@ -72,13 +332,13 @@ pub struct MemoryUpdate {
     pub tags: Option<Vec<String>>,
     pub importance: Option<f64>,
     pub metadata: Option<serde_json::Value>,
-    pub event_type: Option<String>,
+    pub event_type: Option<EventType>,
     pub priority: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchOptions {
-    pub event_type: Option<String>,
+    pub event_type: Option<EventType>,
     pub project: Option<String>,
     pub session_id: Option<String>,
     pub include_superseded: Option<bool>,
@@ -103,6 +363,7 @@ pub struct CheckpointInput {
     pub project: Option<String>,
 }
 
+#[allow(dead_code)]
 pub const VALID_EVENT_TYPES: &[&str] = &[
     "session_summary",
     "task_completion",
@@ -128,55 +389,37 @@ pub const VALID_EVENT_TYPES: &[&str] = &[
     "file_summary",
 ];
 
+/// Checks if a string represents a known event type.
+/// Thin wrapper that delegates to `EventType`.
 pub fn is_valid_event_type(event_type: &str) -> bool {
-    VALID_EVENT_TYPES.contains(&event_type)
+    EventType::from_str(event_type)
+        .map(|et| et.is_valid())
+        .unwrap_or(false)
 }
 
+/// Returns the memory kind for a given event type string.
+/// Thin wrapper that delegates to `EventType::memory_kind()`.
+#[allow(dead_code)]
 pub fn memory_kind_for_event_type(event_type: &str) -> MemoryKind {
-    match event_type {
-        "error_pattern" | "lesson_learned" | "user_preference" | "git_conflict" | "reminder"
-        | "decision" => MemoryKind::Semantic,
-        _ => MemoryKind::Episodic,
-    }
+    EventType::from_str(event_type)
+        .map(|et| et.memory_kind())
+        .unwrap_or(MemoryKind::Episodic)
 }
 
+/// Returns the default priority for a given event type string.
+/// Thin wrapper that delegates to `EventType::default_priority()`.
 pub fn default_priority_for_event_type(event_type: &str) -> i32 {
-    match event_type {
-        "error_pattern" | "lesson_learned" | "user_preference" | "git_conflict" => 4,
-        "decision" | "task_completion" | "advisor_insight" => 3,
-        "git_commit" | "git_merge" | "session_end" | "budget_alert" => 2,
-        "session_summary" | "session_start" | "context_warning" | "coordination_snapshot" => 1,
-        "blocked_context" | "checkpoint" | "reminder" | "memory" | "file_summary" => 1,
-        "code_chunk" => 0,
-        _ => 0,
-    }
+    EventType::from_str(event_type)
+        .map(|et| et.default_priority())
+        .unwrap_or(0)
 }
 
+/// Returns the default TTL for a given event type string.
+/// Thin wrapper that delegates to `EventType::default_ttl()`.
 pub fn default_ttl_for_event_type(event_type: &str) -> Option<i64> {
-    match event_type {
-        "session_summary" => Some(TTL_EPHEMERAL),
-        "task_completion" => Some(TTL_LONG_TERM),
-        "error_pattern" => None,
-        "lesson_learned" => None,
-        "decision" => Some(TTL_LONG_TERM),
-        "blocked_context" => Some(TTL_SHORT_TERM),
-        "user_preference" => None,
-        "advisor_insight" => Some(TTL_LONG_TERM),
-        "git_commit" => Some(TTL_LONG_TERM),
-        "git_merge" => Some(TTL_LONG_TERM),
-        "git_conflict" => None,
-        "session_start" => Some(TTL_SHORT_TERM),
-        "session_end" => Some(TTL_LONG_TERM),
-        "context_warning" => Some(TTL_SHORT_TERM),
-        "budget_alert" => Some(TTL_LONG_TERM),
-        "coordination_snapshot" => Some(TTL_SHORT_TERM),
-        "checkpoint" => Some(604_800),
-        "reminder" => None,
-        "memory" => Some(TTL_SHORT_TERM),
-        "code_chunk" => Some(TTL_EPHEMERAL),
-        "file_summary" => Some(TTL_SHORT_TERM),
-        _ => Some(TTL_LONG_TERM),
-    }
+    EventType::from_str(event_type)
+        .map(|et| et.default_ttl())
+        .unwrap_or(Some(TTL_LONG_TERM))
 }
 
 pub fn parse_duration(text: &str) -> Result<chrono::Duration> {
@@ -259,7 +502,7 @@ pub struct SearchResult {
     pub importance: f64,
     /// Arbitrary JSON metadata payload.
     pub metadata: serde_json::Value,
-    pub event_type: Option<String>,
+    pub event_type: Option<EventType>,
     pub session_id: Option<String>,
     pub project: Option<String>,
 }
@@ -277,7 +520,7 @@ pub struct SemanticResult {
     pub importance: f64,
     /// Arbitrary JSON metadata payload.
     pub metadata: serde_json::Value,
-    pub event_type: Option<String>,
+    pub event_type: Option<EventType>,
     pub session_id: Option<String>,
     pub project: Option<String>,
     /// Similarity score in the range [0.0, 1.0].
@@ -288,7 +531,7 @@ pub struct SemanticResult {
 pub struct GraphNode {
     pub id: String,
     pub content: String,
-    pub event_type: Option<String>,
+    pub event_type: Option<EventType>,
     pub metadata: serde_json::Value,
     pub hop: usize,
     pub weight: f64,

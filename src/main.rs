@@ -6,14 +6,15 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
-    MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, EventType,
+    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
+    MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager,
     RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder, StatsProvider, Updater,
     VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
     default_ttl_for_event_type, is_valid_event_type,
 };
 use serde_json::json;
+use std::str::FromStr;
 use std::sync::Arc;
 use tracing::info;
 
@@ -106,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 session_id: session_id.clone(),
                 project: project.clone(),
                 priority: priority
@@ -151,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 session_id: session_id.clone(),
                 project: project.clone(),
                 priority: priority
@@ -222,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 priority: *priority,
             };
             <SqliteStorage as Updater>::update(&mcp_storage, id, &update).await?;
@@ -244,7 +245,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -305,7 +306,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -349,7 +350,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -388,7 +389,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 project: project.clone(),
                 include_superseded: Some(*include_superseded),
                 ..Default::default()
@@ -515,7 +516,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 include_superseded: Some(*include_superseded),
                 ..Default::default()
             };
@@ -557,7 +558,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: event_type.clone(),
+                event_type: parse_event_type(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -924,6 +925,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_event_type(s: &Option<String>) -> Option<EventType> {
+    s.as_ref()
+        .map(|v| EventType::from_str(v).unwrap_or_else(|e| match e {}))
 }
 
 fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {

@@ -71,8 +71,9 @@ impl AdvancedSearcher for SqliteStorage {
                         })
                         .optional()
                         .context("failed to fetch memory for vec result")?;
-                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type)) = row_data {
-                        let priority_value = resolve_priority(event_type.as_deref(), priority);
+                    if let Some((content, raw_tags, importance, raw_metadata, event_type_str, session_id, project, priority, created_at, entity_id, agent_type)) = row_data {
+                        let priority_value = resolve_priority(event_type_str.as_deref(), priority);
+                        let et = event_type_from_sql(event_type_str.clone());
                         vector_candidates.push((
                             memory_id.clone(),
                             similarity,
@@ -83,13 +84,13 @@ impl AdvancedSearcher for SqliteStorage {
                                     tags: parse_tags_from_db(&raw_tags),
                                     importance,
                                     metadata: parse_metadata_from_db(&raw_metadata),
-                                    event_type: event_type.clone(),
+                                    event_type: et,
                                     session_id,
                                     project,
                                     score: 0.0,
                                 },
                                 created_at,
-                                score: type_weight(event_type.as_deref().unwrap_or("memory"))
+                                score: type_weight(event_type_str.as_deref().unwrap_or("memory"))
                                     * priority_factor(priority_value, &scoring_params),
                                 vec_sim: Some(similarity),
                                 text_overlap: 0.0,
@@ -142,7 +143,7 @@ impl AdvancedSearcher for SqliteStorage {
                         raw_tags,
                         importance,
                         raw_metadata,
-                        event_type,
+                        event_type_str,
                         session_id,
                         project,
                         priority,
@@ -157,7 +158,8 @@ impl AdvancedSearcher for SqliteStorage {
                         continue;
                     }
 
-                    let priority_value = resolve_priority(event_type.as_deref(), priority);
+                    let priority_value = resolve_priority(event_type_str.as_deref(), priority);
+                    let et = event_type_from_sql(event_type_str.clone());
                     vector_candidates.push((
                         id.clone(),
                         similarity,
@@ -168,13 +170,13 @@ impl AdvancedSearcher for SqliteStorage {
                                 tags: parse_tags_from_db(&raw_tags),
                                 importance,
                                 metadata: parse_metadata_from_db(&raw_metadata),
-                                event_type: event_type.clone(),
+                                event_type: et,
                                 session_id,
                                 project,
                                 score: 0.0,
                             },
                             created_at,
-                            score: type_weight(event_type.as_deref().unwrap_or("memory"))
+                            score: type_weight(event_type_str.as_deref().unwrap_or("memory"))
                                 * priority_factor(priority_value, &scoring_params),
                             vec_sim: Some(similarity),
                             text_overlap: 0.0,
@@ -252,6 +254,7 @@ impl AdvancedSearcher for SqliteStorage {
                         ) = row.context("failed to decode advanced FTS row")?;
 
                         let priority_value = resolve_priority(event_type.as_deref(), priority);
+                        let et = event_type_from_sql(event_type.clone());
                         fts_candidates.push((
                             id.clone(),
                             bm25, // raw BM25: more negative = better match
@@ -262,7 +265,7 @@ impl AdvancedSearcher for SqliteStorage {
                                     tags: parse_tags_from_db(&raw_tags),
                                     importance,
                                     metadata: parse_metadata_from_db(&raw_metadata),
-                                    event_type: event_type.clone(),
+                                    event_type: et,
                                     session_id,
                                     project,
                                     score: 0.0,
@@ -329,8 +332,8 @@ impl AdvancedSearcher for SqliteStorage {
                 let jaccard = jaccard_pre(&query_tokens, &candidate_tokens);
                 candidate.score *= 1.0 + jaccard * scoring_params.jaccard_weight;
                 candidate.score *= feedback_factor(fb_score, &scoring_params);
-                let event_type = candidate.result.event_type.as_deref().unwrap_or("");
-                candidate.score *= time_decay(&candidate.created_at, event_type, &scoring_params);
+                let event_type_str = candidate.result.event_type.as_ref().map(|e| e.to_string()).unwrap_or_else(|| "memory".to_string());
+                candidate.score *= time_decay(&candidate.created_at, &event_type_str, &scoring_params);
                 candidate.score *= scoring_params.importance_floor
                     + candidate.result.importance * scoring_params.importance_scale;
 
@@ -478,7 +481,7 @@ impl AdvancedSearcher for SqliteStorage {
                                             tags,
                                             importance,
                                             metadata,
-                                            event_type,
+                                            event_type: event_type_from_sql(event_type),
                                             session_id,
                                             project,
                                             score: 0.0,

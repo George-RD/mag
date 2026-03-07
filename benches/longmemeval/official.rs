@@ -79,7 +79,7 @@ async fn seed_official_question(
                 tags: Vec::new(),
                 importance: 0.5,
                 metadata: serde_json::json!({}),
-                event_type: Some("observation".to_string()),
+                event_type: Some(EventType::Unknown("observation".to_string())),
                 session_id: Some(session_id.clone()),
                 project: None,
                 priority: Some(3),

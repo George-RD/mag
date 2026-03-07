@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 use anyhow::Result;
 use chrono::{Duration, SecondsFormat, Utc};
@@ -144,7 +145,7 @@ fn default_input(
         tags,
         importance: 0.5,
         metadata,
-        event_type: Some(event_type.to_string()),
+        event_type: Some(EventType::from_str(event_type).unwrap_or_else(|e| match e {})),
         session_id: Some(session_id.to_string()),
         project: None,
         priority: Some(priority),

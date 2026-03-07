@@ -1,9 +1,9 @@
 use super::*;
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, ExpirationSweeper, FeedbackRecorder,
-    GraphTraverser, LessonQuerier, MaintenanceManager, PhraseSearcher, ProfileManager, Recents,
-    ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder,
-    StatsProvider, Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, EventType, ExpirationSweeper,
+    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, PhraseSearcher,
+    ProfileManager, Recents, ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher,
+    SimilarFinder, StatsProvider, Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater,
     VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
     default_ttl_for_event_type, is_valid_event_type, parse_duration,
 };
@@ -1460,7 +1460,7 @@ async fn test_store_with_event_type_and_session() {
         "evt1",
         "event scoped",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             session_id: Some("ses_1".to_string()),
             metadata: serde_json::json!({}),
             ..Default::default()
@@ -1481,7 +1481,7 @@ async fn test_store_with_event_type_and_session() {
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].event_type.as_deref(), Some("decision"));
+    assert_eq!(results[0].event_type, Some(EventType::Decision));
     assert_eq!(results[0].session_id.as_deref(), Some("ses_1"));
 }
 
@@ -1517,13 +1517,13 @@ async fn test_store_with_project_and_priority() {
 #[tokio::test]
 async fn test_search_filter_by_event_type() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    for (id, event_type) in [("f1", "decision"), ("f2", "reminder")] {
+    for (id, event_type) in [("f1", EventType::Decision), ("f2", EventType::Reminder)] {
         <SqliteStorage as Storage>::store(
             &storage,
             id,
             "same query",
             &MemoryInput {
-                event_type: Some(event_type.to_string()),
+                event_type: Some(event_type),
                 metadata: serde_json::json!({}),
                 ..Default::default()
             },
@@ -1536,7 +1536,7 @@ async fn test_search_filter_by_event_type() {
             "same query",
             10,
             &SearchOptions {
-                event_type: Some("decision".to_string()),
+                event_type: Some(EventType::Decision),
                 ..Default::default()
             },
         )
@@ -1660,7 +1660,7 @@ async fn test_semantic_search_filter_by_event_type() {
         "se1",
         "semantic token",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -1672,7 +1672,7 @@ async fn test_semantic_search_filter_by_event_type() {
         "se2",
         "semantic token",
         &MemoryInput {
-            event_type: Some("reminder".to_string()),
+            event_type: Some(EventType::Reminder),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -1685,7 +1685,7 @@ async fn test_semantic_search_filter_by_event_type() {
             "semantic token",
             10,
             &SearchOptions {
-                event_type: Some("decision".to_string()),
+                event_type: Some(EventType::Decision),
                 ..Default::default()
             },
         )
@@ -1757,7 +1757,7 @@ async fn test_update_event_type() {
         &storage,
         "ue1",
         &MemoryUpdate {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -1769,7 +1769,7 @@ async fn test_update_event_type() {
             "updatable",
             1,
             &SearchOptions {
-                event_type: Some("decision".to_string()),
+                event_type: Some(EventType::Decision),
                 ..Default::default()
             },
         )
@@ -1862,7 +1862,7 @@ fn test_ttl_auto_assignment() {
 async fn test_canonical_hash_dedup() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     let input = MemoryInput {
-        event_type: Some("memory".to_string()),
+        event_type: Some(EventType::Memory),
         ..Default::default()
     };
 
@@ -1885,7 +1885,7 @@ async fn test_canonical_hash_dedup() {
 async fn test_canonical_hash_ignores_formatting() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     let input = MemoryInput {
-        event_type: Some("memory".to_string()),
+        event_type: Some(EventType::Memory),
         ..Default::default()
     };
 
@@ -1911,7 +1911,7 @@ async fn test_jaccard_dedup() {
         "jac-a",
         "alpha beta gamma delta epsilon zeta eta theta iota",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -1922,7 +1922,7 @@ async fn test_jaccard_dedup() {
         "jac-b",
         "alpha beta gamma delta epsilon zeta eta theta iota kappa",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -1944,7 +1944,7 @@ async fn test_no_dedup_different_event_types() {
         "nd-a",
         "database migration plan finalized today",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -1955,7 +1955,7 @@ async fn test_no_dedup_different_event_types() {
         "nd-b",
         "database migration plan finalized today with notes",
         &MemoryInput {
-            event_type: Some("reminder".to_string()),
+            event_type: Some(EventType::Reminder),
             ..Default::default()
         },
     )
@@ -1978,7 +1978,7 @@ async fn test_supersession_detection_at_ingest() {
         "sup-a",
         "alpha user prefers concise commit messages with why first",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -1989,7 +1989,7 @@ async fn test_supersession_detection_at_ingest() {
         "sup-b",
         "alpha user now prefers concise commit messages with rationale first",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -2016,7 +2016,7 @@ async fn test_superseded_filtered_from_advanced_search() {
         "adv-old",
         "alpha preference: use compact commit titles",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -2027,7 +2027,7 @@ async fn test_superseded_filtered_from_advanced_search() {
         "adv-new",
         "alpha preference updated: use compact commit titles with scope",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -2063,7 +2063,7 @@ async fn test_superseded_filtered_from_find_similar() {
         "sim-old",
         "alpha preference old",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -2074,7 +2074,7 @@ async fn test_superseded_filtered_from_find_similar() {
         "sim-new",
         "alpha preference new",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -2130,7 +2130,7 @@ async fn test_include_superseded_shows_all() {
         "hist-old",
         "alpha preference: concise commits",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -2141,7 +2141,7 @@ async fn test_include_superseded_shows_all() {
         "hist-new",
         "alpha preference updated: concise commits with scope",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             ..Default::default()
         },
     )
@@ -2227,7 +2227,7 @@ async fn test_non_supersession_types_dont_supersede() {
         "err-a",
         "alpha error timeout while fetching profile from api",
         &MemoryInput {
-            event_type: Some("error_pattern".to_string()),
+            event_type: Some(EventType::ErrorPattern),
             ..Default::default()
         },
     )
@@ -2238,7 +2238,7 @@ async fn test_non_supersession_types_dont_supersede() {
         "err-b",
         "alpha error timeout while saving settings through api",
         &MemoryInput {
-            event_type: Some("error_pattern".to_string()),
+            event_type: Some(EventType::ErrorPattern),
             ..Default::default()
         },
     )
@@ -2290,7 +2290,7 @@ async fn test_auto_relate_creates_edges() {
         "rel-c",
         "alpha latest",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -2524,7 +2524,7 @@ async fn test_export_includes_new_fields() {
         "ex1",
         "export me",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             session_id: Some("ses_export".to_string()),
             project: Some("proj_export".to_string()),
             priority: Some(3),
@@ -2596,7 +2596,7 @@ async fn test_import_with_new_fields() {
             "imported",
             5,
             &SearchOptions {
-                event_type: Some("decision".to_string()),
+                event_type: Some(EventType::Decision),
                 project: Some("proj_i".to_string()),
                 session_id: Some("ses_i".to_string()),
                 ..Default::default()
@@ -2616,7 +2616,7 @@ async fn test_tag_search_filter_by_event_type() {
         "tagged",
         &MemoryInput {
             tags: vec!["alpha".to_string()],
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -2629,7 +2629,7 @@ async fn test_tag_search_filter_by_event_type() {
         "tagged",
         &MemoryInput {
             tags: vec!["alpha".to_string()],
-            event_type: Some("reminder".to_string()),
+            event_type: Some(EventType::Reminder),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -2642,7 +2642,7 @@ async fn test_tag_search_filter_by_event_type() {
             &["alpha".to_string()],
             10,
             &SearchOptions {
-                event_type: Some("decision".to_string()),
+                event_type: Some(EventType::Decision),
                 ..Default::default()
             },
         )
@@ -2656,16 +2656,16 @@ async fn test_tag_search_filter_by_event_type() {
 async fn test_advanced_search_basic() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     for (id, content, event_type) in [
-        ("adv1", "alpha memory context", "decision"),
-        ("adv2", "alpha context details", "reminder"),
-        ("adv3", "unrelated content", "task_completion"),
+        ("adv1", "alpha memory context", EventType::Decision),
+        ("adv2", "alpha context details", EventType::Reminder),
+        ("adv3", "unrelated content", EventType::TaskCompletion),
     ] {
         <SqliteStorage as Storage>::store(
             &storage,
             id,
             content,
             &MemoryInput {
-                event_type: Some(event_type.to_string()),
+                event_type: Some(event_type),
                 tags: vec!["alpha".to_string()],
                 metadata: serde_json::json!({}),
                 ..Default::default()
@@ -2695,7 +2695,7 @@ async fn test_advanced_search_type_weight() {
         "weight1",
         "same searchable text decision",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -2707,7 +2707,7 @@ async fn test_advanced_search_type_weight() {
         "weight2",
         "same searchable text reminder",
         &MemoryInput {
-            event_type: Some("reminder".to_string()),
+            event_type: Some(EventType::Reminder),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -2736,7 +2736,7 @@ async fn test_advanced_search_dedup() {
             id,
             "identical duplicate content",
             &MemoryInput {
-                event_type: Some("decision".to_string()),
+                event_type: Some(EventType::Decision),
                 metadata: serde_json::json!({}),
                 ..Default::default()
             },
@@ -2768,7 +2768,7 @@ async fn test_advanced_search_filters() {
         "flt1",
         "filter target text",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             project: Some("project-a".to_string()),
             importance: 0.8,
             metadata: serde_json::json!({}),
@@ -2782,7 +2782,7 @@ async fn test_advanced_search_filters() {
         "flt2",
         "filter target text",
         &MemoryInput {
-            event_type: Some("reminder".to_string()),
+            event_type: Some(EventType::Reminder),
             project: Some("project-b".to_string()),
             importance: 0.2,
             metadata: serde_json::json!({}),
@@ -2797,7 +2797,7 @@ async fn test_advanced_search_filters() {
         "filter target",
         10,
         &SearchOptions {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             project: Some("project-a".to_string()),
             include_superseded: None,
             importance_min: Some(0.5),
@@ -2972,7 +2972,7 @@ async fn test_phrase_search() {
         "ph1",
         "this has exact phrase inside",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -2984,7 +2984,7 @@ async fn test_phrase_search() {
         "ph2",
         "this has different words",
         &MemoryInput {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -2997,7 +2997,7 @@ async fn test_phrase_search() {
         "exact phrase",
         10,
         &SearchOptions {
-            event_type: Some("decision".to_string()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -3082,7 +3082,7 @@ async fn test_profile_preferences_augmentation() {
             id,
             content,
             &MemoryInput {
-                event_type: Some("user_preference".to_string()),
+                event_type: Some(EventType::UserPreference),
                 metadata: serde_json::json!({}),
                 ..Default::default()
             },
@@ -3323,7 +3323,7 @@ async fn test_lessons_query_basic() {
             id,
             content,
             &MemoryInput {
-                event_type: Some("lesson_learned".to_string()),
+                event_type: Some(EventType::LessonLearned),
                 metadata: serde_json::json!({}),
                 ..Default::default()
             },
@@ -3360,7 +3360,7 @@ async fn test_lessons_exclude_session() {
             id,
             &format!("Lesson from {session}"),
             &MemoryInput {
-                event_type: Some("lesson_learned".to_string()),
+                event_type: Some(EventType::LessonLearned),
                 session_id: Some(session.to_string()),
                 metadata: serde_json::json!({}),
                 ..Default::default()
@@ -3386,7 +3386,7 @@ async fn test_lessons_dedup() {
         "dup-1",
         "placeholder one",
         &MemoryInput {
-            event_type: Some("memory".to_string()),
+            event_type: Some(EventType::Memory),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -3398,7 +3398,7 @@ async fn test_lessons_dedup() {
         "dup-2",
         "placeholder two",
         &MemoryInput {
-            event_type: Some("memory".to_string()),
+            event_type: Some(EventType::Memory),
             metadata: serde_json::json!({}),
             ..Default::default()
         },
@@ -3414,7 +3414,7 @@ async fn test_lessons_dedup() {
                     "The first eighty characters of this lesson are intentionally identical across both entries AAA111"
                         .to_string(),
                 ),
-                event_type: Some("lesson_learned".to_string()),
+                event_type: Some(EventType::LessonLearned),
                 ..Default::default()
             },
         )
@@ -3428,7 +3428,7 @@ async fn test_lessons_dedup() {
                     "The first eighty characters of this lesson are intentionally identical across both entries BBB222 with extra detail"
                         .to_string(),
                 ),
-                event_type: Some("lesson_learned".to_string()),
+                event_type: Some(EventType::LessonLearned),
                 ..Default::default()
             },
         )
@@ -3624,7 +3624,7 @@ async fn test_compact_below_threshold() {
         "lone-1",
         "only one decision memory",
         &MemoryInput {
-            event_type: Some("decision".into()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -3710,7 +3710,7 @@ async fn test_welcome_surfaces_user_context() {
         "uc-1",
         "user prefers dark mode for all interfaces",
         &MemoryInput {
-            event_type: Some("user_preference".to_string()),
+            event_type: Some(EventType::UserPreference),
             importance: 0.9,
             ..Default::default()
         },
@@ -3723,7 +3723,7 @@ async fn test_welcome_surfaces_user_context() {
         "uc-2",
         "user lives in San Francisco and works in fintech",
         &MemoryInput {
-            event_type: Some("user_fact".to_string()),
+            event_type: Some(EventType::UserFact),
             importance: 0.8,
             ..Default::default()
         },
@@ -3736,7 +3736,7 @@ async fn test_welcome_surfaces_user_context() {
         "uc-3",
         "deployed version 2.1 to production successfully",
         &MemoryInput {
-            event_type: Some("task_completion".to_string()),
+            event_type: Some(EventType::TaskCompletion),
             ..Default::default()
         },
     )
@@ -3765,7 +3765,7 @@ async fn test_type_stats() {
         "ts-d-0",
         "chose postgresql for the primary relational datastore backend",
         &MemoryInput {
-            event_type: Some("decision".into()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -3776,7 +3776,7 @@ async fn test_type_stats() {
         "ts-d-1",
         "migrated frontend framework from angular to react with typescript",
         &MemoryInput {
-            event_type: Some("decision".into()),
+            event_type: Some(EventType::Decision),
             ..Default::default()
         },
     )
@@ -3787,7 +3787,7 @@ async fn test_type_stats() {
         "ts-l-0",
         "learned that connection pooling prevents timeout errors under load",
         &MemoryInput {
-            event_type: Some("lesson_learned".into()),
+            event_type: Some(EventType::LessonLearned),
             ..Default::default()
         },
     )
