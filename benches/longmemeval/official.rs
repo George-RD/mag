@@ -86,6 +86,7 @@ async fn seed_official_question(
                 entity_id: None,
                 agent_type: Some(turn.role.clone()),
                 ttl_seconds: None,
+                referenced_date: None,
             };
             storage.store(&memory_id, &turn.content, &input).await?;
             count += 1;
@@ -121,6 +122,8 @@ pub(crate) async fn run_official_benchmark(
         context_tags: None,
         entity_id: None,
         agent_type: None,
+        event_after: None,
+        event_before: None,
     };
 
     for (index, question) in questions.iter().enumerate() {

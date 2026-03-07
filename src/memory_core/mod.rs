@@ -45,6 +45,9 @@ pub struct MemoryInput {
     pub entity_id: Option<String>,
     pub agent_type: Option<String>,
     pub ttl_seconds: Option<i64>,
+    /// ISO 8601 timestamp for when the event actually occurred.
+    /// When provided, this overrides the default `event_at = now()` on insert.
+    pub referenced_date: Option<String>,
 }
 
 impl Default for MemoryInput {
@@ -62,6 +65,7 @@ impl Default for MemoryInput {
             entity_id: None,
             agent_type: None,
             ttl_seconds: None,
+            referenced_date: None,
         }
     }
 }
@@ -88,6 +92,10 @@ pub struct SearchOptions {
     pub context_tags: Option<Vec<String>>,
     pub entity_id: Option<String>,
     pub agent_type: Option<String>,
+    /// ISO 8601 lower bound for the `event_at` column (inclusive).
+    pub event_after: Option<String>,
+    /// ISO 8601 upper bound for the `event_at` column (inclusive).
+    pub event_before: Option<String>,
 }
 
 #[derive(Debug, Clone)]

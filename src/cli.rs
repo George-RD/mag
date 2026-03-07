@@ -67,6 +67,9 @@ pub enum Commands {
         agent_type: Option<String>,
         #[arg(long, value_parser = clap::value_parser!(i64).range(0..))]
         ttl_seconds: Option<i64>,
+        /// ISO 8601 timestamp for when the event actually occurred.
+        #[arg(long)]
+        referenced_date: Option<String>,
     },
     /// Processes content through the pipeline (alias for run in current model).
     Process {
@@ -91,6 +94,9 @@ pub enum Commands {
         agent_type: Option<String>,
         #[arg(long, value_parser = clap::value_parser!(i64).range(0..))]
         ttl_seconds: Option<i64>,
+        /// ISO 8601 timestamp for when the event actually occurred.
+        #[arg(long)]
+        referenced_date: Option<String>,
     },
     /// Retrieves a stored memory by its ID.
     Retrieve {

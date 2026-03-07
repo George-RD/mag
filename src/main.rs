@@ -92,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
             entity_id,
             agent_type,
             ttl_seconds,
+            referenced_date,
         } => {
             info!(content_len = content.len(), "Ingesting content");
             let meta = parse_metadata_arg(metadata.as_deref())?;
@@ -120,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
                         .map(default_ttl_for_event_type)
                         .unwrap_or(Some(memory_core::TTL_LONG_TERM))
                 }),
+                referenced_date: referenced_date.clone(),
             };
             let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Successfully processed and stored");
@@ -137,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
             entity_id,
             agent_type,
             ttl_seconds,
+            referenced_date,
         } => {
             info!(content_len = content.len(), "Processing content directly");
             let meta = parse_metadata_arg(metadata.as_deref())?;
@@ -165,6 +168,7 @@ async fn main() -> anyhow::Result<()> {
                         .map(default_ttl_for_event_type)
                         .unwrap_or(Some(memory_core::TTL_LONG_TERM))
                 }),
+                referenced_date: referenced_date.clone(),
             };
             let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Process command stored result");

@@ -139,6 +139,34 @@ pub(super) fn normalize_for_dedup(content: &str) -> String {
     collapsed.chars().take(150).collect()
 }
 
+/// Basic ISO 8601 validation: accepts date-only (`YYYY-MM-DD`) or
+/// datetime with optional timezone (`YYYY-MM-DDThh:mm:ss…`).
+/// This is intentionally lenient — it catches gross typos without
+/// requiring a full RFC 3339 parser.
+pub(super) fn validate_iso8601(s: &str) -> bool {
+    // Minimum: "YYYY-MM-DD" (10 chars)
+    if s.len() < 10 {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    // First 4 chars must be digits (year)
+    if !bytes[0..4].iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    // Hyphens at positions 4 and 7
+    if bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    // Month and day digits
+    if !bytes[5..7].iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    if !bytes[8..10].iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    true
+}
+
 pub(super) fn escape_like_pattern(input: &str) -> String {
     let escaped = input
         .to_lowercase()
@@ -216,6 +244,16 @@ pub(super) fn append_search_filters(
         params.push(SqlValue::Text(created_before.clone()));
         *idx += 1;
     }
+    if let Some(ref event_after) = opts.event_after {
+        sql.push_str(&format!(" AND {}event_at >= ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(event_after.clone()));
+        *idx += 1;
+    }
+    if let Some(ref event_before) = opts.event_before {
+        sql.push_str(&format!(" AND {}event_at <= ?{}", col_prefix, *idx));
+        params.push(SqlValue::Text(event_before.clone()));
+        *idx += 1;
+    }
 }
 
 /// Converts a `Vec<SqlValue>` to a `Vec<&dyn ToSql>` for rusqlite parameter binding.
@@ -267,6 +305,16 @@ pub(super) fn matches_search_options(
     }
     if let Some(agent_type) = opts.agent_type.as_deref()
         && candidate.agent_type.as_deref() != Some(agent_type)
+    {
+        return false;
+    }
+    if let Some(event_after) = opts.event_after.as_deref()
+        && candidate.event_at.as_str() < event_after
+    {
+        return false;
+    }
+    if let Some(event_before) = opts.event_before.as_deref()
+        && candidate.event_at.as_str() > event_before
     {
         return false;
     }

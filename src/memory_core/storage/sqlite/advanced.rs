@@ -38,10 +38,10 @@ impl AdvancedSearcher for SqliteStorage {
                 let knn_limit = limit.saturating_mul(10).clamp(200, 10_000);
                 let knn_results = vec_knn_search(&conn, &query_embedding, knn_limit)?;
                 let row_sql = if include_superseded {
-                    "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                    "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
                      FROM memories WHERE id = ?1"
                 } else {
-                    "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                    "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
                      FROM memories WHERE id = ?1 AND superseded_by_id IS NULL"
                 };
                 let mut row_stmt = conn
@@ -67,11 +67,13 @@ impl AdvancedSearcher for SqliteStorage {
                                     .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                                 row.get::<_, Option<String>>(9).ok().flatten(),
                                 row.get::<_, Option<String>>(10).ok().flatten(),
+                                row.get::<_, String>(11)
+                                    .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                             ))
                         })
                         .optional()
                         .context("failed to fetch memory for vec result")?;
-                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type)) = row_data {
+                    if let Some((content, raw_tags, importance, raw_metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at)) = row_data {
                         let priority_value = resolve_priority(event_type.as_deref(), priority);
                         vector_candidates.push((
                             memory_id.clone(),
@@ -89,6 +91,7 @@ impl AdvancedSearcher for SqliteStorage {
                                     score: 0.0,
                                 },
                                 created_at,
+                                event_at,
                                 score: type_weight(event_type.as_deref().unwrap_or("memory"))
                                     * priority_factor(priority_value, &scoring_params),
                                 vec_sim: Some(similarity),
@@ -104,10 +107,10 @@ impl AdvancedSearcher for SqliteStorage {
             #[cfg(not(feature = "sqlite-vec"))]
             {
                 let vector_sql = if include_superseded {
-                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
                      FROM memories WHERE embedding IS NOT NULL"
                 } else {
-                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
                      FROM memories WHERE embedding IS NOT NULL AND superseded_by_id IS NULL"
                 };
                 let mut vector_stmt = conn
@@ -130,6 +133,8 @@ impl AdvancedSearcher for SqliteStorage {
                                 .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                             row.get::<_, Option<String>>(11).ok().flatten(),
                             row.get::<_, Option<String>>(12).ok().flatten(),
+                            row.get::<_, String>(13)
+                                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                         ))
                     })
                     .context("failed to execute advanced vector query")?;
@@ -149,6 +154,7 @@ impl AdvancedSearcher for SqliteStorage {
                         created_at,
                         entity_id,
                         agent_type,
+                        event_at,
                     ) = row.context("failed to decode advanced vector row")?;
                     let candidate_emb: Vec<f32> = decode_embedding(&embedding_blob)
                         .context("failed to decode stored embedding")?;
@@ -174,6 +180,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 score: 0.0,
                             },
                             created_at,
+                            event_at,
                             score: type_weight(event_type.as_deref().unwrap_or("memory"))
                                 * priority_factor(priority_value, &scoring_params),
                             vec_sim: Some(similarity),
@@ -192,7 +199,7 @@ impl AdvancedSearcher for SqliteStorage {
 
             let fts_query = build_fts5_query(&query);
             let mut fts_sql = String::from(
-                "SELECT m.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project, m.priority, m.created_at, bm25(memories_fts), m.entity_id, m.agent_type
+                "SELECT m.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project, m.priority, m.created_at, bm25(memories_fts), m.entity_id, m.agent_type, m.event_at
                  FROM memories_fts
                  JOIN memories m ON m.id = memories_fts.id
                  WHERE memories_fts MATCH ?1",
@@ -230,6 +237,8 @@ impl AdvancedSearcher for SqliteStorage {
                         row.get::<_, f64>(10).unwrap_or(1.0),
                         row.get::<_, Option<String>>(11).ok().flatten(),
                         row.get::<_, Option<String>>(12).ok().flatten(),
+                        row.get::<_, String>(13)
+                            .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                     ))
                 });
 
@@ -249,6 +258,7 @@ impl AdvancedSearcher for SqliteStorage {
                             bm25,
                             entity_id,
                             agent_type,
+                            event_at,
                         ) = row.context("failed to decode advanced FTS row")?;
 
                         let priority_value = resolve_priority(event_type.as_deref(), priority);
@@ -268,6 +278,7 @@ impl AdvancedSearcher for SqliteStorage {
                                     score: 0.0,
                                 },
                                 created_at,
+                                event_at,
                                 score: type_weight(event_type.as_deref().unwrap_or("memory"))
                                     * priority_factor(priority_value, &scoring_params),
                                 vec_sim: None,
@@ -373,7 +384,7 @@ impl AdvancedSearcher for SqliteStorage {
                     "\
                     SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                            m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                           m.embedding, r.weight, m.entity_id, m.agent_type \
+                           m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at \
                     FROM relationships r \
                     JOIN memories m ON m.id = CASE \
                         WHEN r.source_id = ?1 THEN r.target_id \
@@ -385,7 +396,7 @@ impl AdvancedSearcher for SqliteStorage {
                     "\
                     SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                            m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                           m.embedding, r.weight, m.entity_id, m.agent_type \
+                           m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at \
                     FROM relationships r \
                     JOIN memories m ON m.id = CASE \
                         WHEN r.source_id = ?1 THEN r.target_id \
@@ -419,6 +430,8 @@ impl AdvancedSearcher for SqliteStorage {
                                     row.get::<_, f64>(11).unwrap_or(0.5),
                                     row.get::<_, Option<String>>(12).ok().flatten(),
                                     row.get::<_, Option<String>>(13).ok().flatten(),
+                                    row.get::<_, String>(14)
+                                        .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                                 ))
                             },
                         ) {
@@ -434,6 +447,7 @@ impl AdvancedSearcher for SqliteStorage {
                                     id, content, raw_tags, importance, raw_metadata,
                                     event_type, session_id, project, _priority, created_at,
                                     embedding_blob, edge_weight, entity_id, agent_type,
+                                    event_at,
                                 ) = row;
 
                                 let mut neighbor_score =
@@ -484,6 +498,7 @@ impl AdvancedSearcher for SqliteStorage {
                                             score: 0.0,
                                         },
                                         created_at,
+                                        event_at,
                                         score: neighbor_score,
                                         vec_sim,
                                         text_overlap: overlap,

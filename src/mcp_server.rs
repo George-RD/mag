@@ -56,6 +56,8 @@ struct StoreRequest {
     entity_id: Option<String>,
     agent_type: Option<String>,
     ttl_seconds: Option<i64>,
+    /// ISO 8601 timestamp for when the event actually occurred (overrides default event_at).
+    referenced_date: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -71,6 +73,10 @@ struct SearchRequest {
     project: Option<String>,
     session_id: Option<String>,
     include_superseded: Option<bool>,
+    /// ISO 8601 lower bound for event_at (inclusive).
+    event_after: Option<String>,
+    /// ISO 8601 upper bound for event_at (inclusive).
+    event_before: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -81,6 +87,10 @@ struct SemanticSearchRequest {
     project: Option<String>,
     session_id: Option<String>,
     include_superseded: Option<bool>,
+    /// ISO 8601 lower bound for event_at (inclusive).
+    event_after: Option<String>,
+    /// ISO 8601 upper bound for event_at (inclusive).
+    event_before: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -95,6 +105,10 @@ struct AdvancedSearchRequest {
     created_after: Option<String>,
     created_before: Option<String>,
     context_tags: Option<Vec<String>>,
+    /// ISO 8601 lower bound for event_at (inclusive).
+    event_after: Option<String>,
+    /// ISO 8601 upper bound for event_at (inclusive).
+    event_before: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -123,6 +137,10 @@ struct PhraseSearchRequest {
     include_superseded: Option<bool>,
     project: Option<String>,
     session_id: Option<String>,
+    /// ISO 8601 lower bound for event_at (inclusive).
+    event_after: Option<String>,
+    /// ISO 8601 upper bound for event_at (inclusive).
+    event_before: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -132,6 +150,10 @@ struct RecentRequest {
     project: Option<String>,
     session_id: Option<String>,
     include_superseded: Option<bool>,
+    /// ISO 8601 lower bound for event_at (inclusive).
+    event_after: Option<String>,
+    /// ISO 8601 upper bound for event_at (inclusive).
+    event_before: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -202,6 +224,10 @@ struct TagSearchRequest {
     project: Option<String>,
     session_id: Option<String>,
     include_superseded: Option<bool>,
+    /// ISO 8601 lower bound for event_at (inclusive).
+    event_after: Option<String>,
+    /// ISO 8601 upper bound for event_at (inclusive).
+    event_before: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -212,6 +238,10 @@ struct ListRequest {
     project: Option<String>,
     session_id: Option<String>,
     include_superseded: Option<bool>,
+    /// ISO 8601 lower bound for event_at (inclusive).
+    event_after: Option<String>,
+    /// ISO 8601 upper bound for event_at (inclusive).
+    event_before: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -333,6 +363,7 @@ impl McpMemoryServer {
             entity_id: params.0.entity_id.clone(),
             agent_type: params.0.agent_type.clone(),
             ttl_seconds,
+            referenced_date: params.0.referenced_date.clone(),
         };
         <SqliteStorage as Storage>::store(&self.storage, &id, &params.0.content, &input)
             .await
@@ -379,6 +410,8 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
+            event_after: params.0.event_after.clone(),
+            event_before: params.0.event_before.clone(),
             ..Default::default()
         };
         let results = self
@@ -429,6 +462,8 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
+            event_after: params.0.event_after.clone(),
+            event_before: params.0.event_before.clone(),
             ..Default::default()
         };
         let results = self
@@ -485,6 +520,8 @@ impl McpMemoryServer {
             created_after: params.0.created_after.clone(),
             created_before: params.0.created_before.clone(),
             context_tags: params.0.context_tags.clone(),
+            event_after: params.0.event_after.clone(),
+            event_before: params.0.event_before.clone(),
             ..Default::default()
         };
         let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
@@ -677,6 +714,8 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
+            event_after: params.0.event_after.clone(),
+            event_before: params.0.event_before.clone(),
             ..Default::default()
         };
         let results = <SqliteStorage as PhraseSearcher>::phrase_search(
@@ -730,6 +769,8 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
+            event_after: params.0.event_after.clone(),
+            event_before: params.0.event_before.clone(),
             ..Default::default()
         };
         let results =
@@ -1065,6 +1106,8 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
+            event_after: params.0.event_after.clone(),
+            event_before: params.0.event_before.clone(),
             ..Default::default()
         };
         let results = self
@@ -1116,6 +1159,8 @@ impl McpMemoryServer {
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
+            event_after: params.0.event_after.clone(),
+            event_before: params.0.event_before.clone(),
             ..Default::default()
         };
         let result =

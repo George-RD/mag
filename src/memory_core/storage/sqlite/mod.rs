@@ -748,6 +748,8 @@ impl SqliteStorage {
 struct RankedSemanticCandidate {
     result: SemanticResult,
     created_at: String,
+    /// The `event_at` timestamp for temporal filtering (may differ from `created_at`).
+    event_at: String,
     score: f64,
     #[allow(dead_code)] // Stored for diagnostics; abstention uses collection-level text_overlap
     vec_sim: Option<f64>,
@@ -773,7 +775,7 @@ use helpers::{
     EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash, content_hash,
     decode_embedding, encode_embedding, escape_like_pattern, lock_conn, matches_search_options,
     normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, resolve_priority,
-    search_result_from_row, to_param_refs,
+    search_result_from_row, to_param_refs, validate_iso8601,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 
