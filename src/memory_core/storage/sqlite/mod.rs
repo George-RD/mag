@@ -770,8 +770,9 @@ pub(crate) use helpers::cosine_similarity;
 use helpers::{
     ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
     content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
-    event_type_to_sql, matches_search_options, normalize_for_dedup, parse_metadata_from_db,
-    parse_tags_from_db, resolve_priority, search_result_from_row, to_param_refs, validate_iso8601,
+    event_type_to_sql, expand_temporal_query, matches_search_options, normalize_for_dedup,
+    parse_metadata_from_db, parse_tags_from_db, resolve_priority, search_result_from_row,
+    to_param_refs, validate_iso8601,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 

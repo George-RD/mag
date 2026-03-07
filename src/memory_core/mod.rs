@@ -797,6 +797,14 @@ pub trait MaintenanceManager: Send + Sync {
     ) -> Result<serde_json::Value>;
     /// Delete all memories (and their relationships) for a given session.
     async fn clear_session(&self, session_id: &str) -> Result<usize>;
+    /// Auto-compact: sweep all event types that have dedup thresholds,
+    /// using embedding cosine similarity. Triggered when memory count
+    /// exceeds `count_threshold`. Returns summary of compacted clusters.
+    async fn auto_compact(
+        &self,
+        count_threshold: usize,
+        dry_run: bool,
+    ) -> Result<serde_json::Value>;
 }
 
 /// Session startup briefing provider.

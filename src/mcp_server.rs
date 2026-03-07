@@ -206,6 +206,8 @@ struct MaintainRequest {
     min_cluster_size: Option<usize>,
     dry_run: Option<bool>,
     session_id: Option<String>,
+    /// Memory count threshold for auto_compact (default 500).
+    count_threshold: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1397,7 +1399,7 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_maintain",
-        description = "System housekeeping: health check, consolidate stale memories, compact near-duplicates, or clear a session"
+        description = "System housekeeping: health check, consolidate stale memories, compact near-duplicates, auto_compact (embedding-based sweep), or clear a session"
     )]
     async fn memory_maintain(
         &self,
@@ -1452,6 +1454,20 @@ impl McpMemoryServer {
                     result.to_string(),
                 )]))
             }
+            "auto_compact" => {
+                let threshold = req.count_threshold.unwrap_or(500);
+                let dry = req.dry_run.unwrap_or(false);
+                let result = self
+                    .storage
+                    .auto_compact(threshold, dry)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("auto_compact failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
             "clear_session" => {
                 let sid = req.session_id.as_deref().ok_or_else(|| {
                     McpError::invalid_params("session_id is required for clear_session", None)
@@ -1471,7 +1487,7 @@ impl McpMemoryServer {
             )])),
             other => Err(McpError::invalid_params(
                 format!(
-                    "unknown maintain action: {other} (expected health|consolidate|compact|clear_session|backup|restore)"
+                    "unknown maintain action: {other} (expected health|consolidate|compact|auto_compact|clear_session|backup|restore)"
                 ),
                 None,
             )),

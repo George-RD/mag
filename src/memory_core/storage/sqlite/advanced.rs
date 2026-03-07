@@ -23,6 +23,22 @@ impl AdvancedSearcher for SqliteStorage {
             let include_superseded = opts.include_superseded.unwrap_or(false);
             let explain_enabled = opts.explain.unwrap_or(false);
 
+            // Temporal query expansion: detect time references and convert to filters
+            let today = chrono::Local::now().date_naive();
+            let temporal = expand_temporal_query(&query, &today);
+            let query = temporal.cleaned_query;
+            let mut opts = opts;
+            if opts.event_after.is_none()
+                && let Some(ref after) = temporal.event_after
+            {
+                opts.event_after = Some(after.clone());
+            }
+            if opts.event_before.is_none()
+                && let Some(ref before) = temporal.event_before
+            {
+                opts.event_before = Some(before.clone());
+            }
+
             let query_embedding = embedder
                 .embed(&query)
                 .context("failed to compute query embedding")?;

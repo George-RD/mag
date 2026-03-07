@@ -329,6 +329,189 @@ impl MaintenanceManager for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
+    async fn auto_compact(
+        &self,
+        count_threshold: usize,
+        dry_run: bool,
+    ) -> Result<serde_json::Value> {
+        let pool = Arc::clone(&self.pool);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.writer()?;
+
+            let total: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+                .context("failed to count memories for auto_compact")?;
+
+            if (total as usize) < count_threshold {
+                return Ok::<_, anyhow::Error>(serde_json::json!({
+                    "triggered": false,
+                    "total_memories": total,
+                    "count_threshold": count_threshold,
+                    "message": "Memory count below threshold; skipping auto-compact",
+                }));
+            }
+
+            // Sweep event types that have dedup thresholds
+            let sweep_types = [
+                (crate::memory_core::EventType::ErrorPattern, "error_pattern"),
+                (
+                    crate::memory_core::EventType::SessionSummary,
+                    "session_summary",
+                ),
+                (
+                    crate::memory_core::EventType::TaskCompletion,
+                    "task_completion",
+                ),
+                (crate::memory_core::EventType::Decision, "decision"),
+                (
+                    crate::memory_core::EventType::LessonLearned,
+                    "lesson_learned",
+                ),
+            ];
+
+            let mut total_compacted = 0usize;
+            let mut type_results: Vec<serde_json::Value> = Vec::new();
+
+            for (et, et_str) in &sweep_types {
+                let threshold = et.dedup_threshold().unwrap_or(0.80);
+
+                // Fetch candidates with embeddings
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id, content, embedding FROM memories \
+                         WHERE event_type = ?1 AND embedding IS NOT NULL \
+                         AND superseded_by_id IS NULL",
+                    )
+                    .context("failed to prepare auto_compact query")?;
+
+                let candidates: Vec<(String, String, Vec<u8>)> = stmt
+                    .query_map(params![et_str], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Vec<u8>>(2)?,
+                        ))
+                    })
+                    .context("failed to query auto_compact candidates")?
+                    .filter_map(|r| r.ok())
+                    .collect();
+
+                if candidates.len() < 2 {
+                    continue;
+                }
+
+                // Decode embeddings
+                let embeddings: Vec<Option<Vec<f32>>> = candidates
+                    .iter()
+                    .map(|(_, _, blob)| decode_embedding(blob).ok())
+                    .collect();
+
+                // Union-Find clustering by cosine similarity
+                let n = candidates.len();
+                let mut parent: Vec<usize> = (0..n).collect();
+
+                fn find(parent: &mut [usize], x: usize) -> usize {
+                    if parent[x] != x {
+                        parent[x] = find(parent, parent[x]);
+                    }
+                    parent[x]
+                }
+
+                for i in 0..n {
+                    if embeddings[i].is_none() {
+                        continue;
+                    }
+                    for j in (i + 1)..n {
+                        if embeddings[j].is_none() {
+                            continue;
+                        }
+                        let sim = cosine_similarity(
+                            embeddings[i].as_ref().unwrap(),
+                            embeddings[j].as_ref().unwrap(),
+                        ) as f64;
+                        if sim >= threshold {
+                            let pi = find(&mut parent, i);
+                            let pj = find(&mut parent, j);
+                            parent[pi] = pj;
+                        }
+                    }
+                }
+
+                // Group clusters
+                let mut clusters: HashMap<usize, Vec<usize>> = HashMap::new();
+                for i in 0..n {
+                    let root = find(&mut parent, i);
+                    clusters.entry(root).or_default().push(i);
+                }
+
+                let valid_clusters: Vec<Vec<usize>> =
+                    clusters.into_values().filter(|c| c.len() >= 2).collect();
+
+                let mut type_compacted = 0usize;
+
+                for cluster in &valid_clusters {
+                    if !dry_run {
+                        // Keep the first (longest content), supersede the rest
+                        let keep_idx = *cluster
+                            .iter()
+                            .max_by_key(|&&idx| candidates[idx].1.len())
+                            .unwrap();
+                        let keep_id = &candidates[keep_idx].0;
+
+                        let tx = conn
+                            .unchecked_transaction()
+                            .context("failed to start auto_compact transaction")?;
+
+                        for &idx in cluster {
+                            if idx == keep_idx {
+                                continue;
+                            }
+                            let del_id = &candidates[idx].0;
+
+                            // Mark as superseded rather than delete
+                            tx.execute(
+                                "UPDATE memories SET superseded_by_id = ?1 WHERE id = ?2",
+                                params![keep_id, del_id],
+                            )
+                            .context("failed to supersede memory during auto_compact")?;
+
+                            type_compacted += 1;
+                        }
+
+                        tx.commit()
+                            .context("failed to commit auto_compact transaction")?;
+                    } else {
+                        type_compacted += cluster.len() - 1;
+                    }
+                }
+
+                if !valid_clusters.is_empty() {
+                    type_results.push(serde_json::json!({
+                        "event_type": et_str,
+                        "candidates": candidates.len(),
+                        "clusters": valid_clusters.len(),
+                        "compacted": type_compacted,
+                        "threshold": threshold,
+                    }));
+                }
+
+                total_compacted += type_compacted;
+            }
+
+            Ok::<_, anyhow::Error>(serde_json::json!({
+                "triggered": true,
+                "total_memories": total,
+                "count_threshold": count_threshold,
+                "dry_run": dry_run,
+                "total_compacted": total_compacted,
+                "by_type": type_results,
+            }))
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+
     async fn clear_session(&self, session_id: &str) -> Result<usize> {
         let pool = Arc::clone(&self.pool);
         let session_id = session_id.to_string();
