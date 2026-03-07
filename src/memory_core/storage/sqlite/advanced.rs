@@ -21,6 +21,7 @@ impl AdvancedSearcher for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             use rusqlite::types::Value as SqlValue;
             let include_superseded = opts.include_superseded.unwrap_or(false);
+            let explain_enabled = opts.explain.unwrap_or(false);
 
             let query_embedding = embedder
                 .embed(&query)
@@ -99,6 +100,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 text_overlap: 0.0,
                                 entity_id,
                                 agent_type,
+                                explain: None,
                             },
                         ));
                     }
@@ -189,6 +191,7 @@ impl AdvancedSearcher for SqliteStorage {
                             text_overlap: 0.0,
                             entity_id,
                             agent_type,
+                            explain: None,
                         },
                     ));
                 }
@@ -288,6 +291,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 text_overlap: 0.0,
                                 entity_id,
                                 agent_type,
+                                explain: None,
                             },
                         ));
                     }
@@ -297,27 +301,87 @@ impl AdvancedSearcher for SqliteStorage {
             // so sort ascending (most negative first = best rank for RRF)
             fts_candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
 
-            // Phase 3: Weighted RRF fusion — vector similarity weighted higher
+            // Phase 3: Weighted RRF fusion -- vector similarity weighted higher
             // for semantic discrimination (Oracle recommendation)
             let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
-            for (rank, (id, _sim, candidate)) in vector_candidates.into_iter().enumerate() {
+
+            // Track which IDs appear in FTS results for dual_match detection
+            let fts_ids: HashSet<String> = if explain_enabled {
+                fts_candidates.iter().map(|(id, _, _)| id.clone()).collect()
+            } else {
+                HashSet::new()
+            };
+
+            for (rank, (id, _sim, mut candidate)) in vector_candidates.into_iter().enumerate() {
                 let rrf_score =
                     scoring_params.rrf_weight_vec / (scoring_params.rrf_k + rank as f64 + 1.0);
-                let mut merged = candidate;
-                merged.score *= rrf_score;
-                ranked.insert(id, merged);
+                let et_str = candidate.result.event_type.as_ref().map(|e| e.to_string());
+                let type_w = type_weight(et_str.as_deref().unwrap_or("memory"));
+                let priority_value = resolve_priority(
+                    et_str.as_deref(),
+                    None, // priority already baked into candidate.score
+                );
+                let pf = priority_factor(priority_value, &scoring_params);
+
+                if explain_enabled {
+                    let dual = fts_ids.contains(&id);
+                    candidate.explain = Some(serde_json::json!({
+                        "vec_sim": candidate.vec_sim,
+                        "fts_rank": null,
+                        "rrf_score": rrf_score,
+                        "dual_match": dual,
+                        "type_weight": type_w,
+                        "priority_factor": pf,
+                    }));
+                }
+
+                candidate.score *= rrf_score;
+                ranked.insert(id, candidate);
             }
             let mut dual_match_ids: HashSet<String> = HashSet::new();
-            for (rank, (id, _bm25, candidate)) in fts_candidates.into_iter().enumerate() {
+            for (rank, (id, bm25_raw, candidate)) in fts_candidates.into_iter().enumerate() {
                 let rrf_score =
                     scoring_params.rrf_weight_fts / (scoring_params.rrf_k + rank as f64 + 1.0);
                 if let Some(existing) = ranked.get_mut(&id) {
-                    // Present in both — add the FTS RRF contribution
+                    // Present in both -- add the FTS RRF contribution
                     existing.score += candidate.score * rrf_score;
                     dual_match_ids.insert(id);
+                    if explain_enabled
+                        && let Some(ref mut exp) = existing.explain
+                    {
+                        exp["fts_rank"] = serde_json::json!(rank);
+                        exp["fts_bm25"] = serde_json::json!(bm25_raw);
+                        exp["dual_match"] = serde_json::json!(true);
+                        // Update rrf_score to show the combined contribution
+                        let vec_rrf = exp["rrf_score"].as_f64().unwrap_or(0.0);
+                        exp["rrf_score"] = serde_json::json!(vec_rrf + rrf_score);
+                    }
                 } else {
+                    let et_str = candidate.result.event_type.as_ref().map(|e| e.to_string());
+                    let type_w = type_weight(et_str.as_deref().unwrap_or("memory"));
+                    let priority_value = resolve_priority(
+                        et_str.as_deref(),
+                        None,
+                    );
+                    let pf = priority_factor(priority_value, &scoring_params);
+
+                    let explain_data = if explain_enabled {
+                        Some(serde_json::json!({
+                            "vec_sim": null,
+                            "fts_rank": rank,
+                            "fts_bm25": bm25_raw,
+                            "rrf_score": rrf_score,
+                            "dual_match": false,
+                            "type_weight": type_w,
+                            "priority_factor": pf,
+                        }))
+                    } else {
+                        None
+                    };
+
                     let mut merged = candidate;
                     merged.score *= rrf_score;
+                    merged.explain = explain_data;
                     ranked.insert(id, merged);
                 }
             }
@@ -354,11 +418,14 @@ impl AdvancedSearcher for SqliteStorage {
                     1.0 + overlap * scoring_params.word_overlap_weight * fb_dampening;
                 let jaccard = jaccard_pre(&query_tokens, &candidate_tokens);
                 candidate.score *= 1.0 + jaccard * scoring_params.jaccard_weight;
-                candidate.score *= feedback_factor(fb_score, &scoring_params);
+                let fb_factor = feedback_factor(fb_score, &scoring_params);
+                candidate.score *= fb_factor;
                 let event_type_str = candidate.result.event_type.as_ref().map(|e| e.to_string()).unwrap_or_else(|| "memory".to_string());
-                candidate.score *= time_decay(&candidate.created_at, &event_type_str, &scoring_params);
-                candidate.score *= scoring_params.importance_floor
+                let td = time_decay(&candidate.created_at, &event_type_str, &scoring_params);
+                candidate.score *= td;
+                let importance_factor_val = scoring_params.importance_floor
                     + candidate.result.importance * scoring_params.importance_scale;
+                candidate.score *= importance_factor_val;
 
                 if let Some(context_tags) = opts.context_tags.as_ref() {
                     let candidate_tags: HashSet<String> = candidate
@@ -382,10 +449,20 @@ impl AdvancedSearcher for SqliteStorage {
                     }
                 }
 
+                // Record refinement factors for explain mode
+                if explain_enabled
+                    && let Some(ref mut exp) = candidate.explain
+                {
+                    exp["word_overlap"] = serde_json::json!(overlap);
+                    exp["text_overlap"] = serde_json::json!(overlap);
+                    exp["importance_factor"] = serde_json::json!(importance_factor_val);
+                    exp["feedback_factor"] = serde_json::json!(fb_factor);
+                    exp["time_decay"] = serde_json::json!(td);
+                }
             }
 
 
-            // ── Phase 5: Graph enrichment — inject 1-hop neighbors from top seeds ──
+            // ── Phase 5: Graph enrichment -- inject 1-hop neighbors from top seeds ──
             {
                 let mut seed_list: Vec<(String, f64)> = ranked
                     .iter()
@@ -498,6 +575,23 @@ impl AdvancedSearcher for SqliteStorage {
                                 });
                                 neighbor_score *= feedback_factor(fb_score, &scoring_params);
 
+                                let explain_data = if explain_enabled {
+                                    Some(serde_json::json!({
+                                        "vec_sim": vec_sim,
+                                        "fts_rank": null,
+                                        "rrf_score": null,
+                                        "dual_match": false,
+                                        "type_weight": type_weight(event_type.as_deref().unwrap_or("memory")),
+                                        "word_overlap": overlap,
+                                        "text_overlap": overlap,
+                                        "graph_injected": true,
+                                        "graph_seed_id": seed_id,
+                                        "graph_edge_weight": edge_weight,
+                                    }))
+                                } else {
+                                    None
+                                };
+
                                 neighbors_to_add.push((
                                     id.clone(),
                                     RankedSemanticCandidate {
@@ -519,6 +613,7 @@ impl AdvancedSearcher for SqliteStorage {
                                         text_overlap: overlap,
                                         entity_id,
                                         agent_type,
+                                        explain: explain_data,
                                     },
                                 ));
                             }
@@ -540,11 +635,11 @@ impl AdvancedSearcher for SqliteStorage {
             // Dense embeddings (bge-small-en-v1.5) produce high cosine similarity
             // (0.80+) even for completely unrelated content, making vec_sim
             // useless for abstention. Text overlap is the discriminative signal:
-            //   • Legitimate queries: max text_overlap typically ≥ 0.33
-            //   • Irrelevant queries: max text_overlap typically 0.00–0.25
+            //   - Legitimate queries: max text_overlap typically >= 0.33
+            //   - Irrelevant queries: max text_overlap typically 0.00-0.25
             // Apply a collection-level gate on the best text overlap.
             // Skip the abstention gate when the query has no eligible word
-            // tokens (all tokens ≤ 2 chars, e.g. "AI", "C++") — text overlap
+            // tokens (all tokens <= 2 chars, e.g. "AI", "C++") -- text overlap
             // would always be 0.0, causing false abstention.
             // NOTE: Gate is applied AFTER search-option filtering (below) so
             // that out-of-scope high-overlap candidates don't suppress
@@ -585,6 +680,17 @@ impl AdvancedSearcher for SqliteStorage {
                     0.0
                 };
                 candidate.result.score = normalized as f32;
+
+                // Inject explain data into result metadata when enabled
+                if explain_enabled
+                    && let Some(mut exp) = candidate.explain.take()
+                {
+                    exp["final_score"] = serde_json::json!(normalized);
+                    if let serde_json::Value::Object(ref mut meta) = candidate.result.metadata {
+                        meta.insert("_explain".to_string(), exp);
+                    }
+                }
+
                 out.push(candidate.result);
             }
             Ok::<_, anyhow::Error>(out)

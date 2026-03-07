@@ -124,6 +124,7 @@ pub(crate) async fn run_official_benchmark(
         agent_type: None,
         event_after: None,
         event_before: None,
+        explain: None,
     };
 
     for (index, question) in questions.iter().enumerate() {

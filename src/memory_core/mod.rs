@@ -356,6 +356,8 @@ pub struct SearchOptions {
     pub event_after: Option<String>,
     /// ISO 8601 upper bound for the `event_at` column (inclusive).
     pub event_before: Option<String>,
+    /// When true, inject `_explain` component scores into each result's metadata.
+    pub explain: Option<bool>,
 }
 
 #[derive(Debug, Clone)]

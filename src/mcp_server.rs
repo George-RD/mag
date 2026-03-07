@@ -117,6 +117,8 @@ struct AdvancedSearchRequest {
     event_after: Option<String>,
     /// ISO 8601 upper bound for event_at (inclusive).
     event_before: Option<String>,
+    /// When true, inject component scores into each result's metadata under `_explain`.
+    explain: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -531,6 +533,7 @@ impl McpMemoryServer {
             context_tags: params.0.context_tags.clone(),
             event_after: params.0.event_after.clone(),
             event_before: params.0.event_before.clone(),
+            explain: params.0.explain,
             ..Default::default()
         };
         let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
@@ -543,6 +546,18 @@ impl McpMemoryServer {
         .map_err(|e| {
             McpError::internal_error(format!("failed to advanced-search memories: {e}"), None)
         })?;
+
+        let abstained = results.is_empty();
+        let result_count = results.len();
+        let confidence: f64 = results
+            .iter()
+            .filter_map(|r| {
+                r.metadata
+                    .get("_explain")
+                    .and_then(|e| e.get("text_overlap"))
+                    .and_then(|v| v.as_f64())
+            })
+            .fold(0.0f64, f64::max);
 
         let payload: Vec<_> = results
             .into_iter()
@@ -561,8 +576,21 @@ impl McpMemoryServer {
             })
             .collect();
 
+        let mut response = json!({
+            "results": payload,
+            "result_count": result_count,
+            "abstained": abstained,
+        });
+        if abstained {
+            response["confidence"] = json!(0.0);
+            response["reason"] =
+                json!("No results met the relevance threshold (text_overlap < 0.30)");
+        } else {
+            response["confidence"] = json!(confidence);
+        }
+
         Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload }).to_string(),
+            response.to_string(),
         )]))
     }
 

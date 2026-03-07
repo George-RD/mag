@@ -752,6 +752,8 @@ struct RankedSemanticCandidate {
     entity_id: Option<String>,
     /// Stored for in-memory filtering; not exposed in SemanticResult.
     agent_type: Option<String>,
+    /// Component scores for explain mode; populated only when `SearchOptions.explain` is true.
+    explain: Option<serde_json::Value>,
 }
 
 mod admin;
