@@ -9,6 +9,14 @@ pub trait Embedder: Send + Sync {
     fn dimension(&self) -> usize;
     /// Generates an embedding vector for the given text.
     fn embed(&self, text: &str) -> Result<Vec<f32>>;
+    /// Generates embedding vectors for multiple texts in a single call.
+    /// The default implementation calls `embed()` in a loop; backends that
+    /// support true batched inference (e.g. ONNX) override this for better
+    /// throughput.
+    #[allow(dead_code)]
+    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        texts.iter().map(|t| self.embed(t)).collect()
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -329,6 +337,219 @@ impl Embedder for OnnxEmbedder {
 
         Ok(result)
     }
+
+    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Single-element batch: delegate to the optimised single-text path.
+        if texts.len() == 1 {
+            return Ok(vec![self.embed(texts[0])?]);
+        }
+
+        // --- Cache probe: split into hits and misses ---
+        let mut keys: Vec<[u8; 32]> = Vec::with_capacity(texts.len());
+        for text in texts {
+            let mut hasher = Sha256::new();
+            hasher.update(text.as_bytes());
+            keys.push(hasher.finalize().into());
+        }
+
+        // `results[i]` = Some(embedding) if cached, None if needs compute.
+        let mut results: Vec<Option<Vec<f32>>> = vec![None; texts.len()];
+        // Indices (into `texts`) that still need ONNX inference.
+        let mut miss_indices: Vec<usize> = Vec::new();
+
+        match self.cache.lock() {
+            Ok(mut cache) => {
+                for (i, key) in keys.iter().enumerate() {
+                    if let Some(cached) = cache.get(key) {
+                        results[i] = Some(cached.clone());
+                    } else {
+                        miss_indices.push(i);
+                    }
+                }
+            }
+            Err(_) => {
+                tracing::warn!("embedding cache mutex poisoned, bypassing cache");
+                miss_indices.extend(0..texts.len());
+            }
+        }
+
+        // All hits — return immediately.
+        if miss_indices.is_empty() {
+            return results
+                .into_iter()
+                .map(|opt| opt.ok_or_else(|| anyhow!("unexpected None in cache-hit path")))
+                .collect();
+        }
+
+        // --- Batched ONNX inference for cache misses ---
+        let computed = {
+            let mut rt_guard = self
+                .runtime
+                .lock()
+                .map_err(|_| anyhow!("onnx runtime mutex poisoned"))?;
+            if rt_guard.is_none() {
+                *rt_guard = Some(self.init_runtime()?);
+                self.touch_last_used();
+            }
+            let runtime = rt_guard
+                .as_ref()
+                .ok_or_else(|| anyhow!("runtime missing after init"))?;
+
+            // Tokenize all miss texts.
+            let miss_texts: Vec<&str> = miss_indices.iter().map(|&i| texts[i]).collect();
+            let encodings: Vec<tokenizers::Encoding> = miss_texts
+                .iter()
+                .map(|t| {
+                    runtime
+                        .tokenizer
+                        .encode(*t, true)
+                        .map_err(|e| anyhow!("tokenization failed: {e}"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            // Find the maximum sequence length across the batch for padding.
+            let max_len = encodings
+                .iter()
+                .map(|enc| enc.get_ids().len())
+                .max()
+                .ok_or_else(|| anyhow!("empty encodings in batch"))?;
+            if max_len == 0 {
+                return Err(anyhow!("all tokenizations produced zero-length sequences"));
+            }
+
+            let batch_size = encodings.len();
+
+            // Build padded flat tensors: [batch_size * max_len].
+            let mut flat_input_ids = vec![0_i64; batch_size * max_len];
+            let mut flat_attention_mask = vec![0_i64; batch_size * max_len];
+            let flat_token_type_ids = vec![0_i64; batch_size * max_len];
+
+            for (b, enc) in encodings.iter().enumerate() {
+                let ids = enc.get_ids();
+                let mask = enc.get_attention_mask();
+                let seq_len = ids.len();
+                if seq_len != mask.len() {
+                    return Err(anyhow!(
+                        "tokenization ids/mask length mismatch for batch item {b}"
+                    ));
+                }
+                let offset = b * max_len;
+                for j in 0..seq_len {
+                    flat_input_ids[offset + j] = ids[j] as i64;
+                    flat_attention_mask[offset + j] = mask[j] as i64;
+                }
+                // Remaining positions stay 0 (padding).
+            }
+
+            let input_ids_value =
+                ort::value::Value::from_array(([batch_size, max_len], flat_input_ids))
+                    .context("failed to create batched ONNX input_ids value")?;
+            let attention_mask_value =
+                ort::value::Value::from_array(([batch_size, max_len], flat_attention_mask))
+                    .context("failed to create batched ONNX attention_mask value")?;
+            let token_type_ids_value =
+                ort::value::Value::from_array(([batch_size, max_len], flat_token_type_ids))
+                    .context("failed to create batched ONNX token_type_ids value")?;
+
+            let mut session = runtime
+                .session
+                .lock()
+                .map_err(|_| anyhow!("onnx session mutex poisoned"))?;
+            let outputs = session
+                .run(ort::inputs![
+                    input_ids_value,
+                    attention_mask_value,
+                    token_type_ids_value
+                ])
+                .context("batched ONNX inference failed")?;
+            let first_output = outputs
+                .get("last_hidden_state")
+                .ok_or_else(|| anyhow!("missing ONNX output tensor 'last_hidden_state'"))?;
+            let (shape, output) = first_output
+                .try_extract_tensor::<f32>()
+                .context("failed to extract batched ONNX output tensor")?;
+
+            if shape.len() != 3 {
+                return Err(anyhow!("unexpected batched ONNX output shape: {shape:?}"));
+            }
+            let out_batch = usize::try_from(shape[0]).context("invalid output batch dimension")?;
+            let out_seq_len =
+                usize::try_from(shape[1]).context("invalid output sequence length")?;
+            let hidden_size = usize::try_from(shape[2]).context("invalid output hidden size")?;
+            if out_batch != batch_size {
+                return Err(anyhow!(
+                    "output batch size mismatch: got {out_batch}, expected {batch_size}"
+                ));
+            }
+            if hidden_size != self.dimension() {
+                return Err(anyhow!(
+                    "unexpected embedding dimension: got {hidden_size}, expected {}",
+                    self.dimension()
+                ));
+            }
+            if out_seq_len == 0 {
+                return Err(anyhow!("ONNX output sequence length is zero"));
+            }
+
+            // Mean-pool each item in the batch using its own attention mask.
+            let mut batch_embeddings: Vec<Vec<f32>> = Vec::with_capacity(batch_size);
+            for (b, enc) in encodings.iter().enumerate() {
+                let seq_len = enc.get_ids().len();
+                let effective_len = out_seq_len.min(seq_len);
+                let mut pooled = vec![0.0f32; hidden_size];
+                let mut mask_sum = 0.0f32;
+
+                for token_idx in 0..effective_len {
+                    let mask_value = enc.get_attention_mask()[token_idx] as f32;
+                    if mask_value <= 0.0 {
+                        continue;
+                    }
+                    mask_sum += mask_value;
+                    let row_offset = b * out_seq_len * hidden_size + token_idx * hidden_size;
+                    for (dim, pooled_value) in pooled.iter_mut().enumerate() {
+                        *pooled_value += output[row_offset + dim] * mask_value;
+                    }
+                }
+
+                if mask_sum <= 0.0 {
+                    return Err(anyhow!(
+                        "attention mask sum is zero during mean pooling for batch item {b}"
+                    ));
+                }
+                for value in &mut pooled {
+                    *value /= mask_sum;
+                }
+                normalize_embedding(&mut pooled);
+                batch_embeddings.push(pooled);
+            }
+            batch_embeddings
+        };
+        self.touch_last_used();
+
+        // --- Populate cache and assemble final result vector ---
+        match self.cache.lock() {
+            Ok(mut cache) => {
+                for (computed_idx, &orig_idx) in miss_indices.iter().enumerate() {
+                    cache.put(keys[orig_idx], computed[computed_idx].clone());
+                    results[orig_idx] = Some(computed[computed_idx].clone());
+                }
+            }
+            Err(_) => {
+                tracing::warn!("embedding cache mutex poisoned, bypassing cache");
+                for (computed_idx, &orig_idx) in miss_indices.iter().enumerate() {
+                    results[orig_idx] = Some(computed[computed_idx].clone());
+                }
+            }
+        }
+
+        results
+            .into_iter()
+            .map(|opt| opt.ok_or_else(|| anyhow!("unexpected None in batch result")))
+            .collect()
+    }
 }
 
 #[cfg(feature = "real-embeddings")]
@@ -514,5 +735,54 @@ mod tests {
         let b = vec![1.0_f32, 0.0];
         let score = cosine_similarity(&a, &b);
         assert_eq!(score, 0.0);
+    }
+
+    // --- embed_batch tests (PlaceholderEmbedder / default impl) ---
+
+    #[test]
+    fn test_placeholder_embed_batch_empty() {
+        let embedder = PlaceholderEmbedder;
+        let results = embedder.embed_batch(&[]).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_placeholder_embed_batch_single() {
+        let embedder = PlaceholderEmbedder;
+        let single = embedder.embed("hello").unwrap();
+        let batch = embedder.embed_batch(&["hello"]).unwrap();
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0], single);
+    }
+
+    #[test]
+    fn test_placeholder_embed_batch_multiple() {
+        let embedder = PlaceholderEmbedder;
+        let texts = ["alpha", "beta", "gamma"];
+        let batch = embedder.embed_batch(&texts).unwrap();
+        assert_eq!(batch.len(), 3);
+        // Each result should match the individual embed call.
+        for (i, text) in texts.iter().enumerate() {
+            let individual = embedder.embed(text).unwrap();
+            assert_eq!(batch[i], individual);
+        }
+    }
+
+    #[test]
+    fn test_placeholder_embed_batch_normalized() {
+        let embedder = PlaceholderEmbedder;
+        let batch = embedder.embed_batch(&["one", "two", "three"]).unwrap();
+        for emb in &batch {
+            let norm = emb.iter().map(|v| v * v).sum::<f32>().sqrt();
+            assert!((norm - 1.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_placeholder_embed_batch_deterministic() {
+        let embedder = PlaceholderEmbedder;
+        let first = embedder.embed_batch(&["a", "b"]).unwrap();
+        let second = embedder.embed_batch(&["a", "b"]).unwrap();
+        assert_eq!(first, second);
     }
 }
