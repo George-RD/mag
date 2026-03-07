@@ -63,7 +63,7 @@ fn sort_grid_results(results: &mut [GridSearchResult]) {
 
 pub(crate) fn format_scoring_params_literal(params: &ScoringParams) -> String {
     format!(
-        "ScoringParams {{\n    rrf_k: {:.1},\n    rrf_weight_vec: {:.2},\n    rrf_weight_fts: {:.2},\n    abstention_min_text: {:.2},\n    graph_neighbor_factor: {:.2},\n    graph_min_edge_weight: {:.2},\n    word_overlap_weight: {:.2},\n    jaccard_weight: {:.2},\n    importance_floor: {:.2},\n    importance_scale: {:.2},\n    context_tag_weight: {:.2},\n    time_decay_days: {:.1},\n    priority_base: {:.2},\n    priority_scale: {:.2},\n    feedback_heavy_suppress: {:.2},\n    feedback_strong_suppress: {:.2},\n    feedback_positive_scale: {:.2},\n    feedback_positive_cap: {:.2},\n    feedback_heavy_threshold: {},\n    neighbor_word_overlap_weight: {:.2},\n    neighbor_importance_floor: {:.2},\n    neighbor_importance_scale: {:.2},\n    graph_seed_min: {},\n    graph_seed_max: {},\n}}",
+        "ScoringParams {{\n    rrf_k: {:.1},\n    rrf_weight_vec: {:.2},\n    rrf_weight_fts: {:.2},\n    abstention_min_text: {:.2},\n    graph_neighbor_factor: {:.2},\n    graph_min_edge_weight: {:.2},\n    word_overlap_weight: {:.2},\n    jaccard_weight: {:.2},\n    importance_floor: {:.2},\n    importance_scale: {:.2},\n    context_tag_weight: {:.2},\n    time_decay_days: {:.1},\n    priority_base: {:.2},\n    priority_scale: {:.2},\n    feedback_heavy_suppress: {:.2},\n    feedback_strong_suppress: {:.2},\n    feedback_positive_scale: {:.2},\n    feedback_positive_cap: {:.2},\n    feedback_heavy_threshold: {},\n    neighbor_word_overlap_weight: {:.2},\n    neighbor_importance_floor: {:.2},\n    neighbor_importance_scale: {:.2},\n    graph_seed_min: {},\n    graph_seed_max: {},\n    dual_match_boost: {:.2},\n}}",
         params.rrf_k,
         params.rrf_weight_vec,
         params.rrf_weight_fts,
@@ -88,6 +88,7 @@ pub(crate) fn format_scoring_params_literal(params: &ScoringParams) -> String {
         params.neighbor_importance_scale,
         params.graph_seed_min,
         params.graph_seed_max,
+        params.dual_match_boost,
     )
 }
 
