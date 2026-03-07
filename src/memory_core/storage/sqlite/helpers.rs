@@ -158,20 +158,40 @@ pub(super) fn parse_metadata_from_db(raw: &str) -> serde_json::Value {
 }
 
 pub(super) fn build_fts5_query(input: &str) -> String {
-    let tokens: Vec<String> = input
-        .split_whitespace()
-        .filter(|token| !token.is_empty())
-        .map(|token| {
-            let escaped = token.replace('"', "\"\"");
-            format!("\"{escaped}\"")
-        })
-        .collect();
+    let raw_tokens: Vec<&str> = input.split_whitespace().filter(|t| !t.is_empty()).collect();
 
-    if tokens.is_empty() {
+    if raw_tokens.is_empty() {
         return "\"\"".to_string();
     }
 
-    tokens.join(" ")
+    // Escape each token for FTS5 (double-quote escaping) and wrap in quotes.
+    let escaped: Vec<String> = raw_tokens
+        .iter()
+        .map(|t| {
+            let e = t.replace('"', "\"\"");
+            format!("\"{e}\"")
+        })
+        .collect();
+
+    // For 1-2 token queries, bigrams would be redundant (either a single
+    // token or an exact duplicate of the full query). Just join with OR.
+    if raw_tokens.len() < 3 {
+        return escaped.join(" OR ");
+    }
+
+    // 3+ tokens: append adjacent-token bigrams as quoted phrases.
+    let bigrams: Vec<String> = raw_tokens
+        .windows(2)
+        .map(|pair| {
+            let a = pair[0].replace('"', "\"\"");
+            let b = pair[1].replace('"', "\"\"");
+            format!("\"{a} {b}\"")
+        })
+        .collect();
+
+    let mut parts = escaped;
+    parts.extend(bigrams);
+    parts.join(" OR ")
 }
 
 /// Encodes a slice of f32 values as little-endian bytes.
@@ -443,4 +463,66 @@ pub(super) fn vec_knn_search(
         results.push(row.context("failed to decode vec KNN row")?);
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fts5_query_empty_input() {
+        assert_eq!(build_fts5_query(""), "\"\"");
+        assert_eq!(build_fts5_query("   "), "\"\"");
+    }
+
+    #[test]
+    fn fts5_query_single_token() {
+        assert_eq!(build_fts5_query("database"), "\"database\"");
+    }
+
+    #[test]
+    fn fts5_query_two_tokens_no_bigrams() {
+        // Two tokens: bigrams would duplicate the full query, so skip them.
+        assert_eq!(
+            build_fts5_query("database connection"),
+            "\"database\" OR \"connection\""
+        );
+    }
+
+    #[test]
+    fn fts5_query_three_tokens_with_bigrams() {
+        assert_eq!(
+            build_fts5_query("database connection pool"),
+            "\"database\" OR \"connection\" OR \"pool\" \
+             OR \"database connection\" OR \"connection pool\""
+        );
+    }
+
+    #[test]
+    fn fts5_query_four_tokens_with_bigrams() {
+        assert_eq!(
+            build_fts5_query("the quick brown fox"),
+            "\"the\" OR \"quick\" OR \"brown\" OR \"fox\" \
+             OR \"the quick\" OR \"quick brown\" OR \"brown fox\""
+        );
+    }
+
+    #[test]
+    fn fts5_query_special_chars_escaped() {
+        // Double-quotes in tokens are escaped by doubling.
+        assert_eq!(
+            build_fts5_query("say \"hello\" world"),
+            "\"say\" OR \"\"\"hello\"\"\" OR \"world\" \
+             OR \"say \"\"hello\"\"\" OR \"\"\"hello\"\" world\""
+        );
+    }
+
+    #[test]
+    fn fts5_query_extra_whitespace_collapsed() {
+        assert_eq!(
+            build_fts5_query("  database   connection   pool  "),
+            "\"database\" OR \"connection\" OR \"pool\" \
+             OR \"database connection\" OR \"connection pool\""
+        );
+    }
 }

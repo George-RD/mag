@@ -425,7 +425,10 @@ async fn test_fts5_search_multiple_terms() {
         .search("rust memory", 10, &SearchOptions::default())
         .await
         .unwrap();
-    assert_eq!(results.len(), 1);
+    // OR semantics: both "rust memory ownership" and "rust tooling" match
+    // because each contains at least one query term.
+    assert_eq!(results.len(), 2);
+    // The entry matching both terms should rank higher (better BM25).
     assert_eq!(results[0].id, "fts2");
 }
 
