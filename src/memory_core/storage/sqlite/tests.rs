@@ -3909,3 +3909,139 @@ async fn test_access_rate_stats() {
     assert_eq!(result["zero_access_count"], 1);
     assert!(!result["top_accessed"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn test_advanced_search_explain_mode() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    for (id, content, event_type) in [
+        ("exp1", "alpha memory context details", "decision"),
+        ("exp2", "alpha context information", "reminder"),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                event_type: Some(event_type.to_string()),
+                tags: vec!["alpha".to_string()],
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Without explain: metadata should NOT contain _explain
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "alpha context",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        assert!(r.metadata.get("_explain").is_none());
+    }
+
+    // With explain=true: metadata should contain _explain with component scores
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "alpha context",
+        10,
+        &SearchOptions {
+            explain: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        let explain = r
+            .metadata
+            .get("_explain")
+            .expect("_explain should be present when explain=true");
+        assert!(explain.is_object());
+        // Check required explain fields exist
+        assert!(explain.get("final_score").is_some());
+        assert!(explain.get("word_overlap").is_some());
+        assert!(explain.get("text_overlap").is_some());
+        assert!(explain.get("importance_factor").is_some());
+        assert!(explain.get("feedback_factor").is_some());
+        assert!(explain.get("time_decay").is_some());
+        assert!(explain.get("type_weight").is_some());
+        assert!(explain.get("dual_match").is_some());
+        // final_score should match result score
+        let final_score = explain["final_score"].as_f64().unwrap();
+        assert!(
+            (final_score - r.score as f64).abs() < 0.01,
+            "final_score ({final_score}) should match result score ({})",
+            r.score
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_advanced_search_explain_false_no_metadata() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "ef1",
+        "beta context details",
+        &MemoryInput {
+            event_type: Some("decision".to_string()),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // explain=false should behave the same as unset
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "beta context",
+        10,
+        &SearchOptions {
+            explain: Some(false),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        assert!(r.metadata.get("_explain").is_none());
+    }
+}
+
+#[tokio::test]
+async fn test_advanced_search_abstention_returns_empty() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "abs1",
+        "very specific technical content about memory systems",
+        &MemoryInput {
+            event_type: Some("decision".to_string()),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Query with no overlap should trigger abstention (empty results)
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "completely unrelated banana smoothie recipe",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(results.is_empty(), "Abstention should return empty vec");
+}

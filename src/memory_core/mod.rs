@@ -88,6 +88,8 @@ pub struct SearchOptions {
     pub context_tags: Option<Vec<String>>,
     pub entity_id: Option<String>,
     pub agent_type: Option<String>,
+    /// When true, inject `_explain` component scores into each result's metadata.
+    pub explain: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
