@@ -103,7 +103,7 @@ fn word_overlap(query_words: &[&str], text: &str) -> f64 {
     let text_words = token_set(text, 3);
     let filtered_query: HashSet<String> = query_words
         .iter()
-        .map(|w| w.trim().to_lowercase())
+        .map(|w| simple_stem(&w.trim().to_lowercase()))
         .filter(|w| w.len() > 2)
         .collect();
 
@@ -173,8 +173,112 @@ pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .map(str::trim)
         .filter(|word| word.len() >= min_word_len)
-        .map(|word| word.to_lowercase())
+        .map(|word| simple_stem(&word.to_lowercase()))
         .collect()
+}
+
+/// Simple suffix stemmer for English words.
+///
+/// Strips common suffixes to normalize inflected forms so that e.g.
+/// "threading" matches "threads" (both stem to "thread").
+///
+/// Design constraints:
+/// - Never reduces a word below 3 characters.
+/// - Idempotent: stemming an already-stemmed word returns the same result.
+/// - No external crates — pure string operations.
+fn simple_stem(word: &str) -> String {
+    // Short words are returned as-is (nothing to strip safely).
+    if word.len() < 4 {
+        return word.to_string();
+    }
+
+    // -ies → -y  (e.g. "memories" → "memory")
+    // Check this before -s to avoid "memori" from -s stripping.
+    if word.ends_with("ies") && word.len() >= 4 {
+        let base_len = word.len() - 3;
+        if base_len >= 3 {
+            let mut result = word[..base_len].to_string();
+            result.push('y');
+            return result;
+        }
+    }
+
+    // ── Compound suffixes (checked before their single-suffix components) ──
+
+    // -tions (e.g. "connections" → "connec")
+    if word.ends_with("tions") && word.len() - 5 >= 4 {
+        return word[..word.len() - 5].to_string();
+    }
+
+    // -ments (e.g. "deployments" → "deploy")
+    if word.ends_with("ments") && word.len() - 5 >= 4 {
+        return word[..word.len() - 5].to_string();
+    }
+
+    // -ings (e.g. "settings" → "sett")
+    if word.ends_with("ings") && word.len() - 4 >= 5 {
+        return word[..word.len() - 4].to_string();
+    }
+
+    // -ers (e.g. "workers" → "work")
+    if word.ends_with("ers") && word.len() - 3 >= 4 {
+        return word[..word.len() - 3].to_string();
+    }
+
+    // ── Single suffixes ──
+
+    // -tion (e.g. "connection" → "connec")
+    if word.ends_with("tion") && word.len() - 4 >= 4 {
+        return word[..word.len() - 4].to_string();
+    }
+
+    // -ment (e.g. "deployment" → "deploy")
+    if word.ends_with("ment") && word.len() - 4 >= 4 {
+        return word[..word.len() - 4].to_string();
+    }
+
+    // -ness (e.g. "darkness" → "dark")
+    if word.ends_with("ness") && word.len() - 4 >= 4 {
+        return word[..word.len() - 4].to_string();
+    }
+
+    // -able / -ible (e.g. "readable" → "read")
+    if (word.ends_with("able") || word.ends_with("ible")) && word.len() - 4 >= 4 {
+        return word[..word.len() - 4].to_string();
+    }
+
+    // -ing (e.g. "threading" → "thread", but not "ring" or "king")
+    if word.ends_with("ing") && word.len() - 3 >= 5 {
+        return word[..word.len() - 3].to_string();
+    }
+
+    // -est (e.g. "fastest" → "fast", but not "est" or "best")
+    // Check before -ed/-er so "fastest" doesn't lose just -t.
+    if word.ends_with("est") && word.len() - 3 >= 4 {
+        return word[..word.len() - 3].to_string();
+    }
+
+    // -ed (e.g. "created" → "creat", but not "red" or "bed")
+    if word.ends_with("ed") && word.len() - 2 >= 4 {
+        return word[..word.len() - 2].to_string();
+    }
+
+    // -er (e.g. "worker" → "work", but not "her")
+    if word.ends_with("er") && word.len() - 2 >= 4 {
+        return word[..word.len() - 2].to_string();
+    }
+
+    // -ly (e.g. "quickly" → "quick", but not "fly")
+    if word.ends_with("ly") && word.len() - 2 >= 4 {
+        return word[..word.len() - 2].to_string();
+    }
+
+    // -s (e.g. "threads" → "thread", but not "is"/"as", and not -ss like "glass")
+    if word.ends_with('s') && !word.ends_with("ss") && word.len() > 4 {
+        return word[..word.len() - 1].to_string();
+    }
+
+    word.to_string()
 }
 
 /// Like `word_overlap`, but accepts pre-computed token sets for both query and candidate.
@@ -475,5 +579,249 @@ mod tests {
         let b = token_set("beta gamma delta", 2);
         let similarity = jaccard_pre(&a, &b);
         assert!((similarity - 0.5).abs() < 1e-9);
+    }
+
+    // ── simple_stem tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_stem_ing() {
+        assert_eq!(simple_stem("threading"), "thread");
+        assert_eq!(simple_stem("processing"), "process");
+        assert_eq!(simple_stem("computing"), "comput");
+    }
+
+    #[test]
+    fn test_stem_ing_short_words_preserved() {
+        // "ring" → only 1 char base after stripping → kept as-is
+        assert_eq!(simple_stem("ring"), "ring");
+        // "king" → only 1 char base → kept
+        assert_eq!(simple_stem("king"), "king");
+        // "bring" → 2 chars base → kept (need 5+ remaining)
+        assert_eq!(simple_stem("bring"), "bring");
+        // "string" has only 3 chars remaining, need 5+
+        assert_eq!(simple_stem("string"), "string");
+    }
+
+    #[test]
+    fn test_stem_ed() {
+        assert_eq!(simple_stem("created"), "creat");
+        assert_eq!(simple_stem("processed"), "process");
+        assert_eq!(simple_stem("stored"), "stor");
+    }
+
+    #[test]
+    fn test_stem_ed_short_words_preserved() {
+        // "red" → too short for any suffix
+        assert_eq!(simple_stem("red"), "red");
+        // "bed" → too short
+        assert_eq!(simple_stem("bed"), "bed");
+        // "shed" → base "sh" is only 2 chars, need 4+
+        assert_eq!(simple_stem("shed"), "shed");
+        // "used" → base "us" is only 2 chars, need 4+
+        assert_eq!(simple_stem("used"), "used");
+    }
+
+    #[test]
+    fn test_stem_s() {
+        assert_eq!(simple_stem("threads"), "thread");
+        assert_eq!(simple_stem("systems"), "system");
+        assert_eq!(simple_stem("memories"), "memory"); // -ies rule catches first
+    }
+
+    #[test]
+    fn test_stem_s_guards() {
+        // "is" and "as" too short (< 4 chars)
+        assert_eq!(simple_stem("is"), "is");
+        assert_eq!(simple_stem("as"), "as");
+        // "-ss" words should NOT be stripped
+        assert_eq!(simple_stem("glass"), "glass");
+        assert_eq!(simple_stem("class"), "class");
+        assert_eq!(simple_stem("moss"), "moss");
+    }
+
+    #[test]
+    fn test_stem_tion() {
+        assert_eq!(simple_stem("connection"), "connec");
+        assert_eq!(simple_stem("collection"), "collec");
+        assert_eq!(simple_stem("abstention"), "absten");
+    }
+
+    #[test]
+    fn test_stem_ment() {
+        assert_eq!(simple_stem("deployment"), "deploy");
+        assert_eq!(simple_stem("management"), "manage");
+        assert_eq!(simple_stem("environment"), "environ");
+    }
+
+    #[test]
+    fn test_stem_ness() {
+        assert_eq!(simple_stem("darkness"), "dark");
+        assert_eq!(simple_stem("happiness"), "happi");
+        assert_eq!(simple_stem("awareness"), "aware");
+    }
+
+    #[test]
+    fn test_stem_ly() {
+        assert_eq!(simple_stem("quickly"), "quick");
+        assert_eq!(simple_stem("slowly"), "slow");
+    }
+
+    #[test]
+    fn test_stem_ly_short_preserved() {
+        // "fly" → too short
+        assert_eq!(simple_stem("fly"), "fly");
+        // "holy" → base "ho" is only 2 chars, need 4+
+        assert_eq!(simple_stem("holy"), "holy");
+    }
+
+    #[test]
+    fn test_stem_er() {
+        assert_eq!(simple_stem("worker"), "work");
+        assert_eq!(simple_stem("builder"), "build");
+        assert_eq!(simple_stem("handler"), "handl");
+    }
+
+    #[test]
+    fn test_stem_er_short_preserved() {
+        // "her" → too short
+        assert_eq!(simple_stem("her"), "her");
+    }
+
+    #[test]
+    fn test_stem_est() {
+        assert_eq!(simple_stem("fastest"), "fast");
+        assert_eq!(simple_stem("largest"), "larg");
+    }
+
+    #[test]
+    fn test_stem_est_short_preserved() {
+        // "best" → base "b" only 1 char, need 4+
+        assert_eq!(simple_stem("best"), "best");
+        // "rest" → base "r" only 1 char
+        assert_eq!(simple_stem("rest"), "rest");
+    }
+
+    #[test]
+    fn test_stem_ies() {
+        assert_eq!(simple_stem("memories"), "memory");
+        assert_eq!(simple_stem("queries"), "query");
+        assert_eq!(simple_stem("entries"), "entry");
+    }
+
+    #[test]
+    fn test_stem_able_ible() {
+        assert_eq!(simple_stem("readable"), "read");
+        assert_eq!(simple_stem("searchable"), "search");
+        assert_eq!(simple_stem("flexible"), "flex");
+        assert_eq!(simple_stem("convertible"), "convert");
+    }
+
+    // ── Compound suffix tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_stem_compound_ers() {
+        // "workers" → "work" (same as "worker" → "work")
+        assert_eq!(simple_stem("workers"), "work");
+        assert_eq!(simple_stem("builders"), "build");
+        assert_eq!(simple_stem("handlers"), "handl");
+    }
+
+    #[test]
+    fn test_stem_compound_ings() {
+        // "settings" base is only 4 chars, so -ings doesn't fire; -s strips to "setting"
+        assert_eq!(simple_stem("settings"), "setting");
+        // "buildings" base is 5 chars, so -ings fires → "build"
+        assert_eq!(simple_stem("buildings"), "build");
+        // "proceedings" base is 7 chars → "proceed"
+        assert_eq!(simple_stem("proceedings"), "proceed");
+    }
+
+    #[test]
+    fn test_stem_compound_tions() {
+        assert_eq!(simple_stem("connections"), "connec");
+        assert_eq!(simple_stem("collections"), "collec");
+    }
+
+    #[test]
+    fn test_stem_compound_ments() {
+        assert_eq!(simple_stem("deployments"), "deploy");
+        assert_eq!(simple_stem("environments"), "environ");
+    }
+
+    #[test]
+    fn test_stem_idempotent() {
+        // Stemming an already-stemmed word should return the same result
+        let words = [
+            "thread", "process", "deploy", "dark", "quick", "work", "fast", "memory", "read",
+            "search", "flex",
+        ];
+        for word in &words {
+            let once = simple_stem(word);
+            let twice = simple_stem(&once);
+            assert_eq!(
+                once, twice,
+                "stem('{}') = '{}' but stem('{}') = '{}'",
+                word, once, once, twice
+            );
+        }
+    }
+
+    #[test]
+    fn test_stem_never_below_3_chars() {
+        // Verify we never produce a result shorter than 3 characters
+        // for any input that is 3+ characters.
+        let words = [
+            "the", "ing", "bed", "red", "ant", "are", "ate", "use", "ring", "king", "sing", "dies",
+            "ties",
+        ];
+        for word in &words {
+            let stemmed = simple_stem(word);
+            assert!(
+                stemmed.len() >= word.len().min(3),
+                "stem('{}') = '{}' is too short",
+                word,
+                stemmed
+            );
+        }
+    }
+
+    // ── token_set stemming integration tests ───────────────────────────
+
+    #[test]
+    fn test_token_set_stems_inflections() {
+        // "threading" and "threads" should both stem to "thread"
+        let a = token_set("threading issues", 3);
+        let b = token_set("thread issues", 3);
+        assert!(a.contains("thread"), "expected 'thread' in {:?}", a);
+        assert!(b.contains("thread"), "expected 'thread' in {:?}", b);
+    }
+
+    #[test]
+    fn test_token_set_stemming_improves_overlap() {
+        // Before stemming these wouldn't match; now they should
+        let query = token_set("threading", 3);
+        let text = token_set("threads are useful", 3);
+        let overlap = word_overlap_pre(&query, &text);
+        assert!(
+            (overlap - 1.0).abs() < 1e-9,
+            "expected overlap 1.0, got {}",
+            overlap
+        );
+    }
+
+    #[test]
+    fn test_token_set_stemming_jaccard() {
+        // "deploying workers quickly" vs "deployment worker quick"
+        // all three content words should match after stemming
+        let a = token_set("deploying workers quickly", 3);
+        let b = token_set("deployment worker quick", 3);
+        let j = jaccard_pre(&a, &b);
+        assert!(
+            (j - 1.0).abs() < 1e-9,
+            "expected Jaccard 1.0, got {} (a={:?}, b={:?})",
+            j,
+            a,
+            b,
+        );
     }
 }
