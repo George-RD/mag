@@ -60,7 +60,7 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
             id UNINDEXED,
             content,
-            tokenize='unicode61'
+            tokenize='porter unicode61'
         );",
     )
     .context("failed to initialize sqlite schema")?;
@@ -91,6 +91,7 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         let _ = conn.execute_batch(alter);
     }
 
+    migrate_fts_to_porter(conn)?;
     rebuild_fts_index(conn)?;
 
     // Performance indexes
@@ -233,6 +234,57 @@ pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> R
             tracing::info!("vec_memories migration: {migrated} migrated, {skipped} skipped");
         }
     }
+
+    Ok(())
+}
+
+/// Migrates an existing FTS5 table from `unicode61` to `porter unicode61` tokenizer.
+///
+/// For existing databases the `CREATE VIRTUAL TABLE IF NOT EXISTS` in `initialize_schema`
+/// is a no-op because the table already exists with the old tokenizer.  This migration
+/// detects that case by inspecting `sqlite_master`, drops the stale virtual table, and
+/// recreates it with the porter stemmer.  Data is repopulated from `memories`.
+///
+/// The check is idempotent: once the table uses `porter unicode61` the function is a no-op.
+fn migrate_fts_to_porter(conn: &Connection) -> Result<()> {
+    // Read the DDL that SQLite recorded for the FTS virtual table.
+    let sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memories_fts'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let needs_migration = match &sql {
+        // Table exists but doesn't contain 'porter' → old tokenizer
+        Some(ddl) => !ddl.to_lowercase().contains("porter"),
+        // Table doesn't exist yet (fresh DB) → CREATE in initialize_schema already uses porter
+        None => false,
+    };
+
+    if !needs_migration {
+        return Ok(());
+    }
+
+    tracing::info!("migrating FTS5 index from unicode61 to porter unicode61 tokenizer");
+
+    conn.execute_batch("DROP TABLE IF EXISTS memories_fts;")
+        .context("failed to drop old FTS5 table during porter migration")?;
+
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+            id UNINDEXED,
+            content,
+            tokenize='porter unicode61'
+        );",
+    )
+    .context("failed to recreate FTS5 table with porter tokenizer")?;
+
+    // Repopulate from existing memories (rebuild_fts_index will also check, but we do it
+    // here so the migration is self-contained).
+    conn.execute_batch("INSERT INTO memories_fts(id, content) SELECT id, content FROM memories;")
+        .context("failed to repopulate FTS5 index during porter migration")?;
 
     Ok(())
 }
