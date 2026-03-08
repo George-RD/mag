@@ -744,6 +744,8 @@ struct RankedSemanticCandidate {
     /// The `event_at` timestamp for temporal filtering (may differ from `created_at`).
     event_at: String,
     score: f64,
+    /// Resolved priority (from stored value or event-type default), for explain mode.
+    priority_value: u8,
     #[allow(dead_code)] // Stored for diagnostics; abstention uses collection-level text_overlap
     vec_sim: Option<f64>,
     text_overlap: f64,

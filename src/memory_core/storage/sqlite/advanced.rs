@@ -120,6 +120,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 created_at,
                                 event_at,
                                 score: initial_score,
+                                priority_value,
                                 vec_sim: Some(similarity),
                                 text_overlap: 0.0,
                                 entity_id,
@@ -219,6 +220,7 @@ impl AdvancedSearcher for SqliteStorage {
                             created_at,
                             event_at,
                             score: initial_score,
+                            priority_value,
                             vec_sim: Some(similarity),
                             text_overlap: 0.0,
                             entity_id,
@@ -327,6 +329,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 created_at,
                                 event_at,
                                 score: initial_score,
+                                priority_value,
                                 vec_sim: None,
                                 text_overlap: 0.0,
                                 entity_id,
@@ -357,7 +360,7 @@ impl AdvancedSearcher for SqliteStorage {
                     scoring_params.rrf_weight_vec / (scoring_params.rrf_k + rank as f64 + 1.0);
                 let et_ref = candidate.result.event_type.as_ref().unwrap_or(&EventType::Memory);
                 let type_w = type_weight_et(et_ref);
-                let pf = priority_factor(et_ref.default_priority() as u8, &scoring_params);
+                let pf = priority_factor(candidate.priority_value, &scoring_params);
 
                 if explain_enabled {
                     let dual = fts_ids.contains(&id);
@@ -395,7 +398,7 @@ impl AdvancedSearcher for SqliteStorage {
                 } else {
                     let et_ref = candidate.result.event_type.as_ref().unwrap_or(&EventType::Memory);
                     let type_w = type_weight_et(et_ref);
-                    let pf = priority_factor(et_ref.default_priority() as u8, &scoring_params);
+                    let pf = priority_factor(candidate.priority_value, &scoring_params);
 
                     let explain_data = if explain_enabled {
                         Some(serde_json::json!({
@@ -569,7 +572,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 };
                                 let (
                                     id, content, raw_tags, importance, raw_metadata,
-                                    event_type, session_id, project, _priority, created_at,
+                                    event_type, session_id, project, priority, created_at,
                                     embedding_blob, edge_weight, entity_id, agent_type,
                                     event_at,
                                 ) = row;
@@ -596,6 +599,14 @@ impl AdvancedSearcher for SqliteStorage {
                                         * fb_dampening;
                                 let neighbor_et = event_type_from_sql(event_type.clone());
                                 let neighbor_et_ref = neighbor_et.as_ref().unwrap_or(&EventType::Memory);
+                                let neighbor_pv = if let Some(p) = priority
+                                    && (1..=5).contains(&p)
+                                {
+                                    p as u8
+                                } else {
+                                    let dp = neighbor_et_ref.default_priority();
+                                    if dp == 0 { 3 } else { dp as u8 }
+                                };
                                 neighbor_score *=
                                     time_decay_et(&created_at, neighbor_et_ref, &scoring_params);
                                 neighbor_score *= scoring_params.neighbor_importance_floor
@@ -642,6 +653,7 @@ impl AdvancedSearcher for SqliteStorage {
                                         created_at,
                                         event_at,
                                         score: neighbor_score,
+                                        priority_value: neighbor_pv,
                                         vec_sim,
                                         text_overlap: overlap,
                                         entity_id,
