@@ -168,8 +168,8 @@ impl CheckpointManager for SqliteStorage {
             id: Some(id.clone()),
             metadata,
             event_type: Some(EventType::Checkpoint),
-            priority: Some(default_priority_for_event_type("checkpoint")),
-            ttl_seconds: default_ttl_for_event_type("checkpoint"),
+            priority: Some(EventType::Checkpoint.default_priority()),
+            ttl_seconds: EventType::Checkpoint.default_ttl(),
             session_id: input.session_id,
             project: input.project,
             ..Default::default()
@@ -290,8 +290,8 @@ impl ReminderManager for SqliteStorage {
             id: Some(reminder_id.clone()),
             metadata,
             event_type: Some(EventType::Reminder),
-            priority: Some(default_priority_for_event_type("reminder")),
-            ttl_seconds: default_ttl_for_event_type("reminder"),
+            priority: Some(EventType::Reminder.default_priority()),
+            ttl_seconds: EventType::Reminder.default_ttl(),
             session_id: session_id.map(ToString::to_string),
             project: project.map(ToString::to_string),
             ..Default::default()

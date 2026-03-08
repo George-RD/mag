@@ -16,10 +16,9 @@ use crate::memory_core::{
     MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
     Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
     SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
-    Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
-    default_priority_for_event_type, default_ttl_for_event_type, embedder::Embedder,
-    feedback_factor, jaccard_pre, jaccard_similarity, priority_factor, time_decay, token_set,
-    type_weight, word_overlap_pre,
+    Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider, embedder::Embedder,
+    feedback_factor, jaccard_pre, jaccard_similarity, priority_factor, time_decay_et, token_set,
+    type_weight_et, word_overlap_pre,
 };
 
 /// Cosine similarity threshold for auto-supersession detection (primary signal).
@@ -771,8 +770,8 @@ use helpers::{
     ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
     content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
     event_type_to_sql, expand_temporal_query, matches_search_options, normalize_for_dedup,
-    parse_metadata_from_db, parse_tags_from_db, resolve_priority, search_result_from_row,
-    to_param_refs, validate_iso8601,
+    parse_metadata_from_db, parse_tags_from_db, search_result_from_row, to_param_refs,
+    validate_iso8601,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 

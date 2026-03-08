@@ -352,44 +352,31 @@ impl MaintenanceManager for SqliteStorage {
                 }));
             }
 
-            // Sweep event types that have dedup thresholds
-            let sweep_types = [
-                (crate::memory_core::EventType::ErrorPattern, "error_pattern"),
-                (
-                    crate::memory_core::EventType::SessionSummary,
-                    "session_summary",
-                ),
-                (
-                    crate::memory_core::EventType::TaskCompletion,
-                    "task_completion",
-                ),
-                (crate::memory_core::EventType::Decision, "decision"),
-                (
-                    crate::memory_core::EventType::LessonLearned,
-                    "lesson_learned",
-                ),
-            ];
+            // Sweep event types that have dedup thresholds (derived from EventType)
+            let sweep_types = crate::memory_core::EventType::types_with_dedup_threshold();
 
             let mut total_compacted = 0usize;
             let mut type_results: Vec<serde_json::Value> = Vec::new();
 
-            for (et, et_str) in &sweep_types {
+            for et in &sweep_types {
                 let threshold = et.dedup_threshold().unwrap_or(0.80);
+                let et_str = et.to_string();
 
-                // Fetch candidates with embeddings
+                // Fetch candidates with embeddings (capped at 1000 most recent to bound O(n^2))
                 let mut stmt = conn
                     .prepare(
-                        "SELECT id, content, embedding FROM memories \
+                        "SELECT id, LENGTH(content), embedding FROM memories \
                          WHERE event_type = ?1 AND embedding IS NOT NULL \
-                         AND superseded_by_id IS NULL",
+                         AND superseded_by_id IS NULL \
+                         ORDER BY created_at DESC LIMIT 1000",
                     )
                     .context("failed to prepare auto_compact query")?;
 
-                let candidates: Vec<(String, String, Vec<u8>)> = stmt
+                let candidates: Vec<(String, usize, Vec<u8>)> = stmt
                     .query_map(params![et_str], |row| {
                         Ok((
                             row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
+                            row.get::<_, usize>(1)?,
                             row.get::<_, Vec<u8>>(2)?,
                         ))
                     })
@@ -450,38 +437,38 @@ impl MaintenanceManager for SqliteStorage {
 
                 let mut type_compacted = 0usize;
 
-                for cluster in &valid_clusters {
-                    if !dry_run {
-                        // Keep the first (longest content), supersede the rest
+                if !valid_clusters.is_empty() && !dry_run {
+                    // Single transaction for all clusters of this event type
+                    let tx = conn
+                        .unchecked_transaction()
+                        .context("failed to start auto_compact transaction")?;
+
+                    for cluster in &valid_clusters {
+                        // Keep the longest content, supersede the rest
                         let keep_idx = *cluster
                             .iter()
-                            .max_by_key(|&&idx| candidates[idx].1.len())
+                            .max_by_key(|&&idx| candidates[idx].1)
                             .unwrap();
                         let keep_id = &candidates[keep_idx].0;
-
-                        let tx = conn
-                            .unchecked_transaction()
-                            .context("failed to start auto_compact transaction")?;
 
                         for &idx in cluster {
                             if idx == keep_idx {
                                 continue;
                             }
                             let del_id = &candidates[idx].0;
-
-                            // Mark as superseded rather than delete
                             tx.execute(
                                 "UPDATE memories SET superseded_by_id = ?1 WHERE id = ?2",
                                 params![keep_id, del_id],
                             )
                             .context("failed to supersede memory during auto_compact")?;
-
                             type_compacted += 1;
                         }
+                    }
 
-                        tx.commit()
-                            .context("failed to commit auto_compact transaction")?;
-                    } else {
+                    tx.commit()
+                        .context("failed to commit auto_compact transaction")?;
+                } else if dry_run {
+                    for cluster in &valid_clusters {
                         type_compacted += cluster.len() - 1;
                     }
                 }

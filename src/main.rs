@@ -14,7 +14,6 @@ use memory_core::{
     default_ttl_for_event_type, is_valid_event_type,
 };
 use serde_json::json;
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing::info;
 
@@ -932,8 +931,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn parse_event_type(s: &Option<String>) -> Option<EventType> {
-    s.as_ref()
-        .map(|v| EventType::from_str(v).unwrap_or_else(|e| match e {}))
+    EventType::from_optional(s)
 }
 
 fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {

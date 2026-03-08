@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -67,6 +68,7 @@ impl Default for ScoringParams {
     }
 }
 
+#[cfg(test)]
 pub fn type_weight(event_type: &str) -> f64 {
     let et = event_type
         .parse::<EventType>()
@@ -74,14 +76,25 @@ pub fn type_weight(event_type: &str) -> f64 {
     et.type_weight()
 }
 
+/// Returns the type weight for a typed `EventType` (avoids string round-trip).
+pub fn type_weight_et(et: &EventType) -> f64 {
+    et.type_weight()
+}
+
 pub fn priority_factor(priority: u8, scoring_params: &ScoringParams) -> f64 {
     scoring_params.priority_base + (priority as f64 * scoring_params.priority_scale)
 }
 
+#[cfg(test)]
 pub fn time_decay(created_at: &str, event_type: &str, scoring_params: &ScoringParams) -> f64 {
     let et = event_type
         .parse::<EventType>()
         .unwrap_or_else(|e| match e {});
+    time_decay_et(created_at, &et, scoring_params)
+}
+
+/// Time decay using a typed `EventType` (avoids string round-trip).
+pub fn time_decay_et(created_at: &str, et: &EventType, scoring_params: &ScoringParams) -> f64 {
     if et.memory_kind() == MemoryKind::Semantic {
         return 1.0;
     }
@@ -108,7 +121,7 @@ fn word_overlap(query_words: &[&str], text: &str) -> f64 {
     let text_words = token_set(text, 3);
     let filtered_query: HashSet<String> = query_words
         .iter()
-        .map(|w| simple_stem(&w.trim().to_lowercase()))
+        .map(|w| simple_stem(&w.trim().to_lowercase()).into_owned())
         .filter(|w| w.len() > 2)
         .collect();
 
@@ -178,7 +191,10 @@ pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .map(str::trim)
         .filter(|word| word.len() >= min_word_len)
-        .map(|word| simple_stem(&word.to_lowercase()))
+        .map(|word| {
+            let lower = word.to_lowercase();
+            simple_stem(&lower).into_owned()
+        })
         .collect()
 }
 
@@ -191,10 +207,10 @@ pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
 /// - Never reduces a word below 3 characters.
 /// - Idempotent: stemming an already-stemmed word returns the same result.
 /// - No external crates — pure string operations.
-fn simple_stem(word: &str) -> String {
+fn simple_stem(word: &str) -> Cow<'_, str> {
     // Short words are returned as-is (nothing to strip safely).
     if word.len() < 4 {
-        return word.to_string();
+        return Cow::Borrowed(word);
     }
 
     // -ies → -y  (e.g. "memories" → "memory")
@@ -204,7 +220,7 @@ fn simple_stem(word: &str) -> String {
         if base_len >= 3 {
             let mut result = word[..base_len].to_string();
             result.push('y');
-            return result;
+            return Cow::Owned(result);
         }
     }
 
@@ -212,78 +228,78 @@ fn simple_stem(word: &str) -> String {
 
     // -tions (e.g. "connections" → "connec")
     if word.ends_with("tions") && word.len() - 5 >= 4 {
-        return word[..word.len() - 5].to_string();
+        return Cow::Borrowed(&word[..word.len() - 5]);
     }
 
     // -ments (e.g. "deployments" → "deploy")
     if word.ends_with("ments") && word.len() - 5 >= 4 {
-        return word[..word.len() - 5].to_string();
+        return Cow::Borrowed(&word[..word.len() - 5]);
     }
 
     // -ings (e.g. "settings" → "sett")
     if word.ends_with("ings") && word.len() - 4 >= 5 {
-        return word[..word.len() - 4].to_string();
+        return Cow::Borrowed(&word[..word.len() - 4]);
     }
 
     // -ers (e.g. "workers" → "work")
     if word.ends_with("ers") && word.len() - 3 >= 4 {
-        return word[..word.len() - 3].to_string();
+        return Cow::Borrowed(&word[..word.len() - 3]);
     }
 
     // ── Single suffixes ──
 
     // -tion (e.g. "connection" → "connec")
     if word.ends_with("tion") && word.len() - 4 >= 4 {
-        return word[..word.len() - 4].to_string();
+        return Cow::Borrowed(&word[..word.len() - 4]);
     }
 
     // -ment (e.g. "deployment" → "deploy")
     if word.ends_with("ment") && word.len() - 4 >= 4 {
-        return word[..word.len() - 4].to_string();
+        return Cow::Borrowed(&word[..word.len() - 4]);
     }
 
     // -ness (e.g. "darkness" → "dark")
     if word.ends_with("ness") && word.len() - 4 >= 4 {
-        return word[..word.len() - 4].to_string();
+        return Cow::Borrowed(&word[..word.len() - 4]);
     }
 
     // -able / -ible (e.g. "readable" → "read")
     if (word.ends_with("able") || word.ends_with("ible")) && word.len() - 4 >= 4 {
-        return word[..word.len() - 4].to_string();
+        return Cow::Borrowed(&word[..word.len() - 4]);
     }
 
     // -ing (e.g. "threading" → "thread", but not "ring" or "king")
     if word.ends_with("ing") && word.len() - 3 >= 5 {
-        return word[..word.len() - 3].to_string();
+        return Cow::Borrowed(&word[..word.len() - 3]);
     }
 
     // -est (e.g. "fastest" → "fast", but not "est" or "best")
     // Check before -ed/-er so "fastest" doesn't lose just -t.
     if word.ends_with("est") && word.len() - 3 >= 4 {
-        return word[..word.len() - 3].to_string();
+        return Cow::Borrowed(&word[..word.len() - 3]);
     }
 
     // -ed (e.g. "created" → "creat", but not "red" or "bed")
     if word.ends_with("ed") && word.len() - 2 >= 4 {
-        return word[..word.len() - 2].to_string();
+        return Cow::Borrowed(&word[..word.len() - 2]);
     }
 
     // -er (e.g. "worker" → "work", but not "her")
     if word.ends_with("er") && word.len() - 2 >= 4 {
-        return word[..word.len() - 2].to_string();
+        return Cow::Borrowed(&word[..word.len() - 2]);
     }
 
     // -ly (e.g. "quickly" → "quick", but not "fly")
     if word.ends_with("ly") && word.len() - 2 >= 4 {
-        return word[..word.len() - 2].to_string();
+        return Cow::Borrowed(&word[..word.len() - 2]);
     }
 
     // -s (e.g. "threads" → "thread", but not "is"/"as", and not -ss like "glass")
     if word.ends_with('s') && !word.ends_with("ss") && word.len() > 4 {
-        return word[..word.len() - 1].to_string();
+        return Cow::Borrowed(&word[..word.len() - 1]);
     }
 
-    word.to_string()
+    Cow::Borrowed(word)
 }
 
 /// Like `word_overlap`, but accepts pre-computed token sets for both query and candidate.

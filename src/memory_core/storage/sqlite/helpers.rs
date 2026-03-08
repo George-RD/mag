@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::sync::MutexGuard;
 
 use super::*;
@@ -243,6 +242,7 @@ pub(crate) fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
+#[allow(dead_code)]
 pub(super) fn resolve_priority(event_type: Option<&str>, priority: Option<i64>) -> u8 {
     if let Some(value) = priority
         && (1..=5).contains(&value)
@@ -313,7 +313,7 @@ pub(super) fn search_result_from_row(row: &rusqlite::Row) -> rusqlite::Result<Se
         tags: parse_tags_from_db(&raw_tags),
         importance: row.get(3)?,
         metadata: parse_metadata_from_db(&raw_metadata),
-        event_type: event_type_str.map(|s| EventType::from_str(&s).unwrap_or_else(|e| match e {})),
+        event_type: event_type_from_sql(event_type_str),
         session_id: row.get(6).ok(),
         project: row.get(7).ok(),
     })
@@ -326,7 +326,7 @@ pub(super) fn event_type_to_sql(et: &Option<EventType>) -> Option<String> {
 
 /// Parses an `Option<String>` from the DB into an `Option<EventType>`.
 pub(super) fn event_type_from_sql(s: Option<String>) -> Option<EventType> {
-    s.map(|v| EventType::from_str(&v).unwrap_or_else(|e| match e {}))
+    EventType::from_optional(&s)
 }
 
 /// Appends WHERE-clause fragments for every non-None field in `opts` to `sql`,

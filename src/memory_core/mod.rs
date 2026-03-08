@@ -22,7 +22,7 @@ pub(crate) use scoring::token_set;
 pub use scoring::{
     ABSTENTION_MIN_TEXT, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, RRF_WEIGHT_FTS,
     RRF_WEIGHT_VEC, ScoringParams, feedback_factor, jaccard_pre, jaccard_similarity,
-    priority_factor, time_decay, type_weight, word_overlap_pre,
+    priority_factor, time_decay_et, type_weight_et, word_overlap_pre,
 };
 
 pub const TTL_EPHEMERAL: i64 = 3600;
@@ -184,6 +184,24 @@ impl EventType {
             self,
             EventType::Decision | EventType::LessonLearned | EventType::UserPreference
         )
+    }
+
+    /// Converts an `Option<String>` (from JSON/SQL) into `Option<EventType>`.
+    pub fn from_optional(s: &Option<String>) -> Option<EventType> {
+        s.as_ref()
+            .map(|v| EventType::from_str(v).unwrap_or_else(|e| match e {}))
+    }
+
+    /// Returns all event types that have a dedup threshold.
+    pub fn types_with_dedup_threshold() -> Vec<EventType> {
+        // Keep in sync with dedup_threshold() match arms above.
+        vec![
+            EventType::ErrorPattern,
+            EventType::SessionSummary,
+            EventType::TaskCompletion,
+            EventType::Decision,
+            EventType::LessonLearned,
+        ]
     }
 }
 
@@ -373,47 +391,12 @@ pub struct CheckpointInput {
     pub project: Option<String>,
 }
 
-#[allow(dead_code)]
-pub const VALID_EVENT_TYPES: &[&str] = &[
-    "session_summary",
-    "task_completion",
-    "error_pattern",
-    "lesson_learned",
-    "decision",
-    "blocked_context",
-    "user_preference",
-    "user_fact",
-    "advisor_insight",
-    "git_commit",
-    "git_merge",
-    "git_conflict",
-    "session_start",
-    "session_end",
-    "context_warning",
-    "budget_alert",
-    "coordination_snapshot",
-    "checkpoint",
-    "reminder",
-    "memory",
-    "code_chunk",
-    "file_summary",
-];
-
 /// Checks if a string represents a known event type.
 /// Thin wrapper that delegates to `EventType`.
 pub fn is_valid_event_type(event_type: &str) -> bool {
     EventType::from_str(event_type)
         .map(|et| et.is_valid())
         .unwrap_or(false)
-}
-
-/// Returns the memory kind for a given event type string.
-/// Thin wrapper that delegates to `EventType::memory_kind()`.
-#[allow(dead_code)]
-pub fn memory_kind_for_event_type(event_type: &str) -> MemoryKind {
-    EventType::from_str(event_type)
-        .map(|et| et.memory_kind())
-        .unwrap_or(MemoryKind::Episodic)
 }
 
 /// Returns the default priority for a given event type string.
@@ -1278,13 +1261,13 @@ mod tests {
 
     #[test]
     fn test_memory_kind_for_semantic_event_type() {
-        assert_eq!(memory_kind_for_event_type("decision"), MemoryKind::Semantic);
+        assert_eq!(EventType::Decision.memory_kind(), MemoryKind::Semantic);
     }
 
     #[test]
     fn test_memory_kind_defaults_to_episodic_for_unknown_type() {
         assert_eq!(
-            memory_kind_for_event_type("totally_unknown"),
+            EventType::Unknown("totally_unknown".to_string()).memory_kind(),
             MemoryKind::Episodic
         );
     }

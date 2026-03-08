@@ -532,15 +532,15 @@ impl Embedder for OnnxEmbedder {
         // --- Populate cache and assemble final result vector ---
         match self.cache.lock() {
             Ok(mut cache) => {
-                for (computed_idx, &orig_idx) in miss_indices.iter().enumerate() {
-                    cache.put(keys[orig_idx], computed[computed_idx].clone());
-                    results[orig_idx] = Some(computed[computed_idx].clone());
+                for (embedding, &orig_idx) in computed.into_iter().zip(miss_indices.iter()) {
+                    cache.put(keys[orig_idx], embedding.clone());
+                    results[orig_idx] = Some(embedding);
                 }
             }
             Err(_) => {
                 tracing::warn!("embedding cache mutex poisoned, bypassing cache");
-                for (computed_idx, &orig_idx) in miss_indices.iter().enumerate() {
-                    results[orig_idx] = Some(computed[computed_idx].clone());
+                for (embedding, &orig_idx) in computed.into_iter().zip(miss_indices.iter()) {
+                    results[orig_idx] = Some(embedding);
                 }
             }
         }

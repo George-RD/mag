@@ -11,8 +11,6 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use std::str::FromStr;
-
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
@@ -25,8 +23,7 @@ use crate::memory_core::{
 
 /// Converts an `Option<String>` (from JSON request) into `Option<EventType>`.
 fn parse_event_type(s: &Option<String>) -> Option<EventType> {
-    s.as_ref()
-        .map(|v| EventType::from_str(v).unwrap_or_else(|e| match e {}))
+    EventType::from_optional(s)
 }
 
 #[derive(Clone)]
@@ -553,12 +550,7 @@ impl McpMemoryServer {
         let result_count = results.len();
         let confidence: f64 = results
             .iter()
-            .filter_map(|r| {
-                r.metadata
-                    .get("_explain")
-                    .and_then(|e| e.get("text_overlap"))
-                    .and_then(|v| v.as_f64())
-            })
+            .filter_map(|r| r.metadata.get("_text_overlap").and_then(|v| v.as_f64()))
             .fold(0.0f64, f64::max);
 
         let payload: Vec<_> = results
@@ -585,8 +577,10 @@ impl McpMemoryServer {
         });
         if abstained {
             response["confidence"] = json!(0.0);
-            response["reason"] =
-                json!("No results met the relevance threshold (text_overlap < 0.30)");
+            response["reason"] = json!(format!(
+                "No results met the relevance threshold (text_overlap < {:.2})",
+                crate::memory_core::ABSTENTION_MIN_TEXT
+            ));
         } else {
             response["confidence"] = json!(confidence);
         }

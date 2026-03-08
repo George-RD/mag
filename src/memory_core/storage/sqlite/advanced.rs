@@ -91,8 +91,17 @@ impl AdvancedSearcher for SqliteStorage {
                         .optional()
                         .context("failed to fetch memory for vec result")?;
                     if let Some((content, raw_tags, importance, raw_metadata, event_type_str, session_id, project, priority, created_at, entity_id, agent_type, event_at)) = row_data {
-                        let priority_value = resolve_priority(event_type_str.as_deref(), priority);
                         let et = event_type_from_sql(event_type_str.clone());
+                        let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
+                        let priority_value = if let Some(p) = priority
+                            && (1..=5).contains(&p)
+                        {
+                            p as u8
+                        } else {
+                            let dp = et_ref.default_priority();
+                            if dp == 0 { 3 } else { dp as u8 }
+                        };
+                        let initial_score = type_weight_et(et_ref) * priority_factor(priority_value, &scoring_params);
                         vector_candidates.push((
                             memory_id.clone(),
                             similarity,
@@ -110,8 +119,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 },
                                 created_at,
                                 event_at,
-                                score: type_weight(event_type_str.as_deref().unwrap_or("memory"))
-                                    * priority_factor(priority_value, &scoring_params),
+                                score: initial_score,
                                 vec_sim: Some(similarity),
                                 text_overlap: 0.0,
                                 entity_id,
@@ -182,8 +190,17 @@ impl AdvancedSearcher for SqliteStorage {
                         continue;
                     }
 
-                    let priority_value = resolve_priority(event_type_str.as_deref(), priority);
                     let et = event_type_from_sql(event_type_str.clone());
+                    let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
+                    let priority_value = if let Some(p) = priority
+                        && (1..=5).contains(&p)
+                    {
+                        p as u8
+                    } else {
+                        let dp = et_ref.default_priority();
+                        if dp == 0 { 3 } else { dp as u8 }
+                    };
+                    let initial_score = type_weight_et(et_ref) * priority_factor(priority_value, &scoring_params);
                     vector_candidates.push((
                         id.clone(),
                         similarity,
@@ -201,8 +218,7 @@ impl AdvancedSearcher for SqliteStorage {
                             },
                             created_at,
                             event_at,
-                            score: type_weight(event_type_str.as_deref().unwrap_or("memory"))
-                                * priority_factor(priority_value, &scoring_params),
+                            score: initial_score,
                             vec_sim: Some(similarity),
                             text_overlap: 0.0,
                             entity_id,
@@ -282,8 +298,17 @@ impl AdvancedSearcher for SqliteStorage {
                             event_at,
                         ) = row.context("failed to decode advanced FTS row")?;
 
-                        let priority_value = resolve_priority(event_type.as_deref(), priority);
                         let et = event_type_from_sql(event_type.clone());
+                        let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
+                        let priority_value = if let Some(p) = priority
+                            && (1..=5).contains(&p)
+                        {
+                            p as u8
+                        } else {
+                            let dp = et_ref.default_priority();
+                            if dp == 0 { 3 } else { dp as u8 }
+                        };
+                        let initial_score = type_weight_et(et_ref) * priority_factor(priority_value, &scoring_params);
                         fts_candidates.push((
                             id.clone(),
                             bm25, // raw BM25: more negative = better match
@@ -301,8 +326,7 @@ impl AdvancedSearcher for SqliteStorage {
                                 },
                                 created_at,
                                 event_at,
-                                score: type_weight(event_type.as_deref().unwrap_or("memory"))
-                                    * priority_factor(priority_value, &scoring_params),
+                                score: initial_score,
                                 vec_sim: None,
                                 text_overlap: 0.0,
                                 entity_id,
@@ -331,13 +355,9 @@ impl AdvancedSearcher for SqliteStorage {
             for (rank, (id, _sim, mut candidate)) in vector_candidates.into_iter().enumerate() {
                 let rrf_score =
                     scoring_params.rrf_weight_vec / (scoring_params.rrf_k + rank as f64 + 1.0);
-                let et_str = candidate.result.event_type.as_ref().map(|e| e.to_string());
-                let type_w = type_weight(et_str.as_deref().unwrap_or("memory"));
-                let priority_value = resolve_priority(
-                    et_str.as_deref(),
-                    None, // priority already baked into candidate.score
-                );
-                let pf = priority_factor(priority_value, &scoring_params);
+                let et_ref = candidate.result.event_type.as_ref().unwrap_or(&EventType::Memory);
+                let type_w = type_weight_et(et_ref);
+                let pf = priority_factor(et_ref.default_priority() as u8, &scoring_params);
 
                 if explain_enabled {
                     let dual = fts_ids.contains(&id);
@@ -373,13 +393,9 @@ impl AdvancedSearcher for SqliteStorage {
                         exp["rrf_score"] = serde_json::json!(vec_rrf + rrf_score);
                     }
                 } else {
-                    let et_str = candidate.result.event_type.as_ref().map(|e| e.to_string());
-                    let type_w = type_weight(et_str.as_deref().unwrap_or("memory"));
-                    let priority_value = resolve_priority(
-                        et_str.as_deref(),
-                        None,
-                    );
-                    let pf = priority_factor(priority_value, &scoring_params);
+                    let et_ref = candidate.result.event_type.as_ref().unwrap_or(&EventType::Memory);
+                    let type_w = type_weight_et(et_ref);
+                    let pf = priority_factor(et_ref.default_priority() as u8, &scoring_params);
 
                     let explain_data = if explain_enabled {
                         Some(serde_json::json!({
@@ -436,8 +452,8 @@ impl AdvancedSearcher for SqliteStorage {
                 candidate.score *= 1.0 + jaccard * scoring_params.jaccard_weight;
                 let fb_factor = feedback_factor(fb_score, &scoring_params);
                 candidate.score *= fb_factor;
-                let event_type_str = candidate.result.event_type.as_ref().map(|e| e.to_string()).unwrap_or_else(|| "memory".to_string());
-                let td = time_decay(&candidate.created_at, &event_type_str, &scoring_params);
+                let et_ref = candidate.result.event_type.as_ref().unwrap_or(&EventType::Memory);
+                let td = time_decay_et(&candidate.created_at, et_ref, &scoring_params);
                 candidate.score *= td;
                 let importance_factor_val = scoring_params.importance_floor
                     + candidate.result.importance * scoring_params.importance_scale;
@@ -578,9 +594,10 @@ impl AdvancedSearcher for SqliteStorage {
                                     + overlap
                                         * scoring_params.neighbor_word_overlap_weight
                                         * fb_dampening;
-                                let event_type_for_decay = event_type.as_deref().unwrap_or("");
+                                let neighbor_et = event_type_from_sql(event_type.clone());
+                                let neighbor_et_ref = neighbor_et.as_ref().unwrap_or(&EventType::Memory);
                                 neighbor_score *=
-                                    time_decay(&created_at, event_type_for_decay, &scoring_params);
+                                    time_decay_et(&created_at, neighbor_et_ref, &scoring_params);
                                 neighbor_score *= scoring_params.neighbor_importance_floor
                                     + importance * scoring_params.neighbor_importance_scale;
 
@@ -597,7 +614,7 @@ impl AdvancedSearcher for SqliteStorage {
                                         "fts_rank": null,
                                         "rrf_score": null,
                                         "dual_match": false,
-                                        "type_weight": type_weight(event_type.as_deref().unwrap_or("memory")),
+                                        "type_weight": type_weight_et(neighbor_et_ref),
                                         "word_overlap": overlap,
                                         "text_overlap": overlap,
                                         "graph_injected": true,
@@ -696,6 +713,14 @@ impl AdvancedSearcher for SqliteStorage {
                     0.0
                 };
                 candidate.result.score = normalized as f32;
+
+                // Always inject text_overlap for confidence computation
+                if let serde_json::Value::Object(ref mut meta) = candidate.result.metadata {
+                    meta.insert(
+                        "_text_overlap".to_string(),
+                        serde_json::json!(candidate.text_overlap),
+                    );
+                }
 
                 // Inject explain data into result metadata when enabled
                 if explain_enabled
