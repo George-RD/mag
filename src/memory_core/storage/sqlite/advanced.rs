@@ -514,8 +514,8 @@ fn fuse_refine_and_output(
         let alpha = scoring_params.rerank_blend_alpha;
         for (id, candidate) in ranked.iter_mut() {
             if let Some(&ce_score) = ce_scores.get(id) {
-                let rrf_normalized = candidate.score;
-                candidate.score = alpha * rrf_normalized + (1.0 - alpha) * ce_score as f64;
+                let rrf_score = candidate.score;
+                candidate.score = alpha * rrf_score + (1.0 - alpha) * ce_score as f64;
                 if explain_enabled && let Some(ref mut exp) = candidate.explain {
                     exp["cross_encoder_score"] = serde_json::json!(ce_score);
                     exp["rerank_blend_alpha"] = serde_json::json!(alpha);
@@ -701,7 +701,7 @@ fn fuse_refine_and_output(
                         let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
                         neighbor_score *= 1.0
                             + overlap * scoring_params.neighbor_word_overlap_weight * fb_dampening;
-                        let neighbor_et = event_type_from_sql(event_type.clone());
+                        let neighbor_et = event_type_from_sql(event_type);
                         let neighbor_et_ref = neighbor_et.as_ref().unwrap_or(&EventType::Memory);
                         let neighbor_pv = if let Some(p) = priority
                             && (1..=5).contains(&p)
@@ -749,7 +749,7 @@ fn fuse_refine_and_output(
                                     tags,
                                     importance,
                                     metadata,
-                                    event_type: event_type_from_sql(event_type),
+                                    event_type: neighbor_et,
                                     session_id,
                                     project,
                                     score: 0.0,

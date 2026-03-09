@@ -466,9 +466,6 @@ impl McpMemoryServer {
             let memory_id = params.0.memory_id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("memory_id is required for mode=similar", None)
             })?;
-            self.storage.retrieve(memory_id).await.map_err(|e| {
-                McpError::internal_error(format!("memory not found for similar search: {e}"), None)
-            })?;
             let results =
                 <SqliteStorage as SimilarFinder>::find_similar(&self.storage, memory_id, limit)
                     .await

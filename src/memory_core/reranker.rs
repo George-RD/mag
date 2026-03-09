@@ -25,7 +25,7 @@ pub struct CrossEncoderReranker {
 #[cfg(feature = "real-embeddings")]
 #[derive(Debug)]
 struct CrossEncoderRuntime {
-    session: std::sync::Mutex<ort::session::Session>,
+    session: ort::session::Session,
     tokenizer: tokenizers::Tokenizer,
 }
 
@@ -144,10 +144,7 @@ impl CrossEncoderReranker {
                 ..Default::default()
             }))
             .map_err(|e| anyhow!("failed to configure cross-encoder tokenizer truncation: {e}"))?;
-        Ok(CrossEncoderRuntime {
-            session: std::sync::Mutex::new(session),
-            tokenizer,
-        })
+        Ok(CrossEncoderRuntime { session, tokenizer })
     }
 
     /// Score a batch of query-passage pairs. Returns a relevance score (0-1) for each.
@@ -165,7 +162,7 @@ impl CrossEncoderReranker {
             self.touch_last_used();
         }
         let runtime = rt_guard
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| anyhow!("cross-encoder runtime missing after init"))?;
 
         // Tokenize all query-passage pairs
@@ -220,11 +217,8 @@ impl CrossEncoderReranker {
             ort::value::Value::from_array(([batch_size, max_len], flat_token_type_ids))
                 .context("failed to create cross-encoder token_type_ids value")?;
 
-        let mut session = runtime
+        let outputs = runtime
             .session
-            .lock()
-            .map_err(|_| anyhow!("cross-encoder session mutex poisoned"))?;
-        let outputs = session
             .run(ort::inputs![
                 input_ids_value,
                 attention_mask_value,
