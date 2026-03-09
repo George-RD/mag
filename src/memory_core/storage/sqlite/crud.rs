@@ -719,6 +719,8 @@ impl SqliteStorage {
     ///
     /// Pre-warms the embedding LRU cache with a single `embed_batch()` call,
     /// then loops individual `store()` calls which hit the warm cache.
+    ///
+    /// Not atomic: if a store fails mid-batch, previously stored items remain committed.
     #[allow(dead_code)]
     pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()> {
         if items.is_empty() {
