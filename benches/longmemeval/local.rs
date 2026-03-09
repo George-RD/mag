@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use chrono::{Duration, SecondsFormat, Utc};
@@ -170,10 +172,47 @@ async fn store_item(
 
 // ── Seeding ───────────────────────────────────────────────────────────────
 
-pub(crate) async fn seed_memories(storage: &SqliteStorage, rss: &mut PeakRss) -> Result<usize> {
+pub(crate) async fn seed_memories(
+    storage: &SqliteStorage,
+    embedder: &Arc<dyn romega_memory::memory_core::embedder::Embedder>,
+    rss: &mut PeakRss,
+) -> Result<usize> {
     let data = load_benchmark_data();
     let now = Utc::now();
     let mut total = 0usize;
+
+    // Pre-warm the embedding LRU cache with a single batched ONNX inference
+    // call. Individual store() calls will then hit the cache instead of running
+    // per-item inference (~8ms each).
+    {
+        let tc = &data.seed_memories.temporal;
+        let mut all_contents: Vec<String> = Vec::new();
+        for mem in &data.seed_memories.information_extraction {
+            all_contents.push(mem.content.clone());
+        }
+        for mem in &data.seed_memories.multi_session {
+            all_contents.push(mem.content.clone());
+        }
+        for i in 0..tc.sprint_count {
+            let days_ago = i as i64 * tc.interval_days;
+            let ref_date = now - Duration::days(days_ago);
+            let sprint_num = tc.sprint_count - i;
+            all_contents.push(format!(
+                "Sprint {sprint_num} completed: deployed feature batch #{sprint_num} to production on {}.",
+                ref_date.format("%Y-%m-%d")
+            ));
+        }
+        for pair in &data.seed_memories.knowledge_update {
+            all_contents.push(pair.old_content.clone());
+            all_contents.push(pair.new_content.clone());
+        }
+        let embedder = embedder.clone();
+        tokio::task::spawn_blocking(move || {
+            let refs: Vec<&str> = all_contents.iter().map(|s| s.as_str()).collect();
+            embedder.embed_batch(&refs)
+        })
+        .await??;
+    }
 
     // Information extraction memories.
     for (index, mem) in data.seed_memories.information_extraction.iter().enumerate() {
@@ -211,13 +250,15 @@ pub(crate) async fn seed_memories(storage: &SqliteStorage, rss: &mut PeakRss) ->
             "Sprint {sprint_num} completed: deployed feature batch #{sprint_num} to production on {}.",
             ref_date.format("%Y-%m-%d")
         );
-        let input = default_input(
+        let ref_date_str = ref_date.to_rfc3339_opts(SecondsFormat::Secs, true);
+        let mut input = default_input(
             vec!["sprint".to_string()],
             "task_completion",
             &format!("bench-tr-{i}"),
             3,
-            serde_json::json!({"referenced_date": ref_date.to_rfc3339_opts(SecondsFormat::Secs, true)}),
+            serde_json::json!({"referenced_date": ref_date_str}),
         );
+        input.referenced_date = Some(ref_date_str.clone());
         store_item(storage, &format!("tr-{i}"), &content, &input, rss).await?;
         total += 1;
     }
@@ -226,13 +267,14 @@ pub(crate) async fn seed_memories(storage: &SqliteStorage, rss: &mut PeakRss) ->
     let old_date = iso(now - Duration::days(60));
     let new_date = iso(now - Duration::days(2));
     for (index, pair) in data.seed_memories.knowledge_update.iter().enumerate() {
-        let old_input = default_input(
+        let mut old_input = default_input(
             vec![],
             "decision",
             &format!("bench-ku-old-{index}"),
             3,
             serde_json::json!({"referenced_date": old_date, "feedback_score": -1}),
         );
+        old_input.referenced_date = Some(old_date.clone());
         store_item(
             storage,
             &format!("ku-old-{index}"),
@@ -243,13 +285,14 @@ pub(crate) async fn seed_memories(storage: &SqliteStorage, rss: &mut PeakRss) ->
         .await?;
         total += 1;
 
-        let new_input = default_input(
+        let mut new_input = default_input(
             vec![],
             "decision",
             &format!("bench-ku-new-{index}"),
             4,
             serde_json::json!({"referenced_date": new_date, "feedback_score": 2}),
         );
+        new_input.referenced_date = Some(new_date.clone());
         store_item(
             storage,
             &format!("ku-new-{index}"),
@@ -418,13 +461,13 @@ pub(crate) async fn run_benchmark(
         session_id: None,
         include_superseded: None,
         importance_min: None,
-        created_after: Some(week_ago.clone()),
-        created_before: Some(now_iso.clone()),
+        created_after: None,
+        created_before: None,
         context_tags: None,
         entity_id: None,
         agent_type: None,
-        event_after: None,
-        event_before: None,
+        event_after: Some(week_ago.clone()),
+        event_before: Some(now_iso.clone()),
         explain: None,
     };
     for q in &data.questions.temporal.recent_week {
@@ -448,13 +491,13 @@ pub(crate) async fn run_benchmark(
         session_id: None,
         include_superseded: None,
         importance_min: None,
-        created_after: Some(iso(now - Duration::days(14))),
-        created_before: Some(now_iso.clone()),
+        created_after: None,
+        created_before: None,
         context_tags: None,
         entity_id: None,
         agent_type: None,
-        event_after: None,
-        event_before: None,
+        event_after: Some(iso(now - Duration::days(14))),
+        event_before: Some(now_iso.clone()),
         explain: None,
     };
     for q in &data.questions.temporal.two_weeks {
@@ -478,13 +521,13 @@ pub(crate) async fn run_benchmark(
         session_id: None,
         include_superseded: None,
         importance_min: None,
-        created_after: Some(iso(now - Duration::days(30))),
-        created_before: Some(now_iso.clone()),
+        created_after: None,
+        created_before: None,
         context_tags: None,
         entity_id: None,
         agent_type: None,
-        event_after: None,
-        event_before: None,
+        event_after: Some(iso(now - Duration::days(30))),
+        event_before: Some(now_iso.clone()),
         explain: None,
     };
     for q in &data.questions.temporal.month {
@@ -511,13 +554,13 @@ pub(crate) async fn run_benchmark(
             session_id: None,
             include_superseded: None,
             importance_min: None,
-            created_after: Some(iso(now - Duration::days(eor.range_start_days_ago))),
-            created_before: Some(iso(now - Duration::days(eor.range_end_days_ago))),
+            created_after: None,
+            created_before: None,
             context_tags: None,
             entity_id: None,
             agent_type: None,
-            event_after: None,
-            event_before: None,
+            event_after: Some(iso(now - Duration::days(eor.range_start_days_ago))),
+            event_before: Some(iso(now - Duration::days(eor.range_end_days_ago))),
             explain: None,
         };
         let hits = query_top3(storage, &eor.query, top_k, &old_opts).await?;
@@ -560,13 +603,13 @@ pub(crate) async fn run_benchmark(
             session_id: None,
             include_superseded: None,
             importance_min: None,
-            created_after: Some(iso(now - Duration::days(*days_window))),
-            created_before: Some(now_iso.clone()),
+            created_after: None,
+            created_before: None,
             context_tags: None,
             entity_id: None,
             agent_type: None,
-            event_after: None,
-            event_before: None,
+            event_after: Some(iso(now - Duration::days(*days_window))),
+            event_before: Some(now_iso.clone()),
             explain: None,
         };
         let hits = query_top3(storage, &wc.query, top_k, &window_opts).await?;
@@ -604,15 +647,15 @@ pub(crate) async fn run_benchmark(
             session_id: None,
             include_superseded: None,
             importance_min: None,
-            created_after: Some(iso(
-                now - Duration::days(rw.window_size_days + i * rw.window_size_days)
-            )),
-            created_before: Some(iso(now - Duration::days(i * rw.window_size_days))),
+            created_after: None,
+            created_before: None,
             context_tags: None,
             entity_id: None,
             agent_type: None,
-            event_after: None,
-            event_before: None,
+            event_after: Some(iso(
+                now - Duration::days(rw.window_size_days + i * rw.window_size_days)
+            )),
+            event_before: Some(iso(now - Duration::days(i * rw.window_size_days))),
             explain: None,
         };
         let hits = query_top3(storage, &rw.query, top_k, &rolling_opts).await?;
@@ -733,4 +776,83 @@ pub(crate) async fn run_benchmark(
     }
 
     Ok(results)
+}
+
+// ── Concurrent query throughput benchmark ──────────────────────────
+
+/// Queries used for the concurrent benchmark. A mix of different query types
+/// to stress the search pipeline realistically.
+const CONCURRENT_QUERIES: &[&str] = &[
+    "database connection pool",
+    "authentication system",
+    "error handling patterns",
+    "sprint completion",
+    "deployment pipeline",
+    "what framework are we using",
+    "API rate limiting",
+    "memory management",
+    "test coverage goals",
+    "logging strategy",
+];
+
+pub(crate) async fn run_concurrent_benchmark(storage: &SqliteStorage, json: bool) -> Result<()> {
+    let storage = Arc::new(storage.clone());
+    let no_filter = SearchOptions::default();
+
+    if !json {
+        println!();
+        println!("── Concurrent Query Throughput ──────────────────────────");
+    }
+
+    for &concurrency in &[4, 8, 16] {
+        let mut handles = Vec::with_capacity(concurrency);
+        let start = Instant::now();
+
+        for i in 0..concurrency {
+            let storage = Arc::clone(&storage);
+            let opts = no_filter.clone();
+            let query = CONCURRENT_QUERIES[i % CONCURRENT_QUERIES.len()].to_string();
+            handles.push(tokio::spawn(async move {
+                let t0 = Instant::now();
+                let _ = <SqliteStorage as AdvancedSearcher>::advanced_search(
+                    &storage, &query, 3, &opts,
+                )
+                .await;
+                t0.elapsed()
+            }));
+        }
+
+        let mut latencies = Vec::with_capacity(concurrency);
+        for handle in handles {
+            latencies.push(handle.await?.as_micros() as f64 / 1000.0);
+        }
+        let wall_ms = start.elapsed().as_micros() as f64 / 1000.0;
+
+        latencies.sort_by(|a, b| a.total_cmp(b));
+        let p50 = latencies[latencies.len() / 2];
+        let p95 = latencies[(latencies.len() as f64 * 0.95) as usize];
+        let p99 =
+            latencies[(latencies.len() as f64 * 0.99).min((latencies.len() - 1) as f64) as usize];
+        let qps = concurrency as f64 / (wall_ms / 1000.0);
+
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "concurrency": concurrency,
+                    "wall_ms": format!("{wall_ms:.1}"),
+                    "qps": format!("{qps:.1}"),
+                    "p50_ms": format!("{p50:.1}"),
+                    "p95_ms": format!("{p95:.1}"),
+                    "p99_ms": format!("{p99:.1}"),
+                })
+            );
+        } else {
+            println!(
+                "  N={concurrency:>2}  wall={wall_ms:>7.1}ms  qps={qps:>6.1}  p50={p50:>6.1}ms  p95={p95:>6.1}ms  p99={p99:>6.1}ms"
+            );
+        }
+    }
+
+    Ok(())
 }

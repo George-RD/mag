@@ -54,6 +54,12 @@ struct Args {
     /// Retrieve top-k results per question (default: 5 for official, 3 for local)
     #[arg(long)]
     top_k: Option<usize>,
+    /// Run concurrent query throughput measurement after the sequential benchmark
+    #[arg(long)]
+    concurrent: bool,
+    /// Use a file-backed SQLite database (WAL mode, 4 readers) instead of in-memory
+    #[arg(long)]
+    file_backed: bool,
 }
 
 fn main() -> Result<()> {
@@ -142,15 +148,30 @@ fn main() -> Result<()> {
         judge::load_api_key_from_dotenv();
         judge::init_llm_judge(args.judge_model.as_str())?;
     }
-    let storage =
-        SqliteStorage::new_in_memory_with_embedder(std::sync::Arc::new(OnnxEmbedder::new()?))?;
+    let embedder: std::sync::Arc<dyn romega_memory::memory_core::embedder::Embedder> =
+        std::sync::Arc::new(OnnxEmbedder::new()?);
+    let temp_db_path = if args.file_backed {
+        Some(std::env::temp_dir().join(format!("romega-bench-{}.db", std::process::id())))
+    } else {
+        None
+    };
+    let storage = if let Some(ref path) = temp_db_path {
+        SqliteStorage::new_with_path(path.clone(), embedder.clone())?
+    } else {
+        SqliteStorage::new_in_memory_with_embedder(embedder.clone())?
+    };
 
     if !args.json {
+        if args.file_backed {
+            println!("Mode: file-backed (WAL, 4 readers)");
+        } else {
+            println!("Mode: in-memory");
+        }
         println!("Creating benchmark database...");
         println!("Seeding memories...");
     }
     let seed_start = Instant::now();
-    let seeded_memories = runtime.block_on(local::seed_memories(&storage, &mut rss))?;
+    let seeded_memories = runtime.block_on(local::seed_memories(&storage, &embedder, &mut rss))?;
     let seeding_ms = seed_start.elapsed().as_millis();
     if !args.json {
         println!("Seeded {seeded_memories} memories.");
@@ -238,6 +259,18 @@ fn main() -> Result<()> {
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&summary)?);
+    }
+
+    // ── Concurrent query throughput measurement ───────────────────────
+    if args.concurrent {
+        runtime.block_on(local::run_concurrent_benchmark(&storage, args.json))?;
+    }
+
+    // Clean up file-backed temp database
+    if let Some(ref path) = temp_db_path {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
     }
 
     Ok(())

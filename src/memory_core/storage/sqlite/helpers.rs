@@ -5,8 +5,83 @@ use super::*;
 /// Fallback timestamp used when a row's `created_at` column is missing or unparseable.
 pub(super) const EPOCH_FALLBACK: &str = "1970-01-01T00:00:00.000Z";
 
+/// Computes a u64 hash key for the query result cache.
+pub(super) fn query_cache_key(query: &str, limit: usize, opts: &super::SearchOptions) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    query.hash(&mut hasher);
+    limit.hash(&mut hasher);
+    opts.event_type
+        .as_ref()
+        .map(|et| et.to_string())
+        .hash(&mut hasher);
+    opts.project.hash(&mut hasher);
+    opts.session_id.hash(&mut hasher);
+    opts.include_superseded.hash(&mut hasher);
+    opts.importance_min.map(|f| f.to_bits()).hash(&mut hasher);
+    opts.created_after.hash(&mut hasher);
+    opts.created_before.hash(&mut hasher);
+    opts.context_tags.hash(&mut hasher);
+    opts.entity_id.hash(&mut hasher);
+    opts.agent_type.hash(&mut hasher);
+    opts.event_after.hash(&mut hasher);
+    opts.event_before.hash(&mut hasher);
+    opts.explain.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Returns `true` when the query looks like a keyword/identifier lookup
+/// that should skip ONNX embedding and vector search (FTS5 only).
+///
+/// Heuristics:
+/// - Contains backtick-wrapped code (`` `...` ``)
+/// - Looks like a file path (contains `/` with no spaces)
+/// - Is a CamelCase identifier (2+ uppercase letters, no spaces)
+/// - Is a snake_case identifier (contains `_`, no spaces, all lowercase)
+pub(super) fn is_keyword_query(query: &str) -> bool {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    // Contains backtick-wrapped code
+    if trimmed.matches('`').count() >= 2 {
+        return true;
+    }
+
+    // Looks like a file path (contains `/` with no spaces)
+    if !trimmed.contains(' ') && trimmed.contains('/') {
+        return true;
+    }
+
+    // Is a CamelCase identifier (2+ uppercase letters, no spaces, alphanumeric only)
+    if !trimmed.contains(' ') {
+        let upper_count = trimmed.chars().filter(|c| c.is_uppercase()).count();
+        if upper_count >= 2 && trimmed.chars().all(|c| c.is_alphanumeric()) {
+            return true;
+        }
+    }
+
+    // Is a snake_case identifier (contains `_`, no spaces, all lowercase alphanumeric + `_`)
+    if !trimmed.contains(' ')
+        && trimmed.contains('_')
+        && trimmed
+            .chars()
+            .all(|c| c.is_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return true;
+    }
+
+    false
+}
+
 /// Default number of reader connections in the pool for file-backed databases.
 const DEFAULT_READER_COUNT: usize = 4;
+
+/// Default number of writes between WAL checkpoints.
+const WAL_CHECKPOINT_INTERVAL: u64 = 10;
 
 /// Connection pool providing one writer connection and N reader connections.
 ///
@@ -23,12 +98,18 @@ pub(super) struct ConnPool {
     readers: Vec<Mutex<Connection>>,
     /// Round-robin counter for reader selection.
     reader_idx: std::sync::atomic::AtomicUsize,
+    /// Monotonic write counter for periodic WAL checkpoints.
+    write_count: std::sync::atomic::AtomicU64,
+    /// Whether this pool is file-backed (WAL checkpoints only apply to files).
+    is_file_backed: bool,
 }
 
 impl ConnPool {
     /// Opens a file-backed connection pool: one writer + N readers.
     ///
     /// All connections share the same SQLite database file and run in WAL mode.
+    /// Performs a startup WAL checkpoint (TRUNCATE) to reclaim any stale WAL
+    /// from previous runs.
     pub(super) fn open_file(path: &Path, embedding_dim: usize) -> Result<Self> {
         #[cfg(feature = "sqlite-vec")]
         super::ensure_vec_extension_registered();
@@ -38,6 +119,11 @@ impl ConnPool {
         let writer = open_connection(path)?;
         // Writer sets WAL mode; readers inherit it from the file.
         initialize_schema(&writer, embedding_dim)?;
+
+        // Startup checkpoint: safe because we're the only writer at init time.
+        if let Err(e) = writer.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);") {
+            tracing::debug!("startup WAL checkpoint skipped: {e}");
+        }
 
         let mut readers = Vec::with_capacity(DEFAULT_READER_COUNT);
         for _ in 0..DEFAULT_READER_COUNT {
@@ -50,6 +136,8 @@ impl ConnPool {
             writer: Mutex::new(writer),
             readers,
             reader_idx: std::sync::atomic::AtomicUsize::new(0),
+            write_count: std::sync::atomic::AtomicU64::new(0),
+            is_file_backed: true,
         })
     }
 
@@ -68,6 +156,8 @@ impl ConnPool {
             writer: Mutex::new(conn),
             readers: Vec::new(),
             reader_idx: std::sync::atomic::AtomicUsize::new(0),
+            write_count: std::sync::atomic::AtomicU64::new(0),
+            is_file_backed: false,
         })
     }
 
@@ -76,6 +166,33 @@ impl ConnPool {
         self.writer
             .lock()
             .map_err(|_| anyhow!("sqlite writer mutex poisoned"))
+    }
+
+    /// Returns `true` when the pool has dedicated reader connections.
+    pub(super) fn has_readers(&self) -> bool {
+        !self.readers.is_empty()
+    }
+
+    /// Increments the write counter and runs a passive WAL checkpoint every
+    /// [`WAL_CHECKPOINT_INTERVAL`] writes. Call after each write transaction
+    /// commits. No-op for in-memory databases.
+    pub(super) fn note_write(&self) {
+        if !self.is_file_backed {
+            return;
+        }
+        let count = self
+            .write_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        if !count.is_multiple_of(WAL_CHECKPOINT_INTERVAL) {
+            return;
+        }
+        if let Ok(conn) = self.writer() {
+            match conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);") {
+                Ok(()) => tracing::debug!(writes = count, "WAL passive checkpoint completed"),
+                Err(e) => tracing::debug!(writes = count, "WAL passive checkpoint failed: {e}"),
+            }
+        }
     }
 
     /// Acquires a reader connection via round-robin. Falls back to the writer
@@ -844,5 +961,42 @@ mod tests {
         let exp = expand_temporal_query("errors past 2 weeks", &now);
         assert_eq!(exp.cleaned_query, "errors");
         assert_eq!(exp.event_after.as_deref(), Some("2026-02-22"));
+    }
+
+    // ── is_keyword_query tests ──────────────────────────────────────────
+
+    #[test]
+    fn keyword_backtick_code() {
+        assert!(is_keyword_query("`FooBar`"));
+        assert!(is_keyword_query("find `my_func` usage"));
+    }
+
+    #[test]
+    fn keyword_file_path() {
+        assert!(is_keyword_query("src/main.rs"));
+        assert!(is_keyword_query("./config.toml"));
+        assert!(is_keyword_query("~/projects/foo"));
+        assert!(is_keyword_query("/usr/local/bin"));
+    }
+
+    #[test]
+    fn keyword_camel_case() {
+        assert!(is_keyword_query("SqliteStorage"));
+        assert!(is_keyword_query("McpMemoryServer"));
+        assert!(!is_keyword_query("sqlite"));
+    }
+
+    #[test]
+    fn keyword_snake_case() {
+        assert!(is_keyword_query("query_cache_key"));
+        assert!(is_keyword_query("embed_batch"));
+        assert!(!is_keyword_query("query"));
+    }
+
+    #[test]
+    fn keyword_natural_language_not_keyword() {
+        assert!(!is_keyword_query("what framework are we using"));
+        assert!(!is_keyword_query("database connection pool"));
+        assert!(!is_keyword_query(""));
     }
 }

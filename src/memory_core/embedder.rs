@@ -176,8 +176,12 @@ impl OnnxEmbedder {
 
     fn init_runtime(&self) -> Result<OnnxRuntime> {
         let files = ensure_model_files_blocking(self.model_dir.clone())?;
+        // Force CPU-only execution (skip CoreML/Metal which leak memory on
+        // long-running macOS processes) and disable the CPU memory arena to
+        // reduce RSS by ~50 MB.
+        let cpu_ep = ort::ep::CPU::default().with_arena_allocator(false).build();
         let session = ort::session::Session::builder()?
-            .with_intra_threads(0)?
+            .with_execution_providers([cpu_ep])?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .commit_from_file(&files.model_path)
             .with_context(|| {

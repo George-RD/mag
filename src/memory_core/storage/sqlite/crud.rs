@@ -372,10 +372,14 @@ impl Storage for SqliteStorage {
             }
 
             tx.commit().context("failed to commit sqlite transaction")?;
+            drop(conn); // Release writer Mutex before note_write to avoid deadlock
+            pool.note_write();
             Ok::<_, anyhow::Error>((StoreOutcome::Inserted, superseded_ids))
         })
         .await
         .context("spawn_blocking join error")??;
+
+        self.invalidate_query_cache();
 
         if matches!(outcome, StoreOutcome::Inserted)
             && let Err(error) = self.try_auto_relate(&id).await
@@ -443,7 +447,7 @@ impl Deleter for SqliteStorage {
         let pool = Arc::clone(&self.pool);
         let id = id.to_string();
 
-        tokio::task::spawn_blocking(move || {
+        let deleted = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
             let tx = conn
                 .unchecked_transaction()
@@ -458,10 +462,15 @@ impl Deleter for SqliteStorage {
                 .execute("DELETE FROM memories WHERE id = ?1", params![id])
                 .context("failed to delete memory")?;
             tx.commit().context("failed to commit delete transaction")?;
+            drop(conn); // Release writer Mutex before note_write to avoid deadlock
+            pool.note_write();
             Ok::<_, anyhow::Error>(changes > 0)
         })
         .await
-        .context("spawn_blocking join error")?
+        .context("spawn_blocking join error")??;
+
+        self.invalidate_query_cache();
+        Ok(deleted)
     }
 }
 
@@ -603,12 +612,15 @@ impl Updater for SqliteStorage {
             }
 
             tx.commit().context("failed to commit update transaction")?;
+            drop(conn); // Release writer Mutex before note_write to avoid deadlock
+            pool.note_write();
 
             Ok::<_, anyhow::Error>(())
         })
         .await
         .context("spawn_blocking join error")??;
 
+        self.invalidate_query_cache();
         Ok(())
     }
 }
@@ -699,5 +711,35 @@ impl Tagger for SqliteStorage {
         })
         .await
         .context("spawn_blocking join error")?
+    }
+}
+
+impl SqliteStorage {
+    /// Batch store multiple memories with optimized embedding computation.
+    ///
+    /// Pre-warms the embedding LRU cache with a single `embed_batch()` call,
+    /// then loops individual `store()` calls which hit the warm cache.
+    #[allow(dead_code)]
+    pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        // Phase 1: Pre-warm embedding cache with batched ONNX inference.
+        let contents: Vec<String> = items.iter().map(|(_, data, _)| data.clone()).collect();
+        let embedder = Arc::clone(&self.embedder);
+        tokio::task::spawn_blocking(move || {
+            let refs: Vec<&str> = contents.iter().map(|s| s.as_str()).collect();
+            embedder.embed_batch(&refs)
+        })
+        .await
+        .context("spawn_blocking join error for embed_batch")??;
+
+        // Phase 2: Store each item (hits warm embedding cache).
+        for (id, data, input) in items {
+            <Self as Storage>::store(self, id, data, input).await?;
+        }
+
+        Ok(())
     }
 }

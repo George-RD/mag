@@ -324,6 +324,28 @@ struct LessonsRequest {
     agent_type: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StoreBatchItem {
+    content: String,
+    id: Option<String>,
+    tags: Option<Vec<String>>,
+    importance: Option<f64>,
+    metadata: Option<serde_json::Value>,
+    event_type: Option<String>,
+    session_id: Option<String>,
+    project: Option<String>,
+    priority: Option<i32>,
+    entity_id: Option<String>,
+    agent_type: Option<String>,
+    ttl_seconds: Option<i64>,
+    referenced_date: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StoreBatchRequest {
+    items: Vec<StoreBatchItem>,
+}
+
 #[tool_router]
 impl McpMemoryServer {
     #[tool(
@@ -381,6 +403,73 @@ impl McpMemoryServer {
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "id": id }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_store_batch",
+        description = "Batch store multiple memories with optimized embedding computation. Pre-warms embedding cache with a single batched inference call for better throughput."
+    )]
+    async fn memory_store_batch(
+        &self,
+        params: Parameters<StoreBatchRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut batch_items = Vec::with_capacity(params.0.items.len());
+
+        for item in &params.0.items {
+            if let Some(event_type) = item.event_type.as_deref()
+                && !is_valid_event_type(event_type)
+            {
+                return Err(McpError::invalid_params(
+                    "invalid event_type in batch item",
+                    None,
+                ));
+            }
+
+            let id = item
+                .id
+                .clone()
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
+            let event_type_str = item.event_type.clone();
+            let ttl_seconds = item.ttl_seconds.or_else(|| {
+                event_type_str
+                    .as_deref()
+                    .map(default_ttl_for_event_type)
+                    .unwrap_or(Some(crate::memory_core::TTL_LONG_TERM))
+            });
+            let input = MemoryInput {
+                content: item.content.clone(),
+                id: Some(id.clone()),
+                tags: item.tags.clone().unwrap_or_default(),
+                importance: item.importance.unwrap_or(0.5),
+                metadata: item
+                    .metadata
+                    .clone()
+                    .unwrap_or_else(|| serde_json::json!({})),
+                priority: item.priority.or_else(|| {
+                    event_type_str
+                        .as_deref()
+                        .map(default_priority_for_event_type)
+                }),
+                event_type: parse_event_type(&event_type_str),
+                session_id: item.session_id.clone(),
+                project: item.project.clone(),
+                entity_id: item.entity_id.clone(),
+                agent_type: item.agent_type.clone(),
+                ttl_seconds,
+                referenced_date: item.referenced_date.clone(),
+            };
+            batch_items.push((id, item.content.clone(), input));
+        }
+
+        self.storage
+            .store_batch(&batch_items)
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to batch store: {e}"), None))?;
+
+        let ids: Vec<&str> = batch_items.iter().map(|(id, _, _)| id.as_str()).collect();
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "ids": ids, "count": ids.len() }).to_string(),
         )]))
     }
 

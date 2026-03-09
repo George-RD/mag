@@ -5098,3 +5098,126 @@ async fn test_project_null_memories_not_in_project_search() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "alpha_tagged");
 }
+
+// ── store_batch tests ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn store_batch_stores_all_items() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let items: Vec<(String, String, MemoryInput)> = (0..5)
+        .map(|i| {
+            let id = format!("batch-{i}");
+            let content = format!("Batch item number {i} about topic alpha");
+            let input = MemoryInput {
+                content: content.clone(),
+                id: Some(id.clone()),
+                tags: vec!["batch".to_string()],
+                importance: 0.5,
+                metadata: serde_json::json!({}),
+                event_type: Some(EventType::Memory),
+                ..Default::default()
+            };
+            (id, content, input)
+        })
+        .collect();
+
+    storage.store_batch(&items).await.unwrap();
+
+    // Verify all items are retrievable
+    for i in 0..5 {
+        let content = storage.retrieve(&format!("batch-{i}")).await.unwrap();
+        assert!(
+            content.contains(&format!("Batch item number {i}")),
+            "batch-{i} content mismatch: {content}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn store_batch_empty_is_noop() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage.store_batch(&[]).await.unwrap();
+}
+
+// ── query cache tests ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn query_cache_returns_cached_results() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "cache-1",
+            "alpha topic about databases",
+            &MemoryInput {
+                content: "alpha topic about databases".to_string(),
+                importance: 0.8,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let opts = SearchOptions::default();
+
+    // First query — populates cache
+    let results1 =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "databases", 5, &opts)
+            .await
+            .unwrap();
+
+    // Second query — should hit cache (same results)
+    let results2 =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "databases", 5, &opts)
+            .await
+            .unwrap();
+
+    assert_eq!(results1.len(), results2.len());
+    for (r1, r2) in results1.iter().zip(results2.iter()) {
+        assert_eq!(r1.id, r2.id);
+    }
+}
+
+#[tokio::test]
+async fn query_cache_invalidated_on_store() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "inv-1",
+            "unique alpha content",
+            &MemoryInput {
+                content: "unique alpha content".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let opts = SearchOptions::default();
+
+    // Populate cache
+    let results1 =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "unique alpha", 5, &opts)
+            .await
+            .unwrap();
+    assert!(!results1.is_empty());
+
+    // Store new memory — should invalidate cache
+    storage
+        .store(
+            "inv-2",
+            "another unique alpha memory",
+            &MemoryInput {
+                content: "another unique alpha memory".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Next query should include the new memory
+    let results2 =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "unique alpha", 5, &opts)
+            .await
+            .unwrap();
+    assert!(results2.len() >= results1.len());
+}

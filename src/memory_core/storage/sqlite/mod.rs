@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
@@ -20,6 +22,13 @@ use crate::memory_core::{
     feedback_factor, jaccard_pre, jaccard_similarity, priority_factor, time_decay_et, token_set,
     type_weight_et, word_overlap_pre,
 };
+
+/// Query result cache TTL in seconds.
+const QUERY_CACHE_TTL_SECS: u64 = 60;
+/// Maximum number of entries in the query result cache.
+const QUERY_CACHE_CAPACITY: usize = 128;
+
+type QueryCache = Arc<Mutex<lru::LruCache<u64, (Instant, Vec<SemanticResult>)>>>;
 
 /// Cosine similarity threshold for auto-supersession detection (primary signal).
 /// Semantic similarity catches updates even when wording changes significantly.
@@ -55,6 +64,7 @@ pub struct SqliteStorage {
     pool: Arc<ConnPool>,
     embedder: Arc<dyn Embedder>,
     scoring_params: ScoringParams,
+    query_cache: QueryCache,
 }
 
 #[cfg(feature = "sqlite-vec")]
@@ -73,6 +83,12 @@ fn ensure_vec_extension_registered() {
             sqlite_vec::sqlite3_vec_init as *const ()
         )));
     });
+}
+
+fn new_query_cache() -> QueryCache {
+    Arc::new(Mutex::new(lru::LruCache::new(
+        NonZeroUsize::new(QUERY_CACHE_CAPACITY).expect("cache capacity must be non-zero"),
+    )))
 }
 
 impl SqliteStorage {
@@ -114,6 +130,7 @@ impl SqliteStorage {
             pool: Arc::new(pool),
             embedder,
             scoring_params: ScoringParams::default(),
+            query_cache: new_query_cache(),
         })
     }
 
@@ -141,6 +158,13 @@ impl SqliteStorage {
         }
         self.scoring_params = params;
         self
+    }
+
+    /// Clears the query result cache. Called after every write operation.
+    pub(super) fn invalidate_query_cache(&self) {
+        if let Ok(mut cache) = self.query_cache.lock() {
+            cache.clear();
+        }
     }
 
     /// Inserts a directed relationship between two memories.
@@ -538,6 +562,7 @@ impl SqliteStorage {
             pool: Arc::new(pool),
             embedder,
             scoring_params: ScoringParams::default(),
+            query_cache: new_query_cache(),
         })
     }
 
@@ -771,9 +796,9 @@ pub(crate) use helpers::cosine_similarity;
 use helpers::{
     ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
     content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
-    event_type_to_sql, expand_temporal_query, matches_search_options, normalize_for_dedup,
-    parse_metadata_from_db, parse_tags_from_db, search_result_from_row, to_param_refs,
-    validate_iso8601,
+    event_type_to_sql, expand_temporal_query, is_keyword_query, matches_search_options,
+    normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, query_cache_key,
+    search_result_from_row, to_param_refs, validate_iso8601,
 };
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 

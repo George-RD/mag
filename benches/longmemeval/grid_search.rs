@@ -200,7 +200,8 @@ pub(crate) async fn run_grid_search(verbose: bool) -> Result<Vec<GridSearchResul
     let total = parameter_sets.len();
     let mut results = Vec::with_capacity(total);
 
-    let embedder = std::sync::Arc::new(OnnxEmbedder::new()?);
+    let embedder: std::sync::Arc<dyn romega_memory::memory_core::embedder::Embedder> =
+        std::sync::Arc::new(OnnxEmbedder::new()?);
     for (index, (label, params)) in parameter_sets.into_iter().enumerate() {
         let start = Instant::now();
         let storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?
@@ -208,7 +209,7 @@ pub(crate) async fn run_grid_search(verbose: bool) -> Result<Vec<GridSearchResul
         let mut rss = PeakRss::default();
         rss.sample();
 
-        seed_memories(&storage, &mut rss).await?;
+        seed_memories(&storage, &embedder, &mut rss).await?;
         let categories = run_benchmark(
             &storage,
             false,

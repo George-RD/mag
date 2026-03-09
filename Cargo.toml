@@ -3,11 +3,11 @@ name = "romega-memory"
 version = "0.1.0"
 edition = "2024"
 autobenches = false
-license = "Apache-2.0"
+license = "MIT"
 
 [features]
 default = ["real-embeddings"]
-real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:reqwest", "dep:dotenvy", "dep:lru"]
+real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:reqwest", "dep:dotenvy"]
 mimalloc = ["dep:mimalloc"]
 sqlite-vec = ["dep:sqlite-vec"]
 
@@ -31,7 +31,7 @@ tokenizers = { version = "0.22", optional = true, default-features = false, feat
 ndarray = { version = "0.16", optional = true }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls", "json"] }
 dotenvy = { version = "0.15", optional = true }
-lru = { version = "0.12", optional = true }
+lru = "0.12"
 mimalloc = { version = "0.1", optional = true }
 sqlite-vec = { version = "0.1.6", optional = true }
 
