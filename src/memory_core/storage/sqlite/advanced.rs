@@ -251,7 +251,11 @@ fn collect_fts_candidates(
         fts_sql.push_str(" AND m.superseded_by_id IS NULL");
     }
 
-    if let Ok(mut stmt) = conn.prepare(&fts_sql) {
+    let fts_stmt = conn.prepare(&fts_sql);
+    if let Err(e) = &fts_stmt {
+        tracing::warn!("failed to prepare FTS query: {e}");
+    }
+    if let Ok(mut stmt) = fts_stmt {
         let refs = to_param_refs(&fts_params);
 
         let rows = stmt.query_map(refs.as_slice(), |row| {
@@ -275,6 +279,9 @@ fn collect_fts_candidates(
             ))
         });
 
+        if let Err(e) = &rows {
+            tracing::warn!("FTS query_map failed: {e}");
+        }
         if let Ok(rows) = rows {
             for row in rows {
                 let (
@@ -696,6 +703,27 @@ fn fuse_refine_and_output(
             if let Some(existing) = ranked.get_mut(&id) {
                 if neighbor.score > existing.score {
                     existing.score = neighbor.score;
+                    // Merge graph provenance into existing explain (which has
+                    // refinement keys like importance_factor, time_decay, etc.)
+                    // rather than replacing the entire object.
+                    if let (Some(existing_explain), Some(neighbor_explain)) =
+                        (&mut existing.explain, &neighbor.explain)
+                    {
+                        if let (Some(dst), Some(src)) = (
+                            existing_explain.as_object_mut(),
+                            neighbor_explain.as_object(),
+                        ) {
+                            // Only merge graph-specific provenance keys to preserve
+                            // original RRF/FTS discovery information.
+                            for key in ["graph_injected", "graph_seed_id", "graph_edge_weight"] {
+                                if let Some(v) = src.get(key) {
+                                    dst.insert(key.to_string(), v.clone());
+                                }
+                            }
+                        }
+                    } else if existing.explain.is_none() {
+                        existing.explain = neighbor.explain;
+                    }
                 }
             } else {
                 ranked.insert(id, neighbor);
