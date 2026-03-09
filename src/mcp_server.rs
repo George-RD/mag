@@ -16,14 +16,30 @@ use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
     MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager,
-    Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, StatsProvider, Storage,
-    Tagger, Updater, VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
-    default_ttl_for_event_type, is_valid_event_type,
+    Retriever, SearchOptions, SearchResult, Searcher, SemanticResult, SemanticSearcher,
+    SimilarFinder, StatsProvider, Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
+    default_priority_for_event_type, default_ttl_for_event_type, is_valid_event_type,
 };
 
 /// Converts an `Option<String>` (from JSON request) into `Option<EventType>`.
 fn parse_event_type(s: &Option<String>) -> Option<EventType> {
     EventType::from_optional(s)
+}
+
+fn result_payload(r: SearchResult) -> serde_json::Value {
+    json!({
+        "id": r.id, "content": r.content, "tags": r.tags,
+        "importance": r.importance, "metadata": r.metadata,
+        "event_type": r.event_type, "session_id": r.session_id, "project": r.project
+    })
+}
+
+fn scored_result_payload(r: SemanticResult) -> serde_json::Value {
+    json!({
+        "id": r.id, "content": r.content, "score": r.score, "tags": r.tags,
+        "importance": r.importance, "metadata": r.metadata,
+        "event_type": r.event_type, "session_id": r.session_id, "project": r.project
+    })
 }
 
 #[derive(Clone)]
@@ -47,6 +63,8 @@ impl McpMemoryServer {
     }
 }
 
+// ──────────────────────── Request structs ────────────────────────
+
 #[derive(Debug, Deserialize, JsonSchema)]
 struct StoreRequest {
     content: String,
@@ -66,27 +84,42 @@ struct StoreRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct StoreBatchItem {
+    content: String,
+    id: Option<String>,
+    tags: Option<Vec<String>>,
+    importance: Option<f64>,
+    metadata: Option<serde_json::Value>,
+    event_type: Option<String>,
+    session_id: Option<String>,
+    project: Option<String>,
+    priority: Option<i32>,
+    entity_id: Option<String>,
+    agent_type: Option<String>,
+    ttl_seconds: Option<i64>,
+    referenced_date: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StoreBatchRequest {
+    items: Vec<StoreBatchItem>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct RetrieveRequest {
     id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SearchRequest {
-    query: String,
-    limit: Option<usize>,
-    event_type: Option<String>,
-    project: Option<String>,
-    session_id: Option<String>,
-    include_superseded: Option<bool>,
-    /// ISO 8601 lower bound for event_at (inclusive).
-    event_after: Option<String>,
-    /// ISO 8601 upper bound for event_at (inclusive).
-    event_before: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct SemanticSearchRequest {
-    query: String,
+    /// Search mode: "text" (default, FTS5), "semantic" (embedding similarity), "phrase" (exact substring), "tag" (AND-match tags), "similar" (find similar to memory_id).
+    mode: Option<String>,
+    /// Query string (required for text, semantic, phrase modes).
+    query: Option<String>,
+    /// Tags to match (required for tag mode, AND logic).
+    tags: Option<Vec<String>>,
+    /// Source memory ID (required for similar mode).
+    memory_id: Option<String>,
     limit: Option<usize>,
     event_type: Option<String>,
     project: Option<String>,
@@ -119,39 +152,10 @@ struct AdvancedSearchRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct VersionChainRequest {
-    memory_id: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct SimilarRequest {
-    memory_id: String,
-    limit: Option<usize>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct TraverseRequest {
-    memory_id: String,
-    max_hops: Option<usize>,
-    min_weight: Option<f64>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct PhraseSearchRequest {
-    phrase: String,
-    limit: Option<usize>,
-    event_type: Option<String>,
-    include_superseded: Option<bool>,
-    project: Option<String>,
-    session_id: Option<String>,
-    /// ISO 8601 lower bound for event_at (inclusive).
-    event_after: Option<String>,
-    /// ISO 8601 upper bound for event_at (inclusive).
-    event_before: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct RecentRequest {
+struct ListRequest {
+    /// Sort order: "created" (default, paginated by creation time) or "recent" (recently accessed).
+    sort: Option<String>,
+    offset: Option<usize>,
     limit: Option<usize>,
     event_type: Option<String>,
     project: Option<String>,
@@ -180,19 +184,38 @@ struct UpdateRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct StatsRequest {}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ExportRequest {}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ImportRequest {
-    data: String,
+struct RelationsRequest {
+    /// Action: "list" (default), "add", "traverse", "version_chain".
+    action: Option<String>,
+    /// Memory ID (required for list, traverse, version_chain).
+    id: Option<String>,
+    /// Source memory ID (required for add).
+    source_id: Option<String>,
+    /// Target memory ID (required for add).
+    target_id: Option<String>,
+    /// Relationship type (required for add).
+    rel_type: Option<String>,
+    /// Relationship weight (for add, default 1.0).
+    weight: Option<f64>,
+    /// Additional metadata (for add).
+    metadata: Option<serde_json::Value>,
+    /// Max hops for traverse (default 2).
+    max_hops: Option<usize>,
+    /// Min weight threshold for traverse (default 0.0).
+    min_weight: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct MaintainRequest {
-    action: String,
+struct FeedbackRequest {
+    memory_id: String,
+    rating: String,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct LifecycleRequest {
+    /// Action: "sweep" (default, TTL expiration), "health", "consolidate", "compact", "auto_compact", "clear_session".
+    action: Option<String>,
     warn_mb: Option<f64>,
     critical_mb: Option<f64>,
     max_nodes: Option<i64>,
@@ -208,85 +231,13 @@ struct MaintainRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct WelcomeRequest {
-    session_id: Option<String>,
-    project: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ProtocolRequest {
-    #[allow(dead_code)]
-    section: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct StatsExtendedRequest {
-    action: String,
-    days: Option<i64>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct TagSearchRequest {
-    tags: Vec<String>,
-    limit: Option<usize>,
-    event_type: Option<String>,
-    project: Option<String>,
-    session_id: Option<String>,
-    include_superseded: Option<bool>,
-    /// ISO 8601 lower bound for event_at (inclusive).
-    event_after: Option<String>,
-    /// ISO 8601 upper bound for event_at (inclusive).
-    event_before: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ListRequest {
-    offset: Option<usize>,
-    limit: Option<usize>,
-    event_type: Option<String>,
-    project: Option<String>,
-    session_id: Option<String>,
-    include_superseded: Option<bool>,
-    /// ISO 8601 lower bound for event_at (inclusive).
-    event_after: Option<String>,
-    /// ISO 8601 upper bound for event_at (inclusive).
-    event_before: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct RelationsRequest {
-    id: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct AddRelationRequest {
-    source_id: String,
-    target_id: String,
-    rel_type: String,
-    weight: Option<f64>,
-    metadata: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct FeedbackRequest {
-    memory_id: String,
-    rating: String,
-    reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct SweepRequest {}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ProfileRequest {
-    action: Option<String>,
-    update: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 struct CheckpointRequest {
-    task_title: String,
-    progress: String,
+    /// Action: "save" (default) or "resume".
+    action: Option<String>,
+    /// Task title (required for save, optional filter for resume).
+    task_title: Option<String>,
+    /// Progress description (required for save).
+    progress: Option<String>,
     plan: Option<String>,
     files_touched: Option<serde_json::Value>,
     decisions: Option<Vec<String>>,
@@ -294,12 +245,7 @@ struct CheckpointRequest {
     next_steps: Option<String>,
     session_id: Option<String>,
     project: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ResumeTaskRequest {
-    task_title: Option<String>,
-    project: Option<String>,
+    /// Number of checkpoints to return (for resume, default 1).
     limit: Option<usize>,
 }
 
@@ -325,26 +271,40 @@ struct LessonsRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct StoreBatchItem {
-    content: String,
-    id: Option<String>,
-    tags: Option<Vec<String>>,
-    importance: Option<f64>,
-    metadata: Option<serde_json::Value>,
-    event_type: Option<String>,
-    session_id: Option<String>,
-    project: Option<String>,
-    priority: Option<i32>,
-    entity_id: Option<String>,
-    agent_type: Option<String>,
-    ttl_seconds: Option<i64>,
-    referenced_date: Option<String>,
+struct HealthRequest {
+    /// Detail level: "basic" (default), "stats", "types", "sessions", "digest", "access_rate".
+    detail: Option<String>,
+    /// Days for digest (default 7).
+    days: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct StoreBatchRequest {
-    items: Vec<StoreBatchItem>,
+struct ExportRequest {
+    /// Action: "export" (default) or "import".
+    action: Option<String>,
+    /// JSON data to import (required for action=import).
+    data: Option<String>,
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WelcomeRequest {
+    session_id: Option<String>,
+    project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ProtocolRequest {
+    #[allow(dead_code)]
+    section: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ProfileRequest {
+    action: Option<String>,
+    update: Option<serde_json::Value>,
+}
+
+// ──────────────────────── Tool implementations ────────────────────────
 
 #[tool_router]
 impl McpMemoryServer {
@@ -492,18 +452,44 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_search",
-        description = "Search stored memories by query string"
+        description = "Search stored memories. Modes: 'text' (default, FTS5), 'semantic' (embedding similarity), 'phrase' (exact substring), 'tag' (AND-match tags), 'similar' (find similar to memory_id). Required params vary by mode: text/semantic/phrase need 'query', tag needs 'tags', similar needs 'memory_id'."
     )]
     async fn memory_search(
         &self,
         params: Parameters<SearchRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let mode = params.0.mode.as_deref().unwrap_or("text");
+        let limit = params.0.limit.unwrap_or(10);
+
+        // "similar" mode doesn't use opts — early-return path
+        if mode == "similar" {
+            let memory_id = params.0.memory_id.as_deref().ok_or_else(|| {
+                McpError::invalid_params("memory_id is required for mode=similar", None)
+            })?;
+            self.storage.retrieve(memory_id).await.map_err(|e| {
+                McpError::internal_error(format!("memory not found for similar search: {e}"), None)
+            })?;
+            let results =
+                <SqliteStorage as SimilarFinder>::find_similar(&self.storage, memory_id, limit)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("failed to find similar memories: {e}"),
+                            None,
+                        )
+                    })?;
+            let payload: Vec<_> = results.into_iter().map(scored_result_payload).collect();
+            return Ok(CallToolResult::success(vec![Content::text(
+                json!({ "results": payload }).to_string(),
+            )]));
+        }
+
+        // All other modes share event_type validation and SearchOptions
         if let Some(event_type) = params.0.event_type.as_deref()
             && !is_valid_event_type(event_type)
         {
             return Err(McpError::invalid_params("invalid event_type", None));
         }
-        let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
             event_type: parse_event_type(&params.0.event_type),
             project: params.0.project.clone(),
@@ -513,86 +499,88 @@ impl McpMemoryServer {
             event_before: params.0.event_before.clone(),
             ..Default::default()
         };
-        let results = self
-            .storage
-            .search(&params.0.query, limit, &opts)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to search memories: {e}"), None)
-            })?;
 
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_semantic_search",
-        description = "Perform semantic search over stored memories"
-    )]
-    async fn memory_semantic_search(
-        &self,
-        params: Parameters<SemanticSearchRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        if let Some(event_type) = params.0.event_type.as_deref()
-            && !is_valid_event_type(event_type)
-        {
-            return Err(McpError::invalid_params("invalid event_type", None));
+        match mode {
+            "text" => {
+                let query = params.0.query.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("query is required for mode=text", None)
+                })?;
+                let results = self
+                    .storage
+                    .search(query, limit, &opts)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to search memories: {e}"), None)
+                    })?;
+                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "results": payload }).to_string(),
+                )]))
+            }
+            "semantic" => {
+                let query = params.0.query.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("query is required for mode=semantic", None)
+                })?;
+                let results = self
+                    .storage
+                    .semantic_search(query, limit, &opts)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("failed to semantic-search memories: {e}"),
+                            None,
+                        )
+                    })?;
+                let payload: Vec<_> = results.into_iter().map(scored_result_payload).collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "results": payload }).to_string(),
+                )]))
+            }
+            "phrase" => {
+                let query = params.0.query.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("query is required for mode=phrase", None)
+                })?;
+                let results = <SqliteStorage as PhraseSearcher>::phrase_search(
+                    &self.storage,
+                    query,
+                    limit,
+                    &opts,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to phrase-search memories: {e}"), None)
+                })?;
+                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "results": payload }).to_string(),
+                )]))
+            }
+            "tag" => {
+                let tags = params.0.tags.as_ref().ok_or_else(|| {
+                    McpError::invalid_params("tags is required for mode=tag", None)
+                })?;
+                if tags.is_empty() {
+                    return Ok(CallToolResult::success(vec![Content::text(
+                        json!({ "results": [] }).to_string(),
+                    )]));
+                }
+                let results = self
+                    .storage
+                    .get_by_tags(tags, limit, &opts)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to search by tags: {e}"), None)
+                    })?;
+                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "results": payload }).to_string(),
+                )]))
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown search mode: {other} (expected text|semantic|phrase|tag|similar)"),
+                None,
+            )),
         }
-        let limit = params.0.limit.unwrap_or(10);
-        let opts = SearchOptions {
-            event_type: parse_event_type(&params.0.event_type),
-            project: params.0.project.clone(),
-            session_id: params.0.session_id.clone(),
-            include_superseded: params.0.include_superseded,
-            event_after: params.0.event_after.clone(),
-            event_before: params.0.event_before.clone(),
-            ..Default::default()
-        };
-        let results = self
-            .storage
-            .semantic_search(&params.0.query, limit, &opts)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to semantic-search memories: {e}"), None)
-            })?;
-
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "score": r.score,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload }).to_string(),
-        )]))
     }
 
     #[tool(
@@ -680,156 +668,19 @@ impl McpMemoryServer {
     }
 
     #[tool(
-        name = "memory_similar",
-        description = "Find memories similar to a source memory by embedding"
+        name = "memory_list",
+        description = "List stored memories. Sort: 'created' (default, paginated by creation time with offset) or 'recent' (recently accessed)."
     )]
-    async fn memory_similar(
+    async fn memory_list(
         &self,
-        params: Parameters<SimilarRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        self.storage
-            .retrieve(&params.0.memory_id)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("memory not found for similar search: {e}"), None)
-            })?;
-
-        let limit = params.0.limit.unwrap_or(5);
-        let results = <SqliteStorage as SimilarFinder>::find_similar(
-            &self.storage,
-            &params.0.memory_id,
-            limit,
-        )
-        .await
-        .map_err(|e| {
-            McpError::internal_error(format!("failed to find similar memories: {e}"), None)
-        })?;
-
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "score": r.score,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_version_chain",
-        description = "Get the full version history chain for a memory"
-    )]
-    async fn memory_version_chain(
-        &self,
-        params: Parameters<VersionChainRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let results = self
-            .storage
-            .get_version_chain(&params.0.memory_id)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to get version chain: {e}"), None)
-            })?;
-
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "chain": payload }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_traverse",
-        description = "Traverse related memories using graph relationships"
-    )]
-    async fn memory_traverse(
-        &self,
-        params: Parameters<TraverseRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        self.storage
-            .retrieve(&params.0.memory_id)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("memory not found for traversal: {e}"), None)
-            })?;
-
-        let max_hops = params.0.max_hops.unwrap_or(2);
-        let min_weight = params.0.min_weight.unwrap_or(0.0);
-        let nodes = <SqliteStorage as GraphTraverser>::traverse(
-            &self.storage,
-            &params.0.memory_id,
-            max_hops,
-            min_weight,
-            None,
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("failed to traverse graph: {e}"), None))?;
-
-        let mut grouped = serde_json::Map::new();
-        for node in nodes {
-            let key = node.hop.to_string();
-            let entry = grouped
-                .entry(key)
-                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-            if let serde_json::Value::Array(items) = entry {
-                items.push(json!({
-                    "id": node.id,
-                    "content": node.content,
-                    "event_type": node.event_type,
-                    "metadata": node.metadata,
-                    "hop": node.hop,
-                    "weight": node.weight,
-                    "edge_type": node.edge_type,
-                    "created_at": node.created_at
-                }));
-            }
-        }
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::Value::Object(grouped).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_phrase_search",
-        description = "Search memories by exact phrase substring"
-    )]
-    async fn memory_phrase_search(
-        &self,
-        params: Parameters<PhraseSearchRequest>,
+        params: Parameters<ListRequest>,
     ) -> Result<CallToolResult, McpError> {
         if let Some(event_type) = params.0.event_type.as_deref()
             && !is_valid_event_type(event_type)
         {
             return Err(McpError::invalid_params("invalid event_type", None));
         }
-
+        let sort = params.0.sort.as_deref().unwrap_or("created");
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
             event_type: parse_event_type(&params.0.event_type),
@@ -840,122 +691,365 @@ impl McpMemoryServer {
             event_before: params.0.event_before.clone(),
             ..Default::default()
         };
-        let results = <SqliteStorage as PhraseSearcher>::phrase_search(
-            &self.storage,
-            &params.0.phrase,
-            limit,
-            &opts,
-        )
-        .await
-        .map_err(|e| {
-            McpError::internal_error(format!("failed to phrase-search memories: {e}"), None)
-        })?;
 
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_recent",
-        description = "List recently accessed memories"
-    )]
-    async fn memory_recent(
-        &self,
-        params: Parameters<RecentRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        if let Some(event_type) = params.0.event_type.as_deref()
-            && !is_valid_event_type(event_type)
-        {
-            return Err(McpError::invalid_params("invalid event_type", None));
-        }
-        let limit = params.0.limit.unwrap_or(10);
-        let opts = SearchOptions {
-            event_type: parse_event_type(&params.0.event_type),
-            project: params.0.project.clone(),
-            session_id: params.0.session_id.clone(),
-            include_superseded: params.0.include_superseded,
-            event_after: params.0.event_after.clone(),
-            event_before: params.0.event_before.clone(),
-            ..Default::default()
-        };
-        let results =
-            self.storage.recent(limit, &opts).await.map_err(|e| {
-                McpError::internal_error(format!("failed to list recents: {e}"), None)
-            })?;
-
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_profile",
-        description = "Read or update the cross-session user profile"
-    )]
-    async fn memory_profile(
-        &self,
-        params: Parameters<ProfileRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let action = params.0.action.as_deref().unwrap_or("read");
-        match action {
-            "read" => {
-                let profile = <SqliteStorage as ProfileManager>::get_profile(&self.storage)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to read profile: {e}"), None)
-                    })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    profile.to_string(),
-                )]))
-            }
-            "update" => {
-                let updates = params.0.update.as_ref().ok_or_else(|| {
-                    McpError::invalid_params("update payload is required for action=update", None)
+        match sort {
+            "created" => {
+                let offset = params.0.offset.unwrap_or(0);
+                let result = self.storage.list(offset, limit, &opts).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to list memories: {e}"), None)
                 })?;
-                <SqliteStorage as ProfileManager>::set_profile(&self.storage, updates)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to update profile: {e}"), None)
-                    })?;
+                let payload: Vec<_> = result.memories.into_iter().map(result_payload).collect();
                 Ok(CallToolResult::success(vec![Content::text(
-                    json!({ "updated": true }).to_string(),
+                    json!({ "results": payload, "total": result.total }).to_string(),
                 )]))
             }
-            _ => Err(McpError::invalid_params(
-                "action must be one of: read, update",
+            "recent" => {
+                let results = self.storage.recent(limit, &opts).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to list recents: {e}"), None)
+                })?;
+                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "results": payload }).to_string(),
+                )]))
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown sort: {other} (expected created|recent)"),
+                None,
+            )),
+        }
+    }
+
+    #[tool(name = "memory_delete", description = "Delete a memory by its id")]
+    async fn memory_delete(
+        &self,
+        params: Parameters<DeleteRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let deleted =
+            self.storage.delete(&params.0.id).await.map_err(|e| {
+                McpError::internal_error(format!("failed to delete memory: {e}"), None)
+            })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "id": params.0.id, "deleted": deleted }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_update",
+        description = "Update content and optionally tags of an existing memory"
+    )]
+    async fn memory_update(
+        &self,
+        params: Parameters<UpdateRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        if params.0.content.is_none()
+            && params.0.tags.is_none()
+            && params.0.importance.is_none()
+            && params.0.metadata.is_none()
+            && params.0.event_type.is_none()
+            && params.0.priority.is_none()
+        {
+            return Err(McpError::invalid_params(
+                "at least one of content, tags, importance, metadata, event_type, or priority must be provided",
+                None,
+            ));
+        }
+        if let Some(event_type) = params.0.event_type.as_deref()
+            && !is_valid_event_type(event_type)
+        {
+            return Err(McpError::invalid_params("invalid event_type", None));
+        }
+        let update = MemoryUpdate {
+            content: params.0.content.clone(),
+            tags: params.0.tags.clone(),
+            importance: params.0.importance,
+            metadata: params.0.metadata.clone(),
+            event_type: parse_event_type(&params.0.event_type),
+            priority: params.0.priority,
+        };
+        <SqliteStorage as Updater>::update(&self.storage, &params.0.id, &update)
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({ "id": params.0.id, "updated": true }).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_relations",
+        description = "Manage memory relationships and graph traversal. Actions: 'list' (default, get relationships for a memory), 'add' (create directed relationship), 'traverse' (BFS graph traversal), 'version_chain' (full version history)."
+    )]
+    async fn memory_relations(
+        &self,
+        params: Parameters<RelationsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("list");
+
+        match action {
+            "list" => {
+                let id = params.0.id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("id is required for action=list", None)
+                })?;
+                let rels = self.storage.get_relationships(id).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to get relationships: {e}"), None)
+                })?;
+                let payload: Vec<_> = rels
+                    .into_iter()
+                    .map(|r| {
+                        json!({
+                            "id": r.id,
+                            "source_id": r.source_id,
+                            "target_id": r.target_id,
+                            "rel_type": r.rel_type,
+                            "weight": r.weight,
+                            "metadata": r.metadata,
+                            "created_at": r.created_at
+                        })
+                    })
+                    .collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "relationships": payload }).to_string(),
+                )]))
+            }
+            "add" => {
+                let source_id = params.0.source_id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("source_id is required for action=add", None)
+                })?;
+                let target_id = params.0.target_id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("target_id is required for action=add", None)
+                })?;
+                let rel_type = params.0.rel_type.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("rel_type is required for action=add", None)
+                })?;
+                let weight = params.0.weight.unwrap_or(1.0);
+                if !(0.0..=1.0).contains(&weight) {
+                    return Err(McpError::invalid_params(
+                        "weight must be between 0.0 and 1.0",
+                        None,
+                    ));
+                }
+                let metadata = params
+                    .0
+                    .metadata
+                    .clone()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                let rel_id = self
+                    .storage
+                    .add_relationship(source_id, target_id, rel_type, weight, &metadata)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to add relationship: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "id": rel_id, "source_id": source_id, "target_id": target_id, "rel_type": rel_type, "weight": weight, "metadata": metadata }).to_string(),
+                )]))
+            }
+            "traverse" => {
+                let id = params.0.id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("id is required for action=traverse", None)
+                })?;
+                self.storage.retrieve(id).await.map_err(|e| {
+                    McpError::internal_error(format!("memory not found for traversal: {e}"), None)
+                })?;
+                let max_hops = params.0.max_hops.unwrap_or(2);
+                if max_hops > 5 {
+                    return Err(McpError::invalid_params(
+                        "max_hops must be between 1 and 5",
+                        None,
+                    ));
+                }
+                let min_weight = params.0.min_weight.unwrap_or(0.0);
+                let nodes = <SqliteStorage as GraphTraverser>::traverse(
+                    &self.storage,
+                    id,
+                    max_hops,
+                    min_weight,
+                    None,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to traverse graph: {e}"), None)
+                })?;
+                let mut grouped = serde_json::Map::new();
+                for node in nodes {
+                    let key = node.hop.to_string();
+                    let entry = grouped
+                        .entry(key)
+                        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                    if let serde_json::Value::Array(items) = entry {
+                        items.push(json!({
+                            "id": node.id,
+                            "content": node.content,
+                            "event_type": node.event_type,
+                            "metadata": node.metadata,
+                            "hop": node.hop,
+                            "weight": node.weight,
+                            "edge_type": node.edge_type,
+                            "created_at": node.created_at
+                        }));
+                    }
+                }
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::Value::Object(grouped).to_string(),
+                )]))
+            }
+            "version_chain" => {
+                let id = params.0.id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("id is required for action=version_chain", None)
+                })?;
+                let results = self.storage.get_version_chain(id).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to get version chain: {e}"), None)
+                })?;
+                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "chain": payload }).to_string(),
+                )]))
+            }
+            other => Err(McpError::invalid_params(
+                format!(
+                    "unknown relations action: {other} (expected list|add|traverse|version_chain)"
+                ),
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_feedback",
+        description = "Record user feedback signal for a memory"
+    )]
+    async fn memory_feedback(
+        &self,
+        params: Parameters<FeedbackRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let rating = params.0.rating.as_str();
+        if !matches!(rating, "helpful" | "unhelpful" | "outdated") {
+            return Err(McpError::invalid_params("invalid rating", None));
+        }
+
+        let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
+            &self.storage,
+            &params.0.memory_id,
+            rating,
+            params.0.reason.as_deref(),
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to record feedback: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            json!({"memory_id": params.0.memory_id, "feedback": result}).to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_lifecycle",
+        description = "System maintenance. Actions: 'sweep' (default, expire TTL-based memories), 'health' (diagnostic with thresholds), 'consolidate' (prune stale data), 'compact' (merge near-duplicates), 'auto_compact' (embedding-based dedup), 'clear_session' (remove session data)."
+    )]
+    async fn memory_lifecycle(
+        &self,
+        params: Parameters<LifecycleRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("sweep");
+        let req = &params.0;
+
+        match action {
+            "sweep" => {
+                let swept_count =
+                    <SqliteStorage as ExpirationSweeper>::sweep_expired(&self.storage)
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(format!("failed to sweep expired: {e}"), None)
+                        })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "swept_count": swept_count }).to_string(),
+                )]))
+            }
+            "health" => {
+                let warn = req.warn_mb.unwrap_or(350.0);
+                let crit = req.critical_mb.unwrap_or(800.0);
+                let max = req.max_nodes.unwrap_or(10000);
+                let result = self
+                    .storage
+                    .check_health(warn, crit, max)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("health check failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "consolidate" => {
+                let prune = req.prune_days.unwrap_or(30);
+                let max_sum = req.max_summaries.unwrap_or(50);
+                let result = self
+                    .storage
+                    .consolidate(prune, max_sum)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("consolidation failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "compact" => {
+                if let Some(event_type) = req.event_type.as_deref()
+                    && !is_valid_event_type(event_type)
+                {
+                    return Err(McpError::invalid_params("invalid event_type", None));
+                }
+                let et = req.event_type.as_deref().unwrap_or("lesson_learned");
+                let thresh = req.similarity_threshold.unwrap_or(0.6);
+                let min_cs = req.min_cluster_size.unwrap_or(3);
+                let dry = req.dry_run.unwrap_or(false);
+                let result = self
+                    .storage
+                    .compact(et, thresh, min_cs, dry)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("compaction failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "auto_compact" => {
+                let threshold = req.count_threshold.unwrap_or(500);
+                let dry = req.dry_run.unwrap_or(false);
+                let result = self
+                    .storage
+                    .auto_compact(threshold, dry)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("auto_compact failed: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "clear_session" => {
+                let sid = req.session_id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("session_id is required for clear_session", None)
+                })?;
+                let removed = self.storage.clear_session(sid).await.map_err(|e| {
+                    McpError::internal_error(format!("clear_session failed: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({"session_id": sid, "removed": removed}).to_string(),
+                )]))
+            }
+            "backup" => Ok(CallToolResult::success(vec![Content::text(
+                "Use memory_export with action=export to export data as JSON.".to_string(),
+            )])),
+            "restore" => Ok(CallToolResult::success(vec![Content::text(
+                "Use memory_export with action=import to import data from JSON.".to_string(),
+            )])),
+            other => Err(McpError::invalid_params(
+                format!(
+                    "unknown lifecycle action: {other} (expected sweep|health|consolidate|compact|auto_compact|clear_session)"
+                ),
                 None,
             )),
         }
@@ -963,84 +1057,102 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_checkpoint",
-        description = "Save a cross-session checkpoint for a task"
+        description = "Manage cross-session task checkpoints. Actions: 'save' (default, save a checkpoint) or 'resume' (retrieve prior checkpoints)."
     )]
     async fn memory_checkpoint(
         &self,
         params: Parameters<CheckpointRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let input = CheckpointInput {
-            task_title: params.0.task_title.clone(),
-            progress: params.0.progress.clone(),
-            plan: params.0.plan.clone(),
-            files_touched: params.0.files_touched.clone(),
-            decisions: params.0.decisions.clone(),
-            key_context: params.0.key_context.clone(),
-            next_steps: params.0.next_steps.clone(),
-            session_id: params.0.session_id.clone(),
-            project: params.0.project.clone(),
-        };
-        let memory_id = <SqliteStorage as CheckpointManager>::save_checkpoint(&self.storage, input)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
-            })?;
+        let action = params.0.action.as_deref().unwrap_or("save");
 
-        let latest = <SqliteStorage as CheckpointManager>::resume_task(
-            &self.storage,
-            &params.0.task_title,
-            params.0.project.as_deref(),
-            1,
-        )
-        .await
-        .map_err(|e| {
-            McpError::internal_error(format!("failed to resolve checkpoint number: {e}"), None)
-        })?;
-        let checkpoint_number = latest
-            .first()
-            .and_then(|entry| entry.get("metadata"))
-            .and_then(|metadata| metadata.get("checkpoint_number"))
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(1);
+        match action {
+            "save" => {
+                let task_title = params.0.task_title.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("task_title is required for action=save", None)
+                })?;
+                let progress = params.0.progress.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("progress is required for action=save", None)
+                })?;
+                let input = CheckpointInput {
+                    task_title: task_title.to_string(),
+                    progress: progress.to_string(),
+                    plan: params.0.plan.clone(),
+                    files_touched: params.0.files_touched.clone(),
+                    decisions: params.0.decisions.clone(),
+                    key_context: params.0.key_context.clone(),
+                    next_steps: params.0.next_steps.clone(),
+                    session_id: params.0.session_id.clone(),
+                    project: params.0.project.clone(),
+                };
+                let memory_id =
+                    <SqliteStorage as CheckpointManager>::save_checkpoint(&self.storage, input)
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to save checkpoint: {e}"),
+                                None,
+                            )
+                        })?;
 
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number }).to_string(),
-        )]))
-    }
+                let latest = <SqliteStorage as CheckpointManager>::resume_task(
+                    &self.storage,
+                    task_title,
+                    params.0.project.as_deref(),
+                    1,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        format!("failed to resolve checkpoint number: {e}"),
+                        None,
+                    )
+                })?;
+                let checkpoint_number = latest
+                    .first()
+                    .and_then(|entry| entry.get("metadata"))
+                    .and_then(|metadata| metadata.get("checkpoint_number"))
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(1);
 
-    #[tool(
-        name = "memory_resume_task",
-        description = "Resume prior checkpoints for a task"
-    )]
-    async fn memory_resume_task(
-        &self,
-        params: Parameters<ResumeTaskRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let query = params.0.task_title.clone().unwrap_or_default();
-        let limit = params.0.limit.unwrap_or(1);
-        let results = <SqliteStorage as CheckpointManager>::resume_task(
-            &self.storage,
-            &query,
-            params.0.project.as_deref(),
-            limit,
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("failed to resume task: {e}"), None))?;
-
-        let mut markdown = String::new();
-        for (index, entry) in results.iter().enumerate() {
-            if index > 0 {
-                markdown.push_str("\n\n---\n\n");
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
+                        .to_string(),
+                )]))
             }
-            markdown.push_str("### Checkpoint\n");
-            markdown.push_str(entry["content"].as_str().unwrap_or(""));
-            markdown.push_str("\n\nMetadata:\n");
-            markdown.push_str(&entry["metadata"].to_string());
-            markdown.push_str("\n\nCreated At: ");
-            markdown.push_str(entry["created_at"].as_str().unwrap_or(""));
-        }
+            "resume" => {
+                let query = params.0.task_title.clone().unwrap_or_default();
+                let limit = params.0.limit.unwrap_or(1);
+                let results = <SqliteStorage as CheckpointManager>::resume_task(
+                    &self.storage,
+                    &query,
+                    params.0.project.as_deref(),
+                    limit,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to resume task: {e}"), None)
+                })?;
 
-        Ok(CallToolResult::success(vec![Content::text(markdown)]))
+                let mut markdown = String::new();
+                for (index, entry) in results.iter().enumerate() {
+                    if index > 0 {
+                        markdown.push_str("\n\n---\n\n");
+                    }
+                    markdown.push_str("### Checkpoint\n");
+                    markdown.push_str(entry["content"].as_str().unwrap_or(""));
+                    markdown.push_str("\n\nMetadata:\n");
+                    markdown.push_str(&entry["metadata"].to_string());
+                    markdown.push_str("\n\nCreated At: ");
+                    markdown.push_str(entry["created_at"].as_str().unwrap_or(""));
+                }
+
+                Ok(CallToolResult::success(vec![Content::text(markdown)]))
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown checkpoint action: {other} (expected save|resume)"),
+                None,
+            )),
+        }
     }
 
     #[tool(
@@ -1139,538 +1251,28 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_health",
-        description = "Return service health information"
+        description = "Service health and statistics. Detail: 'basic' (default, health check), 'stats' (store statistics), 'types' (per-type counts), 'sessions' (session analytics), 'digest' (weekly digest), 'access_rate' (access rate analysis)."
     )]
-    async fn memory_health(&self) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text(
-            "romega-memory MCP server is healthy",
-        )]))
-    }
-
-    #[tool(name = "memory_delete", description = "Delete a memory by its id")]
-    async fn memory_delete(
+    async fn memory_health(
         &self,
-        params: Parameters<DeleteRequest>,
+        params: Parameters<HealthRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let deleted =
-            self.storage.delete(&params.0.id).await.map_err(|e| {
-                McpError::internal_error(format!("failed to delete memory: {e}"), None)
-            })?;
+        let detail = params.0.detail.as_deref().unwrap_or("basic");
 
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "id": params.0.id, "deleted": deleted }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_update",
-        description = "Update content and optionally tags of an existing memory"
-    )]
-    async fn memory_update(
-        &self,
-        params: Parameters<UpdateRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        if params.0.content.is_none()
-            && params.0.tags.is_none()
-            && params.0.importance.is_none()
-            && params.0.metadata.is_none()
-            && params.0.event_type.is_none()
-            && params.0.priority.is_none()
-        {
-            return Err(McpError::invalid_params(
-                "at least one of content, tags, importance, metadata, event_type, or priority must be provided",
-                None,
-            ));
-        }
-        if let Some(event_type) = params.0.event_type.as_deref()
-            && !is_valid_event_type(event_type)
-        {
-            return Err(McpError::invalid_params("invalid event_type", None));
-        }
-        let update = MemoryUpdate {
-            content: params.0.content.clone(),
-            tags: params.0.tags.clone(),
-            importance: params.0.importance,
-            metadata: params.0.metadata.clone(),
-            event_type: parse_event_type(&params.0.event_type),
-            priority: params.0.priority,
-        };
-        <SqliteStorage as Updater>::update(&self.storage, &params.0.id, &update)
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "id": params.0.id, "updated": true }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_tag_search",
-        description = "Search memories by tags (AND logic — all tags must match)"
-    )]
-    async fn memory_tag_search(
-        &self,
-        params: Parameters<TagSearchRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        if params.0.tags.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text(
-                json!({ "results": [] }).to_string(),
-            )]));
-        }
-        if let Some(event_type) = params.0.event_type.as_deref()
-            && !is_valid_event_type(event_type)
-        {
-            return Err(McpError::invalid_params("invalid event_type", None));
-        }
-        let limit = params.0.limit.unwrap_or(10);
-        let opts = SearchOptions {
-            event_type: parse_event_type(&params.0.event_type),
-            project: params.0.project.clone(),
-            session_id: params.0.session_id.clone(),
-            include_superseded: params.0.include_superseded,
-            event_after: params.0.event_after.clone(),
-            event_before: params.0.event_before.clone(),
-            ..Default::default()
-        };
-        let results = self
-            .storage
-            .get_by_tags(&params.0.tags, limit, &opts)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to search by tags: {e}"), None)
-            })?;
-
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_list",
-        description = "List stored memories with pagination, returning page and total count"
-    )]
-    async fn memory_list(
-        &self,
-        params: Parameters<ListRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        if let Some(event_type) = params.0.event_type.as_deref()
-            && !is_valid_event_type(event_type)
-        {
-            return Err(McpError::invalid_params("invalid event_type", None));
-        }
-        let offset = params.0.offset.unwrap_or(0);
-        let limit = params.0.limit.unwrap_or(10);
-        let opts = SearchOptions {
-            event_type: parse_event_type(&params.0.event_type),
-            project: params.0.project.clone(),
-            session_id: params.0.session_id.clone(),
-            include_superseded: params.0.include_superseded,
-            event_after: params.0.event_after.clone(),
-            event_before: params.0.event_before.clone(),
-            ..Default::default()
-        };
-        let result =
-            self.storage.list(offset, limit, &opts).await.map_err(|e| {
-                McpError::internal_error(format!("failed to list memories: {e}"), None)
-            })?;
-
-        let payload: Vec<_> = result
-            .memories
-            .into_iter()
-            .map(|m| {
-                json!({
-                    "id": m.id,
-                    "content": m.content,
-                    "tags": m.tags,
-                    "importance": m.importance,
-                    "metadata": m.metadata,
-                    "event_type": m.event_type,
-                    "session_id": m.session_id,
-                    "project": m.project
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "results": payload, "total": result.total }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_relations",
-        description = "Get relationships for a memory (both directions)"
-    )]
-    async fn memory_relations(
-        &self,
-        params: Parameters<RelationsRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let rels = self
-            .storage
-            .get_relationships(&params.0.id)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to get relationships: {e}"), None)
-            })?;
-
-        let payload: Vec<_> = rels
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "source_id": r.source_id,
-                    "target_id": r.target_id,
-                    "rel_type": r.rel_type,
-                    "weight": r.weight,
-                    "metadata": r.metadata,
-                    "created_at": r.created_at
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "relationships": payload }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_add_relation",
-        description = "Create a directed relationship between two memories"
-    )]
-    async fn memory_add_relation(
-        &self,
-        params: Parameters<AddRelationRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let rel_id = self
-            .storage
-            .add_relationship(
-                &params.0.source_id,
-                &params.0.target_id,
-                &params.0.rel_type,
-                params.0.weight.unwrap_or(1.0),
-                &params
-                    .0
-                    .metadata
-                    .clone()
-                    .unwrap_or_else(|| serde_json::json!({})),
-            )
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to add relationship: {e}"), None)
-            })?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "id": rel_id, "source_id": params.0.source_id, "target_id": params.0.target_id, "rel_type": params.0.rel_type, "weight": params.0.weight.unwrap_or(1.0), "metadata": params.0.metadata.clone().unwrap_or_else(|| serde_json::json!({})) }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_feedback",
-        description = "Record user feedback signal for a memory"
-    )]
-    async fn memory_feedback(
-        &self,
-        params: Parameters<FeedbackRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let rating = params.0.rating.as_str();
-        if !matches!(rating, "helpful" | "unhelpful" | "outdated") {
-            return Err(McpError::invalid_params("invalid rating", None));
-        }
-
-        let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-            &self.storage,
-            &params.0.memory_id,
-            rating,
-            params.0.reason.as_deref(),
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("failed to record feedback: {e}"), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({"memory_id": params.0.memory_id, "feedback": result}).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_sweep",
-        description = "Sweep expired memories based on TTL"
-    )]
-    async fn memory_sweep(
-        &self,
-        #[allow(unused_variables)] params: Parameters<SweepRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let swept_count = <SqliteStorage as ExpirationSweeper>::sweep_expired(&self.storage)
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to sweep expired: {e}"), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "swept_count": swept_count }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_stats",
-        description = "Return memory store statistics including counts and storage info"
-    )]
-    async fn memory_stats(
-        &self,
-        #[allow(unused_variables)] params: Parameters<StatsRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let stats = self
-            .storage
-            .stats()
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to get stats: {e}"), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string(&stats).map_err(|e| {
-                McpError::internal_error(format!("failed to serialize stats: {e}"), None)
-            })?,
-        )]))
-    }
-
-    #[tool(
-        name = "memory_export",
-        description = "Export all memories and relationships as JSON"
-    )]
-    async fn memory_export(
-        &self,
-        #[allow(unused_variables)] params: Parameters<ExportRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let export_data = self
-            .storage
-            .export_all()
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to export: {e}"), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(export_data)]))
-    }
-
-    #[tool(
-        name = "memory_import",
-        description = "Import memories and relationships from JSON"
-    )]
-    async fn memory_import(
-        &self,
-        params: Parameters<ImportRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let count = self
-            .storage
-            .import_all(&params.0.data)
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to import: {e}"), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            json!({ "imported_memories": count.0, "imported_relationships": count.1 }).to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_maintain",
-        description = "System housekeeping: health check, consolidate stale memories, compact near-duplicates, auto_compact (embedding-based sweep), or clear a session"
-    )]
-    async fn memory_maintain(
-        &self,
-        params: Parameters<MaintainRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let req = &params.0;
-        let action = req.action.as_str();
-
-        match action {
-            "health" => {
-                let warn = req.warn_mb.unwrap_or(350.0);
-                let crit = req.critical_mb.unwrap_or(800.0);
-                let max = req.max_nodes.unwrap_or(10000);
-                let result = self
-                    .storage
-                    .check_health(warn, crit, max)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("health check failed: {e}"), None)
-                    })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            "consolidate" => {
-                let prune = req.prune_days.unwrap_or(30);
-                let max_sum = req.max_summaries.unwrap_or(50);
-                let result = self
-                    .storage
-                    .consolidate(prune, max_sum)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("consolidation failed: {e}"), None)
-                    })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            "compact" => {
-                let et = req.event_type.as_deref().unwrap_or("lesson_learned");
-                let thresh = req.similarity_threshold.unwrap_or(0.6);
-                let min_cs = req.min_cluster_size.unwrap_or(3);
-                let dry = req.dry_run.unwrap_or(false);
-                let result = self
-                    .storage
-                    .compact(et, thresh, min_cs, dry)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("compaction failed: {e}"), None)
-                    })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            "auto_compact" => {
-                let threshold = req.count_threshold.unwrap_or(500);
-                let dry = req.dry_run.unwrap_or(false);
-                let result = self
-                    .storage
-                    .auto_compact(threshold, dry)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("auto_compact failed: {e}"), None)
-                    })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            "clear_session" => {
-                let sid = req.session_id.as_deref().ok_or_else(|| {
-                    McpError::invalid_params("session_id is required for clear_session", None)
-                })?;
-                let removed = self.storage.clear_session(sid).await.map_err(|e| {
-                    McpError::internal_error(format!("clear_session failed: {e}"), None)
+        match detail {
+            "basic" => Ok(CallToolResult::success(vec![Content::text(
+                "romega-memory MCP server is healthy",
+            )])),
+            "stats" => {
+                let stats = self.storage.stats().await.map_err(|e| {
+                    McpError::internal_error(format!("failed to get stats: {e}"), None)
                 })?;
                 Ok(CallToolResult::success(vec![Content::text(
-                    json!({"session_id": sid, "removed": removed}).to_string(),
+                    serde_json::to_string(&stats).map_err(|e| {
+                        McpError::internal_error(format!("failed to serialize stats: {e}"), None)
+                    })?,
                 )]))
             }
-            "backup" => Ok(CallToolResult::success(vec![Content::text(
-                "Use the memory_export tool to export data as JSON.".to_string(),
-            )])),
-            "restore" => Ok(CallToolResult::success(vec![Content::text(
-                "Use the memory_import tool to import data from JSON.".to_string(),
-            )])),
-            other => Err(McpError::invalid_params(
-                format!(
-                    "unknown maintain action: {other} (expected health|consolidate|compact|auto_compact|clear_session|backup|restore)"
-                ),
-                None,
-            )),
-        }
-    }
-
-    #[tool(
-        name = "memory_welcome",
-        description = "Session startup briefing with recent activity, user profile, and pending reminders"
-    )]
-    async fn memory_welcome(
-        &self,
-        params: Parameters<WelcomeRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let result = self
-            .storage
-            .welcome(params.0.session_id.as_deref(), params.0.project.as_deref())
-            .await
-            .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            result.to_string(),
-        )]))
-    }
-
-    #[tool(
-        name = "memory_protocol",
-        description = "Retrieve available tools and operational guidelines for this memory server"
-    )]
-    async fn memory_protocol(
-        &self,
-        _params: Parameters<ProtocolRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let protocol = r#"# romega-memory Protocol
-
-## Available Tools (31)
-
-### Storage & Retrieval
-- **memory_store** — Store new memory content with tags, importance, metadata
-- **memory_retrieve** — Retrieve a memory by ID
-- **memory_delete** — Delete a memory by ID
-- **memory_update** — Update content, tags, importance, or metadata
-- **memory_export** — Export all data as JSON
-- **memory_import** — Import data from JSON
-
-### Search
-- **memory_search** — Full-text search with FTS5
-- **memory_semantic_search** — Semantic search via embeddings
-- **memory_advanced_search** — Multi-phase scoring (vector + FTS5 + type weights + time decay)
-- **memory_similar** — Find similar memories by embedding
-- **memory_phrase_search** — Exact phrase search
-- **memory_tag_search** — Search by tags
-- **memory_list** — Paginated listing with filters
-- **memory_recent** — Recently accessed memories
-
-### Relationships & Graph
-- **memory_relations** — Get relationships for a memory
-- **memory_add_relation** — Create a directed relationship
-- **memory_version_chain** — Retrieve full version chain for a memory
-- **memory_traverse** — Graph traversal via BFS
-
-### Lifecycle
-- **memory_feedback** — Record feedback (helpful/unhelpful/outdated)
-- **memory_sweep** — Expire memories by TTL
-
-### Cross-Session
-- **memory_profile** — Read/update user profile
-- **memory_checkpoint** — Save task checkpoint
-- **memory_resume_task** — Resume from prior checkpoints
-- **memory_remind** — Set, list, or dismiss reminders
-- **memory_lessons** — Query lesson_learned memories
-
-### Maintenance & Stats
-- **memory_health** — Basic health check
-- **memory_stats** — Basic store statistics
-- **memory_maintain** — System housekeeping (health/consolidate/compact/clear_session)
-- **memory_welcome** — Session startup briefing
-- **memory_protocol** — This tool: available tools and guidelines
-- **memory_stats_extended** — Extended analytics (types/sessions/digest/access_rate)
-
-## Usage Guidelines
-- Call **memory_welcome** at session start for context
-- Use **memory_store** with appropriate event_type and tags for categorization
-- Use **memory_sweep** periodically to clean expired memories
-- Use **memory_maintain** with action=consolidate to prune stale data
-"#;
-        Ok(CallToolResult::success(vec![Content::text(protocol)]))
-    }
-
-    #[tool(
-        name = "memory_stats_extended",
-        description = "Extended analytics: per-type counts, session stats, weekly digest, or access rate analysis"
-    )]
-    async fn memory_stats_extended(
-        &self,
-        params: Parameters<StatsExtendedRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let action = params.0.action.as_str();
-
-        match action {
             "types" => {
                 let result = self.storage.type_stats().await.map_err(|e| {
                     McpError::internal_error(format!("type_stats failed: {e}"), None)
@@ -1706,11 +1308,162 @@ impl McpMemoryServer {
             }
             other => Err(McpError::invalid_params(
                 format!(
-                    "unknown stats action: {other} (expected types|sessions|digest|access_rate)"
+                    "unknown detail level: {other} (expected basic|stats|types|sessions|digest|access_rate)"
                 ),
                 None,
             )),
         }
+    }
+
+    #[tool(
+        name = "memory_export",
+        description = "Export or import memory data as JSON. Actions: 'export' (default, export all) or 'import' (import from JSON data)."
+    )]
+    async fn memory_export(
+        &self,
+        params: Parameters<ExportRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("export");
+
+        match action {
+            "export" => {
+                let export_data = self.storage.export_all().await.map_err(|e| {
+                    McpError::internal_error(format!("failed to export: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(export_data)]))
+            }
+            "import" => {
+                let data = params.0.data.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("data is required for action=import", None)
+                })?;
+                let count = self.storage.import_all(data).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to import: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "imported_memories": count.0, "imported_relationships": count.1 })
+                        .to_string(),
+                )]))
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown export action: {other} (expected export|import)"),
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_profile",
+        description = "Read or update the cross-session user profile"
+    )]
+    async fn memory_profile(
+        &self,
+        params: Parameters<ProfileRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("read");
+        match action {
+            "read" => {
+                let profile = <SqliteStorage as ProfileManager>::get_profile(&self.storage)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to read profile: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    profile.to_string(),
+                )]))
+            }
+            "update" => {
+                let updates = params.0.update.as_ref().ok_or_else(|| {
+                    McpError::invalid_params("update payload is required for action=update", None)
+                })?;
+                <SqliteStorage as ProfileManager>::set_profile(&self.storage, updates)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to update profile: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "updated": true }).to_string(),
+                )]))
+            }
+            _ => Err(McpError::invalid_params(
+                "action must be one of: read, update",
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_welcome",
+        description = "Session startup briefing with recent activity, user profile, and pending reminders"
+    )]
+    async fn memory_welcome(
+        &self,
+        params: Parameters<WelcomeRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self
+            .storage
+            .welcome(params.0.session_id.as_deref(), params.0.project.as_deref())
+            .await
+            .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
+    }
+
+    #[tool(
+        name = "memory_protocol",
+        description = "Retrieve available tools and operational guidelines for this memory server"
+    )]
+    async fn memory_protocol(
+        &self,
+        _params: Parameters<ProtocolRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let protocol = r#"# romega-memory Protocol
+
+## Available Tools (19)
+
+### Storage & Retrieval
+- **memory_store** — Store new memory content with tags, importance, metadata
+- **memory_store_batch** — Batch store multiple memories with optimized embedding
+- **memory_retrieve** — Retrieve a memory by ID
+- **memory_delete** — Delete a memory by ID
+- **memory_update** — Update content, tags, importance, or metadata
+
+### Search
+- **memory_search** — Unified search (mode: text|semantic|phrase|tag|similar)
+- **memory_advanced_search** — Multi-phase scoring (vector + FTS5 + type weights + time decay)
+
+### Listing
+- **memory_list** — List memories (sort: created|recent)
+
+### Relationships & Graph
+- **memory_relations** — Manage relationships (action: list|add|traverse|version_chain)
+
+### Lifecycle & Maintenance
+- **memory_feedback** — Record feedback (helpful/unhelpful/outdated)
+- **memory_lifecycle** — System maintenance (action: sweep|health|consolidate|compact|auto_compact|clear_session)
+- **memory_health** — Health check and statistics (detail: basic|stats|types|sessions|digest|access_rate)
+
+### Data Transfer
+- **memory_export** — Export/import data (action: export|import)
+
+### Cross-Session
+- **memory_profile** — Read/update user profile
+- **memory_checkpoint** — Task checkpoints (action: save|resume)
+- **memory_remind** — Set, list, or dismiss reminders
+- **memory_lessons** — Query lesson_learned memories
+
+### System
+- **memory_welcome** — Session startup briefing
+- **memory_protocol** — This tool: available tools and guidelines
+
+## Usage Guidelines
+- Call **memory_welcome** at session start for context
+- Use **memory_store** with appropriate event_type and tags for categorization
+- Use **memory_lifecycle** with action=sweep periodically to clean expired memories
+- Use **memory_lifecycle** with action=consolidate to prune stale data
+"#;
+        Ok(CallToolResult::success(vec![Content::text(protocol)]))
     }
 }
 

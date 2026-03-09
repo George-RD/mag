@@ -182,6 +182,7 @@ impl OnnxEmbedder {
         let cpu_ep = ort::ep::CPU::default().with_arena_allocator(false).build();
         let session = ort::session::Session::builder()?
             .with_execution_providers([cpu_ep])?
+            .with_intra_threads(num_cpus::get())?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .commit_from_file(&files.model_path)
             .with_context(|| {
@@ -641,7 +642,7 @@ fn model_files_for_dir(model_dir: PathBuf) -> ModelFiles {
 }
 
 #[cfg(feature = "real-embeddings")]
-async fn download_file(url: &str, path: &Path) -> Result<()> {
+pub(crate) async fn download_file(url: &str, path: &Path) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
         .connect_timeout(std::time::Duration::from_secs(30))

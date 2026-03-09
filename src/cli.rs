@@ -334,8 +334,14 @@ pub enum Commands {
     },
     /// Downloads the ONNX model and tokenizer used for embeddings.
     DownloadModel,
+    /// Downloads the cross-encoder model for reranking.
+    DownloadCrossEncoder,
     /// Starts the MCP server over stdio transport.
-    Serve,
+    Serve {
+        /// Enable cross-encoder reranking (disabled by default).
+        #[arg(long)]
+        cross_encoder: bool,
+    },
 }
 
 #[cfg(test)]
@@ -898,7 +904,9 @@ mod tests {
         let args = vec!["romega", "serve"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Serve => {}
+            Commands::Serve { cross_encoder } => {
+                assert!(!cross_encoder);
+            }
             _ => panic!("Expected Serve command"),
         }
     }

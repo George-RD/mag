@@ -6,7 +6,7 @@ A high-performance MCP memory server built in Rust. Inspired by [omega-memory](h
 
 - **Single binary** — no Python, no pip, no virtualenv. One `cargo build --release` and you're done.
 - **No LLM required** — local ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. Works fully offline.
-- **31 MCP tools** — store, search, relate, checkpoint, profile, remind, version chain, and more.
+- **19 MCP tools** — store, search, relate, checkpoint, profile, remind, version chain, and more.
 - **Self-contained** — one binary, one SQLite database, one auto-downloaded model. No external services.
 - **Sub-second startup** — 14ms cold start from the release binary.
 
@@ -118,7 +118,7 @@ romega-memory
 ├── src/
 │   ├── main.rs                  # CLI dispatch (31 commands)
 │   ├── cli.rs                   # Clap command definitions
-│   ├── mcp_server.rs            # MCP stdio server (31 tools)
+│   ├── mcp_server.rs            # MCP stdio server (19 tools)
 │   └── memory_core/
 │       ├── mod.rs               # Traits, types, EventType enum, pipeline
 │       ├── embedder.rs          # ONNX embedder with batch inference + LRU cache
@@ -149,16 +149,16 @@ romega-memory
 - **Batch embeddings** — `embed_batch()` pads inputs into a single ONNX tensor call with LRU cache deduplication.
 - **Zero-copy scoring** — `Cow<str>` in suffix stemming avoids allocations when no stemming applies.
 
-### MCP Tools (31)
+### MCP Tools (19)
 
 | Category | Tools |
 | --- | --- |
-| **Core** | `memory_store`, `memory_retrieve`, `memory_delete`, `memory_update` |
-| **Search** | `memory_search`, `memory_semantic_search`, `memory_advanced_search`, `memory_tag_search`, `memory_phrase_search`, `memory_similar` |
-| **Browse** | `memory_list`, `memory_recent`, `memory_relations`, `memory_traverse`, `memory_version_chain` |
-| **Lifecycle** | `memory_feedback`, `memory_sweep`, `memory_maintain` |
-| **Session** | `memory_checkpoint`, `memory_resume_task`, `memory_profile`, `memory_welcome`, `memory_protocol` |
-| **Admin** | `memory_health`, `memory_stats`, `memory_stats_extended`, `memory_export`, `memory_import`, `memory_remind`, `memory_lessons`, `memory_add_relation` |
+| **Core** | `memory_store`, `memory_store_batch`, `memory_retrieve`, `memory_delete`, `memory_update` |
+| **Search** | `memory_search` (mode: text/semantic/phrase/tag/similar), `memory_advanced_search` |
+| **Browse** | `memory_list` (sort: created/recent), `memory_relations` (action: list/add/traverse/version_chain) |
+| **Lifecycle** | `memory_feedback`, `memory_lifecycle` (action: sweep/health/consolidate/compact/auto_compact/clear_session) |
+| **Session** | `memory_checkpoint` (action: save/resume), `memory_profile`, `memory_welcome`, `memory_protocol` |
+| **Admin** | `memory_health` (detail: basic/stats/types/sessions/digest/access_rate), `memory_export` (action: export/import), `memory_remind`, `memory_lessons` |
 
 ### Search Pipeline
 

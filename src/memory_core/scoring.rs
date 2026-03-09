@@ -34,6 +34,11 @@ pub struct ScoringParams {
     /// result lists during RRF fusion.  Applied after the combined RRF score
     /// is computed but before score refinement.  Default 1.2 (20 % boost).
     pub dual_match_boost: f64,
+    /// Number of top candidates to rerank with the cross-encoder (default 30).
+    pub rerank_top_n: usize,
+    /// Blend weight: `alpha * rrf_score + (1 - alpha) * cross_encoder_score`.
+    /// Default 0.5 (equal weight).
+    pub rerank_blend_alpha: f64,
 }
 
 impl Default for ScoringParams {
@@ -64,6 +69,8 @@ impl Default for ScoringParams {
             graph_seed_min: 5,
             graph_seed_max: 8,
             dual_match_boost: 1.2,
+            rerank_top_n: 30,
+            rerank_blend_alpha: 0.5,
         }
     }
 }

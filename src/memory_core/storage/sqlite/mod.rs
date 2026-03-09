@@ -59,12 +59,17 @@ pub enum InitMode {
 /// Uses a connection pool with one writer and N readers (WAL mode) for
 /// concurrent read access. The pool is behind `Arc` so the struct can
 /// be cloned into both the `Storage` and `Retriever` roles of a [`Pipeline`].
+#[cfg(feature = "real-embeddings")]
+use crate::memory_core::reranker::CrossEncoderReranker;
+
 #[derive(Clone)]
 pub struct SqliteStorage {
     pool: Arc<ConnPool>,
     embedder: Arc<dyn Embedder>,
     scoring_params: ScoringParams,
     query_cache: QueryCache,
+    #[cfg(feature = "real-embeddings")]
+    reranker: Option<Arc<CrossEncoderReranker>>,
 }
 
 #[cfg(feature = "sqlite-vec")]
@@ -131,7 +136,23 @@ impl SqliteStorage {
             embedder,
             scoring_params: ScoringParams::default(),
             query_cache: new_query_cache(),
+            #[cfg(feature = "real-embeddings")]
+            reranker: None,
         })
+    }
+
+    /// Sets the cross-encoder reranker for this storage instance.
+    #[cfg(feature = "real-embeddings")]
+    pub fn with_reranker(mut self, reranker: Arc<CrossEncoderReranker>) -> Self {
+        self.reranker = Some(reranker);
+        self
+    }
+
+    /// Returns a reference to the reranker, if configured.
+    #[cfg(feature = "real-embeddings")]
+    #[allow(dead_code)]
+    pub fn reranker(&self) -> Option<&Arc<CrossEncoderReranker>> {
+        self.reranker.as_ref()
     }
 
     /// Runs `PRAGMA optimize` to update SQLite query planner statistics.
@@ -563,6 +584,8 @@ impl SqliteStorage {
             embedder,
             scoring_params: ScoringParams::default(),
             query_cache: new_query_cache(),
+            #[cfg(feature = "real-embeddings")]
+            reranker: None,
         })
     }
 

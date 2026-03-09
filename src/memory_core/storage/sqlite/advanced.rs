@@ -348,6 +348,61 @@ fn collect_fts_candidates(
     Ok(fts_candidates)
 }
 
+/// Compute cross-encoder scores for the top candidates if a reranker is available.
+#[cfg(feature = "real-embeddings")]
+fn compute_cross_encoder_scores(
+    reranker: Option<&std::sync::Arc<crate::memory_core::reranker::CrossEncoderReranker>>,
+    query: &str,
+    vector_candidates: &[(String, f64, RankedSemanticCandidate)],
+    fts_candidates: &[(String, f64, RankedSemanticCandidate)],
+    scoring_params: &ScoringParams,
+) -> Option<HashMap<String, f32>> {
+    let reranker = reranker?;
+    let mut seen = HashSet::new();
+    let mut candidates_for_rerank: Vec<(String, String)> = Vec::new();
+    // Interleave vector and FTS candidates to avoid biasing towards either source
+    // when truncating to rerank_top_n.
+    let max_idx = vector_candidates.len().max(fts_candidates.len());
+    for i in 0..max_idx {
+        if candidates_for_rerank.len() >= scoring_params.rerank_top_n {
+            break;
+        }
+        if let Some((id, _, candidate)) = vector_candidates.get(i)
+            && seen.insert(id.clone())
+        {
+            candidates_for_rerank.push((id.clone(), candidate.result.content.clone()));
+        }
+        if candidates_for_rerank.len() >= scoring_params.rerank_top_n {
+            break;
+        }
+        if let Some((id, _, candidate)) = fts_candidates.get(i)
+            && seen.insert(id.clone())
+        {
+            candidates_for_rerank.push((id.clone(), candidate.result.content.clone()));
+        }
+    }
+    if candidates_for_rerank.is_empty() {
+        return None;
+    }
+    let passages: Vec<&str> = candidates_for_rerank
+        .iter()
+        .map(|(_, c)| c.as_str())
+        .collect();
+    match reranker.score_batch(query, &passages) {
+        Ok(scores) => {
+            let mut map = HashMap::with_capacity(scores.len());
+            for (i, (id, _)) in candidates_for_rerank.iter().enumerate() {
+                map.insert(id.clone(), scores[i]);
+            }
+            Some(map)
+        }
+        Err(e) => {
+            tracing::warn!("cross-encoder reranking failed, skipping: {e}");
+            None
+        }
+    }
+}
+
 /// Phases 3-6: RRF fusion, score refinement, graph enrichment, abstention.
 #[allow(clippy::too_many_arguments)]
 fn fuse_refine_and_output(
@@ -361,6 +416,7 @@ fn fuse_refine_and_output(
     include_superseded: bool,
     explain_enabled: bool,
     scoring_params: &ScoringParams,
+    cross_encoder_scores: Option<&HashMap<String, f32>>,
 ) -> Result<Vec<SemanticResult>> {
     // Phase 3: Weighted RRF fusion -- vector similarity weighted higher
     // for semantic discrimination (Oracle recommendation)
@@ -449,6 +505,21 @@ fn fuse_refine_and_output(
         for id in &dual_match_ids {
             if let Some(candidate) = ranked.get_mut(id) {
                 candidate.score *= scoring_params.dual_match_boost;
+            }
+        }
+    }
+
+    // ── Phase 3b: Cross-encoder reranking blend ──────────────────────
+    if let Some(ce_scores) = cross_encoder_scores {
+        let alpha = scoring_params.rerank_blend_alpha;
+        for (id, candidate) in ranked.iter_mut() {
+            if let Some(&ce_score) = ce_scores.get(id) {
+                let rrf_normalized = candidate.score;
+                candidate.score = alpha * rrf_normalized + (1.0 - alpha) * ce_score as f64;
+                if explain_enabled && let Some(ref mut exp) = candidate.explain {
+                    exp["cross_encoder_score"] = serde_json::json!(ce_score);
+                    exp["rerank_blend_alpha"] = serde_json::json!(alpha);
+                }
             }
         }
     }
@@ -921,9 +992,23 @@ impl AdvancedSearcher for SqliteStorage {
 
         // Phases 3-6: RRF fusion, score refinement, graph enrichment,
         // abstention + dedup. Needs one reader for graph queries.
+        #[cfg(feature = "real-embeddings")]
+        let reranker = self.reranker.clone();
         let results = tokio::task::spawn_blocking({
             let pool = Arc::clone(&pool);
             move || {
+                // Optional cross-encoder reranking
+                #[cfg(feature = "real-embeddings")]
+                let ce_scores = compute_cross_encoder_scores(
+                    reranker.as_ref(),
+                    &query,
+                    &vector_candidates,
+                    &fts_candidates,
+                    &scoring_params,
+                );
+                #[cfg(not(feature = "real-embeddings"))]
+                let ce_scores: Option<HashMap<String, f32>> = None;
+
                 let conn = pool.reader()?;
                 fuse_refine_and_output(
                     &conn,
@@ -936,6 +1021,7 @@ impl AdvancedSearcher for SqliteStorage {
                     include_superseded,
                     explain_enabled,
                     &scoring_params,
+                    ce_scores.as_ref(),
                 )
             }
         })

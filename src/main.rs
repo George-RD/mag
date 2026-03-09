@@ -48,11 +48,27 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if matches!(cli.command, Commands::DownloadCrossEncoder) {
+        #[cfg(feature = "real-embeddings")]
+        {
+            println!("Preparing cross-encoder model files...");
+            let model_path = memory_core::reranker::download_cross_encoder_model().await?;
+            println!("Cross-encoder model is ready at {}", model_path.display());
+        }
+        #[cfg(not(feature = "real-embeddings"))]
+        {
+            anyhow::bail!(
+                "download-cross-encoder requires the `real-embeddings` feature to be enabled"
+            );
+        }
+        return Ok(());
+    }
+
     let storage_mode = match cli.init_mode {
         InitModeArg::Default => InitMode::Default,
         InitModeArg::Advanced => InitMode::Advanced,
     };
-    let warmup = matches!(&cli.command, Commands::Serve);
+    let warmup = matches!(&cli.command, Commands::Serve { .. });
 
     #[cfg(feature = "real-embeddings")]
     let onnx_embedder_ref = {
@@ -853,19 +869,16 @@ async fn main() -> anyhow::Result<()> {
         Commands::Protocol { section: _ } => {
             let protocol = serde_json::json!({
                 "tools": [
-                    "memory_store", "memory_retrieve", "memory_delete", "memory_update",
-                    "memory_search", "memory_semantic_search", "memory_advanced_search",
-                    "memory_similar", "memory_traverse", "memory_phrase_search",
-                    "memory_tag_search", "memory_list", "memory_recent",
-                    "memory_relations", "memory_add_relation",
-                    "memory_version_chain",
-                    "memory_feedback", "memory_sweep",
-                    "memory_profile", "memory_checkpoint", "memory_resume_task",
-                    "memory_remind", "memory_lessons",
-                    "memory_health", "memory_stats", "memory_export", "memory_import",
-                    "memory_maintain", "memory_welcome", "memory_protocol", "memory_stats_extended",
+                    "memory_store", "memory_store_batch", "memory_retrieve",
+                    "memory_delete", "memory_update",
+                    "memory_search", "memory_advanced_search",
+                    "memory_list", "memory_relations",
+                    "memory_feedback", "memory_lifecycle",
+                    "memory_checkpoint", "memory_remind", "memory_lessons",
+                    "memory_health", "memory_export",
+                    "memory_profile", "memory_welcome", "memory_protocol",
                 ],
-                "tool_count": 31,
+                "tool_count": 19,
             });
             println!("{protocol}");
         }
@@ -895,8 +908,37 @@ async fn main() -> anyhow::Result<()> {
         Commands::DownloadModel => {
             unreachable!("download-model is handled before storage initialization")
         }
-        Commands::Serve => {
+        Commands::DownloadCrossEncoder => {
+            unreachable!("download-cross-encoder is handled before storage initialization")
+        }
+        Commands::Serve { cross_encoder } => {
             info!("Starting MCP server over stdio");
+
+            #[cfg(feature = "real-embeddings")]
+            let mcp_storage = if *cross_encoder {
+                info!("Cross-encoder reranking enabled");
+                let reranker =
+                    std::sync::Arc::new(memory_core::reranker::CrossEncoderReranker::new()?);
+                reranker.warmup().await?;
+                let reranker_for_tick = reranker.clone();
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                    loop {
+                        interval.tick().await;
+                        reranker_for_tick.maintenance_tick().await;
+                    }
+                });
+                mcp_storage.with_reranker(reranker)
+            } else {
+                mcp_storage
+            };
+
+            #[cfg(not(feature = "real-embeddings"))]
+            if *cross_encoder {
+                anyhow::bail!(
+                    "--cross-encoder requires the `real-embeddings` feature to be enabled"
+                );
+            }
 
             #[cfg(feature = "real-embeddings")]
             {
