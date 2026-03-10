@@ -858,6 +858,85 @@ fn fuse_refine_and_output(
     Ok(out)
 }
 
+fn merge_hot_cache_results(
+    hot_results: Vec<SemanticResult>,
+    mut results: Vec<SemanticResult>,
+    limit: usize,
+) -> Vec<SemanticResult> {
+    if hot_results.is_empty() || limit == 0 {
+        results.truncate(limit);
+        return results;
+    }
+
+    let mut merged: HashMap<String, SemanticResult> = results
+        .drain(..)
+        .map(|result| (result.id.clone(), result))
+        .collect();
+
+    for hot_result in hot_results {
+        if let Some(existing) = merged.get_mut(&hot_result.id) {
+            merge_semantic_result(existing, hot_result);
+            continue;
+        }
+        merged.insert(hot_result.id.clone(), hot_result);
+    }
+
+    let mut merged_results: Vec<_> = merged.into_values().collect();
+    merged_results.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut deduped = Vec::new();
+    let mut seen = HashMap::new();
+    for result in merged_results {
+        let fingerprint = normalize_for_dedup(&result.content);
+        if let Some(existing_idx) = seen.get(&fingerprint).copied() {
+            merge_semantic_result(&mut deduped[existing_idx], result);
+            continue;
+        }
+        seen.insert(fingerprint, deduped.len());
+        deduped.push(result);
+    }
+    deduped.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    deduped.truncate(limit);
+    deduped
+}
+
+fn merge_semantic_result(existing: &mut SemanticResult, incoming: SemanticResult) {
+    if incoming.score > existing.score
+        || (incoming.score == existing.score && incoming.id < existing.id)
+    {
+        let mut replacement = incoming;
+        merge_semantic_metadata(
+            &mut replacement.metadata,
+            std::mem::take(&mut existing.metadata),
+        );
+        replacement.score = replacement.score.max(existing.score);
+        *existing = replacement;
+        return;
+    }
+
+    existing.score = existing.score.max(incoming.score);
+    merge_semantic_metadata(&mut existing.metadata, incoming.metadata);
+}
+
+fn merge_semantic_metadata(existing: &mut serde_json::Value, incoming: serde_json::Value) {
+    if let (serde_json::Value::Object(existing_meta), serde_json::Value::Object(incoming_meta)) =
+        (existing, incoming)
+    {
+        for (key, value) in incoming_meta {
+            existing_meta.entry(key).or_insert(value);
+        }
+    }
+}
+
 #[async_trait]
 impl AdvancedSearcher for SqliteStorage {
     async fn advanced_search(
@@ -870,8 +949,24 @@ impl AdvancedSearcher for SqliteStorage {
             return Ok(Vec::new());
         }
 
+        let today = chrono::Local::now().date_naive();
+        let temporal = expand_temporal_query(query, &today);
+        let query = temporal.cleaned_query;
+        let mut opts = opts.clone();
+        if opts.event_after.is_none()
+            && let Some(after) = temporal.event_after
+        {
+            opts.event_after = Some(after);
+        }
+        if opts.event_before.is_none()
+            && let Some(before) = temporal.event_before
+        {
+            opts.event_before = Some(before);
+        }
+        let keyword_only = is_keyword_query(&query);
+        let cache_key = query_cache_key(&query, limit, &opts);
+
         // ── Cache check ──────────────────────────────────────────────────
-        let cache_key = query_cache_key(query, limit, opts);
         if let Ok(mut cache) = self.query_cache.lock()
             && let Some((cached_at, results)) = cache.get(&cache_key)
             && cached_at.elapsed().as_secs() < super::QUERY_CACHE_TTL_SECS
@@ -882,41 +977,36 @@ impl AdvancedSearcher for SqliteStorage {
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let scoring_params = self.scoring_params.clone();
-        let query = query.to_string();
-        let opts = opts.clone();
+        let hot_results = if let Some(hot_cache) = &self.hot_cache {
+            if let Err(error) = self.ensure_hot_cache_ready().await {
+                tracing::error!(error = %error, "failed to refresh hot tier cache");
+            }
+            hot_cache.query_with_options(&query, limit, &opts)
+        } else {
+            Vec::new()
+        };
+        let hot_has_confident_match = hot_results.iter().any(|result| {
+            result
+                .metadata
+                .get("_text_overlap")
+                .and_then(serde_json::Value::as_f64)
+                .is_some_and(|overlap| overlap >= scoring_params.abstention_min_text)
+        });
 
-        // ── Intent classification ────────────────────────────────────────
-        let keyword_only = is_keyword_query(&query);
-
-        // Phase 0: Temporal expansion + embedding computation (blocking).
+        // Phase 0: Embedding computation (blocking).
         // For keyword queries, skip the ONNX embedding (~8ms savings).
-        let (query, opts, query_embedding) = tokio::task::spawn_blocking({
+        let query_embedding = tokio::task::spawn_blocking({
             let embedder = Arc::clone(&embedder);
             let query = query.clone();
-            let opts = opts.clone();
             move || {
-                let today = chrono::Local::now().date_naive();
-                let temporal = expand_temporal_query(&query, &today);
-                let cleaned = temporal.cleaned_query;
-                let mut opts = opts;
-                if opts.event_after.is_none()
-                    && let Some(ref after) = temporal.event_after
-                {
-                    opts.event_after = Some(after.clone());
-                }
-                if opts.event_before.is_none()
-                    && let Some(ref before) = temporal.event_before
-                {
-                    opts.event_before = Some(before.clone());
-                }
-                let emb = if keyword_only {
+                let emb = if keyword_only || query.is_empty() {
                     Vec::new()
                 } else {
                     embedder
-                        .embed(&cleaned)
+                        .embed(&query)
                         .context("failed to compute query embedding")?
                 };
-                Ok::<_, anyhow::Error>((cleaned, opts, emb))
+                Ok::<_, anyhow::Error>(emb)
             }
         })
         .await
@@ -1025,6 +1115,12 @@ impl AdvancedSearcher for SqliteStorage {
         })
         .await
         .context("spawn_blocking join error")??;
+
+        let results = if hot_has_confident_match {
+            merge_hot_cache_results(hot_results, results, limit)
+        } else {
+            results
+        };
 
         // ── Cache store ──────────────────────────────────────────────────
         if let Ok(mut cache) = self.query_cache.lock() {

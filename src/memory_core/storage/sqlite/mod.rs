@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -27,7 +28,6 @@ use crate::memory_core::{
 const QUERY_CACHE_TTL_SECS: u64 = 60;
 /// Maximum number of entries in the query result cache.
 const QUERY_CACHE_CAPACITY: usize = 128;
-
 type QueryCache = Arc<Mutex<lru::LruCache<u64, (Instant, Vec<SemanticResult>)>>>;
 
 /// Cosine similarity threshold for auto-supersession detection (primary signal).
@@ -68,6 +68,9 @@ pub struct SqliteStorage {
     embedder: Arc<dyn Embedder>,
     scoring_params: ScoringParams,
     query_cache: QueryCache,
+    hot_cache: Option<HotTierCache>,
+    hot_cache_refresh_guard: Arc<()>,
+    hot_cache_refresh_started: Arc<AtomicBool>,
     #[cfg(feature = "real-embeddings")]
     reranker: Option<Arc<CrossEncoderReranker>>,
 }
@@ -136,6 +139,12 @@ impl SqliteStorage {
             embedder,
             scoring_params: ScoringParams::default(),
             query_cache: new_query_cache(),
+            hot_cache: Some(HotTierCache::new(
+                HOT_CACHE_CAPACITY,
+                std::time::Duration::from_secs(HOT_CACHE_REFRESH_SECS),
+            )),
+            hot_cache_refresh_guard: Arc::new(()),
+            hot_cache_refresh_started: Arc::new(AtomicBool::new(false)),
             #[cfg(feature = "real-embeddings")]
             reranker: None,
         })
@@ -186,6 +195,114 @@ impl SqliteStorage {
         if let Ok(mut cache) = self.query_cache.lock() {
             cache.clear();
         }
+        if let Some(hot_cache) = &self.hot_cache {
+            hot_cache.clear();
+        }
+    }
+
+    pub(super) async fn refresh_hot_cache(&self) -> Result<()> {
+        self.start_hot_cache_refresh_task();
+        let Some(hot_cache) = self.hot_cache.clone() else {
+            return Ok(());
+        };
+        let pool = Arc::clone(&self.pool);
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            hot_cache.refresh(&conn)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+
+    pub(super) fn refresh_hot_cache_best_effort(&self) {
+        let Some(hot_cache) = self.hot_cache.clone() else {
+            return;
+        };
+        let pool = Arc::clone(&self.pool);
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let result = tokio::task::spawn_blocking(move || {
+                    let conn = pool.reader()?;
+                    hot_cache.refresh(&conn)
+                })
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        tracing::warn!(error = %error, "hot tier cache refresh failed");
+                    }
+                    Err(join_error) if join_error.is_panic() => {
+                        tracing::error!(error = %join_error, "hot tier cache refresh task panicked");
+                    }
+                    Err(join_error) => {
+                        tracing::warn!(error = %join_error, "hot tier cache refresh task cancelled");
+                    }
+                }
+            });
+        }
+    }
+
+    pub(super) async fn ensure_hot_cache_ready(&self) -> Result<()> {
+        if let Some(hot_cache) = &self.hot_cache
+            && !hot_cache.is_initialized()
+        {
+            self.refresh_hot_cache().await?;
+        }
+        Ok(())
+    }
+
+    fn start_hot_cache_refresh_task(&self) {
+        if self
+            .hot_cache_refresh_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let Some(hot_cache) = self.hot_cache.clone() else {
+            self.hot_cache_refresh_started
+                .store(false, Ordering::Release);
+            return;
+        };
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            tracing::warn!("hot tier cache background refresh skipped: no Tokio runtime available");
+            self.hot_cache_refresh_started
+                .store(false, Ordering::Release);
+            return;
+        };
+        let weak_pool = Arc::downgrade(&self.pool);
+        let weak_guard = Arc::downgrade(&self.hot_cache_refresh_guard);
+        let refresh_interval = hot_cache.refresh_interval();
+        handle.spawn(async move {
+            let mut interval = tokio::time::interval(refresh_interval);
+            loop {
+                interval.tick().await;
+                if weak_guard.upgrade().is_none() {
+                    break;
+                }
+                let Some(pool) = weak_pool.upgrade() else {
+                    break;
+                };
+                let hot_cache = hot_cache.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let conn = pool.reader()?;
+                    hot_cache.refresh(&conn)
+                })
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        tracing::warn!(error = %error, "hot tier cache refresh failed");
+                    }
+                    Err(join_error) if join_error.is_panic() => {
+                        tracing::error!(error = %join_error, "hot tier cache refresh task panicked");
+                    }
+                    Err(join_error) => {
+                        tracing::warn!(error = %join_error, "hot tier cache refresh task cancelled");
+                    }
+                }
+            }
+        });
     }
 
     /// Inserts a directed relationship between two memories.
@@ -584,6 +701,12 @@ impl SqliteStorage {
             embedder,
             scoring_params: ScoringParams::default(),
             query_cache: new_query_cache(),
+            hot_cache: Some(HotTierCache::new(
+                HOT_CACHE_CAPACITY,
+                std::time::Duration::from_secs(HOT_CACHE_REFRESH_SECS),
+            )),
+            hot_cache_refresh_guard: Arc::new(()),
+            hot_cache_refresh_started: Arc::new(AtomicBool::new(false)),
             #[cfg(feature = "real-embeddings")]
             reranker: None,
         })
@@ -641,6 +764,20 @@ impl SqliteStorage {
             .context("failed to query access_count")?;
 
         value.ok_or_else(|| anyhow!("memory not found for id={id}"))
+    }
+
+    #[cfg(test)]
+    fn debug_force_access_count(&self, id: &str, access_count: i64) -> Result<()> {
+        let conn = self.pool.writer()?;
+        conn.execute(
+            "UPDATE memories SET access_count = ?2 WHERE id = ?1",
+            params![id, access_count],
+        )
+        .context("failed to force access_count")?;
+        if let Some(hot_cache) = &self.hot_cache {
+            hot_cache.clear();
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -810,6 +947,7 @@ mod advanced;
 mod crud;
 mod graph;
 mod helpers;
+mod hot_cache;
 mod lifecycle;
 mod schema;
 mod search;
@@ -823,6 +961,7 @@ use helpers::{
     normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, query_cache_key,
     search_result_from_row, to_param_refs, validate_iso8601,
 };
+use hot_cache::{HOT_CACHE_CAPACITY, HOT_CACHE_REFRESH_SECS, HotTierCache};
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 
 #[cfg(feature = "sqlite-vec")]

@@ -5221,3 +5221,473 @@ async fn query_cache_invalidated_on_store() {
             .unwrap();
     assert!(results2.len() >= results1.len());
 }
+
+#[tokio::test]
+async fn hot_cache_marks_merged_results() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-1",
+            "database migration runbook for production cutovers",
+            &MemoryInput {
+                content: "database migration runbook for production cutovers".to_string(),
+                importance: 0.9,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-1", 30).unwrap();
+
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "migration runbook",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let first = results.first().expect("expected hot cache result");
+    assert_eq!(first.id, "hot-1");
+    assert_eq!(
+        first
+            .metadata
+            .get("_hot_cache")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+#[tokio::test]
+async fn hot_cache_refresh_failure_is_best_effort_after_store_commit() {
+    let mut storage = SqliteStorage::new_in_memory().unwrap();
+    storage.hot_cache = Some(HotTierCache::new(
+        usize::MAX,
+        std::time::Duration::from_secs(HOT_CACHE_REFRESH_SECS),
+    ));
+
+    storage
+        .store(
+            "hot-refresh-fail",
+            "committed even if hot cache refresh fails",
+            &MemoryInput {
+                content: "committed even if hot cache refresh fails".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let stored = storage.retrieve("hot-refresh-fail").await.unwrap();
+    assert_eq!(stored, "committed even if hot cache refresh fails");
+}
+
+#[tokio::test]
+async fn hot_cache_invalidated_on_delete() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-delete",
+            "cache invalidation should remove deleted hot entries",
+            &MemoryInput {
+                content: "cache invalidation should remove deleted hot entries".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-delete", 25).unwrap();
+
+    let warm_results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "deleted hot entries",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(warm_results.iter().any(|result| result.id == "hot-delete"));
+
+    storage.delete("hot-delete").await.unwrap();
+
+    let results_after_delete = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "deleted hot entries",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results_after_delete
+            .iter()
+            .all(|result| result.id != "hot-delete")
+    );
+}
+
+#[tokio::test]
+async fn hot_cache_respects_temporal_expansion() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let local_today = chrono::Local::now().date_naive();
+    let yesterday = (local_today - chrono::Duration::days(1))
+        .and_hms_opt(12, 0, 0)
+        .unwrap()
+        .and_utc()
+        .format("%Y-%m-%dT12:00:00Z")
+        .to_string();
+    let stale_date = (local_today - chrono::Duration::days(30))
+        .and_hms_opt(12, 0, 0)
+        .unwrap()
+        .and_utc()
+        .format("%Y-%m-%dT12:00:00Z")
+        .to_string();
+
+    storage
+        .store(
+            "hot-stale",
+            "rollout checklist from last month",
+            &MemoryInput {
+                content: "rollout checklist from last month".to_string(),
+                referenced_date: Some(stale_date),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-stale", 40).unwrap();
+
+    storage
+        .store(
+            "hot-recent",
+            "rollout checklist completed yesterday",
+            &MemoryInput {
+                content: "rollout checklist completed yesterday".to_string(),
+                referenced_date: Some(yesterday),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "rollout yesterday",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.iter().any(|result| result.id == "hot-recent"));
+    assert!(results.iter().all(|result| result.id != "hot-stale"));
+}
+
+#[tokio::test]
+async fn hot_cache_respects_importance_min() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-low-importance",
+            "incident runbook draft",
+            &MemoryInput {
+                content: "incident runbook draft".to_string(),
+                importance: 0.2,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage
+        .debug_force_access_count("hot-low-importance", 35)
+        .unwrap();
+
+    storage
+        .store(
+            "hot-high-importance",
+            "incident runbook final",
+            &MemoryInput {
+                content: "incident runbook final".to_string(),
+                importance: 0.95,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "incident runbook",
+        5,
+        &SearchOptions {
+            importance_min: Some(0.8),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        results
+            .iter()
+            .any(|result| result.id == "hot-high-importance")
+    );
+    assert!(results.iter().all(|result| result.importance >= 0.8));
+    assert!(
+        results
+            .iter()
+            .all(|result| result.id != "hot-low-importance")
+    );
+}
+
+#[tokio::test]
+async fn hot_cache_respects_custom_abstention_threshold() {
+    let storage = SqliteStorage::new_in_memory()
+        .unwrap()
+        .with_scoring_params(ScoringParams {
+            abstention_min_text: 1.1,
+            ..ScoringParams::default()
+        });
+    storage
+        .store(
+            "hot-abstain",
+            "incident runbook for database failover",
+            &MemoryInput {
+                content: "incident runbook for database failover".to_string(),
+                importance: 0.95,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-abstain", 42).unwrap();
+
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "incident runbook",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.is_empty());
+}
+
+#[tokio::test]
+async fn hot_cache_preserves_stored_metadata() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-meta",
+            "deployment runbook metadata preservation",
+            &MemoryInput {
+                content: "deployment runbook metadata preservation".to_string(),
+                metadata: serde_json::json!({
+                    "feedback_score": 0.75,
+                    "source": "playbook"
+                }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-meta", 20).unwrap();
+
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "deployment runbook",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let first = results.first().expect("expected hot cache result");
+    assert_eq!(
+        first
+            .metadata
+            .get("feedback_score")
+            .and_then(serde_json::Value::as_f64),
+        Some(0.75)
+    );
+    assert_eq!(
+        first
+            .metadata
+            .get("source")
+            .and_then(serde_json::Value::as_str),
+        Some("playbook")
+    );
+    assert_eq!(
+        first
+            .metadata
+            .get("_hot_cache")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+#[tokio::test]
+async fn hot_cache_skips_entries_that_expire_after_refresh() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-expire",
+            "temporary maintenance checklist",
+            &MemoryInput {
+                content: "temporary maintenance checklist".to_string(),
+                ttl_seconds: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-expire", 12).unwrap();
+
+    storage.refresh_hot_cache().await.unwrap();
+    let hot_cache = storage.hot_cache.as_ref().expect("hot cache enabled");
+
+    let initial_results =
+        hot_cache.query_with_options("maintenance checklist", 5, &SearchOptions::default());
+    assert!(
+        initial_results
+            .iter()
+            .any(|result| result.id == "hot-expire")
+    );
+
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let results_after_expiry =
+        hot_cache.query_with_options("maintenance checklist", 5, &SearchOptions::default());
+    assert!(
+        results_after_expiry
+            .iter()
+            .all(|result| result.id != "hot-expire")
+    );
+}
+
+#[tokio::test]
+async fn hot_cache_merge_dedupes_matching_content_fingerprints() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-dup-a",
+            "deployment checklist for service cutovers",
+            &MemoryInput {
+                content: "deployment checklist for service cutovers".to_string(),
+                importance: 0.2,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-dup-a", 50).unwrap();
+
+    storage
+        .store(
+            "hot-dup-b",
+            "Deployment   checklist for service cutovers",
+            &MemoryInput {
+                content: "Deployment   checklist for service cutovers".to_string(),
+                importance: 0.95,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "deployment checklist cutovers",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let duplicate_matches = results
+        .iter()
+        .filter(|result| {
+            normalize_for_dedup(&result.content)
+                == normalize_for_dedup("deployment checklist for service cutovers")
+        })
+        .count();
+    assert_eq!(duplicate_matches, 1);
+}
+
+#[tokio::test]
+async fn hot_cache_refreshes_updated_content() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-update",
+            "old rollout checklist for background jobs",
+            &MemoryInput {
+                content: "old rollout checklist for background jobs".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-update", 18).unwrap();
+
+    let warm_results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "rollout checklist",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(warm_results.iter().any(|result| result.id == "hot-update"));
+
+    storage
+        .update(
+            "hot-update",
+            &MemoryUpdate {
+                content: Some("new onboarding checklist for background jobs".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage.debug_force_access_count("hot-update", 18).unwrap();
+
+    let updated_results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "onboarding checklist",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(updated_results.iter().any(|result| {
+        result.id == "hot-update" && result.content.contains("new onboarding checklist")
+    }));
+}
+
+#[tokio::test]
+async fn hot_cache_refresh_task_releases_pool_on_drop() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-task",
+            "background task starts on first async use",
+            &MemoryInput {
+                content: "background task starts on first async use".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let weak_pool = std::sync::Arc::downgrade(&storage.pool);
+
+    drop(storage);
+    for _ in 0..20 {
+        if weak_pool.upgrade().is_none() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
+    assert!(weak_pool.upgrade().is_none());
+}

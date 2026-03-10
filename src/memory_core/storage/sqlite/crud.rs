@@ -380,6 +380,7 @@ impl Storage for SqliteStorage {
         .context("spawn_blocking join error")??;
 
         self.invalidate_query_cache();
+        self.refresh_hot_cache_best_effort();
 
         if matches!(outcome, StoreOutcome::Inserted)
             && let Err(error) = self.try_auto_relate(&id).await
@@ -470,6 +471,7 @@ impl Deleter for SqliteStorage {
         .context("spawn_blocking join error")??;
 
         self.invalidate_query_cache();
+        self.refresh_hot_cache_best_effort();
         Ok(deleted)
     }
 }
@@ -621,6 +623,7 @@ impl Updater for SqliteStorage {
         .context("spawn_blocking join error")??;
 
         self.invalidate_query_cache();
+        self.refresh_hot_cache_best_effort();
         Ok(())
     }
 }
