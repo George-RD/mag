@@ -379,11 +379,15 @@ async fn check_top3(
 
     let detail = if verbose {
         let status = if passed { "PASS" } else { "FAIL" };
-        Some(format!(
+        let mut detail = format!(
             "  [{status}] Q: {}  E: {}",
             truncate(query_text, 60),
             truncate(expected_substring, 40)
-        ))
+        );
+        if !passed {
+            detail.push_str(&format!("  A: {}", summarize_hits(&hits)));
+        }
+        Some(detail)
     } else {
         None
     };
@@ -855,4 +859,24 @@ pub(crate) async fn run_concurrent_benchmark(storage: &SqliteStorage, json: bool
     }
 
     Ok(())
+}
+
+fn summarize_hits(hits: &[Hit]) -> String {
+    if hits.is_empty() {
+        return "NO RESULTS".to_string();
+    }
+
+    hits.iter()
+        .take(3)
+        .enumerate()
+        .map(|(index, hit)| {
+            format!(
+                "#{} {:.2} {}",
+                index + 1,
+                hit.score,
+                truncate(hit.content.as_str(), 72)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
 }

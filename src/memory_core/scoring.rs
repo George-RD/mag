@@ -13,6 +13,7 @@ pub struct ScoringParams {
     pub graph_neighbor_factor: f64,
     pub graph_min_edge_weight: f64,
     pub word_overlap_weight: f64,
+    pub query_coverage_weight: f64,
     pub jaccard_weight: f64,
     pub importance_floor: f64,
     pub importance_scale: f64,
@@ -51,6 +52,7 @@ impl Default for ScoringParams {
             graph_neighbor_factor: GRAPH_NEIGHBOR_FACTOR,
             graph_min_edge_weight: GRAPH_MIN_EDGE_WEIGHT,
             word_overlap_weight: 0.75,
+            query_coverage_weight: 0.35,
             jaccard_weight: 0.25,
             importance_floor: 0.3,
             importance_scale: 0.5,
@@ -195,14 +197,71 @@ pub fn feedback_factor(feedback_score: i64, scoring_params: &ScoringParams) -> f
 }
 
 pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
-    text.split(|c: char| !c.is_alphanumeric())
-        .map(str::trim)
-        .filter(|word| word.len() >= min_word_len)
-        .map(|word| {
-            let lower = word.to_lowercase();
-            simple_stem(&lower).into_owned()
-        })
-        .collect()
+    let mut tokens = HashSet::new();
+
+    // Collect raw whitespace-split tokens first so we can detect adjacent
+    // all-uppercase acronyms (e.g. "CI CD") and emit their concatenation
+    // ("cicd") to match punctuated forms like "CI/CD".
+    let raws: Vec<&str> = text.split_whitespace().collect();
+    let mut i = 0;
+    while i < raws.len() {
+        let raw = raws[i];
+        let has_punctuation = raw.chars().any(|c| !c.is_alphanumeric());
+
+        for word in raw.split(|c: char| !c.is_alphanumeric()) {
+            let trimmed = word.trim();
+            if trimmed.len() < min_word_len {
+                // For space-separated short all-uppercase acronyms (no punctuation
+                // in the raw token, e.g. the "CI" in "CI CD") include the
+                // lowercased form so that "CI CD" and "CI/CD" share tokens.
+                if !has_punctuation
+                    && trimmed.len() >= 2
+                    && trimmed.chars().all(|c| c.is_ascii_uppercase())
+                {
+                    tokens.insert(trimmed.to_lowercase());
+                }
+                continue;
+            }
+            let lower = trimmed.to_lowercase();
+            tokens.insert(simple_stem(&lower).into_owned());
+        }
+
+        if has_punctuation {
+            // Punctuated compound (e.g. "CI/CD") → emit collapsed form "cicd"
+            // so it bridges with space-separated "CI CD" queries and vice-versa.
+            let collapsed: String = raw
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            if collapsed.len() >= min_word_len {
+                tokens.insert(simple_stem(&collapsed).into_owned());
+            }
+        } else {
+            // For a standalone short all-uppercase token (no punctuation), also
+            // check the next token: if both are short all-uppercase acronyms,
+            // emit their concatenation ("CI" + "CD" → "cicd") so that "CI CD"
+            // matches candidates containing "CI/CD".
+            let is_short_upper = raw.len() < min_word_len
+                && raw.len() >= 2
+                && raw.chars().all(|c| c.is_ascii_uppercase());
+            if is_short_upper && let Some(&next) = raws.get(i + 1) {
+                let next_is_short_upper = next.len() < min_word_len
+                    && next.len() >= 2
+                    && next.chars().all(|c| c.is_ascii_uppercase());
+                if next_is_short_upper {
+                    let concat = format!("{}{}", raw.to_lowercase(), next.to_lowercase());
+                    if concat.len() >= min_word_len {
+                        tokens.insert(concat);
+                    }
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    tokens
 }
 
 /// Simple suffix stemmer for English words.
@@ -321,6 +380,18 @@ pub fn word_overlap_pre(query_tokens: &HashSet<String>, text_tokens: &HashSet<St
         .count();
 
     overlap as f64 / query_tokens.len() as f64
+}
+
+/// Extra bonus for candidates that cover most query terms.
+///
+/// This separates "covers nearly the whole query" from "matches a couple of
+/// broad topic words", which helps task-completion memories compete with more
+/// generic architectural decisions during multi-session retrieval.
+pub fn query_coverage_boost(overlap: f64, scoring_params: &ScoringParams) -> f64 {
+    if overlap <= 0.0 {
+        return 1.0;
+    }
+    1.0 + overlap.powi(2) * scoring_params.query_coverage_weight
 }
 
 /// Like `jaccard_similarity`, but accepts pre-computed token sets.
@@ -602,6 +673,44 @@ mod tests {
     }
 
     #[test]
+    fn test_query_coverage_boost_prefers_higher_overlap() {
+        let params = ScoringParams::default();
+        let high = query_coverage_boost(0.75, &params);
+        let medium = query_coverage_boost(0.5, &params);
+        let none = query_coverage_boost(0.0, &params);
+
+        assert!(high > medium);
+        assert!(medium > 1.0);
+        assert_eq!(none, 1.0);
+    }
+
+    #[test]
+    fn test_token_set_preserves_compound_acronyms() {
+        let tokens = token_set("database migration in CI/CD", 3);
+        assert!(tokens.contains("database"));
+        assert!(tokens.contains("cicd"));
+    }
+
+    #[test]
+    fn test_token_set_acronym_spacing_match() {
+        // "CI/CD" (punctuated) and "CI CD" (space-separated) should share tokens
+        // so that word_overlap_pre is non-zero between them.
+        let punctuated = token_set("CI/CD", 3);
+        let spaced = token_set("CI CD", 3);
+        let intersection: HashSet<_> = punctuated.intersection(&spaced).collect();
+        assert!(
+            !intersection.is_empty(),
+            "CI/CD and CI CD must share at least one token; got {punctuated:?} vs {spaced:?}"
+        );
+        // Overlap must be non-zero when querying "CI/CD" against content "CI CD"
+        let overlap = word_overlap_pre(&punctuated, &spaced);
+        assert!(
+            overlap > 0.0,
+            "word_overlap_pre(CI/CD, CI CD) must be > 0, got {overlap}"
+        );
+    }
+
+    #[test]
     fn test_jaccard_pre() {
         let a = token_set("alpha beta gamma", 2);
         let b = token_set("beta gamma delta", 2);
@@ -857,5 +966,40 @@ mod tests {
     fn test_dual_match_boost_default() {
         let params = ScoringParams::default();
         assert!((params.dual_match_boost - 1.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_query_coverage_weight_default() {
+        let params = ScoringParams::default();
+        assert!((params.query_coverage_weight - 0.35).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_query_coverage_boost_quadratic_separation() {
+        let params = ScoringParams::default();
+        // high: 1.0 + 1.0^2 * 0.35 = 1.35
+        // low:  1.0 + 0.3^2 * 0.35 = 1.0315
+        let high = query_coverage_boost(1.0, &params);
+        let low = query_coverage_boost(0.3, &params);
+        assert!((high - 1.35).abs() < 1e-9);
+        assert!((low - 1.0315).abs() < 1e-6);
+        // High-coverage gets meaningfully more boost than low-coverage
+        assert!(high > low);
+        // The quadratic excess (above 1.0) scales as overlap^2:
+        // excess_high / excess_low == 1.0^2 / 0.3^2 == 1/0.09 ≈ 11.1
+        let excess_high = high - 1.0;
+        let excess_low = low - 1.0;
+        assert!(excess_high / excess_low > 10.0);
+    }
+
+    #[test]
+    fn test_query_coverage_boost_disabled() {
+        let params = ScoringParams {
+            query_coverage_weight: 0.0,
+            ..ScoringParams::default()
+        };
+        // With weight=0, boost should be 1.0 regardless of overlap (no-op multiplier)
+        assert!((query_coverage_boost(1.0, &params) - 1.0).abs() < 1e-9);
+        assert!((query_coverage_boost(0.5, &params) - 1.0).abs() < 1e-9);
     }
 }

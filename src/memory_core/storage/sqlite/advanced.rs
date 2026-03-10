@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::scoring::query_coverage_boost;
 
 /// Phase 1: Collect vector candidates sorted by cosine similarity.
 fn collect_vector_candidates(
@@ -544,6 +545,9 @@ fn fuse_refine_and_output(
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
         let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
+        let coverage_boost =
+            1.0 + (query_coverage_boost(overlap, scoring_params) - 1.0) * fb_dampening;
+        candidate.score *= coverage_boost;
         candidate.score *= 1.0 + overlap * scoring_params.word_overlap_weight * fb_dampening;
         let jaccard = jaccard_pre(&query_tokens, &candidate_tokens);
         candidate.score *= 1.0 + jaccard * scoring_params.jaccard_weight;
@@ -585,6 +589,7 @@ fn fuse_refine_and_output(
         // Record refinement factors for explain mode
         if explain_enabled && let Some(ref mut exp) = candidate.explain {
             exp["word_overlap"] = serde_json::json!(overlap);
+            exp["query_coverage_boost"] = serde_json::json!(coverage_boost);
             exp["text_overlap"] = serde_json::json!(overlap);
             exp["importance_factor"] = serde_json::json!(importance_factor_val);
             exp["feedback_factor"] = serde_json::json!(fb_factor);
@@ -697,6 +702,9 @@ fn fuse_refine_and_output(
                             .and_then(|v| v.as_i64())
                             .unwrap_or(0);
                         let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
+                        // Note: query_coverage_boost is not applied here; graph enrichment (Phase 5)
+                        // is disabled (GRAPH_NEIGHBOR_FACTOR=0.0) and coverage boost is omitted
+                        // intentionally to keep neighbour scoring independent of the main query overlap.
                         neighbor_score *= 1.0
                             + overlap * scoring_params.neighbor_word_overlap_weight * fb_dampening;
                         let neighbor_et = event_type_from_sql(event_type);
