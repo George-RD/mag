@@ -12,7 +12,7 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     let test_home = std::env::temp_dir().join(format!("romega-mcp-smoke-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&test_home)?;
 
-    let service = ()
+    let mut service = ()
         .serve(TokioChildProcess::new(
             Command::new(env!("CARGO_BIN_EXE_romega-memory")).configure(|cmd| {
                 cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
@@ -31,8 +31,8 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
 
     // Verify consolidated tool names exist
     assert!(
-        tools.tools.iter().any(|tool| tool.name == "memory_health"),
-        "expected memory_health to be registered"
+        tools.tools.iter().any(|tool| tool.name == "memory_admin"),
+        "expected memory_admin to be registered"
     );
     assert!(
         tools.tools.iter().any(|tool| tool.name == "memory_search"),
@@ -58,8 +58,11 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected memory_relations to be registered"
     );
     assert!(
-        tools.tools.iter().any(|tool| tool.name == "memory_export"),
-        "expected memory_export to be registered"
+        tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == "memory_session_info"),
+        "expected memory_session_info to be registered"
     );
     assert!(
         tools
@@ -89,20 +92,38 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "memory_recent should be consolidated into memory_list"
     );
     assert!(
-        !tools.tools.iter().any(|tool| tool.name == "memory_stats"),
-        "memory_stats should be consolidated into memory_health"
+        !tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == "memory_advanced_search"),
+        "memory_advanced_search should be consolidated into memory_search"
     );
     assert!(
-        !tools.tools.iter().any(|tool| tool.name == "memory_import"),
-        "memory_import should be consolidated into memory_export"
+        !tools.tools.iter().any(|tool| tool.name == "memory_health"),
+        "memory_health should be consolidated into memory_admin"
+    );
+    assert!(
+        !tools.tools.iter().any(|tool| tool.name == "memory_export"),
+        "memory_export should be consolidated into memory_admin"
+    );
+    assert!(
+        !tools.tools.iter().any(|tool| tool.name == "memory_welcome"),
+        "memory_welcome should be consolidated into memory_session_info"
+    );
+    assert!(
+        !tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == "memory_protocol"),
+        "memory_protocol should be consolidated into memory_session_info"
     );
 
-    // ─── memory_health (no args → basic) ───
+    // ─── memory_admin (default action=health, detail=basic) ───
     let health_result = timeout(
         Duration::from_secs(20),
         service.call_tool(CallToolRequestParams {
             meta: None,
-            name: "memory_health".into(),
+            name: "memory_admin".into(),
             arguments: Some(
                 serde_json::json!({})
                     .as_object()
@@ -249,6 +270,12 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
             .any(|c| c.as_text().is_some_and(|text| text.text.contains("score"))),
         "expected semantic result to include scores"
     );
+    assert!(
+        semantic_result.content.iter().all(|c| c
+            .as_text()
+            .is_none_or(|text| !text.text.contains("\"abstained\""))),
+        "expected default semantic mode to preserve the legacy response shape"
+    );
 
     // ─── memory_list (sort=recent) ───
     let recent_result = timeout(
@@ -372,14 +399,14 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected delete to confirm deletion"
     );
 
-    // ─── memory_health (detail=stats) ───
+    // ─── memory_admin (action=health, detail=stats) ───
     let stats_result = timeout(
         Duration::from_secs(20),
         service.call_tool(CallToolRequestParams {
             meta: None,
-            name: "memory_health".into(),
+            name: "memory_admin".into(),
             arguments: Some(
-                serde_json::json!({ "detail": "stats" })
+                serde_json::json!({ "action": "health", "detail": "stats" })
                     .as_object()
                     .cloned()
                     .unwrap_or_default(),
@@ -396,14 +423,14 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected stats to include total_memories"
     );
 
-    // ─── memory_export (default action=export) ───
+    // ─── memory_admin (action=export) ───
     let export_result = timeout(
         Duration::from_secs(20),
         service.call_tool(CallToolRequestParams {
             meta: None,
-            name: "memory_export".into(),
+            name: "memory_admin".into(),
             arguments: Some(
-                serde_json::json!({})
+                serde_json::json!({ "action": "export" })
                     .as_object()
                     .cloned()
                     .unwrap_or_default(),
@@ -420,7 +447,7 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected export to include memories array"
     );
 
-    // Extract exported JSON and feed into memory_export action=import
+    // Extract exported JSON and feed into memory_admin action=import
     let export_json: String = export_result
         .content
         .iter()
@@ -431,7 +458,7 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         Duration::from_secs(20),
         service.call_tool(CallToolRequestParams {
             meta: None,
-            name: "memory_export".into(),
+            name: "memory_admin".into(),
             arguments: Some(
                 serde_json::json!({ "action": "import", "data": export_json })
                     .as_object()
@@ -450,7 +477,39 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected import to confirm completion"
     );
 
-    service.cancel().await?;
+    // ─── memory_session_info (protocol) ───
+    let protocol_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_session_info".into(),
+            arguments: Some(
+                serde_json::json!({ "mode": "protocol" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        protocol_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("memory_admin"))),
+        "expected protocol to describe memory_admin"
+    );
+
+    let shutdown_result = timeout(
+        Duration::from_secs(20),
+        service.close_with_timeout(Duration::from_secs(5)),
+    )
+    .await?;
+    assert!(
+        shutdown_result?.is_some(),
+        "expected MCP child process to shut down before the timeout"
+    );
     let _ = fs::remove_dir_all(&test_home);
     Ok(())
 }

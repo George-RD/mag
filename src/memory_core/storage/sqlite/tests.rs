@@ -4,8 +4,7 @@ use crate::memory_core::{
     FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, PhraseSearcher,
     ProfileManager, Recents, ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher,
     SimilarFinder, StatsProvider, Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater,
-    VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
-    default_ttl_for_event_type, is_valid_event_type, parse_duration,
+    VersionChainQuerier, WelcomeProvider, is_valid_event_type, parse_duration,
 };
 
 #[derive(Debug, Clone)]
@@ -1827,38 +1826,55 @@ fn test_valid_event_types() {
 
 #[test]
 fn test_default_priority_for_event_type() {
-    assert_eq!(default_priority_for_event_type("error_pattern"), 4);
-    assert_eq!(default_priority_for_event_type("decision"), 3);
-    assert_eq!(default_priority_for_event_type("git_merge"), 2);
-    assert_eq!(default_priority_for_event_type("session_summary"), 1);
-    assert_eq!(default_priority_for_event_type("not_real"), 0);
+    assert_eq!(EventType::ErrorPattern.default_priority(), 4);
+    assert_eq!(EventType::Decision.default_priority(), 3);
+    assert_eq!(EventType::GitMerge.default_priority(), 2);
+    assert_eq!(EventType::SessionSummary.default_priority(), 1);
+    assert_eq!(
+        EventType::Unknown("not_real".to_string()).default_priority(),
+        0
+    );
 }
 
 #[test]
 fn test_ttl_auto_assignment() {
+    assert_eq!(EventType::SessionSummary.default_ttl(), Some(TTL_EPHEMERAL));
+    assert_eq!(EventType::TaskCompletion.default_ttl(), Some(TTL_LONG_TERM));
+    assert_eq!(EventType::ErrorPattern.default_ttl(), None);
+    assert_eq!(EventType::UserPreference.default_ttl(), None);
+    assert_eq!(EventType::Checkpoint.default_ttl(), Some(604_800));
+    assert_eq!(EventType::CodeChunk.default_ttl(), Some(TTL_EPHEMERAL));
+    assert_eq!(EventType::FileSummary.default_ttl(), Some(TTL_SHORT_TERM));
     assert_eq!(
-        default_ttl_for_event_type("session_summary"),
-        Some(TTL_EPHEMERAL)
-    );
-    assert_eq!(
-        default_ttl_for_event_type("task_completion"),
+        EventType::Unknown("unknown_event".to_string()).default_ttl(),
         Some(TTL_LONG_TERM)
     );
-    assert_eq!(default_ttl_for_event_type("error_pattern"), None);
-    assert_eq!(default_ttl_for_event_type("user_preference"), None);
-    assert_eq!(default_ttl_for_event_type("checkpoint"), Some(604_800));
-    assert_eq!(
-        default_ttl_for_event_type("code_chunk"),
-        Some(TTL_EPHEMERAL)
-    );
-    assert_eq!(
-        default_ttl_for_event_type("file_summary"),
-        Some(TTL_SHORT_TERM)
-    );
-    assert_eq!(
-        default_ttl_for_event_type("unknown_event"),
-        Some(TTL_LONG_TERM)
-    );
+}
+
+#[test]
+fn test_memory_input_apply_event_type_defaults_sets_defaults() {
+    let mut input = MemoryInput::default();
+
+    input.apply_event_type_defaults(Some("decision"));
+
+    assert_eq!(input.event_type, Some(EventType::Decision));
+    assert_eq!(input.priority, Some(EventType::Decision.default_priority()));
+    assert_eq!(input.ttl_seconds, EventType::Decision.default_ttl());
+}
+
+#[test]
+fn test_memory_input_apply_event_type_defaults_preserves_explicit_values() {
+    let mut input = MemoryInput {
+        priority: Some(5),
+        ttl_seconds: Some(42),
+        ..Default::default()
+    };
+
+    input.apply_event_type_defaults(Some("checkpoint"));
+
+    assert_eq!(input.event_type, Some(EventType::Checkpoint));
+    assert_eq!(input.priority, Some(5));
+    assert_eq!(input.ttl_seconds, Some(42));
 }
 
 #[tokio::test]

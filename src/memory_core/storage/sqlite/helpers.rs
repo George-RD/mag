@@ -367,9 +367,12 @@ pub(super) fn resolve_priority(event_type: Option<&str>, priority: Option<i64>) 
         return value as u8;
     }
     event_type
-        .map(|et| {
-            let p = crate::memory_core::default_priority_for_event_type(et);
-            if p == 0 { 3 } else { p as u8 }
+        .map(|value| {
+            let event_type = value
+                .parse::<EventType>()
+                .unwrap_or_else(|err| match err {});
+            let priority = event_type.default_priority();
+            if priority == 0 { 3 } else { priority as u8 }
         })
         .unwrap_or(3)
 }
@@ -443,7 +446,7 @@ pub(super) fn event_type_to_sql(et: &Option<EventType>) -> Option<String> {
 
 /// Parses an `Option<String>` from the DB into an `Option<EventType>`.
 pub(super) fn event_type_from_sql(s: Option<String>) -> Option<EventType> {
-    EventType::from_optional(&s)
+    EventType::from_optional(s.as_deref())
 }
 
 /// Appends WHERE-clause fragments for every non-None field in `opts` to `sql`,

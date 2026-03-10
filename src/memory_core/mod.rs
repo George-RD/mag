@@ -187,10 +187,9 @@ impl EventType {
         )
     }
 
-    /// Converts an `Option<String>` (from JSON/SQL) into `Option<EventType>`.
-    pub fn from_optional(s: &Option<String>) -> Option<EventType> {
-        s.as_ref()
-            .map(|v| EventType::from_str(v).unwrap_or_else(|e| match e {}))
+    /// Converts an optional string (from JSON/SQL) into `Option<EventType>`.
+    pub fn from_optional(s: Option<&str>) -> Option<EventType> {
+        s.map(|v| EventType::from_str(v).unwrap_or_else(|e| match e {}))
     }
 
     /// Returns all event types that have a dedup threshold.
@@ -349,6 +348,27 @@ impl Default for MemoryInput {
     }
 }
 
+impl MemoryInput {
+    /// Sets `event_type` from `event_type_str` when provided, otherwise preserves the
+    /// existing `self.event_type`. Then applies derived defaults for `ttl_seconds` and
+    /// `priority` (only when those fields are `None`) based on the effective event type.
+    pub fn apply_event_type_defaults(&mut self, event_type_str: Option<&str>) {
+        let event_type =
+            EventType::from_optional(event_type_str).or_else(|| self.event_type.clone());
+
+        if self.ttl_seconds.is_none() {
+            self.ttl_seconds = event_type
+                .as_ref()
+                .map(EventType::default_ttl)
+                .unwrap_or(Some(TTL_LONG_TERM));
+        }
+        if self.priority.is_none() {
+            self.priority = event_type.as_ref().map(EventType::default_priority);
+        }
+        self.event_type = event_type;
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MemoryUpdate {
     pub content: Option<String>,
@@ -398,22 +418,6 @@ pub fn is_valid_event_type(event_type: &str) -> bool {
     EventType::from_str(event_type)
         .map(|et| et.is_valid())
         .unwrap_or(false)
-}
-
-/// Returns the default priority for a given event type string.
-/// Thin wrapper that delegates to `EventType::default_priority()`.
-pub fn default_priority_for_event_type(event_type: &str) -> i32 {
-    EventType::from_str(event_type)
-        .map(|et| et.default_priority())
-        .unwrap_or(0)
-}
-
-/// Returns the default TTL for a given event type string.
-/// Thin wrapper that delegates to `EventType::default_ttl()`.
-pub fn default_ttl_for_event_type(event_type: &str) -> Option<i64> {
-    EventType::from_str(event_type)
-        .map(|et| et.default_ttl())
-        .unwrap_or(Some(TTL_LONG_TERM))
 }
 
 pub fn parse_duration(text: &str) -> Result<chrono::Duration> {
@@ -484,7 +488,7 @@ pub fn parse_duration(text: &str) -> Result<chrono::Duration> {
 }
 
 /// Search result item returned by memory queries.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SearchResult {
     /// Memory identifier.
     pub id: String,
@@ -502,7 +506,7 @@ pub struct SearchResult {
 }
 
 /// Semantic search result item with similarity score.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SemanticResult {
     /// Memory identifier.
     pub id: String,

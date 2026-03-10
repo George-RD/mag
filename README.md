@@ -6,7 +6,7 @@ A high-performance MCP memory server built in Rust. Inspired by [omega-memory](h
 
 - **Single binary** — no Python, no pip, no virtualenv. One `cargo build --release` and you're done.
 - **No LLM required** — local ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. Works fully offline.
-- **19 MCP tools** — store, search, relate, checkpoint, profile, remind, version chain, and more.
+- **16 MCP tools** — store, search, relate, checkpoint, profile, remind, version chain, and more.
 - **Self-contained** — one binary, one SQLite database, one auto-downloaded model. No external services.
 - **Sub-second startup** — 14ms cold start from the release binary.
 
@@ -118,7 +118,7 @@ romega-memory
 ├── src/
 │   ├── main.rs                  # CLI dispatch (31 commands)
 │   ├── cli.rs                   # Clap command definitions
-│   ├── mcp_server.rs            # MCP stdio server (19 tools)
+│   ├── mcp_server.rs            # MCP stdio server (16 tools)
 │   └── memory_core/
 │       ├── mod.rs               # Traits, types, EventType enum, pipeline
 │       ├── embedder.rs          # ONNX embedder with batch inference + LRU cache
@@ -149,16 +149,16 @@ romega-memory
 - **Batch embeddings** — `embed_batch()` pads inputs into a single ONNX tensor call with LRU cache deduplication.
 - **Zero-copy scoring** — `Cow<str>` in suffix stemming avoids allocations when no stemming applies.
 
-### MCP Tools (19)
+### MCP Tools (16)
 
 | Category | Tools |
 | --- | --- |
 | **Core** | `memory_store`, `memory_store_batch`, `memory_retrieve`, `memory_delete`, `memory_update` |
-| **Search** | `memory_search` (mode: text/semantic/phrase/tag/similar), `memory_advanced_search` |
+| **Search** | `memory_search` (mode: text/semantic/phrase/tag/similar, `advanced=true` by default for text-mode multi-phase scoring) |
 | **Browse** | `memory_list` (sort: created/recent), `memory_relations` (action: list/add/traverse/version_chain) |
 | **Lifecycle** | `memory_feedback`, `memory_lifecycle` (action: sweep/health/consolidate/compact/auto_compact/clear_session) |
-| **Session** | `memory_checkpoint` (action: save/resume), `memory_profile`, `memory_welcome`, `memory_protocol` |
-| **Admin** | `memory_health` (detail: basic/stats/types/sessions/digest/access_rate), `memory_export` (action: export/import), `memory_remind`, `memory_lessons` |
+| **Session** | `memory_checkpoint` (action: save/resume), `memory_profile`, `memory_session_info` (mode: welcome/protocol) |
+| **Admin** | `memory_admin` (action: health/export/import), `memory_remind`, `memory_lessons` |
 
 ### Search Pipeline
 

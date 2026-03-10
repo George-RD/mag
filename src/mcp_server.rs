@@ -7,7 +7,7 @@ use rmcp::{
     transport::stdio,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -16,10 +16,24 @@ use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
     MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager,
-    Retriever, SearchOptions, SearchResult, Searcher, SemanticResult, SemanticSearcher,
-    SimilarFinder, StatsProvider, Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
-    default_priority_for_event_type, default_ttl_for_event_type, is_valid_event_type,
+    Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, StatsProvider, Storage,
+    Tagger, Updater, VersionChainQuerier, WelcomeProvider, is_valid_event_type,
 };
+
+/// Serialize a collection of items into a `Vec<serde_json::Value>`, returning
+/// `McpError::internal_error` on the first serialization failure.
+fn serialize_results<T: Serialize>(
+    items: impl IntoIterator<Item = T>,
+) -> Result<Vec<serde_json::Value>, McpError> {
+    items
+        .into_iter()
+        .map(|item| {
+            serde_json::to_value(&item).map_err(|e| {
+                McpError::internal_error(format!("failed to serialize result: {e}"), None)
+            })
+        })
+        .collect()
+}
 
 /// Convert a StoreRequest into (id, MemoryInput) with defaults applied.
 /// Validates event_type so callers don't need to duplicate the check.
@@ -33,12 +47,7 @@ fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpE
         .id
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
-    let et = item.event_type.as_deref();
-    let ttl_seconds = item.ttl_seconds.or_else(|| {
-        et.map(default_ttl_for_event_type)
-            .unwrap_or(Some(crate::memory_core::TTL_LONG_TERM))
-    });
-    let input = MemoryInput {
+    let mut input = MemoryInput {
         content: item.content.clone(),
         id: Some(id.clone()),
         tags: item.tags.clone().unwrap_or_default(),
@@ -47,34 +56,17 @@ fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpE
             .metadata
             .clone()
             .unwrap_or_else(|| serde_json::json!({})),
-        priority: item
-            .priority
-            .or_else(|| et.map(default_priority_for_event_type)),
-        event_type: EventType::from_optional(&item.event_type),
+        priority: item.priority,
         session_id: item.session_id.clone(),
         project: item.project.clone(),
         entity_id: item.entity_id.clone(),
         agent_type: item.agent_type.clone(),
-        ttl_seconds,
+        ttl_seconds: item.ttl_seconds,
         referenced_date: item.referenced_date.clone(),
+        ..MemoryInput::default()
     };
+    input.apply_event_type_defaults(item.event_type.as_deref());
     Ok((id, input))
-}
-
-fn result_payload(r: SearchResult) -> serde_json::Value {
-    json!({
-        "id": r.id, "content": r.content, "tags": r.tags,
-        "importance": r.importance, "metadata": r.metadata,
-        "event_type": r.event_type, "session_id": r.session_id, "project": r.project
-    })
-}
-
-fn scored_result_payload(r: SemanticResult) -> serde_json::Value {
-    json!({
-        "id": r.id, "content": r.content, "score": r.score, "tags": r.tags,
-        "importance": r.importance, "metadata": r.metadata,
-        "event_type": r.event_type, "session_id": r.session_id, "project": r.project
-    })
 }
 
 #[derive(Clone)]
@@ -132,6 +124,9 @@ struct RetrieveRequest {
 struct SearchRequest {
     /// Search mode: "text" (default, FTS5), "semantic" (embedding similarity), "phrase" (exact substring), "tag" (AND-match tags), "similar" (find similar to memory_id).
     mode: Option<String>,
+    /// When true, run advanced multi-phase retrieval (supported for text/semantic modes only).
+    /// Text mode defaults to advanced=true; set advanced=false to force the plain FTS5 path.
+    advanced: Option<bool>,
     /// Query string (required for text, semantic, phrase modes).
     query: Option<String>,
     /// Tags to match (required for tag mode, AND logic).
@@ -147,24 +142,10 @@ struct SearchRequest {
     event_after: Option<String>,
     /// ISO 8601 upper bound for event_at (inclusive).
     event_before: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct AdvancedSearchRequest {
-    query: String,
-    limit: Option<usize>,
-    event_type: Option<String>,
-    project: Option<String>,
-    session_id: Option<String>,
-    include_superseded: Option<bool>,
     importance_min: Option<f64>,
     created_after: Option<String>,
     created_before: Option<String>,
     context_tags: Option<Vec<String>>,
-    /// ISO 8601 lower bound for event_at (inclusive).
-    event_after: Option<String>,
-    /// ISO 8601 upper bound for event_at (inclusive).
-    event_before: Option<String>,
     /// When true, inject component scores into each result's metadata under `_explain`.
     explain: Option<bool>,
 }
@@ -289,31 +270,23 @@ struct LessonsRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct HealthRequest {
-    /// Detail level: "basic" (default), "stats", "types", "sessions", "digest", "access_rate".
-    detail: Option<String>,
-    /// Days for digest (default 7).
-    days: Option<i64>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ExportRequest {
-    /// Action: "export" (default) or "import".
+struct AdminRequest {
+    /// Action: "health" (default), "export", or "import".
     action: Option<String>,
-    /// JSON data to import (required for action=import).
+    /// Detail level for action=health: "basic" (default), "stats", "types", "sessions", "digest", "access_rate".
+    detail: Option<String>,
+    /// Days for health detail=digest (default 7).
+    days: Option<i64>,
+    /// JSON data to import for action=import.
     data: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct WelcomeRequest {
+struct SessionInfoRequest {
+    /// Mode: "welcome" (default) or "protocol".
+    mode: Option<String>,
     session_id: Option<String>,
     project: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ProtocolRequest {
-    #[allow(dead_code)]
-    section: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -389,7 +362,7 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_search",
-        description = "Search stored memories. Modes: 'text' (default, FTS5), 'semantic' (embedding similarity), 'phrase' (exact substring), 'tag' (AND-match tags), 'similar' (find similar to memory_id). Required params vary by mode: text/semantic/phrase need 'query', tag needs 'tags', similar needs 'memory_id'."
+        description = "Search stored memories. Modes: 'text' (default, FTS5), 'semantic' (embedding similarity), 'phrase' (exact substring), 'tag' (AND-match tags), 'similar' (find similar to memory_id). advanced=true enables multi-phase retrieval; only 'text' and 'semantic' modes support it ('phrase', 'tag', 'similar' always use their standard paths). Text mode defaults to advanced=true. Required params vary by mode: text/semantic/phrase need 'query', tag needs 'tags', similar needs 'memory_id'."
     )]
     async fn memory_search(
         &self,
@@ -397,6 +370,7 @@ impl McpMemoryServer {
     ) -> Result<CallToolResult, McpError> {
         let mode = params.0.mode.as_deref().unwrap_or("text");
         let limit = params.0.limit.unwrap_or(10);
+        let use_advanced = params.0.advanced.unwrap_or(mode == "text");
 
         // "similar" mode doesn't use opts — early-return path
         if mode == "similar" {
@@ -412,7 +386,7 @@ impl McpMemoryServer {
                             None,
                         )
                     })?;
-            let payload: Vec<_> = results.into_iter().map(scored_result_payload).collect();
+            let payload = serialize_results(results)?;
             return Ok(CallToolResult::success(vec![Content::text(
                 json!({ "results": payload }).to_string(),
             )]));
@@ -425,14 +399,78 @@ impl McpMemoryServer {
             return Err(McpError::invalid_params("invalid event_type", None));
         }
         let opts = SearchOptions {
-            event_type: EventType::from_optional(&params.0.event_type),
+            event_type: EventType::from_optional(params.0.event_type.as_deref()),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
             event_after: params.0.event_after.clone(),
             event_before: params.0.event_before.clone(),
+            importance_min: params.0.importance_min,
+            created_after: params.0.created_after.clone(),
+            created_before: params.0.created_before.clone(),
+            context_tags: params.0.context_tags.clone(),
+            explain: params.0.explain,
             ..Default::default()
         };
+
+        if use_advanced {
+            match mode {
+                "text" | "semantic" => {
+                    let query = params.0.query.as_deref().ok_or_else(|| {
+                        McpError::invalid_params(format!("query is required for mode={mode}"), None)
+                    })?;
+                    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+                        &self.storage,
+                        query,
+                        limit,
+                        &opts,
+                    )
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("failed to advanced-search memories: {e}"),
+                            None,
+                        )
+                    })?;
+
+                    let abstained = results.is_empty();
+                    let result_count = results.len();
+                    let confidence: f64 = results
+                        .iter()
+                        .filter_map(|r| r.metadata.get("_text_overlap").and_then(|v| v.as_f64()))
+                        .fold(0.0f64, f64::max);
+                    let payload = serialize_results(results)?;
+
+                    let mut response = json!({
+                        "results": payload,
+                        "result_count": result_count,
+                        "abstained": abstained,
+                    });
+                    if abstained {
+                        response["confidence"] = json!(0.0);
+                        response["reason"] = json!(format!(
+                            "No results met the relevance threshold (text_overlap < {:.2})",
+                            crate::memory_core::ABSTENTION_MIN_TEXT
+                        ));
+                    } else {
+                        response["confidence"] = json!(confidence);
+                    }
+
+                    return Ok(CallToolResult::success(vec![Content::text(
+                        response.to_string(),
+                    )]));
+                }
+                "phrase" | "tag" => {}
+                other => {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "unknown search mode: {other} (expected text|semantic|phrase|tag|similar)"
+                        ),
+                        None,
+                    ));
+                }
+            }
+        }
 
         match mode {
             "text" => {
@@ -446,7 +484,7 @@ impl McpMemoryServer {
                     .map_err(|e| {
                         McpError::internal_error(format!("failed to search memories: {e}"), None)
                     })?;
-                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                let payload = serialize_results(results)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": payload }).to_string(),
                 )]))
@@ -465,7 +503,7 @@ impl McpMemoryServer {
                             None,
                         )
                     })?;
-                let payload: Vec<_> = results.into_iter().map(scored_result_payload).collect();
+                let payload = serialize_results(results)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": payload }).to_string(),
                 )]))
@@ -484,7 +522,7 @@ impl McpMemoryServer {
                 .map_err(|e| {
                     McpError::internal_error(format!("failed to phrase-search memories: {e}"), None)
                 })?;
-                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                let payload = serialize_results(results)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": payload }).to_string(),
                 )]))
@@ -505,7 +543,7 @@ impl McpMemoryServer {
                     .map_err(|e| {
                         McpError::internal_error(format!("failed to search by tags: {e}"), None)
                     })?;
-                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                let payload = serialize_results(results)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": payload }).to_string(),
                 )]))
@@ -515,75 +553,6 @@ impl McpMemoryServer {
                 None,
             )),
         }
-    }
-
-    #[tool(
-        name = "memory_advanced_search",
-        description = "Perform advanced multi-phase search with scoring and filters"
-    )]
-    async fn memory_advanced_search(
-        &self,
-        params: Parameters<AdvancedSearchRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        if let Some(event_type) = params.0.event_type.as_deref()
-            && !is_valid_event_type(event_type)
-        {
-            return Err(McpError::invalid_params("invalid event_type", None));
-        }
-
-        let limit = params.0.limit.unwrap_or(10);
-        let opts = SearchOptions {
-            event_type: EventType::from_optional(&params.0.event_type),
-            project: params.0.project.clone(),
-            session_id: params.0.session_id.clone(),
-            include_superseded: params.0.include_superseded,
-            importance_min: params.0.importance_min,
-            created_after: params.0.created_after.clone(),
-            created_before: params.0.created_before.clone(),
-            context_tags: params.0.context_tags.clone(),
-            event_after: params.0.event_after.clone(),
-            event_before: params.0.event_before.clone(),
-            explain: params.0.explain,
-            ..Default::default()
-        };
-        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-            &self.storage,
-            &params.0.query,
-            limit,
-            &opts,
-        )
-        .await
-        .map_err(|e| {
-            McpError::internal_error(format!("failed to advanced-search memories: {e}"), None)
-        })?;
-
-        let abstained = results.is_empty();
-        let result_count = results.len();
-        let confidence: f64 = results
-            .iter()
-            .filter_map(|r| r.metadata.get("_text_overlap").and_then(|v| v.as_f64()))
-            .fold(0.0f64, f64::max);
-
-        let payload: Vec<_> = results.into_iter().map(scored_result_payload).collect();
-
-        let mut response = json!({
-            "results": payload,
-            "result_count": result_count,
-            "abstained": abstained,
-        });
-        if abstained {
-            response["confidence"] = json!(0.0);
-            response["reason"] = json!(format!(
-                "No results met the relevance threshold (text_overlap < {:.2})",
-                crate::memory_core::ABSTENTION_MIN_TEXT
-            ));
-        } else {
-            response["confidence"] = json!(confidence);
-        }
-
-        Ok(CallToolResult::success(vec![Content::text(
-            response.to_string(),
-        )]))
     }
 
     #[tool(
@@ -602,7 +571,7 @@ impl McpMemoryServer {
         let sort = params.0.sort.as_deref().unwrap_or("created");
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: EventType::from_optional(&params.0.event_type),
+            event_type: EventType::from_optional(params.0.event_type.as_deref()),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -617,7 +586,7 @@ impl McpMemoryServer {
                 let result = self.storage.list(offset, limit, &opts).await.map_err(|e| {
                     McpError::internal_error(format!("failed to list memories: {e}"), None)
                 })?;
-                let payload: Vec<_> = result.memories.into_iter().map(result_payload).collect();
+                let payload = serialize_results(result.memories)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": payload, "total": result.total }).to_string(),
                 )]))
@@ -626,7 +595,7 @@ impl McpMemoryServer {
                 let results = self.storage.recent(limit, &opts).await.map_err(|e| {
                     McpError::internal_error(format!("failed to list recents: {e}"), None)
                 })?;
-                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                let payload = serialize_results(results)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": payload }).to_string(),
                 )]))
@@ -683,7 +652,7 @@ impl McpMemoryServer {
             tags: params.0.tags.clone(),
             importance: params.0.importance,
             metadata: params.0.metadata.clone(),
-            event_type: EventType::from_optional(&params.0.event_type),
+            event_type: EventType::from_optional(params.0.event_type.as_deref()),
             priority: params.0.priority,
         };
         <SqliteStorage as Updater>::update(&self.storage, &params.0.id, &update)
@@ -820,7 +789,7 @@ impl McpMemoryServer {
                 let results = self.storage.get_version_chain(id).await.map_err(|e| {
                     McpError::internal_error(format!("failed to get version chain: {e}"), None)
                 })?;
-                let payload: Vec<_> = results.into_iter().map(result_payload).collect();
+                let payload = serialize_results(results)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "chain": payload }).to_string(),
                 )]))
@@ -1163,82 +1132,81 @@ impl McpMemoryServer {
     }
 
     #[tool(
-        name = "memory_health",
-        description = "Service health and statistics. Detail: 'basic' (default, health check), 'stats' (store statistics), 'types' (per-type counts), 'sessions' (session analytics), 'digest' (weekly digest), 'access_rate' (access rate analysis)."
+        name = "memory_admin",
+        description = "Administrative actions. action='health' (default, detail: basic|stats|types|sessions|digest|access_rate), action='export' (dump all data), or action='import' (restore from JSON data)."
     )]
-    async fn memory_health(
+    async fn memory_admin(
         &self,
-        params: Parameters<HealthRequest>,
+        params: Parameters<AdminRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let detail = params.0.detail.as_deref().unwrap_or("basic");
-
-        match detail {
-            "basic" => Ok(CallToolResult::success(vec![Content::text(
-                "romega-memory MCP server is healthy",
-            )])),
-            "stats" => {
-                let stats = self.storage.stats().await.map_err(|e| {
-                    McpError::internal_error(format!("failed to get stats: {e}"), None)
-                })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string(&stats).map_err(|e| {
-                        McpError::internal_error(format!("failed to serialize stats: {e}"), None)
-                    })?,
-                )]))
-            }
-            "types" => {
-                let result = self.storage.type_stats().await.map_err(|e| {
-                    McpError::internal_error(format!("type_stats failed: {e}"), None)
-                })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            "sessions" => {
-                let result = self.storage.session_stats().await.map_err(|e| {
-                    McpError::internal_error(format!("session_stats failed: {e}"), None)
-                })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            "digest" => {
-                let days = params.0.days.unwrap_or(7);
-                let result = self.storage.weekly_digest(days).await.map_err(|e| {
-                    McpError::internal_error(format!("weekly_digest failed: {e}"), None)
-                })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            "access_rate" => {
-                let result = self.storage.access_rate_stats().await.map_err(|e| {
-                    McpError::internal_error(format!("access_rate_stats failed: {e}"), None)
-                })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    result.to_string(),
-                )]))
-            }
-            other => Err(McpError::invalid_params(
-                format!(
-                    "unknown detail level: {other} (expected basic|stats|types|sessions|digest|access_rate)"
-                ),
-                None,
-            )),
-        }
-    }
-
-    #[tool(
-        name = "memory_export",
-        description = "Export or import memory data as JSON. Actions: 'export' (default, export all) or 'import' (import from JSON data)."
-    )]
-    async fn memory_export(
-        &self,
-        params: Parameters<ExportRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let action = params.0.action.as_deref().unwrap_or("export");
+        let action = params.0.action.as_deref().unwrap_or("health");
 
         match action {
+            "health" => {
+                let detail = params.0.detail.as_deref().unwrap_or("basic");
+                match detail {
+                    "basic" => {
+                        self.storage.stats().await.map_err(|e| {
+                            McpError::internal_error(format!("storage probe failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "status": "healthy" }).to_string(),
+                        )]))
+                    }
+                    "stats" => {
+                        let stats = self.storage.stats().await.map_err(|e| {
+                            McpError::internal_error(format!("failed to get stats: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::to_string(&stats).map_err(|e| {
+                                McpError::internal_error(
+                                    format!("failed to serialize stats: {e}"),
+                                    None,
+                                )
+                            })?,
+                        )]))
+                    }
+                    "types" => {
+                        let result = self.storage.type_stats().await.map_err(|e| {
+                            McpError::internal_error(format!("type_stats failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            result.to_string(),
+                        )]))
+                    }
+                    "sessions" => {
+                        let result = self.storage.session_stats().await.map_err(|e| {
+                            McpError::internal_error(format!("session_stats failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            result.to_string(),
+                        )]))
+                    }
+                    "digest" => {
+                        let days = params.0.days.unwrap_or(7);
+                        let result = self.storage.weekly_digest(days).await.map_err(|e| {
+                            McpError::internal_error(format!("weekly_digest failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            result.to_string(),
+                        )]))
+                    }
+                    "access_rate" => {
+                        let result = self.storage.access_rate_stats().await.map_err(|e| {
+                            McpError::internal_error(format!("access_rate_stats failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            result.to_string(),
+                        )]))
+                    }
+                    other => Err(McpError::invalid_params(
+                        format!(
+                            "unknown detail level: {other} (expected basic|stats|types|sessions|digest|access_rate)"
+                        ),
+                        None,
+                    )),
+                }
+            }
             "export" => {
                 let export_data = self.storage.export_all().await.map_err(|e| {
                     McpError::internal_error(format!("failed to export: {e}"), None)
@@ -1258,7 +1226,7 @@ impl McpMemoryServer {
                 )]))
             }
             other => Err(McpError::invalid_params(
-                format!("unknown export action: {other} (expected export|import)"),
+                format!("unknown admin action: {other} (expected health|export|import)"),
                 None,
             )),
         }
@@ -1305,35 +1273,29 @@ impl McpMemoryServer {
     }
 
     #[tool(
-        name = "memory_welcome",
-        description = "Session startup briefing with recent activity, user profile, and pending reminders"
+        name = "memory_session_info",
+        description = "Session-oriented information. mode='welcome' (default) returns the startup briefing; mode='protocol' returns the tool inventory and usage guidelines."
     )]
-    async fn memory_welcome(
+    async fn memory_session_info(
         &self,
-        params: Parameters<WelcomeRequest>,
+        params: Parameters<SessionInfoRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let result = self
-            .storage
-            .welcome(params.0.session_id.as_deref(), params.0.project.as_deref())
-            .await
-            .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
+        match params.0.mode.as_deref().unwrap_or("welcome") {
+            "welcome" => {
+                let result = self
+                    .storage
+                    .welcome(params.0.session_id.as_deref(), params.0.project.as_deref())
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
-            result.to_string(),
-        )]))
-    }
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            "protocol" => {
+                let protocol = r#"# romega-memory Protocol
 
-    #[tool(
-        name = "memory_protocol",
-        description = "Retrieve available tools and operational guidelines for this memory server"
-    )]
-    async fn memory_protocol(
-        &self,
-        _params: Parameters<ProtocolRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let protocol = r#"# romega-memory Protocol
-
-## Available Tools (19)
+## Available Tools (16)
 
 ### Storage & Retrieval
 - **memory_store** — Store new memory content with tags, importance, metadata
@@ -1342,41 +1304,40 @@ impl McpMemoryServer {
 - **memory_delete** — Delete a memory by ID
 - **memory_update** — Update content, tags, importance, or metadata
 
-### Search
-- **memory_search** — Unified search (mode: text|semantic|phrase|tag|similar)
-- **memory_advanced_search** — Multi-phase scoring (vector + FTS5 + type weights + time decay)
-
-### Listing
+### Search & Listing
+- **memory_search** — Unified search (mode: text|semantic|phrase|tag|similar, advanced: bool)
 - **memory_list** — List memories (sort: created|recent)
 
 ### Relationships & Graph
 - **memory_relations** — Manage relationships (action: list|add|traverse|version_chain)
 
-### Lifecycle & Maintenance
+### Lifecycle & Feedback
 - **memory_feedback** — Record feedback (helpful/unhelpful/outdated)
 - **memory_lifecycle** — System maintenance (action: sweep|health|consolidate|compact|auto_compact|clear_session)
-- **memory_health** — Health check and statistics (detail: basic|stats|types|sessions|digest|access_rate)
-
-### Data Transfer
-- **memory_export** — Export/import data (action: export|import)
 
 ### Cross-Session
-- **memory_profile** — Read/update user profile
 - **memory_checkpoint** — Task checkpoints (action: save|resume)
 - **memory_remind** — Set, list, or dismiss reminders
 - **memory_lessons** — Query lesson_learned memories
+- **memory_profile** — Read/update user profile
 
 ### System
-- **memory_welcome** — Session startup briefing
-- **memory_protocol** — This tool: available tools and guidelines
+- **memory_admin** — Administrative actions (action: health|export|import)
+- **memory_session_info** — Welcome briefing or protocol (mode: welcome|protocol)
 
 ## Usage Guidelines
-- Call **memory_welcome** at session start for context
-- Use **memory_store** with appropriate event_type and tags for categorization
+- Call **memory_session_info** with `mode="welcome"` at session start for context
+- Use **memory_search** with `advanced=true` when you want the multi-phase retrieval path for a supported mode
 - Use **memory_lifecycle** with action=sweep periodically to clean expired memories
 - Use **memory_lifecycle** with action=consolidate to prune stale data
 "#;
-        Ok(CallToolResult::success(vec![Content::text(protocol)]))
+                Ok(CallToolResult::success(vec![Content::text(protocol)]))
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown session info mode: {other} (expected welcome|protocol)"),
+                None,
+            )),
+        }
     }
 }
 

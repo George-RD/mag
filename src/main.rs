@@ -10,8 +10,7 @@ use memory_core::{
     ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
     MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager,
     RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder, StatsProvider, Updater,
-    VersionChainQuerier, WelcomeProvider, default_priority_for_event_type,
-    default_ttl_for_event_type, is_valid_event_type,
+    VersionChainQuerier, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -117,28 +116,22 @@ async fn main() -> anyhow::Result<()> {
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let input = MemoryInput {
+            let mut input = MemoryInput {
                 content: content.clone(),
                 id: None,
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: EventType::from_optional(event_type),
                 session_id: session_id.clone(),
                 project: project.clone(),
-                priority: priority
-                    .to_owned()
-                    .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
+                priority: *priority,
                 entity_id: entity_id.clone(),
                 agent_type: agent_type.clone(),
-                ttl_seconds: ttl_seconds.to_owned().or_else(|| {
-                    event_type
-                        .as_deref()
-                        .map(default_ttl_for_event_type)
-                        .unwrap_or(Some(memory_core::TTL_LONG_TERM))
-                }),
+                ttl_seconds: *ttl_seconds,
                 referenced_date: referenced_date.clone(),
+                ..MemoryInput::default()
             };
+            input.apply_event_type_defaults(event_type.as_deref());
             let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Successfully processed and stored");
             println!("{}", json!({ "id": id }));
@@ -164,28 +157,22 @@ async fn main() -> anyhow::Result<()> {
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let input = MemoryInput {
+            let mut input = MemoryInput {
                 content: content.clone(),
                 id: None,
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: EventType::from_optional(event_type),
                 session_id: session_id.clone(),
                 project: project.clone(),
-                priority: priority
-                    .to_owned()
-                    .or_else(|| event_type.as_deref().map(default_priority_for_event_type)),
+                priority: *priority,
                 entity_id: entity_id.clone(),
                 agent_type: agent_type.clone(),
-                ttl_seconds: ttl_seconds.map(Some).unwrap_or_else(|| {
-                    event_type
-                        .as_deref()
-                        .map(default_ttl_for_event_type)
-                        .unwrap_or(Some(memory_core::TTL_LONG_TERM))
-                }),
+                ttl_seconds: *ttl_seconds,
                 referenced_date: referenced_date.clone(),
+                ..MemoryInput::default()
             };
+            input.apply_event_type_defaults(event_type.as_deref());
             let id = pipeline.run(content, &input).await?;
             info!(memory_id = %id, "Process command stored result");
             println!("{}", json!({ "id": id }));
@@ -242,7 +229,7 @@ async fn main() -> anyhow::Result<()> {
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: EventType::from_optional(event_type),
+                event_type: EventType::from_optional(event_type.as_deref()),
                 priority: *priority,
             };
             <SqliteStorage as Updater>::update(&mcp_storage, id, &update).await?;
@@ -264,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type),
+                event_type: EventType::from_optional(event_type.as_deref()),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -325,7 +312,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type),
+                event_type: EventType::from_optional(event_type.as_deref()),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -369,7 +356,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type),
+                event_type: EventType::from_optional(event_type.as_deref()),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -408,7 +395,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type),
+                event_type: EventType::from_optional(event_type.as_deref()),
                 project: project.clone(),
                 include_superseded: Some(*include_superseded),
                 ..Default::default()
@@ -535,7 +522,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type),
+                event_type: EventType::from_optional(event_type.as_deref()),
                 include_superseded: Some(*include_superseded),
                 ..Default::default()
             };
@@ -577,7 +564,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type),
+                event_type: EventType::from_optional(event_type.as_deref()),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -871,14 +858,14 @@ async fn main() -> anyhow::Result<()> {
                 "tools": [
                     "memory_store", "memory_store_batch", "memory_retrieve",
                     "memory_delete", "memory_update",
-                    "memory_search", "memory_advanced_search",
+                    "memory_search",
                     "memory_list", "memory_relations",
                     "memory_feedback", "memory_lifecycle",
                     "memory_checkpoint", "memory_remind", "memory_lessons",
-                    "memory_health", "memory_export",
-                    "memory_profile", "memory_welcome", "memory_protocol",
+                    "memory_admin",
+                    "memory_profile", "memory_session_info",
                 ],
-                "tool_count": 19,
+                "tool_count": 16,
             });
             println!("{protocol}");
         }
