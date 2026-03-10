@@ -21,9 +21,44 @@ use crate::memory_core::{
     default_priority_for_event_type, default_ttl_for_event_type, is_valid_event_type,
 };
 
-/// Converts an `Option<String>` (from JSON request) into `Option<EventType>`.
-fn parse_event_type(s: &Option<String>) -> Option<EventType> {
-    EventType::from_optional(s)
+/// Convert a StoreRequest into (id, MemoryInput) with defaults applied.
+/// Validates event_type so callers don't need to duplicate the check.
+fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpError> {
+    if let Some(et) = item.event_type.as_deref()
+        && !is_valid_event_type(et)
+    {
+        return Err(McpError::invalid_params("invalid event_type", None));
+    }
+    let id = item
+        .id
+        .clone()
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let et = item.event_type.as_deref();
+    let ttl_seconds = item.ttl_seconds.or_else(|| {
+        et.map(default_ttl_for_event_type)
+            .unwrap_or(Some(crate::memory_core::TTL_LONG_TERM))
+    });
+    let input = MemoryInput {
+        content: item.content.clone(),
+        id: Some(id.clone()),
+        tags: item.tags.clone().unwrap_or_default(),
+        importance: item.importance.unwrap_or(0.5),
+        metadata: item
+            .metadata
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({})),
+        priority: item
+            .priority
+            .or_else(|| et.map(default_priority_for_event_type)),
+        event_type: EventType::from_optional(&item.event_type),
+        session_id: item.session_id.clone(),
+        project: item.project.clone(),
+        entity_id: item.entity_id.clone(),
+        agent_type: item.agent_type.clone(),
+        ttl_seconds,
+        referenced_date: item.referenced_date.clone(),
+    };
+    Ok((id, input))
 }
 
 fn result_payload(r: SearchResult) -> serde_json::Value {
@@ -84,25 +119,8 @@ struct StoreRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct StoreBatchItem {
-    content: String,
-    id: Option<String>,
-    tags: Option<Vec<String>>,
-    importance: Option<f64>,
-    metadata: Option<serde_json::Value>,
-    event_type: Option<String>,
-    session_id: Option<String>,
-    project: Option<String>,
-    priority: Option<i32>,
-    entity_id: Option<String>,
-    agent_type: Option<String>,
-    ttl_seconds: Option<i64>,
-    referenced_date: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 struct StoreBatchRequest {
-    items: Vec<StoreBatchItem>,
+    items: Vec<StoreRequest>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -316,47 +334,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<StoreRequest>,
     ) -> Result<CallToolResult, McpError> {
-        if let Some(event_type) = params.0.event_type.as_deref()
-            && !is_valid_event_type(event_type)
-        {
-            return Err(McpError::invalid_params("invalid event_type", None));
-        }
-
-        let id = params
-            .0
-            .id
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let event_type_str = params.0.event_type.clone();
-        let ttl_seconds = params.0.ttl_seconds.or_else(|| {
-            event_type_str
-                .as_deref()
-                .map(default_ttl_for_event_type)
-                .unwrap_or(Some(crate::memory_core::TTL_LONG_TERM))
-        });
-        let input = MemoryInput {
-            content: params.0.content.clone(),
-            id: Some(id.clone()),
-            tags: params.0.tags.clone().unwrap_or_default(),
-            importance: params.0.importance.unwrap_or(0.5),
-            metadata: params
-                .0
-                .metadata
-                .clone()
-                .unwrap_or_else(|| serde_json::json!({})),
-            priority: params.0.priority.or_else(|| {
-                event_type_str
-                    .as_deref()
-                    .map(default_priority_for_event_type)
-            }),
-            event_type: parse_event_type(&event_type_str),
-            session_id: params.0.session_id.clone(),
-            project: params.0.project.clone(),
-            entity_id: params.0.entity_id.clone(),
-            agent_type: params.0.agent_type.clone(),
-            ttl_seconds,
-            referenced_date: params.0.referenced_date.clone(),
-        };
+        let (id, input) = build_memory_input(&params.0)?;
         <SqliteStorage as Storage>::store(&self.storage, &id, &params.0.content, &input)
             .await
             .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
@@ -377,48 +355,7 @@ impl McpMemoryServer {
         let mut batch_items = Vec::with_capacity(params.0.items.len());
 
         for item in &params.0.items {
-            if let Some(event_type) = item.event_type.as_deref()
-                && !is_valid_event_type(event_type)
-            {
-                return Err(McpError::invalid_params(
-                    "invalid event_type in batch item",
-                    None,
-                ));
-            }
-
-            let id = item
-                .id
-                .clone()
-                .unwrap_or_else(|| Uuid::new_v4().to_string());
-            let event_type_str = item.event_type.clone();
-            let ttl_seconds = item.ttl_seconds.or_else(|| {
-                event_type_str
-                    .as_deref()
-                    .map(default_ttl_for_event_type)
-                    .unwrap_or(Some(crate::memory_core::TTL_LONG_TERM))
-            });
-            let input = MemoryInput {
-                content: item.content.clone(),
-                id: Some(id.clone()),
-                tags: item.tags.clone().unwrap_or_default(),
-                importance: item.importance.unwrap_or(0.5),
-                metadata: item
-                    .metadata
-                    .clone()
-                    .unwrap_or_else(|| serde_json::json!({})),
-                priority: item.priority.or_else(|| {
-                    event_type_str
-                        .as_deref()
-                        .map(default_priority_for_event_type)
-                }),
-                event_type: parse_event_type(&event_type_str),
-                session_id: item.session_id.clone(),
-                project: item.project.clone(),
-                entity_id: item.entity_id.clone(),
-                agent_type: item.agent_type.clone(),
-                ttl_seconds,
-                referenced_date: item.referenced_date.clone(),
-            };
+            let (id, input) = build_memory_input(item)?;
             batch_items.push((id, item.content.clone(), input));
         }
 
@@ -488,7 +425,7 @@ impl McpMemoryServer {
             return Err(McpError::invalid_params("invalid event_type", None));
         }
         let opts = SearchOptions {
-            event_type: parse_event_type(&params.0.event_type),
+            event_type: EventType::from_optional(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -596,7 +533,7 @@ impl McpMemoryServer {
 
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: parse_event_type(&params.0.event_type),
+            event_type: EventType::from_optional(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -627,22 +564,7 @@ impl McpMemoryServer {
             .filter_map(|r| r.metadata.get("_text_overlap").and_then(|v| v.as_f64()))
             .fold(0.0f64, f64::max);
 
-        let payload: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "content": r.content,
-                    "score": r.score,
-                    "tags": r.tags,
-                    "importance": r.importance,
-                    "metadata": r.metadata,
-                    "event_type": r.event_type,
-                    "session_id": r.session_id,
-                    "project": r.project
-                })
-            })
-            .collect();
+        let payload: Vec<_> = results.into_iter().map(scored_result_payload).collect();
 
         let mut response = json!({
             "results": payload,
@@ -680,7 +602,7 @@ impl McpMemoryServer {
         let sort = params.0.sort.as_deref().unwrap_or("created");
         let limit = params.0.limit.unwrap_or(10);
         let opts = SearchOptions {
-            event_type: parse_event_type(&params.0.event_type),
+            event_type: EventType::from_optional(&params.0.event_type),
             project: params.0.project.clone(),
             session_id: params.0.session_id.clone(),
             include_superseded: params.0.include_superseded,
@@ -761,7 +683,7 @@ impl McpMemoryServer {
             tags: params.0.tags.clone(),
             importance: params.0.importance,
             metadata: params.0.metadata.clone(),
-            event_type: parse_event_type(&params.0.event_type),
+            event_type: EventType::from_optional(&params.0.event_type),
             priority: params.0.priority,
         };
         <SqliteStorage as Updater>::update(&self.storage, &params.0.id, &update)
@@ -1037,12 +959,6 @@ impl McpMemoryServer {
                     json!({"session_id": sid, "removed": removed}).to_string(),
                 )]))
             }
-            "backup" => Ok(CallToolResult::success(vec![Content::text(
-                "Use memory_export with action=export to export data as JSON.".to_string(),
-            )])),
-            "restore" => Ok(CallToolResult::success(vec![Content::text(
-                "Use memory_export with action=import to import data from JSON.".to_string(),
-            )])),
             other => Err(McpError::invalid_params(
                 format!(
                     "unknown lifecycle action: {other} (expected sweep|health|consolidate|compact|auto_compact|clear_session)"

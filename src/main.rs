@@ -123,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 session_id: session_id.clone(),
                 project: project.clone(),
                 priority: priority
@@ -170,7 +170,7 @@ async fn main() -> anyhow::Result<()> {
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 session_id: session_id.clone(),
                 project: project.clone(),
                 priority: priority
@@ -242,7 +242,7 @@ async fn main() -> anyhow::Result<()> {
                 tags: tags.clone(),
                 importance: *importance,
                 metadata: meta,
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 priority: *priority,
             };
             <SqliteStorage as Updater>::update(&mcp_storage, id, &update).await?;
@@ -264,7 +264,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -325,7 +325,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -369,7 +369,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -408,7 +408,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 project: project.clone(),
                 include_superseded: Some(*include_superseded),
                 ..Default::default()
@@ -535,7 +535,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 include_superseded: Some(*include_superseded),
                 ..Default::default()
             };
@@ -577,7 +577,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
             let opts = SearchOptions {
-                event_type: parse_event_type(event_type),
+                event_type: EventType::from_optional(event_type),
                 project: project.clone(),
                 session_id: session_id.clone(),
                 include_superseded: Some(*include_superseded),
@@ -970,10 +970,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn parse_event_type(s: &Option<String>) -> Option<EventType> {
-    EventType::from_optional(s)
 }
 
 fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {

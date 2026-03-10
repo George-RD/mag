@@ -358,8 +358,9 @@ fn compute_cross_encoder_scores(
     scoring_params: &ScoringParams,
 ) -> Option<HashMap<String, f32>> {
     let reranker = reranker?;
-    let mut seen = HashSet::new();
-    let mut candidates_for_rerank: Vec<(String, String)> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::with_capacity(scoring_params.rerank_top_n);
+    let mut candidates_for_rerank: Vec<(&str, &str)> =
+        Vec::with_capacity(scoring_params.rerank_top_n);
     // Interleave vector and FTS candidates to avoid biasing towards either source
     // when truncating to rerank_top_n.
     let max_idx = vector_candidates.len().max(fts_candidates.len());
@@ -368,31 +369,28 @@ fn compute_cross_encoder_scores(
             break;
         }
         if let Some((id, _, candidate)) = vector_candidates.get(i)
-            && seen.insert(id.clone())
+            && seen.insert(id.as_str())
         {
-            candidates_for_rerank.push((id.clone(), candidate.result.content.clone()));
+            candidates_for_rerank.push((id.as_str(), &candidate.result.content));
         }
         if candidates_for_rerank.len() >= scoring_params.rerank_top_n {
             break;
         }
         if let Some((id, _, candidate)) = fts_candidates.get(i)
-            && seen.insert(id.clone())
+            && seen.insert(id.as_str())
         {
-            candidates_for_rerank.push((id.clone(), candidate.result.content.clone()));
+            candidates_for_rerank.push((id.as_str(), &candidate.result.content));
         }
     }
     if candidates_for_rerank.is_empty() {
         return None;
     }
-    let passages: Vec<&str> = candidates_for_rerank
-        .iter()
-        .map(|(_, c)| c.as_str())
-        .collect();
+    let passages: Vec<&str> = candidates_for_rerank.iter().map(|(_, c)| *c).collect();
     match reranker.score_batch(query, &passages) {
         Ok(scores) => {
             let mut map = HashMap::with_capacity(scores.len());
-            for (i, (id, _)) in candidates_for_rerank.iter().enumerate() {
-                map.insert(id.clone(), scores[i]);
+            for (i, &(id, _)) in candidates_for_rerank.iter().enumerate() {
+                map.insert(id.to_owned(), scores[i]);
             }
             Some(map)
         }
