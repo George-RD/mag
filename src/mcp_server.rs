@@ -1301,7 +1301,7 @@ impl McpMemoryServer {
                 )]))
             }
             "protocol" => {
-                let protocol = r#"# romega-memory Protocol
+                let protocol = r#"# MAG Protocol
 
 ## Available Tools (16)
 
@@ -1354,8 +1354,7 @@ impl ServerHandler for McpMemoryServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "romega-memory MCP server exposes tools for storing and retrieving memories"
-                    .to_string(),
+                "MAG MCP server exposes tools for storing and retrieving memories".to_string(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()

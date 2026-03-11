@@ -121,23 +121,58 @@ fn test_schema_contains_retrieval_indexes() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     let conn = storage.test_conn().unwrap();
 
-    let index_names: Vec<String> = {
+    let index_definitions: Vec<(String, String)> = {
         let mut stmt = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
+            .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL")
             .unwrap();
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0)).unwrap();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap();
         rows.map(|r| r.unwrap()).collect()
     };
 
-    for index_name in [
-        "idx_memories_project_last_accessed_active",
-        "idx_memories_session_last_accessed_active",
-        "idx_memories_event_last_accessed_active",
-        "idx_memories_project_created_active",
-        "idx_memories_session_created_active",
-        "idx_memories_event_created_active",
+    for (index_name, leading_column, timestamp_column) in [
+        (
+            "idx_memories_project_last_accessed_active",
+            "project",
+            "last_accessed_at",
+        ),
+        (
+            "idx_memories_session_last_accessed_active",
+            "session_id",
+            "last_accessed_at",
+        ),
+        (
+            "idx_memories_event_last_accessed_active",
+            "event_type",
+            "last_accessed_at",
+        ),
+        (
+            "idx_memories_project_created_active",
+            "project",
+            "created_at",
+        ),
+        (
+            "idx_memories_session_created_active",
+            "session_id",
+            "created_at",
+        ),
+        (
+            "idx_memories_event_created_active",
+            "event_type",
+            "created_at",
+        ),
     ] {
-        assert!(index_names.iter().any(|name| name == index_name));
+        let sql = index_definitions
+            .iter()
+            .find_map(|(name, sql)| (name == index_name).then_some(sql))
+            .unwrap_or_else(|| panic!("missing index definition for {index_name}"));
+        assert!(sql.contains(&format!(
+            "ON memories({leading_column}, {timestamp_column} DESC)"
+        )));
+        assert!(sql.contains("WHERE superseded_by_id IS NULL"));
     }
 }
 
@@ -733,6 +768,59 @@ async fn test_semantic_search_filters_by_context_tags() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "sem-focus");
+}
+
+#[tokio::test]
+async fn test_semantic_search_include_superseded_shows_all() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sem-old",
+        "alpha preference old",
+        &MemoryInput {
+            event_type: Some(EventType::UserPreference),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sem-new",
+        "alpha preference new",
+        &MemoryInput {
+            event_type: Some(EventType::UserPreference),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    storage
+        .supersede_memory("sem-old", "sem-new")
+        .await
+        .unwrap();
+
+    let default_results = storage
+        .semantic_search("alpha preference", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert!(default_results.iter().all(|result| result.id != "sem-old"));
+
+    let all_results = storage
+        .semantic_search(
+            "alpha preference",
+            10,
+            &SearchOptions {
+                include_superseded: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(all_results.iter().any(|result| result.id == "sem-old"));
+    assert!(all_results.iter().any(|result| result.id == "sem-new"));
 }
 
 #[cfg(feature = "sqlite-vec")]
@@ -2213,6 +2301,69 @@ async fn test_superseded_filtered_from_find_similar() {
         .await
         .unwrap();
     assert!(results.iter().all(|r| r.id != "sim-old"));
+}
+
+#[tokio::test]
+async fn test_find_similar_backfills_after_skipping_source_and_superseded() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sim-backfill-source",
+        "alpha source memory",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sim-backfill-old",
+        "alpha candidate old",
+        &MemoryInput {
+            event_type: Some(EventType::UserPreference),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sim-backfill-new",
+        "alpha candidate new",
+        &MemoryInput {
+            event_type: Some(EventType::UserPreference),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sim-backfill-extra",
+        "beta backup candidate",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+    storage
+        .supersede_memory("sim-backfill-old", "sim-backfill-new")
+        .await
+        .unwrap();
+
+    let results =
+        <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim-backfill-source", 2)
+            .await
+            .unwrap();
+
+    assert_eq!(results.len(), 2);
+    assert!(
+        results
+            .iter()
+            .all(|result| result.id != "sim-backfill-source")
+    );
+    assert!(results.iter().all(|result| result.id != "sim-backfill-old"));
+    assert_eq!(results[0].id, "sim-backfill-new");
+    assert_eq!(results[1].id, "sim-backfill-extra");
 }
 
 #[tokio::test]

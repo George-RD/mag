@@ -1,4 +1,4 @@
-//! Scale degradation benchmark for romega-memory.
+//! Scale degradation benchmark for MAG.
 //!
 //! Measures store throughput, search latency, and recall quality at increasing
 //! database sizes: 1K, 5K, 10K, and 50K memories.
@@ -24,7 +24,7 @@ use romega_memory::memory_core::{
 
 #[derive(Debug, Parser)]
 #[command(name = "scale_bench")]
-#[command(about = "Scale degradation benchmark for romega-memory")]
+#[command(about = "Scale degradation benchmark for MAG")]
 struct Args {
     /// Maximum scale level to test (1000, 5000, 10000, or 50000)
     #[arg(long, default_value_t = 50_000)]

@@ -30,7 +30,7 @@ const DEFAULT_OFFICIAL_DATASET: &str = "data/longmemeval_s_cleaned.json";
 
 #[derive(Debug, Parser)]
 #[command(name = "longmemeval_bench")]
-#[command(about = "LongMemEval-inspired retrieval benchmark for romega-memory")]
+#[command(about = "LongMemEval-inspired retrieval benchmark for MAG")]
 struct Args {
     #[arg(long)]
     verbose: bool,
