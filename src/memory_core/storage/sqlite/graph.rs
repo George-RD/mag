@@ -168,12 +168,13 @@ impl SimilarFinder for SqliteStorage {
             {
                 let knn_limit = limit.saturating_mul(5).clamp(50, 5_000);
                 let knn_results = vec_knn_search(&conn, &source_embedding, knn_limit)?;
-                let mut row_stmt = conn
-                    .prepare(
-                        "SELECT content, tags, importance, metadata, event_type, session_id, project
-                         FROM memories WHERE id = ?1 AND superseded_by_id IS NULL",
-                    )
-                    .context("failed to prepare vec similar lookup")?;
+                let ordered_ids: Vec<String> = knn_results
+                    .iter()
+                    .filter(|(candidate_id, _)| candidate_id != &memory_id)
+                    .map(|(candidate_id, _)| candidate_id.clone())
+                    .collect();
+                let mut hydrated_rows =
+                    hydrate_memories_by_ids(&conn, &ordered_ids, false, None, false)?;
 
                 for (candidate_id, distance) in knn_results {
                     if candidate_id == memory_id {
@@ -183,32 +184,16 @@ impl SimilarFinder for SqliteStorage {
                         break;
                     }
                     let similarity = vec_distance_to_similarity(distance) as f32;
-
-                    let row_data = row_stmt
-                        .query_row(params![candidate_id], |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, f64>(2)?,
-                                row.get::<_, String>(3)?,
-                                row.get::<_, Option<String>>(4).ok().flatten(),
-                                row.get::<_, Option<String>>(5).ok().flatten(),
-                                row.get::<_, Option<String>>(6).ok().flatten(),
-                            ))
-                        })
-                        .optional()
-                        .context("failed to fetch memory for vec similar result")?;
-
-                    if let Some((content, raw_tags, importance, raw_metadata, event_type_str, session_id, project)) = row_data {
+                    if let Some(row_data) = hydrated_rows.remove(&candidate_id) {
                         ranked.push(SemanticResult {
                             id: candidate_id,
-                            content,
-                            tags: parse_tags_from_db(&raw_tags),
-                            importance,
-                            metadata: parse_metadata_from_db(&raw_metadata),
-                            event_type: event_type_from_sql(event_type_str),
-                            session_id,
-                            project,
+                            content: row_data.content,
+                            tags: row_data.tags,
+                            importance: row_data.importance,
+                            metadata: row_data.metadata,
+                            event_type: row_data.event_type,
+                            session_id: row_data.session_id,
+                            project: row_data.project,
                             score: similarity,
                         });
                     }

@@ -116,6 +116,31 @@ fn test_schema_contains_fts5_table() {
     assert_eq!(count, 1);
 }
 
+#[test]
+fn test_schema_contains_retrieval_indexes() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let conn = storage.test_conn().unwrap();
+
+    let index_names: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
+            .unwrap();
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0)).unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    };
+
+    for index_name in [
+        "idx_memories_project_last_accessed_active",
+        "idx_memories_session_last_accessed_active",
+        "idx_memories_event_last_accessed_active",
+        "idx_memories_project_created_active",
+        "idx_memories_session_created_active",
+        "idx_memories_event_created_active",
+    ] {
+        assert!(index_names.iter().any(|name| name == index_name));
+    }
+}
+
 #[tokio::test]
 async fn test_store_and_retrieve_roundtrip() {
     let storage = SqliteStorage::new_in_memory().unwrap();
@@ -664,6 +689,86 @@ async fn test_semantic_search_zero_limit_returns_no_results() {
         .await
         .unwrap();
     assert!(results.is_empty());
+}
+
+#[tokio::test]
+async fn test_semantic_search_filters_by_context_tags() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sem-focus",
+        "deployment rollout checklist",
+        &MemoryInput {
+            tags: vec!["focus".to_string()],
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "sem-other",
+        "deployment rollout notes",
+        &MemoryInput {
+            tags: vec!["other".to_string()],
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let results = storage
+        .semantic_search(
+            "deployment rollout",
+            10,
+            &SearchOptions {
+                context_tags: Some(vec![" focus ".to_string()]),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "sem-focus");
+}
+
+#[cfg(feature = "sqlite-vec")]
+#[tokio::test]
+async fn test_hydrate_memories_by_ids_chunks_large_id_lists() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let mut ids = Vec::new();
+
+    for idx in 0..950 {
+        let id = format!("chunk-{idx}");
+        <SqliteStorage as Storage>::store(
+            &storage,
+            &id,
+            &format!("chunked hydration payload {idx}"),
+            &MemoryInput {
+                metadata: serde_json::json!({ "idx": idx }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        ids.push(id);
+    }
+
+    let conn = storage.test_conn().unwrap();
+    let hydrated = hydrate_memories_by_ids(&conn, &ids, true, None, false).unwrap();
+
+    assert_eq!(hydrated.len(), ids.len());
+    assert_eq!(
+        hydrated["chunk-42"]
+            .metadata
+            .get("idx")
+            .and_then(serde_json::Value::as_i64),
+        Some(42)
+    );
+    assert_eq!(hydrated["chunk-42"].content, "chunked hydration payload 42");
 }
 
 // ── Delete tests ──

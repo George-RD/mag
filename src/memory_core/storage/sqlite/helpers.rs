@@ -681,6 +681,113 @@ pub(super) fn vec_knn_search(
     Ok(results)
 }
 
+#[cfg(feature = "sqlite-vec")]
+const HYDRATE_ID_CHUNK_SIZE: usize = 900;
+
+#[cfg(feature = "sqlite-vec")]
+#[derive(Debug, Clone)]
+pub(super) struct HydratedMemoryRow {
+    pub id: String,
+    pub content: String,
+    pub tags: Vec<String>,
+    pub importance: f64,
+    pub metadata: serde_json::Value,
+    pub event_type: Option<EventType>,
+    pub session_id: Option<String>,
+    pub project: Option<String>,
+    pub priority: Option<i64>,
+    pub created_at: String,
+    pub entity_id: Option<String>,
+    pub agent_type: Option<String>,
+    pub event_at: String,
+}
+
+#[cfg(feature = "sqlite-vec")]
+pub(super) fn hydrate_memories_by_ids(
+    conn: &rusqlite::Connection,
+    ids: &[String],
+    include_superseded: bool,
+    opts: Option<&SearchOptions>,
+    include_context_tags: bool,
+) -> Result<HashMap<String, HydratedMemoryRow>> {
+    use rusqlite::types::Value as SqlValue;
+
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut hydrated = HashMap::with_capacity(ids.len());
+
+    for chunk in ids.chunks(HYDRATE_ID_CHUNK_SIZE) {
+        let mut sql = String::from(
+            "SELECT id, content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
+             FROM memories
+             WHERE id IN (",
+        );
+        let mut params: Vec<SqlValue> = Vec::with_capacity(chunk.len() + 12);
+        for (idx, memory_id) in chunk.iter().enumerate() {
+            if idx > 0 {
+                sql.push_str(", ");
+            }
+            sql.push_str(&format!("?{}", idx + 1));
+            params.push(SqlValue::Text(memory_id.clone()));
+        }
+        sql.push(')');
+
+        let mut next_idx = chunk.len() + 1;
+        if !include_superseded {
+            sql.push_str(" AND superseded_by_id IS NULL");
+        }
+        if let Some(search_opts) = opts {
+            append_search_filters(&mut sql, &mut params, &mut next_idx, search_opts, "");
+            if include_context_tags {
+                append_context_tag_filters(
+                    &mut sql,
+                    &mut params,
+                    &mut next_idx,
+                    search_opts.context_tags.as_deref(),
+                    "tags",
+                );
+            }
+        }
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .context("failed to prepare batched memory hydration query")?;
+        let param_refs = to_param_refs(&params);
+        let rows = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok(HydratedMemoryRow {
+                    id: row.get::<_, String>(0)?,
+                    content: row.get::<_, String>(1)?,
+                    tags: parse_tags_from_db(&row.get::<_, String>(2)?),
+                    importance: row.get::<_, f64>(3)?,
+                    metadata: parse_metadata_from_db(&row.get::<_, String>(4)?),
+                    event_type: event_type_from_sql(row.get::<_, Option<String>>(5).ok().flatten()),
+                    session_id: row.get::<_, Option<String>>(6).ok().flatten(),
+                    project: row.get::<_, Option<String>>(7).ok().flatten(),
+                    priority: row.get::<_, Option<i64>>(8).ok().flatten(),
+                    created_at: row
+                        .get::<_, String>(9)
+                        .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                    entity_id: row.get::<_, Option<String>>(10).ok().flatten(),
+                    agent_type: row.get::<_, Option<String>>(11).ok().flatten(),
+                    event_at: row
+                        .get::<_, String>(12)
+                        .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                })
+            })
+            .context("failed to execute batched memory hydration query")?;
+
+        for row in rows {
+            let row = row.context("failed to decode hydrated memory row")?;
+            hydrated.insert(row.id.clone(), row);
+        }
+    }
+
+    Ok(hydrated)
+}
+
 /// Result of expanding temporal references from a query string.
 #[derive(Debug, Default)]
 pub(super) struct TemporalExpansion {

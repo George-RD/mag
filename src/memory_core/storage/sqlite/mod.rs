@@ -965,7 +965,9 @@ use hot_cache::{HOT_CACHE_CAPACITY, HOT_CACHE_REFRESH_SECS, HotTierCache};
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};
 
 #[cfg(feature = "sqlite-vec")]
-use helpers::{vec_delete, vec_distance_to_similarity, vec_knn_search, vec_upsert};
+use helpers::{
+    hydrate_memories_by_ids, vec_delete, vec_distance_to_similarity, vec_knn_search, vec_upsert,
+};
 
 #[cfg(test)]
 mod tests;
