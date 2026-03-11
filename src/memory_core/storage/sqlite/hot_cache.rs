@@ -162,99 +162,102 @@ impl HotTierCache {
             return Vec::new();
         }
 
-        let entries = match self.entries.read() {
-            Ok(guard) => guard.clone(),
-            Err(poison) => {
-                tracing::error!("hot cache RwLock poisoned during query; recovering");
-                poison.into_inner().clone()
-            }
-        };
-        if entries.is_empty() {
-            return Vec::new();
-        }
-
         let now_unix = chrono::Utc::now().timestamp();
-        let max_access = entries
-            .iter()
-            .filter(|entry| {
-                entry
-                    .expires_at_unix
-                    .is_none_or(|expires_at_unix| expires_at_unix > now_unix)
-            })
-            .map(|entry| entry.access_count)
-            .max()
-            .unwrap_or(1) as f64;
-        let mut results: Vec<SemanticResult> = entries
-            .into_iter()
-            .filter(|entry| {
-                entry
-                    .expires_at_unix
-                    .is_none_or(|expires_at_unix| expires_at_unix > now_unix)
-                    && opts
-                        .event_type
-                        .as_ref()
-                        .is_none_or(|event_type| entry.event_type.as_ref() == Some(event_type))
-                    && opts
-                        .project
-                        .as_ref()
-                        .is_none_or(|project| entry.project.as_ref() == Some(project))
-                    && opts
-                        .session_id
-                        .as_ref()
-                        .is_none_or(|session_id| entry.session_id.as_ref() == Some(session_id))
-                    && opts
-                        .importance_min
-                        .is_none_or(|importance_min| entry.importance >= importance_min)
-            })
-            .filter_map(|entry| {
-                let overlap = word_overlap_pre(&query_tokens, &entry.tokens);
-                if overlap <= 0.0 {
-                    return None;
+        let mut results: Vec<SemanticResult> = {
+            let entries = match self.entries.read() {
+                Ok(guard) => guard,
+                Err(poison) => {
+                    tracing::error!("hot cache RwLock poisoned during query; recovering");
+                    poison.into_inner()
                 }
+            };
+            if entries.is_empty() {
+                return Vec::new();
+            }
 
-                let jaccard = jaccard_pre(&query_tokens, &entry.tokens);
-                let access_norm = if max_access > 0.0 {
-                    entry.access_count as f64 / max_access
-                } else {
-                    0.0
-                };
-                let score = (overlap * 0.75
-                    + jaccard * 0.15
-                    + entry.importance * 0.05
-                    + access_norm * 0.05) as f32;
-                if score < HOT_CACHE_MIN_SCORE {
-                    return None;
-                }
-
-                let mut metadata = match entry.metadata {
-                    serde_json::Value::Object(map) => serde_json::Value::Object(map),
-                    serde_json::Value::Null => serde_json::json!({}),
-                    other => serde_json::json!({ "_stored_metadata": other }),
-                };
-                if let serde_json::Value::Object(meta) = &mut metadata {
-                    meta.insert("_hot_cache".to_string(), serde_json::json!(true));
-                    meta.insert("_hot_cache_score".to_string(), serde_json::json!(score));
-                    meta.insert("_text_overlap".to_string(), serde_json::json!(overlap));
-                    meta.insert("_jaccard".to_string(), serde_json::json!(jaccard));
-                    meta.insert(
-                        "_access_count".to_string(),
-                        serde_json::json!(entry.access_count),
-                    );
-                }
-
-                Some(SemanticResult {
-                    id: entry.id,
-                    content: entry.content,
-                    tags: entry.tags,
-                    importance: entry.importance,
-                    metadata,
-                    event_type: entry.event_type,
-                    session_id: entry.session_id,
-                    project: entry.project,
-                    score,
+            let max_access = entries
+                .iter()
+                .filter(|entry| {
+                    entry
+                        .expires_at_unix
+                        .is_none_or(|expires_at_unix| expires_at_unix > now_unix)
                 })
-            })
-            .collect();
+                .map(|entry| entry.access_count)
+                .max()
+                .unwrap_or(1) as f64;
+
+            entries
+                .iter()
+                .filter(|entry| {
+                    entry
+                        .expires_at_unix
+                        .is_none_or(|expires_at_unix| expires_at_unix > now_unix)
+                        && opts
+                            .event_type
+                            .as_ref()
+                            .is_none_or(|event_type| entry.event_type.as_ref() == Some(event_type))
+                        && opts
+                            .project
+                            .as_ref()
+                            .is_none_or(|project| entry.project.as_ref() == Some(project))
+                        && opts
+                            .session_id
+                            .as_ref()
+                            .is_none_or(|session_id| entry.session_id.as_ref() == Some(session_id))
+                        && opts
+                            .importance_min
+                            .is_none_or(|importance_min| entry.importance >= importance_min)
+                })
+                .filter_map(|entry| {
+                    let overlap = word_overlap_pre(&query_tokens, &entry.tokens);
+                    if overlap <= 0.0 {
+                        return None;
+                    }
+
+                    let jaccard = jaccard_pre(&query_tokens, &entry.tokens);
+                    let access_norm = if max_access > 0.0 {
+                        entry.access_count as f64 / max_access
+                    } else {
+                        0.0
+                    };
+                    let score = (overlap * 0.75
+                        + jaccard * 0.15
+                        + entry.importance * 0.05
+                        + access_norm * 0.05) as f32;
+                    if score < HOT_CACHE_MIN_SCORE {
+                        return None;
+                    }
+
+                    let mut metadata = match &entry.metadata {
+                        serde_json::Value::Object(map) => serde_json::Value::Object(map.clone()),
+                        serde_json::Value::Null => serde_json::json!({}),
+                        other => serde_json::json!({ "_stored_metadata": other }),
+                    };
+                    if let serde_json::Value::Object(meta) = &mut metadata {
+                        meta.insert("_hot_cache".to_string(), serde_json::json!(true));
+                        meta.insert("_hot_cache_score".to_string(), serde_json::json!(score));
+                        meta.insert("_text_overlap".to_string(), serde_json::json!(overlap));
+                        meta.insert("_jaccard".to_string(), serde_json::json!(jaccard));
+                        meta.insert(
+                            "_access_count".to_string(),
+                            serde_json::json!(entry.access_count),
+                        );
+                    }
+
+                    Some(SemanticResult {
+                        id: entry.id.clone(),
+                        content: entry.content.clone(),
+                        tags: entry.tags.clone(),
+                        importance: entry.importance,
+                        metadata,
+                        event_type: entry.event_type.clone(),
+                        session_id: entry.session_id.clone(),
+                        project: entry.project.clone(),
+                        score,
+                    })
+                })
+                .collect()
+        };
 
         results.sort_by(|left, right| right.score.total_cmp(&left.score));
         results.truncate(limit);
