@@ -5728,6 +5728,54 @@ async fn hot_cache_merge_dedupes_matching_content_fingerprints() {
 }
 
 #[tokio::test]
+async fn hot_cache_does_not_reintroduce_suppressed_results() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    storage
+        .store(
+            "hot-suppressed",
+            "migration runbook",
+            &MemoryInput {
+                content: "migration runbook".to_string(),
+                importance: 0.9,
+                metadata: serde_json::json!({ "feedback_score": -5 }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage
+        .debug_force_access_count("hot-suppressed", 100)
+        .unwrap();
+
+    storage
+        .store(
+            "hot-winner",
+            "migration runbook for production cutovers",
+            &MemoryInput {
+                content: "migration runbook for production cutovers".to_string(),
+                importance: 1.0,
+                event_type: Some(EventType::Decision),
+                metadata: serde_json::json!({ "feedback_score": 4 }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "migration runbook",
+        1,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "hot-winner");
+}
+
+#[tokio::test]
 async fn hot_cache_refreshes_updated_content() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     storage

@@ -503,12 +503,18 @@ pub(super) fn append_search_filters(
         *idx += 1;
     }
     if let Some(ref event_after) = opts.event_after {
-        sql.push_str(&format!(" AND {}event_at >= ?{}", col_prefix, *idx));
+        sql.push_str(&format!(
+            " AND COALESCE({}event_at, '{}') >= ?{}",
+            col_prefix, EPOCH_FALLBACK, *idx
+        ));
         params.push(SqlValue::Text(event_after.clone()));
         *idx += 1;
     }
     if let Some(ref event_before) = opts.event_before {
-        sql.push_str(&format!(" AND {}event_at <= ?{}", col_prefix, *idx));
+        sql.push_str(&format!(
+            " AND COALESCE({}event_at, '{}') <= ?{}",
+            col_prefix, EPOCH_FALLBACK, *idx
+        ));
         params.push(SqlValue::Text(event_before.clone()));
         *idx += 1;
     }

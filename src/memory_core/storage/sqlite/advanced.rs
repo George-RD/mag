@@ -1,6 +1,17 @@
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;
 
+const ADVANCED_FTS_CANDIDATE_MULTIPLIER: usize = 20;
+const ADVANCED_FTS_CANDIDATE_MIN: usize = 100;
+const ADVANCED_FTS_CANDIDATE_MAX: usize = 5_000;
+
+fn advanced_fts_candidate_limit(limit: usize) -> usize {
+    let oversampled_limit = limit
+        .saturating_mul(ADVANCED_FTS_CANDIDATE_MULTIPLIER)
+        .clamp(ADVANCED_FTS_CANDIDATE_MIN, ADVANCED_FTS_CANDIDATE_MAX);
+    oversampled_limit.max(limit)
+}
+
 /// Phase 1: Collect vector candidates sorted by cosine similarity.
 fn collect_vector_candidates(
     conn: &Connection,
@@ -217,6 +228,7 @@ fn collect_vector_candidates(
 fn collect_fts_candidates(
     conn: &Connection,
     query: &str,
+    limit: usize,
     opts: &SearchOptions,
     include_superseded: bool,
     scoring_params: &ScoringParams,
@@ -234,23 +246,14 @@ fn collect_fts_candidates(
     );
     let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
     let mut param_idx = 2;
-    // Strip temporal filters for FTS: time_decay() handles temporal
-    // scoring post-RRF, so we avoid removing candidates before fusion.
-    let fts_opts = SearchOptions {
-        created_after: None,
-        created_before: None,
-        ..opts.clone()
-    };
-    append_search_filters(
-        &mut fts_sql,
-        &mut fts_params,
-        &mut param_idx,
-        &fts_opts,
-        "m.",
-    );
+    append_search_filters(&mut fts_sql, &mut fts_params, &mut param_idx, opts, "m.");
     if !include_superseded {
         fts_sql.push_str(" AND m.superseded_by_id IS NULL");
     }
+    fts_sql.push_str(" ORDER BY bm25(memories_fts) ASC LIMIT ?");
+    fts_sql.push_str(&param_idx.to_string());
+    let sql_limit = i64::try_from(advanced_fts_candidate_limit(limit)).unwrap_or(i64::MAX);
+    fts_params.push(SqlValue::Integer(sql_limit));
 
     let fts_stmt = conn.prepare(&fts_sql);
     if let Err(e) = &fts_stmt {
@@ -884,9 +887,7 @@ fn merge_hot_cache_results(
     for hot_result in hot_results {
         if let Some(existing) = merged.get_mut(&hot_result.id) {
             merge_semantic_result(existing, hot_result);
-            continue;
         }
-        merged.insert(hot_result.id.clone(), hot_result);
     }
 
     let mut merged_results: Vec<_> = merged.into_values().collect();
@@ -1036,7 +1037,7 @@ impl AdvancedSearcher for SqliteStorage {
                 let sp = scoring_params.clone();
                 move || {
                     let conn = pool.reader()?;
-                    collect_fts_candidates(&conn, &q, &o, include_superseded, &sp)
+                    collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)
                 }
             })
             .await
@@ -1060,7 +1061,7 @@ impl AdvancedSearcher for SqliteStorage {
                     let sp = scoring_params.clone();
                     move || {
                         let conn = pool.reader()?;
-                        collect_fts_candidates(&conn, &q, &o, include_superseded, &sp)
+                        collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)
                     }
                 }),
             )
@@ -1078,7 +1079,8 @@ impl AdvancedSearcher for SqliteStorage {
                     let conn = pool.reader()?;
                     let vec_c =
                         collect_vector_candidates(&conn, &emb, limit, include_superseded, &sp)?;
-                    let fts_c = collect_fts_candidates(&conn, &q, &o, include_superseded, &sp)?;
+                    let fts_c =
+                        collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)?;
                     Ok::<_, anyhow::Error>((vec_c, fts_c))
                 }
             })
@@ -1136,5 +1138,131 @@ impl AdvancedSearcher for SqliteStorage {
         }
 
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{advanced_fts_candidate_limit, collect_fts_candidates};
+    use crate::memory_core::{MemoryInput, SearchOptions, Storage, storage::SqliteStorage};
+    use rusqlite::params;
+
+    #[test]
+    fn advanced_fts_candidate_limit_is_bounded() {
+        assert_eq!(advanced_fts_candidate_limit(1), 100);
+        assert_eq!(advanced_fts_candidate_limit(10), 200);
+        assert_eq!(advanced_fts_candidate_limit(1_000), 5_000);
+        assert_eq!(advanced_fts_candidate_limit(5_001), 5_001);
+    }
+
+    #[tokio::test]
+    async fn bounded_fts_candidates_preserve_created_at_filters() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        for idx in 0..120 {
+            let id = format!("old-{idx}");
+            <SqliteStorage as Storage>::store(
+                &storage,
+                &id,
+                "alpha",
+                &MemoryInput {
+                    content: "alpha".to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "recent-match",
+            "alpha context details",
+            &MemoryInput {
+                content: "alpha context details".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let conn = storage.test_conn().unwrap();
+        conn.execute(
+            "UPDATE memories SET created_at = '2000-01-01T00:00:00.000Z' WHERE id LIKE 'old-%'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(memories_fts) VALUES('rebuild')",
+            params![],
+        )
+        .unwrap();
+
+        let candidates = collect_fts_candidates(
+            &conn,
+            "alpha",
+            1,
+            &SearchOptions {
+                created_after: Some("2025-01-01T00:00:00.000Z".to_string()),
+                ..Default::default()
+            },
+            true,
+            &storage.scoring_params,
+        )
+        .unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].0, "recent-match");
+    }
+
+    #[tokio::test]
+    async fn bounded_fts_candidates_preserve_event_at_filters() {
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        for idx in 0..120 {
+            let id = format!("old-event-{idx}");
+            <SqliteStorage as Storage>::store(
+                &storage,
+                &id,
+                "alpha",
+                &MemoryInput {
+                    content: "alpha".to_string(),
+                    referenced_date: Some("2000-01-01T00:00:00.000Z".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "recent-event-match",
+            "alpha context details",
+            &MemoryInput {
+                content: "alpha context details".to_string(),
+                referenced_date: Some("2025-06-01T00:00:00.000Z".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let conn = storage.test_conn().unwrap();
+        let recent_candidates = collect_fts_candidates(
+            &conn,
+            "alpha",
+            1,
+            &SearchOptions {
+                event_after: Some("2025-01-01T00:00:00.000Z".to_string()),
+                ..Default::default()
+            },
+            true,
+            &storage.scoring_params,
+        )
+        .unwrap();
+
+        assert_eq!(recent_candidates.len(), 1);
+        assert_eq!(recent_candidates[0].0, "recent-event-match");
     }
 }
