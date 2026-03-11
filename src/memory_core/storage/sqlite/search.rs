@@ -195,6 +195,7 @@ impl SemanticSearcher for SqliteStorage {
         let opts = opts.clone();
 
         tokio::task::spawn_blocking(move || {
+            #[cfg(not(feature = "sqlite-vec"))]
             use rusqlite::types::Value as SqlValue;
 
             let include_superseded = opts.include_superseded.unwrap_or(false);
@@ -210,71 +211,43 @@ impl SemanticSearcher for SqliteStorage {
             {
                 let knn_limit = limit.saturating_mul(5).clamp(100, 5_000);
                 let knn_results = vec_knn_search(&conn, &query_embedding, knn_limit)?;
+                let hydration_batch_size = limit.saturating_mul(4).clamp(32, 256);
 
-                let mut check_sql = String::from(
-                    "SELECT content, tags, importance, metadata, event_type, session_id, project
-                     FROM memories WHERE id = ?1",
-                );
-                if !include_superseded {
-                    check_sql.push_str(" AND superseded_by_id IS NULL");
-                }
-                let mut filter_params: Vec<SqlValue> = Vec::new();
-                let mut check_idx = 2;
-                append_search_filters(
-                    &mut check_sql,
-                    &mut filter_params,
-                    &mut check_idx,
-                    &opts,
-                    "",
-                );
-                append_context_tag_filters(
-                    &mut check_sql,
-                    &mut filter_params,
-                    &mut check_idx,
-                    opts.context_tags.as_deref(),
-                    "tags",
-                );
-                let mut row_stmt = conn
-                    .prepare(&check_sql)
-                    .context("failed to prepare vec result lookup")?;
-
-                for (memory_id, distance) in knn_results {
+                for knn_chunk in knn_results.chunks(hydration_batch_size) {
                     if ranked.len() >= limit {
                         break;
                     }
-                    let similarity = vec_distance_to_similarity(distance) as f32;
 
-                    let mut bound_params: Vec<SqlValue> =
-                        vec![SqlValue::Text(memory_id.clone())];
-                    bound_params.extend(filter_params.iter().cloned());
-                    let refs = to_param_refs(&bound_params);
-                    let row_data = row_stmt
-                        .query_row(refs.as_slice(), |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, f64>(2)?,
-                                row.get::<_, String>(3)?,
-                                row.get::<_, Option<String>>(4).ok().flatten(),
-                                row.get::<_, Option<String>>(5).ok().flatten(),
-                                row.get::<_, Option<String>>(6).ok().flatten(),
-                            ))
-                        })
-                        .optional()
-                        .context("failed to fetch memory for vec result")?;
+                    let ordered_ids: Vec<String> = knn_chunk
+                        .iter()
+                        .map(|(memory_id, _)| memory_id.clone())
+                        .collect();
+                    let mut hydrated_rows = hydrate_memories_by_ids(
+                        &conn,
+                        &ordered_ids,
+                        include_superseded,
+                        Some(&opts),
+                        true,
+                    )?;
 
-                    if let Some((content, raw_tags, importance, raw_metadata, event_type_str, session_id, project)) = row_data {
-                        ranked.push(SemanticResult {
-                            id: memory_id,
-                            content,
-                            tags: parse_tags_from_db(&raw_tags),
-                            importance,
-                            metadata: parse_metadata_from_db(&raw_metadata),
-                            event_type: event_type_from_sql(event_type_str),
-                            session_id,
-                            project,
-                            score: similarity,
-                        });
+                    for (memory_id, distance) in knn_chunk {
+                        if ranked.len() >= limit {
+                            break;
+                        }
+                        let similarity = vec_distance_to_similarity(*distance) as f32;
+                        if let Some(row_data) = hydrated_rows.remove(memory_id) {
+                            ranked.push(SemanticResult {
+                                id: memory_id.clone(),
+                                content: row_data.content,
+                                tags: row_data.tags,
+                                importance: row_data.importance,
+                                metadata: row_data.metadata,
+                                event_type: row_data.event_type,
+                                session_id: row_data.session_id,
+                                project: row_data.project,
+                                score: similarity,
+                            });
+                        }
                     }
                 }
             }

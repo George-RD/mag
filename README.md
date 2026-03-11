@@ -1,57 +1,71 @@
-# romega-memory
+# MAG
 
-A high-performance MCP memory server built in Rust. Inspired by [omega-memory](https://github.com/pchaganti/gx-omega-memory), reimplemented from scratch with a focus on speed, low memory footprint, and zero external dependencies.
+Memory-Augmented Generation for local agents and MCP clients.
 
-## Why romega-memory?
+`MAG` is the product name. The Rust crate, binary, and default data directory are still named `romega-memory`, so the commands and paths below use that name.
 
-- **Single binary** — no Python, no pip, no virtualenv. One `cargo build --release` and you're done.
-- **No LLM required** — local ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. Works fully offline.
-- **16 MCP tools** — store, search, relate, checkpoint, profile, remind, version chain, and more.
-- **Self-contained** — one binary, one SQLite database, one auto-downloaded model. No external services.
-- **Sub-second startup** — 14ms cold start from the release binary.
+## What MAG Is
 
-## Performance
+MAG is a Rust-first memory system for coding agents and MCP-compatible tools. It stores structured memory in SQLite, supports text and semantic retrieval, exposes a local CLI and stdio MCP server, and runs without a Python runtime or an external vector database.
 
-Benchmarked using the [LongMemEval](https://arxiv.org/abs/2407.15853)-inspired evaluation (80 memories, 100 queries, 5 categories). Both implementations measured on the same hardware (Apple M-series), same benchmark data, same ONNX model:
+It is designed for the workflows this repository already supports well:
 
-| Metric | Rust | Python |
-| --- | :---: | :---: |
-| Wall time | 2.0 s | 1.09 s |
-| CPU time | 3.0 s | 4.52 s |
-| Peak RSS | 327 MB | 326 MB |
-| Concurrent QPS (N=16) | **1,665** | N/A |
-| Binary size | 36 MB (arm64) | ~200 MB (venv) |
-| Startup time | **14 ms** | ~2 s |
+- local-first agent memory with one binary and one database
+- hybrid retrieval with SQLite FTS5 plus optional `sqlite-vec` acceleration
+- task continuity features like checkpoints, reminders, lessons, and profile state
+- portable export/import without standing infrastructure
 
-> **Note:** Wall time includes seeding 80 memories + running 100 queries on an in-memory SQLite connection. Python uses more CPU time (ONNX parallelizes across all cores) but finishes faster wall-clock because Rust's search pipeline is currently single-threaded per query. Peak RSS includes the ONNX runtime and bge-small-en-v1.5 model. Measured via `/usr/bin/time -l` on macOS.
+## Why Use MAG
 
-```text
-Retrieval Quality (LongMemEval Local)
-┌─────────────────────────┬───────┬────────┐
-│ Category                │ Rust  │ Python │
-├─────────────────────────┼───────┼────────┤
-│ Information Extraction  │ 100%  │  100%  │
-│ Multi-Session Reasoning │  90%  │  100%  │
-│ Temporal Reasoning      │  75%  │   80%  │
-│ Knowledge Update        │  95%  │   95%  │
-│ Abstention              │ 100%  │   75%  │
-├─────────────────────────┼───────┼────────┤
-│ Overall                 │  92%  │   90%  │
-└─────────────────────────┴───────┴────────┘
-```
+- Single Rust binary. No Python environment, no separate vector service, no hosted dependency.
+- Hybrid retrieval. Text search, semantic search, phrase search, similar-memory lookup, graph traversal, and multi-phase advanced search.
+- Practical agent surface. The current build ships 32 CLI commands and 16 MCP tools.
+- Local embeddings. Uses `bge-small-en-v1.5` through ONNX by default.
+- SQLite-first operations. WAL mode, additive migrations, FTS5 indexing, and optional `sqlite-vec`.
 
-> Benchmark uses real ONNX embeddings (bge-small-en-v1.5) with porter stemming, bigram expansion, and dual-match boost. Scoring parameters optimized via grid search across 2,880 combinations. Python numbers from head-to-head comparison using identical benchmark data on the same machine.
+## Benchmarks
 
-Run the benchmark yourself:
+These numbers were rerun on `2026-03-11 22:42:12 +0400` from branch `codex/retrieval-scaling-batch`, on a MacBook Pro (`Mac14,6`, Apple M2 Max, 12 CPU cores, 32 GB RAM) running macOS `26.3 (25D125)`. Commands used: `cargo run --release --bin longmemeval_bench -- --json` and `cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50`.
+
+### LongMemEval Local Rerun
+
+Command used:
 
 ```bash
-cargo run --release --bin longmemeval_bench                 # table output
-cargo run --release --bin longmemeval_bench -- --json        # machine-readable
-cargo run --release --bin longmemeval_bench -- --verbose     # per-question detail
-cargo run --release --bin longmemeval_bench -- --llm-judge   # LLM-as-judge (requires OPENAI_API_KEY)
-cargo run --release --bin longmemeval_bench -- --grid-search # parameter optimization
-cargo run --release --bin longmemeval_bench -- --concurrent  # + concurrent throughput (QPS, p50/p95/p99)
+cargo run --release --bin longmemeval_bench -- --json
 ```
+
+| Metric | Result |
+| --- | --- |
+| Dataset | 80 seeded memories, 100 queries, 5 categories |
+| Overall accuracy | 98 / 100 (98.0%) |
+| Seeding time | 2791 ms |
+| Query time | 1687 ms |
+| Peak RSS | 338,144 KB |
+
+| Category | Score |
+| --- | --- |
+| Information extraction | 20 / 20 |
+| Multi-session reasoning | 20 / 20 |
+| Temporal reasoning | 19 / 20 |
+| Knowledge update | 19 / 20 |
+| Abstention | 20 / 20 |
+
+### Scale Benchmark Rerun
+
+Command used:
+
+```bash
+cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
+```
+
+| Scale | Mean Search | P95 | P99 | Recall@5 |
+| --- | ---: | ---: | ---: | ---: |
+| 1K memories | 5.51 ms | 11.50 ms | 13.19 ms | 100.0% |
+| 5K memories | 4.86 ms | 10.14 ms | 10.81 ms | 100.0% |
+| 10K memories | 14.02 ms | 26.22 ms | 30.68 ms | 100.0% |
+
+From 1K to 10K memories, the rerun showed 2.5x mean-search slowdown and 2.3x P95 slowdown while keeping Recall@5 at 100%.
 
 ## Quick Start
 
@@ -61,157 +75,135 @@ cargo run --release --bin longmemeval_bench -- --concurrent  # + concurrent thro
 cargo build --release
 ```
 
-The binary is at `./target/release/romega-memory` (~36 MB, includes the ONNX runtime).
+The binary is written to `./target/release/romega-memory`.
 
-### Download embedding model
+### Download the Embedding Model
 
 ```bash
 cargo run --release -- download-model
 ```
 
-Downloads `bge-small-en-v1.5` (~134 MB) to `~/.romega-memory/models/`. Auto-downloads on first use if not present.
+This downloads `bge-small-en-v1.5` to `~/.romega-memory/models/`. The model is also auto-downloaded on first use.
 
-### CLI usage
+### Try the CLI
 
 ```bash
 # Store a memory
-cargo run --release -- ingest "Python's GIL prevents true parallel CPU-bound threads"
+cargo run --release -- ingest "The retry logic should use exponential backoff with jitter"
 
-# Retrieve by ID
-cargo run --release -- retrieve "<memory-id>"
+# Search by text
+cargo run --release -- search "retry logic"
 
-# Search
-cargo run --release -- search "Python threading"
+# Search by meaning
+cargo run --release -- semantic-search "how should retries work?"
 
-# Semantic search (uses embeddings)
-cargo run --release -- semantic-search "concurrency in Python"
+# Hybrid retrieval with richer scoring
+cargo run --release -- advanced-search "deployment rollback process"
 
-# Advanced search (hybrid vector + FTS5 with RRF fusion)
-cargo run --release -- advanced-search "how to handle shared state"
+# Explore recent context
+cargo run --release -- recent --limit 5
 
-# List recent memories
-cargo run --release -- recent
-
-# Full CLI help
+# Full help
 cargo run --release -- --help
 ```
 
-### MCP Server
+### Run the MCP Server
 
 ```bash
-# Start the MCP stdio server
 cargo run --release -- serve
 ```
 
-Or use the pre-built binary for fastest startup:
+Or run the built binary directly:
 
 ```bash
 ./target/release/romega-memory serve
 ```
 
-Copy `.mcp.json.example` to `.mcp.json` (gitignored) and configure it for your local MCP client integration.
+Copy `.mcp.json.example` to `.mcp.json` and point your MCP client at the local binary.
+
+## Current Surface Area
+
+### CLI
+
+The CLI currently exposes 32 commands, including:
+
+- ingest, process, retrieve, delete, update
+- list, recent, search, semantic-search, phrase-search, advanced-search, similar
+- relations, traverse, version-chain
+- checkpoint, resume-task, remind, lessons, profile, welcome, protocol
+- maintain, sweep, stats, stats-extended, export, import
+- download-model, download-cross-encoder, serve
+
+### MCP Tools
+
+The MCP server currently exposes 16 tools:
+
+| Category | Tools |
+| --- | --- |
+| Storage | `memory_store`, `memory_store_batch`, `memory_retrieve`, `memory_delete`, `memory_update` |
+| Retrieval | `memory_search`, `memory_list`, `memory_relations` |
+| Lifecycle | `memory_feedback`, `memory_lifecycle` |
+| Cross-session | `memory_checkpoint`, `memory_remind`, `memory_lessons`, `memory_profile` |
+| System | `memory_admin`, `memory_session_info` |
+
+## Retrieval Model
+
+MAG supports several retrieval paths:
+
+- FTS5 text search with porter stemming
+- semantic search over ONNX embeddings
+- similar-memory lookup from an existing memory ID
+- relationship traversal and version-chain lookup
+- advanced search that fuses vector and lexical candidates
+
+The advanced path combines vector similarity and FTS results, applies reciprocal-rank fusion, boosts dual matches, and then refines the score with factors like event type, time decay, priority, word overlap, importance, and feedback signals.
 
 ## Architecture
 
 ```text
 romega-memory
 ├── src/
-│   ├── main.rs                  # CLI dispatch (31 commands)
-│   ├── cli.rs                   # Clap command definitions
-│   ├── mcp_server.rs            # MCP stdio server (16 tools)
+│   ├── main.rs
+│   ├── cli.rs
+│   ├── mcp_server.rs
 │   └── memory_core/
-│       ├── mod.rs               # Traits, types, EventType enum, pipeline
-│       ├── embedder.rs          # ONNX embedder with batch inference + LRU cache
-│       ├── scoring.rs           # Type weights, priority, time decay, stemming, Jaccard
+│       ├── mod.rs
+│       ├── embedder.rs
+│       ├── reranker.rs
+│       ├── scoring.rs
 │       └── storage/sqlite/
-│           ├── mod.rs           # Connection pool (writer mutex + reader pool)
-│           ├── schema.rs        # Table creation, additive migrations
-│           ├── crud.rs          # Store/retrieve/update/delete
-│           ├── search.rs        # FTS5 BM25 + vector similarity
-│           ├── advanced.rs      # Multi-phase RRF pipeline + explainability
-│           ├── graph.rs         # Relationship traversal (BFS, max_hops)
-│           ├── lifecycle.rs     # TTL, sweep, feedback, dedup
-│           ├── session.rs       # Checkpoint, profile, welcome, protocol
-│           ├── admin.rs         # Stats, export/import, health, auto-compaction
-│           └── helpers.rs       # Shared utilities, FTS5 query builder
+│           ├── mod.rs
+│           ├── schema.rs
+│           ├── crud.rs
+│           ├── search.rs
+│           ├── advanced.rs
+│           ├── graph.rs
+│           ├── lifecycle.rs
+│           ├── session.rs
+│           ├── admin.rs
+│           └── helpers.rs
 ├── benches/
-│   ├── longmemeval/             # LongMemEval benchmark suite
-│   └── scale_bench.rs           # Scale degradation benchmark (1K–50K)
+│   ├── longmemeval/
+│   ├── onnx_profile.rs
+│   └── scale_bench.rs
 └── tests/
-    ├── mcp_smoke.rs             # MCP protocol integration test
-    └── parity_harness.rs        # Cross-implementation parity test
+    ├── cli_output_smoke.rs
+    ├── longmemeval_regression.rs
+    ├── mcp_smoke.rs
+    └── parity_harness.rs
 ```
 
-### Key Design Decisions
+Core implementation choices:
 
-- **EventType enum** — 22 typed variants + `Unknown(String)` for forward compatibility. Eliminates string comparisons in hot paths.
-- **Connection pool** — Single writer `Mutex` + N reader pool via WAL mode. No `rusqlite::Connection` sharing across threads.
-- **Batch embeddings** — `embed_batch()` pads inputs into a single ONNX tensor call with LRU cache deduplication.
-- **Zero-copy scoring** — `Cow<str>` in suffix stemming avoids allocations when no stemming applies.
-
-### MCP Tools (16)
-
-| Category | Tools |
-| --- | --- |
-| **Core** | `memory_store`, `memory_store_batch`, `memory_retrieve`, `memory_delete`, `memory_update` |
-| **Search** | `memory_search` (mode: text/semantic/phrase/tag/similar, `advanced=true` by default for text-mode multi-phase scoring) |
-| **Browse** | `memory_list` (sort: created/recent), `memory_relations` (action: list/add/traverse/version_chain) |
-| **Lifecycle** | `memory_feedback`, `memory_lifecycle` (action: sweep/health/consolidate/compact/auto_compact/clear_session) |
-| **Session** | `memory_checkpoint` (action: save/resume), `memory_profile`, `memory_session_info` (mode: welcome/protocol) |
-| **Admin** | `memory_admin` (action: health/export/import), `memory_remind`, `memory_lessons` |
-
-### Search Pipeline
-
-Advanced search uses a multi-phase pipeline inspired by information retrieval research:
-
-```text
-Query → Embed (bge-small-en-v1.5) → Vector Search + FTS5 BM25 (porter stemming)
-  │                                         │
-  └──────── Reciprocal Rank Fusion (RRF) ────┘
-                      │
-     Dual-match boost (candidates in both vec + FTS)
-                      │
-     Score Refinement: type × time_decay × priority × word_overlap × importance × feedback
-                      │
-     Abstention Gate (reject if no good match) → Final Ranked Results
-```
-
-**Retrieval phases:**
-
-1. **Vector similarity** — cosine distance on ONNX embeddings (bge-small-en-v1.5, 384-dim)
-2. **FTS5 BM25** — SQLite full-text search with porter stemming and bigram expansion
-3. **RRF fusion** — combines vector and text rankings with tuned vector/FTS weights
-4. **Dual-match boost** — boosts candidates present in both vector and FTS results
-5. **Score refinement** — type weighting, time decay, priority factors, word overlap + Jaccard similarity, importance boost, feedback signals
-6. **Abstention gate** — returns empty if no candidate exceeds a text-overlap threshold (prevents false positives)
-
-**Search features:**
-
-- **Explainability** — pass `explain: true` to get component scores (`_explain` metadata) for each result
-- **Confidence signal** — results include `confidence` (0.0–1.0) and `abstained` flag
-- **Temporal filtering** — `event_after` / `event_before` on `SearchOptions` to filter by time range
-- **Temporal expansion** — queries like "last week" or "yesterday" auto-expand to date filters
-
-**Memory classification:**
-
-- **Semantic memories** (decisions, lessons, preferences) — no time decay; facts don't expire
-- **Episodic memories** (session summaries, task completions) — configurable time decay
-
-All 24 scoring parameters are externalized via `ScoringParams` and can be tuned via grid search.
-
-### Auto-Compaction
-
-Automatic memory deduplication using embedding similarity:
-
-- Groups similar memories by cosine distance (configurable threshold, default 0.92)
-- Uses Union-Find clustering to merge groups transitively
-- Keeps the longest memory in each cluster, deletes the rest
-- Runs per event type with configurable limits
-- Available as `memory_maintain` MCP tool or CLI command
+- SQLite storage with additive schema migrations
+- blocking DB work isolated in `tokio::task::spawn_blocking`
+- ONNX embeddings behind the `Embedder` trait
+- optional `sqlite-vec` acceleration for vector candidate generation
+- hot-cache and query-cache support in the SQLite storage layer
 
 ## Development
 
-### Local quality gate
+### Local Quality Gate
 
 ```bash
 cargo fmt --all -- --check
@@ -219,31 +211,27 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-### Test suite
+### Benchmark Commands
 
-- **500+ unit tests** — storage, search, scoring, TTL, dedup, relationships, versioning, temporal, explainability, compaction, scale
-- **Integration tests** — MCP protocol smoke test, parity harness, cross-project isolation
-- All tests use in-memory SQLite (fast, hermetic, no cleanup)
+```bash
+cargo run --release --bin longmemeval_bench
+cargo run --release --bin longmemeval_bench -- --json
+cargo run --release --bin longmemeval_bench -- --concurrent
+cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
+cargo run --release --bin onnx_profile
+```
 
-### Feature flags
+### Feature Flags
 
 | Flag | Default | Description |
 | --- | :---: | --- |
-| `real-embeddings` | ON | ONNX runtime, tokenizers, model download |
-| `mimalloc` | OFF | Alternative memory allocator |
-| `sqlite-vec` | OFF | Vector search acceleration via sqlite-vec |
-
-### Conventions
-
-- Semantic commits: `feat(scope): description`
-- All DB I/O in `tokio::task::spawn_blocking`
-- No `unwrap()`/`expect()` in production paths
-- No stdout logging in MCP server mode (protocol corruption)
-- Additive schema migrations only (never drop/rename columns)
+| `real-embeddings` | ON | ONNX runtime, tokenizer support, model download |
+| `sqlite-vec` | OFF | Vector acceleration through `sqlite-vec` |
+| `mimalloc` | OFF | Alternative allocator |
 
 ## Lineage
 
-romega-memory is an independent Rust reimplementation inspired by [omega-memory](https://github.com/pchaganti/gx-omega-memory). The projects share conceptual design (MCP memory server with embeddings) but no code. romega-memory is built from scratch using Rust's type system, async runtime, and SQLite backend.
+MAG is implemented in this repository as `romega-memory`, an independent Rust reimplementation inspired by [omega-memory](https://github.com/pchaganti/gx-omega-memory). The conceptual lineage is shared; the code is not.
 
 ## License
 

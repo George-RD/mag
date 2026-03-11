@@ -18,6 +18,7 @@ fn collect_vector_candidates(
     query_embedding: &[f32],
     #[cfg_attr(not(feature = "sqlite-vec"), allow(unused))] limit: usize,
     include_superseded: bool,
+    #[cfg_attr(not(feature = "sqlite-vec"), allow(unused))] opts: &SearchOptions,
     scoring_params: &ScoringParams,
 ) -> Result<Vec<(String, f64, RankedSemanticCandidate)>> {
     let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
@@ -26,60 +27,24 @@ fn collect_vector_candidates(
     {
         let knn_limit = limit.saturating_mul(10).clamp(200, 10_000);
         let knn_results = vec_knn_search(conn, query_embedding, knn_limit)?;
-        let row_sql = if include_superseded {
-            "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
-             FROM memories WHERE id = ?1"
-        } else {
-            "SELECT content, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
-             FROM memories WHERE id = ?1 AND superseded_by_id IS NULL"
-        };
-        let mut row_stmt = conn
-            .prepare(row_sql)
-            .context("failed to prepare vec result lookup")?;
+        let ordered_ids: Vec<String> = knn_results
+            .iter()
+            .filter_map(|(memory_id, distance)| {
+                let similarity = vec_distance_to_similarity(*distance);
+                (similarity >= 0.1).then_some(memory_id.clone())
+            })
+            .collect();
+        let mut hydrated_rows =
+            hydrate_memories_by_ids(conn, &ordered_ids, include_superseded, Some(opts), true)?;
         for (memory_id, distance) in knn_results {
             let similarity = vec_distance_to_similarity(distance);
             if similarity < 0.1 {
                 continue;
             }
-            let row_data = row_stmt
-                .query_row(params![memory_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, f64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4).ok().flatten(),
-                        row.get::<_, Option<String>>(5).ok().flatten(),
-                        row.get::<_, Option<String>>(6).ok().flatten(),
-                        row.get::<_, Option<i64>>(7).ok().flatten(),
-                        row.get::<_, String>(8)
-                            .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
-                        row.get::<_, Option<String>>(9).ok().flatten(),
-                        row.get::<_, Option<String>>(10).ok().flatten(),
-                        row.get::<_, String>(11)
-                            .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
-                    ))
-                })
-                .optional()
-                .context("failed to fetch memory for vec result")?;
-            if let Some((
-                content,
-                raw_tags,
-                importance,
-                raw_metadata,
-                event_type_str,
-                session_id,
-                project,
-                priority,
-                created_at,
-                entity_id,
-                agent_type,
-                event_at,
-            )) = row_data
-            {
-                let et = event_type_from_sql(event_type_str.clone());
+            if let Some(row_data) = hydrated_rows.remove(&memory_id) {
+                let et = row_data.event_type.clone();
                 let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
-                let priority_value = if let Some(p) = priority
+                let priority_value = if let Some(p) = row_data.priority
                     && (1..=5).contains(&p)
                 {
                     p as u8
@@ -95,23 +60,23 @@ fn collect_vector_candidates(
                     RankedSemanticCandidate {
                         result: SemanticResult {
                             id: memory_id,
-                            content,
-                            tags: parse_tags_from_db(&raw_tags),
-                            importance,
-                            metadata: parse_metadata_from_db(&raw_metadata),
+                            content: row_data.content,
+                            tags: row_data.tags,
+                            importance: row_data.importance,
+                            metadata: row_data.metadata,
                             event_type: et,
-                            session_id,
-                            project,
+                            session_id: row_data.session_id,
+                            project: row_data.project,
                             score: 0.0,
                         },
-                        created_at,
-                        event_at,
+                        created_at: row_data.created_at,
+                        event_at: row_data.event_at,
                         score: initial_score,
                         priority_value,
                         vec_sim: Some(similarity),
                         text_overlap: 0.0,
-                        entity_id,
-                        agent_type,
+                        entity_id: row_data.entity_id,
+                        agent_type: row_data.agent_type,
                         explain: None,
                     },
                 ));
@@ -1048,10 +1013,11 @@ impl AdvancedSearcher for SqliteStorage {
                 tokio::task::spawn_blocking({
                     let pool = Arc::clone(&pool);
                     let emb = query_embedding.clone();
+                    let o = opts.clone();
                     let sp = scoring_params.clone();
                     move || {
                         let conn = pool.reader()?;
-                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &sp)
+                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &o, &sp)
                     }
                 }),
                 tokio::task::spawn_blocking({
@@ -1078,7 +1044,7 @@ impl AdvancedSearcher for SqliteStorage {
                 move || {
                     let conn = pool.reader()?;
                     let vec_c =
-                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &sp)?;
+                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &o, &sp)?;
                     let fts_c =
                         collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)?;
                     Ok::<_, anyhow::Error>((vec_c, fts_c))

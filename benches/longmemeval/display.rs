@@ -6,7 +6,7 @@ use crate::types::CategoryResult;
 pub(crate) fn print_results(results: &BTreeMap<String, CategoryResult>) -> (usize, usize, f64) {
     println!();
     println!("============================================================");
-    println!("  ROMEGA LongMemEval Benchmark Results");
+    println!("  MAG LongMemEval Benchmark Results");
     println!("============================================================");
 
     let mut total_correct = 0usize;
@@ -50,7 +50,7 @@ pub(crate) fn print_side_by_side_results(
     println!(
         "===================================================================================================================="
     );
-    println!("  ROMEGA LongMemEval Benchmark Results (Substring vs LLM Judge)");
+    println!("  MAG LongMemEval Benchmark Results (Substring vs LLM Judge)");
     println!(
         "===================================================================================================================="
     );

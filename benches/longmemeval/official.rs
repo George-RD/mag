@@ -296,7 +296,7 @@ pub(crate) async fn run_official_benchmark(
 pub(crate) fn print_official_results(summary: &OfficialSummary) {
     println!();
     println!("========================================================================");
-    println!("  ROMEGA — Official LongMemEval_S Benchmark Results");
+    println!("  MAG — Official LongMemEval_S Benchmark Results");
     println!("========================================================================");
     println!(
         "  Dataset: {} ({}/{} questions evaluated)",
