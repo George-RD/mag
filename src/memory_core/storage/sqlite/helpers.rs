@@ -681,11 +681,13 @@ pub(super) fn vec_knn_search(
     Ok(results)
 }
 
+/// Maximum number of memory IDs hydrated per SQLite `IN (...)` batch.
 #[cfg(feature = "sqlite-vec")]
-const HYDRATE_ID_CHUNK_SIZE: usize = 900;
+pub(super) const HYDRATE_ID_CHUNK_SIZE: usize = 900;
 
 #[cfg(feature = "sqlite-vec")]
 #[derive(Debug, Clone)]
+/// Fully decoded memory row used by sqlite-vec search paths after batched lookup.
 pub(super) struct HydratedMemoryRow {
     pub id: String,
     pub content: String,
@@ -703,6 +705,9 @@ pub(super) struct HydratedMemoryRow {
 }
 
 #[cfg(feature = "sqlite-vec")]
+/// Hydrates memory rows for an ordered ID list while applying the same filters as search paths.
+///
+/// The returned map is keyed by memory ID so callers can preserve their own ranking order.
 pub(super) fn hydrate_memories_by_ids(
     conn: &rusqlite::Connection,
     ids: &[String],

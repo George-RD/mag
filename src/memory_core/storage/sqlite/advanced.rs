@@ -18,6 +18,7 @@ fn collect_vector_candidates(
     query_embedding: &[f32],
     #[cfg_attr(not(feature = "sqlite-vec"), allow(unused))] limit: usize,
     include_superseded: bool,
+    #[cfg_attr(not(feature = "sqlite-vec"), allow(unused))] opts: &SearchOptions,
     scoring_params: &ScoringParams,
 ) -> Result<Vec<(String, f64, RankedSemanticCandidate)>> {
     let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
@@ -34,7 +35,7 @@ fn collect_vector_candidates(
             })
             .collect();
         let mut hydrated_rows =
-            hydrate_memories_by_ids(conn, &ordered_ids, include_superseded, None, false)?;
+            hydrate_memories_by_ids(conn, &ordered_ids, include_superseded, Some(opts), true)?;
         for (memory_id, distance) in knn_results {
             let similarity = vec_distance_to_similarity(distance);
             if similarity < 0.1 {
@@ -1012,10 +1013,11 @@ impl AdvancedSearcher for SqliteStorage {
                 tokio::task::spawn_blocking({
                     let pool = Arc::clone(&pool);
                     let emb = query_embedding.clone();
+                    let o = opts.clone();
                     let sp = scoring_params.clone();
                     move || {
                         let conn = pool.reader()?;
-                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &sp)
+                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &o, &sp)
                     }
                 }),
                 tokio::task::spawn_blocking({
@@ -1042,7 +1044,7 @@ impl AdvancedSearcher for SqliteStorage {
                 move || {
                     let conn = pool.reader()?;
                     let vec_c =
-                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &sp)?;
+                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &o, &sp)?;
                     let fts_c =
                         collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)?;
                     Ok::<_, anyhow::Error>((vec_c, fts_c))

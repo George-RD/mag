@@ -211,33 +211,43 @@ impl SemanticSearcher for SqliteStorage {
             {
                 let knn_limit = limit.saturating_mul(5).clamp(100, 5_000);
                 let knn_results = vec_knn_search(&conn, &query_embedding, knn_limit)?;
-                let ordered_ids: Vec<String> =
-                    knn_results.iter().map(|(memory_id, _)| memory_id.clone()).collect();
-                let mut hydrated_rows = hydrate_memories_by_ids(
-                    &conn,
-                    &ordered_ids,
-                    include_superseded,
-                    Some(&opts),
-                    true,
-                )?;
+                let hydration_batch_size = limit.saturating_mul(4).clamp(32, 256);
 
-                for (memory_id, distance) in knn_results {
+                for knn_chunk in knn_results.chunks(hydration_batch_size) {
                     if ranked.len() >= limit {
                         break;
                     }
-                    let similarity = vec_distance_to_similarity(distance) as f32;
-                    if let Some(row_data) = hydrated_rows.remove(&memory_id) {
-                        ranked.push(SemanticResult {
-                            id: memory_id,
-                            content: row_data.content,
-                            tags: row_data.tags,
-                            importance: row_data.importance,
-                            metadata: row_data.metadata,
-                            event_type: row_data.event_type,
-                            session_id: row_data.session_id,
-                            project: row_data.project,
-                            score: similarity,
-                        });
+
+                    let ordered_ids: Vec<String> = knn_chunk
+                        .iter()
+                        .map(|(memory_id, _)| memory_id.clone())
+                        .collect();
+                    let mut hydrated_rows = hydrate_memories_by_ids(
+                        &conn,
+                        &ordered_ids,
+                        include_superseded,
+                        Some(&opts),
+                        true,
+                    )?;
+
+                    for (memory_id, distance) in knn_chunk {
+                        if ranked.len() >= limit {
+                            break;
+                        }
+                        let similarity = vec_distance_to_similarity(*distance) as f32;
+                        if let Some(row_data) = hydrated_rows.remove(memory_id) {
+                            ranked.push(SemanticResult {
+                                id: memory_id.clone(),
+                                content: row_data.content,
+                                tags: row_data.tags,
+                                importance: row_data.importance,
+                                metadata: row_data.metadata,
+                                event_type: row_data.event_type,
+                                session_id: row_data.session_id,
+                                project: row_data.project,
+                                score: similarity,
+                            });
+                        }
                     }
                 }
             }

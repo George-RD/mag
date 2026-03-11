@@ -807,6 +807,7 @@ async fn test_semantic_search_include_superseded_shows_all() {
         .await
         .unwrap();
     assert!(default_results.iter().all(|result| result.id != "sem-old"));
+    assert!(default_results.iter().any(|result| result.id == "sem-new"));
 
     let all_results = storage
         .semantic_search(
@@ -828,8 +829,9 @@ async fn test_semantic_search_include_superseded_shows_all() {
 async fn test_hydrate_memories_by_ids_chunks_large_id_lists() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     let mut ids = Vec::new();
+    let total = super::helpers::HYDRATE_ID_CHUNK_SIZE * 2 + 1;
 
-    for idx in 0..950 {
+    for idx in 0..total {
         let id = format!("chunk-{idx}");
         <SqliteStorage as Storage>::store(
             &storage,
@@ -849,6 +851,24 @@ async fn test_hydrate_memories_by_ids_chunks_large_id_lists() {
     let hydrated = hydrate_memories_by_ids(&conn, &ids, true, None, false).unwrap();
 
     assert_eq!(hydrated.len(), ids.len());
+    for idx in [
+        super::helpers::HYDRATE_ID_CHUNK_SIZE - 1,
+        super::helpers::HYDRATE_ID_CHUNK_SIZE,
+        super::helpers::HYDRATE_ID_CHUNK_SIZE + 1,
+    ] {
+        let key = format!("chunk-{idx}");
+        assert_eq!(
+            hydrated[&key]
+                .metadata
+                .get("idx")
+                .and_then(serde_json::Value::as_u64),
+            Some(idx as u64)
+        );
+        assert_eq!(
+            hydrated[&key].content,
+            format!("chunked hydration payload {idx}")
+        );
+    }
     assert_eq!(
         hydrated["chunk-42"]
             .metadata

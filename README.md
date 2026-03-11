@@ -25,7 +25,7 @@ It is designed for the workflows this repository already supports well:
 
 ## Benchmarks
 
-These numbers were rerun on `2026-03-11 22:24:31 +04` on branch `codex/retrieval-scaling-batch` at commit `80a4d7ebc2827ea4b1c7d80e1a76b4dff23ddaa3`, on a MacBook Pro (`Mac14,6`, Apple M2 Max, 12 CPU cores, 32 GB RAM) running macOS `26.3 (25D125)`. Commands used: `cargo run --release --bin longmemeval_bench -- --json` and `cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50`.
+These numbers were rerun on `2026-03-11 22:42:12 +0400` from branch `codex/retrieval-scaling-batch`, on a MacBook Pro (`Mac14,6`, Apple M2 Max, 12 CPU cores, 32 GB RAM) running macOS `26.3 (25D125)`. Commands used: `cargo run --release --bin longmemeval_bench -- --json` and `cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50`.
 
 ### LongMemEval Local Rerun
 
@@ -39,9 +39,9 @@ cargo run --release --bin longmemeval_bench -- --json
 | --- | --- |
 | Dataset | 80 seeded memories, 100 queries, 5 categories |
 | Overall accuracy | 98 / 100 (98.0%) |
-| Seeding time | 724 ms |
-| Query time | 856 ms |
-| Peak RSS | 346,032 KB |
+| Seeding time | 2791 ms |
+| Query time | 1687 ms |
+| Peak RSS | 338,144 KB |
 
 | Category | Score |
 | --- | --- |
@@ -61,11 +61,11 @@ cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
 
 | Scale | Mean Search | P95 | P99 | Recall@5 |
 | --- | ---: | ---: | ---: | ---: |
-| 1K memories | 5.23 ms | 10.18 ms | 10.74 ms | 100.0% |
-| 5K memories | 4.81 ms | 9.44 ms | 12.20 ms | 100.0% |
-| 10K memories | 13.72 ms | 25.46 ms | 27.00 ms | 100.0% |
+| 1K memories | 5.51 ms | 11.50 ms | 13.19 ms | 100.0% |
+| 5K memories | 4.86 ms | 10.14 ms | 10.81 ms | 100.0% |
+| 10K memories | 14.02 ms | 26.22 ms | 30.68 ms | 100.0% |
 
-From 1K to 10K memories, the rerun showed 2.6x mean-search slowdown and 2.5x P95 slowdown while keeping Recall@5 at 100%.
+From 1K to 10K memories, the rerun showed 2.5x mean-search slowdown and 2.3x P95 slowdown while keeping Recall@5 at 100%.
 
 ## Quick Start
 
