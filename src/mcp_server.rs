@@ -164,6 +164,10 @@ struct ListRequest {
     event_after: Option<String>,
     /// ISO 8601 upper bound for event_at (inclusive).
     event_before: Option<String>,
+    importance_min: Option<f64>,
+    created_after: Option<String>,
+    created_before: Option<String>,
+    context_tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -577,6 +581,10 @@ impl McpMemoryServer {
             include_superseded: params.0.include_superseded,
             event_after: params.0.event_after.clone(),
             event_before: params.0.event_before.clone(),
+            importance_min: params.0.importance_min,
+            created_after: params.0.created_after.clone(),
+            created_before: params.0.created_before.clone(),
+            context_tags: params.0.context_tags.clone(),
             ..Default::default()
         };
 

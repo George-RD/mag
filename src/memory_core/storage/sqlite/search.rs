@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::storage::sqlite::helpers::append_context_tag_filters;
 
 #[async_trait]
 impl Searcher for SqliteStorage {
@@ -36,6 +37,13 @@ impl Searcher for SqliteStorage {
             let mut fts_params: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
             let mut param_idx = 2;
             append_search_filters(&mut fts_sql, &mut fts_params, &mut param_idx, &opts, "m.");
+            append_context_tag_filters(
+                &mut fts_sql,
+                &mut fts_params,
+                &mut param_idx,
+                opts.context_tags.as_deref(),
+                "m.tags",
+            );
             fts_sql.push_str(" ORDER BY bm25(memories_fts)");
             fts_sql.push_str(&format!(" LIMIT ?{param_idx}"));
             fts_params.push(SqlValue::Integer(effective_limit));
@@ -75,6 +83,13 @@ impl Searcher for SqliteStorage {
             let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
             let mut idx = 2;
             append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
+            append_context_tag_filters(
+                &mut sql,
+                &mut params_values,
+                &mut idx,
+                opts.context_tags.as_deref(),
+                "tags",
+            );
             sql.push_str(" ORDER BY last_accessed_at DESC");
             sql.push_str(&format!(" LIMIT ?{idx}"));
             params_values.push(SqlValue::Integer(effective_limit));
@@ -126,6 +141,13 @@ impl Recents for SqliteStorage {
             let mut params_values: Vec<SqlValue> = Vec::new();
             let mut idx = 1;
             append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
+            append_context_tag_filters(
+                &mut sql,
+                &mut params_values,
+                &mut idx,
+                opts.context_tags.as_deref(),
+                "tags",
+            );
             if !include_superseded {
                 sql.push_str(" AND superseded_by_id IS NULL");
             }
@@ -205,6 +227,13 @@ impl SemanticSearcher for SqliteStorage {
                     &opts,
                     "",
                 );
+                append_context_tag_filters(
+                    &mut check_sql,
+                    &mut filter_params,
+                    &mut check_idx,
+                    opts.context_tags.as_deref(),
+                    "tags",
+                );
                 let mut row_stmt = conn
                     .prepare(&check_sql)
                     .context("failed to prepare vec result lookup")?;
@@ -263,6 +292,13 @@ impl SemanticSearcher for SqliteStorage {
                 let mut params_values: Vec<SqlValue> = Vec::new();
                 let mut idx = 1;
                 append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
+                append_context_tag_filters(
+                    &mut sql,
+                    &mut params_values,
+                    &mut idx,
+                    opts.context_tags.as_deref(),
+                    "tags",
+                );
 
                 let mut stmt = conn
                     .prepare(&sql)
@@ -370,6 +406,13 @@ impl PhraseSearcher for SqliteStorage {
             let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
             let mut idx = 2;
             append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
+            append_context_tag_filters(
+                &mut sql,
+                &mut params_values,
+                &mut idx,
+                opts.context_tags.as_deref(),
+                "tags",
+            );
             sql.push_str(" ORDER BY created_at DESC");
             sql.push_str(&format!(" LIMIT ?{idx}"));
             params_values.push(SqlValue::Integer(limit));
@@ -385,16 +428,7 @@ impl PhraseSearcher for SqliteStorage {
 
             let mut out = Vec::new();
             for row in rows {
-                let result = row.context("failed to decode phrase search row")?;
-                if let Some(context_tags) = opts.context_tags.as_ref()
-                    && !context_tags.is_empty()
-                    && !context_tags
-                        .iter()
-                        .all(|tag| result.tags.iter().any(|r| r.eq_ignore_ascii_case(tag)))
-                {
-                    continue;
-                }
-                out.push(result);
+                out.push(row.context("failed to decode phrase search row")?);
             }
 
             Ok::<_, anyhow::Error>(out)

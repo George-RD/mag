@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::storage::sqlite::helpers::append_context_tag_filters;
 
 #[async_trait]
 impl FeedbackRecorder for SqliteStorage {
@@ -159,6 +160,13 @@ impl Lister for SqliteStorage {
                 let mut params_values: Vec<SqlValue> = Vec::new();
                 let mut idx = 1;
                 append_search_filters(&mut sql, &mut params_values, &mut idx, &count_opts, "");
+                append_context_tag_filters(
+                    &mut sql,
+                    &mut params_values,
+                    &mut idx,
+                    count_opts.context_tags.as_deref(),
+                    "tags",
+                );
                 let param_refs = to_param_refs(&params_values);
                 let mut stmt = conn
                     .prepare(&sql)
@@ -192,6 +200,13 @@ impl Lister for SqliteStorage {
             let mut filter_params: Vec<SqlValue> = Vec::new();
             let mut idx = 1;
             append_search_filters(&mut count_sql, &mut filter_params, &mut idx, &opts, "");
+            append_context_tag_filters(
+                &mut count_sql,
+                &mut filter_params,
+                &mut idx,
+                opts.context_tags.as_deref(),
+                "tags",
+            );
 
             let mut count_stmt = conn
                 .prepare(&count_sql)
@@ -210,6 +225,13 @@ impl Lister for SqliteStorage {
             let mut data_params: Vec<SqlValue> = Vec::new();
             let mut next_idx = 1;
             append_search_filters(&mut data_sql, &mut data_params, &mut next_idx, &opts, "");
+            append_context_tag_filters(
+                &mut data_sql,
+                &mut data_params,
+                &mut next_idx,
+                opts.context_tags.as_deref(),
+                "tags",
+            );
             data_sql.push_str(" ORDER BY created_at DESC");
             data_sql.push_str(&format!(" LIMIT ?{next_idx}"));
             data_params.push(SqlValue::Integer(effective_limit));

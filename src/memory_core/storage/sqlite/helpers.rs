@@ -514,6 +514,30 @@ pub(super) fn append_search_filters(
     }
 }
 
+pub(super) fn append_context_tag_filters(
+    sql: &mut String,
+    params: &mut Vec<rusqlite::types::Value>,
+    idx: &mut usize,
+    context_tags: Option<&[String]>,
+    tags_expr: &str,
+) {
+    use rusqlite::types::Value as SqlValue;
+
+    for tag in context_tags
+        .into_iter()
+        .flatten()
+        .map(|tag| tag.trim())
+        .filter(|tag| !tag.is_empty())
+    {
+        sql.push_str(&format!(
+            " AND ((json_valid({tags_expr}) AND EXISTS (SELECT 1 FROM json_each({tags_expr}) WHERE lower(value) = lower(?{idx}))) \
+               OR (NOT json_valid({tags_expr}) AND {tags_expr} != '' AND instr(',' || lower({tags_expr}) || ',', ',' || lower(?{idx}) || ',') > 0))"
+        ));
+        params.push(SqlValue::Text(tag.to_owned()));
+        *idx += 1;
+    }
+}
+
 /// Converts a `Vec<SqlValue>` to a `Vec<&dyn ToSql>` for rusqlite parameter binding.
 pub(super) fn to_param_refs(values: &[rusqlite::types::Value]) -> Vec<&dyn rusqlite::types::ToSql> {
     values
@@ -575,6 +599,24 @@ pub(super) fn matches_search_options(
         && candidate.event_at.as_str() > event_before
     {
         return false;
+    }
+    if let Some(context_tags) = opts.context_tags.as_ref() {
+        let mut normalized_tags = context_tags
+            .iter()
+            .map(|tag| tag.trim())
+            .filter(|tag| !tag.is_empty())
+            .peekable();
+        if normalized_tags.peek().is_some()
+            && !normalized_tags.all(|tag| {
+                candidate
+                    .result
+                    .tags
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(tag))
+            })
+        {
+            return false;
+        }
     }
     true
 }

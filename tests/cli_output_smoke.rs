@@ -1,3 +1,4 @@
+use chrono::{Duration, Utc};
 use std::process::Command;
 
 fn run_cli(home: &std::path::Path, args: &[&str]) -> anyhow::Result<(String, String)> {
@@ -25,6 +26,7 @@ fn run_cli(home: &std::path::Path, args: &[&str]) -> anyhow::Result<(String, Str
 #[test]
 fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
     let test_home = std::env::temp_dir().join(format!("romega-cli-smoke-{}", uuid::Uuid::new_v4()));
+    let created_cutoff = (Utc::now() - Duration::days(1)).to_rfc3339();
     std::fs::create_dir_all(&test_home)?;
 
     let (ingest_stdout, _ingest_stderr) = run_cli(&test_home, &["ingest", "hello-cli"])?;
@@ -166,6 +168,232 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
     if !search_results.is_empty() {
         assert!(search_results[0]["importance"].as_f64().is_some());
     }
+
+    run_cli(
+        &test_home,
+        &[
+            "ingest",
+            "filter-target low importance",
+            "--importance",
+            "0.2",
+            "--referenced-date",
+            "2026-01-01T00:00:00Z",
+        ],
+    )?;
+    let (high_filter_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "ingest",
+            "filter-target high importance",
+            "--importance",
+            "0.95",
+            "--tags",
+            "focus",
+            "--referenced-date",
+            "2026-03-01T00:00:00Z",
+        ],
+    )?;
+    let high_filter_json: serde_json::Value = serde_json::from_str(high_filter_stdout.trim())?;
+    let high_filter_id = high_filter_json["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing id in filtered ingest output"))?
+        .to_string();
+    let (control_filter_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "ingest",
+            "filter-target high importance control",
+            "--importance",
+            "0.95",
+            "--tags",
+            "other",
+            "--referenced-date",
+            "2026-03-01T00:00:00Z",
+        ],
+    )?;
+    let control_filter_json: serde_json::Value =
+        serde_json::from_str(control_filter_stdout.trim())?;
+    let control_filter_id = control_filter_json["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing id in control ingest output"))?
+        .to_string();
+
+    let (filtered_search_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "search",
+            "filter-target",
+            "--importance-min",
+            "0.9",
+            "--context-tags",
+            "focus",
+            "--event-after",
+            "2026-02-01T00:00:00Z",
+        ],
+    )?;
+    let filtered_search_json: serde_json::Value =
+        serde_json::from_str(filtered_search_stdout.trim())?;
+    let filtered_results = filtered_search_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in filtered search output"))?;
+    assert_eq!(filtered_results.len(), 1);
+    assert_eq!(
+        filtered_results[0]["id"].as_str(),
+        Some(high_filter_id.as_str())
+    );
+    assert!(
+        !filtered_results
+            .iter()
+            .any(|result| result["id"].as_str() == Some(control_filter_id.as_str()))
+    );
+    assert!(
+        filtered_results[0]["importance"]
+            .as_f64()
+            .is_some_and(|importance| importance >= 0.9)
+    );
+
+    let (semantic_search_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "semantic-search",
+            "filter-target",
+            "--importance-min",
+            "0.9",
+            "--context-tags",
+            "focus",
+            "--event-after",
+            "2026-02-01T00:00:00Z",
+        ],
+    )?;
+    let semantic_search_json: serde_json::Value =
+        serde_json::from_str(semantic_search_stdout.trim())?;
+    let semantic_results = semantic_search_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in semantic search output"))?;
+    assert_eq!(semantic_results.len(), 1);
+    assert_eq!(
+        semantic_results[0]["id"].as_str(),
+        Some(high_filter_id.as_str())
+    );
+    assert!(
+        !semantic_results
+            .iter()
+            .any(|result| result["id"].as_str() == Some(control_filter_id.as_str()))
+    );
+
+    let (advanced_search_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "advanced-search",
+            "filter-target",
+            "--importance-min",
+            "0.9",
+            "--context-tags",
+            "focus",
+            "--event-after",
+            "2026-02-01T00:00:00Z",
+        ],
+    )?;
+    let advanced_search_json: serde_json::Value =
+        serde_json::from_str(advanced_search_stdout.trim())?;
+    let advanced_results = advanced_search_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in advanced search output"))?;
+    assert_eq!(advanced_results.len(), 1);
+    assert_eq!(
+        advanced_results[0]["id"].as_str(),
+        Some(high_filter_id.as_str())
+    );
+    assert!(
+        !advanced_results
+            .iter()
+            .any(|result| result["id"].as_str() == Some(control_filter_id.as_str()))
+    );
+
+    let (phrase_search_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "phrase-search",
+            "filter-target",
+            "--context-tags",
+            "focus",
+            "--event-after",
+            "2026-02-01T00:00:00Z",
+        ],
+    )?;
+    let phrase_search_json: serde_json::Value = serde_json::from_str(phrase_search_stdout.trim())?;
+    let phrase_results = phrase_search_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in phrase search output"))?;
+    assert_eq!(phrase_results.len(), 1);
+    assert_eq!(
+        phrase_results[0]["id"].as_str(),
+        Some(high_filter_id.as_str())
+    );
+    assert!(
+        !phrase_results
+            .iter()
+            .any(|result| result["id"].as_str() == Some(control_filter_id.as_str()))
+    );
+
+    let (filtered_list_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "list",
+            "--limit",
+            "5",
+            "--importance-min",
+            "0.9",
+            "--created-after",
+            &created_cutoff,
+            "--context-tags",
+            "focus",
+        ],
+    )?;
+    let filtered_list_json: serde_json::Value = serde_json::from_str(filtered_list_stdout.trim())?;
+    let filtered_list_results = filtered_list_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in filtered list output"))?;
+    assert_eq!(filtered_list_results.len(), 1);
+    assert_eq!(
+        filtered_list_results[0]["id"].as_str(),
+        Some(high_filter_id.as_str())
+    );
+    assert!(
+        !filtered_list_results
+            .iter()
+            .any(|result| result["id"].as_str() == Some(control_filter_id.as_str()))
+    );
+
+    let (filtered_recent_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "recent",
+            "--limit",
+            "5",
+            "--importance-min",
+            "0.9",
+            "--created-after",
+            &created_cutoff,
+            "--context-tags",
+            "focus",
+        ],
+    )?;
+    let filtered_recent_json: serde_json::Value =
+        serde_json::from_str(filtered_recent_stdout.trim())?;
+    let filtered_recent_results = filtered_recent_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in filtered recent output"))?;
+    assert_eq!(filtered_recent_results.len(), 1);
+    assert_eq!(
+        filtered_recent_results[0]["id"].as_str(),
+        Some(high_filter_id.as_str())
+    );
+    assert!(
+        !filtered_recent_results
+            .iter()
+            .any(|result| result["id"].as_str() == Some(control_filter_id.as_str()))
+    );
 
     let _ = std::fs::remove_dir_all(&test_home);
     Ok(())

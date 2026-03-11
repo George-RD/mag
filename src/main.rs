@@ -2,6 +2,7 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+use chrono::{DateTime, FixedOffset, NaiveDate, SecondsFormat, TimeZone, Utc};
 use clap::Parser;
 use cli::{Cli, Commands, InitModeArg};
 use memory_core::storage::{InitMode, SqliteStorage};
@@ -24,6 +25,32 @@ mod mcp_server;
 mod memory_core;
 
 use mcp_server::McpMemoryServer;
+
+#[derive(Clone, Copy)]
+struct SearchTimeFilters<'a> {
+    created_after: &'a Option<String>,
+    created_before: &'a Option<String>,
+    event_after: &'a Option<String>,
+    event_before: &'a Option<String>,
+}
+
+#[derive(Clone, Copy)]
+struct SearchFilterArgs<'a> {
+    event_type: Option<&'a str>,
+    project: &'a Option<String>,
+    session_id: &'a Option<String>,
+    include_superseded: bool,
+    importance_min: Option<f64>,
+    context_tags: &'a Option<Vec<String>>,
+    times: SearchTimeFilters<'a>,
+}
+
+struct NormalizedSearchTimeFilters {
+    created_after: Option<String>,
+    created_before: Option<String>,
+    event_after: Option<String>,
+    event_before: Option<String>,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -243,6 +270,12 @@ async fn main() -> anyhow::Result<()> {
             project,
             session_id,
             include_superseded,
+            importance_min,
+            created_after,
+            created_before,
+            context_tags,
+            event_after,
+            event_before,
         } => {
             info!(offset = *offset, limit = *limit, "Listing memories");
             if let Some(kind) = event_type.as_deref()
@@ -250,13 +283,20 @@ async fn main() -> anyhow::Result<()> {
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type.as_deref()),
-                project: project.clone(),
-                session_id: session_id.clone(),
-                include_superseded: Some(*include_superseded),
-                ..Default::default()
-            };
+            let opts = build_search_options(SearchFilterArgs {
+                event_type: event_type.as_deref(),
+                project,
+                session_id,
+                include_superseded: *include_superseded,
+                importance_min: *importance_min,
+                context_tags,
+                times: SearchTimeFilters {
+                    created_after,
+                    created_before,
+                    event_after,
+                    event_before,
+                },
+            })?;
             let result = mcp_storage.list(*offset, *limit, &opts).await?;
             info!(
                 count = result.memories.len(),
@@ -300,6 +340,12 @@ async fn main() -> anyhow::Result<()> {
             project,
             session_id,
             include_superseded,
+            importance_min,
+            created_after,
+            created_before,
+            context_tags,
+            event_after,
+            event_before,
         } => {
             info!(
                 query_len = query.len(),
@@ -311,13 +357,20 @@ async fn main() -> anyhow::Result<()> {
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type.as_deref()),
-                project: project.clone(),
-                session_id: session_id.clone(),
-                include_superseded: Some(*include_superseded),
-                ..Default::default()
-            };
+            let opts = build_search_options(SearchFilterArgs {
+                event_type: event_type.as_deref(),
+                project,
+                session_id,
+                include_superseded: *include_superseded,
+                importance_min: *importance_min,
+                context_tags,
+                times: SearchTimeFilters {
+                    created_after,
+                    created_before,
+                    event_after,
+                    event_before,
+                },
+            })?;
             let results = pipeline.search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Search completed");
             let payload: Vec<_> = results
@@ -344,6 +397,12 @@ async fn main() -> anyhow::Result<()> {
             project,
             session_id,
             include_superseded,
+            importance_min,
+            created_after,
+            created_before,
+            context_tags,
+            event_after,
+            event_before,
         } => {
             info!(
                 query_len = query.len(),
@@ -355,13 +414,20 @@ async fn main() -> anyhow::Result<()> {
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type.as_deref()),
-                project: project.clone(),
-                session_id: session_id.clone(),
-                include_superseded: Some(*include_superseded),
-                ..Default::default()
-            };
+            let opts = build_search_options(SearchFilterArgs {
+                event_type: event_type.as_deref(),
+                project,
+                session_id,
+                include_superseded: *include_superseded,
+                importance_min: *importance_min,
+                context_tags,
+                times: SearchTimeFilters {
+                    created_after,
+                    created_before,
+                    event_after,
+                    event_before,
+                },
+            })?;
             let results = pipeline.semantic_search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Semantic search completed");
             let payload: Vec<_> = results
@@ -387,19 +453,36 @@ async fn main() -> anyhow::Result<()> {
             limit,
             event_type,
             project,
+            session_id,
             include_superseded,
+            importance_min,
+            created_after,
+            created_before,
+            context_tags,
+            event_after,
+            event_before,
+            explain,
         } => {
             if let Some(kind) = event_type.as_deref()
                 && !is_valid_event_type(kind)
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type.as_deref()),
-                project: project.clone(),
-                include_superseded: Some(*include_superseded),
-                ..Default::default()
-            };
+            let mut opts = build_search_options(SearchFilterArgs {
+                event_type: event_type.as_deref(),
+                project,
+                session_id,
+                include_superseded: *include_superseded,
+                importance_min: *importance_min,
+                context_tags,
+                times: SearchTimeFilters {
+                    created_after,
+                    created_before,
+                    event_after,
+                    event_before,
+                },
+            })?;
+            opts.explain = Some(*explain);
             let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
                 &mcp_storage,
                 query,
@@ -514,18 +597,35 @@ async fn main() -> anyhow::Result<()> {
             phrase,
             limit,
             event_type,
+            project,
+            session_id,
             include_superseded,
+            importance_min,
+            created_after,
+            created_before,
+            context_tags,
+            event_after,
+            event_before,
         } => {
             if let Some(kind) = event_type.as_deref()
                 && !is_valid_event_type(kind)
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type.as_deref()),
-                include_superseded: Some(*include_superseded),
-                ..Default::default()
-            };
+            let opts = build_search_options(SearchFilterArgs {
+                event_type: event_type.as_deref(),
+                project,
+                session_id,
+                include_superseded: *include_superseded,
+                importance_min: *importance_min,
+                context_tags,
+                times: SearchTimeFilters {
+                    created_after,
+                    created_before,
+                    event_after,
+                    event_before,
+                },
+            })?;
             let results = <SqliteStorage as PhraseSearcher>::phrase_search(
                 &mcp_storage,
                 phrase,
@@ -556,6 +656,12 @@ async fn main() -> anyhow::Result<()> {
             project,
             session_id,
             include_superseded,
+            importance_min,
+            created_after,
+            created_before,
+            context_tags,
+            event_after,
+            event_before,
         } => {
             info!(limit = *limit, "Listing recent memories");
             if let Some(kind) = event_type.as_deref()
@@ -563,13 +669,20 @@ async fn main() -> anyhow::Result<()> {
             {
                 anyhow::bail!("invalid --event-type: {kind}");
             }
-            let opts = SearchOptions {
-                event_type: EventType::from_optional(event_type.as_deref()),
-                project: project.clone(),
-                session_id: session_id.clone(),
-                include_superseded: Some(*include_superseded),
-                ..Default::default()
-            };
+            let opts = build_search_options(SearchFilterArgs {
+                event_type: event_type.as_deref(),
+                project,
+                session_id,
+                include_superseded: *include_superseded,
+                importance_min: *importance_min,
+                context_tags,
+                times: SearchTimeFilters {
+                    created_after,
+                    created_before,
+                    event_after,
+                    event_before,
+                },
+            })?;
             let results = pipeline.recent(*limit, &opts).await?;
             info!(result_count = results.len(), "Recent list completed");
             let payload: Vec<_> = results
@@ -966,6 +1079,82 @@ fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Valu
         }
         None => Ok(serde_json::json!({})),
     }
+}
+
+fn build_search_options(args: SearchFilterArgs<'_>) -> anyhow::Result<SearchOptions> {
+    let times = normalize_search_time_filters(args.times)?;
+    Ok(SearchOptions {
+        event_type: EventType::from_optional(args.event_type),
+        project: args.project.clone(),
+        session_id: args.session_id.clone(),
+        include_superseded: Some(args.include_superseded),
+        importance_min: args.importance_min,
+        created_after: times.created_after,
+        created_before: times.created_before,
+        context_tags: args.context_tags.clone(),
+        event_after: times.event_after,
+        event_before: times.event_before,
+        ..Default::default()
+    })
+}
+
+fn normalize_search_time_filters(
+    times: SearchTimeFilters<'_>,
+) -> anyhow::Result<NormalizedSearchTimeFilters> {
+    let created_after = parse_cli_time_filter("created-after", times.created_after.as_deref())?;
+    let created_before = parse_cli_time_filter("created-before", times.created_before.as_deref())?;
+    let event_after = parse_cli_time_filter("event-after", times.event_after.as_deref())?;
+    let event_before = parse_cli_time_filter("event-before", times.event_before.as_deref())?;
+
+    validate_time_range("created", created_after, created_before)?;
+    validate_time_range("event", event_after, event_before)?;
+    Ok(NormalizedSearchTimeFilters {
+        created_after: created_after.map(format_time_filter),
+        created_before: created_before.map(format_time_filter),
+        event_after: event_after.map(format_time_filter),
+        event_before: event_before.map(format_time_filter),
+    })
+}
+
+fn validate_time_range(
+    label: &str,
+    after: Option<DateTime<FixedOffset>>,
+    before: Option<DateTime<FixedOffset>>,
+) -> anyhow::Result<()> {
+    if let (Some(after), Some(before)) = (after, before)
+        && after > before
+    {
+        anyhow::bail!("invalid --{label}-* range: after must be <= before");
+    }
+    Ok(())
+}
+
+fn parse_cli_time_filter(
+    name: &str,
+    value: Option<&str>,
+) -> anyhow::Result<Option<DateTime<FixedOffset>>> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    if let Ok(dt) = DateTime::parse_from_rfc3339(value) {
+        return Ok(Some(dt));
+    }
+    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        let midnight = date
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| anyhow::anyhow!("invalid --{name}: {value}"))?;
+        let utc = FixedOffset::east_opt(0)
+            .ok_or_else(|| anyhow::anyhow!("failed to construct UTC offset"))?;
+        return Ok(Some(utc.from_utc_datetime(&midnight)));
+    }
+
+    anyhow::bail!("invalid --{name}: expected RFC3339 timestamp or YYYY-MM-DD");
+}
+
+fn format_time_filter(dt: DateTime<FixedOffset>) -> String {
+    dt.with_timezone(&Utc)
+        .to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
 #[cfg(test)]

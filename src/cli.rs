@@ -136,6 +136,18 @@ pub enum Commands {
         session_id: Option<String>,
         #[arg(long)]
         include_superseded: bool,
+        #[arg(long)]
+        importance_min: Option<f64>,
+        #[arg(long)]
+        created_after: Option<String>,
+        #[arg(long)]
+        created_before: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        context_tags: Option<Vec<String>>,
+        #[arg(long)]
+        event_after: Option<String>,
+        #[arg(long)]
+        event_before: Option<String>,
     },
     /// Shows relationships for a given memory.
     Relations {
@@ -154,6 +166,18 @@ pub enum Commands {
         session_id: Option<String>,
         #[arg(long)]
         include_superseded: bool,
+        #[arg(long)]
+        importance_min: Option<f64>,
+        #[arg(long)]
+        created_after: Option<String>,
+        #[arg(long)]
+        created_before: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        context_tags: Option<Vec<String>>,
+        #[arg(long)]
+        event_after: Option<String>,
+        #[arg(long)]
+        event_before: Option<String>,
     },
     /// Performs semantic search over stored memories.
     SemanticSearch {
@@ -168,6 +192,18 @@ pub enum Commands {
         session_id: Option<String>,
         #[arg(long)]
         include_superseded: bool,
+        #[arg(long)]
+        importance_min: Option<f64>,
+        #[arg(long)]
+        created_after: Option<String>,
+        #[arg(long)]
+        created_before: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        context_tags: Option<Vec<String>>,
+        #[arg(long)]
+        event_after: Option<String>,
+        #[arg(long)]
+        event_before: Option<String>,
     },
     /// Advanced multi-phase search with scoring.
     AdvancedSearch {
@@ -179,7 +215,23 @@ pub enum Commands {
         #[arg(long)]
         project: Option<String>,
         #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
         include_superseded: bool,
+        #[arg(long)]
+        importance_min: Option<f64>,
+        #[arg(long)]
+        created_after: Option<String>,
+        #[arg(long)]
+        created_before: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        context_tags: Option<Vec<String>>,
+        #[arg(long)]
+        event_after: Option<String>,
+        #[arg(long)]
+        event_before: Option<String>,
+        #[arg(long)]
+        explain: bool,
     },
     /// Get the version history chain for a memory.
     VersionChain {
@@ -208,7 +260,23 @@ pub enum Commands {
         #[arg(long)]
         event_type: Option<String>,
         #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
         include_superseded: bool,
+        #[arg(long)]
+        importance_min: Option<f64>,
+        #[arg(long)]
+        created_after: Option<String>,
+        #[arg(long)]
+        created_before: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        context_tags: Option<Vec<String>>,
+        #[arg(long)]
+        event_after: Option<String>,
+        #[arg(long)]
+        event_before: Option<String>,
     },
     /// Lists recently accessed memories.
     Recent {
@@ -222,6 +290,18 @@ pub enum Commands {
         session_id: Option<String>,
         #[arg(long)]
         include_superseded: bool,
+        #[arg(long)]
+        importance_min: Option<f64>,
+        #[arg(long)]
+        created_after: Option<String>,
+        #[arg(long)]
+        created_before: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        context_tags: Option<Vec<String>>,
+        #[arg(long)]
+        event_after: Option<String>,
+        #[arg(long)]
+        event_before: Option<String>,
     },
     /// Shows memory store statistics.
     Stats,
@@ -478,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_list_command() {
+    fn test_cli_list_command_with_filters() {
         let args = vec!["romega", "list", "--offset", "5", "--limit", "3"];
         let cli = Cli::parse_from(args);
         match cli.command {
@@ -581,32 +661,104 @@ mod tests {
 
     #[test]
     fn test_cli_search_command() {
-        let args = vec!["romega", "search", "hello", "--limit", "3"];
+        let args = vec![
+            "romega",
+            "search",
+            "hello",
+            "--limit",
+            "3",
+            "--importance-min",
+            "0.8",
+            "--created-after",
+            "2026-01-01T00:00:00Z",
+            "--event-before",
+            "2026-01-31T00:00:00Z",
+        ];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Search { query, limit, .. } => {
+            Commands::Search {
+                query,
+                limit,
+                importance_min,
+                created_after,
+                event_before,
+                ..
+            } => {
                 assert_eq!(query, "hello");
                 assert_eq!(limit, 3);
+                assert_eq!(importance_min, Some(0.8));
+                assert_eq!(created_after.as_deref(), Some("2026-01-01T00:00:00Z"));
+                assert_eq!(event_before.as_deref(), Some("2026-01-31T00:00:00Z"));
             }
             _ => panic!("Expected Search command"),
         }
     }
 
     #[test]
-    fn test_cli_semantic_search_command() {
-        let args = vec!["romega", "semantic-search", "context", "--limit", "2"];
+    fn test_cli_list_command() {
+        let args = vec![
+            "romega",
+            "list",
+            "--limit",
+            "6",
+            "--importance-min",
+            "0.6",
+            "--created-before",
+            "2026-03-15T00:00:00Z",
+            "--context-tags",
+            "alpha,beta",
+        ];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::SemanticSearch { query, limit, .. } => {
+            Commands::List {
+                limit,
+                importance_min,
+                created_before,
+                context_tags,
+                ..
+            } => {
+                assert_eq!(limit, 6);
+                assert_eq!(importance_min, Some(0.6));
+                assert_eq!(created_before.as_deref(), Some("2026-03-15T00:00:00Z"));
+                assert_eq!(context_tags, Some(vec!["alpha".into(), "beta".into()]));
+            }
+            _ => panic!("Expected List command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_semantic_search_command() {
+        let args = vec![
+            "romega",
+            "semantic-search",
+            "context",
+            "--limit",
+            "2",
+            "--importance-min",
+            "0.7",
+            "--event-after",
+            "2026-02-01T00:00:00Z",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::SemanticSearch {
+                query,
+                limit,
+                importance_min,
+                event_after,
+                ..
+            } => {
                 assert_eq!(query, "context");
                 assert_eq!(limit, 2);
+                assert_eq!(importance_min, Some(0.7));
+                assert_eq!(event_after.as_deref(), Some("2026-02-01T00:00:00Z"));
             }
             _ => panic!("Expected SemanticSearch command"),
         }
     }
 
     #[test]
-    fn test_cli_recent_command() {
+    fn test_cli_recent_command_with_filters() {
         let args = vec!["romega", "recent", "--limit", "4"];
         let cli = Cli::parse_from(args);
         match cli.command {
@@ -616,18 +768,67 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_recent_command() {
+        let args = vec![
+            "romega",
+            "recent",
+            "--limit",
+            "4",
+            "--importance-min",
+            "0.75",
+            "--created-after",
+            "2026-02-01T00:00:00Z",
+            "--context-tags",
+            "focus",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Recent {
+                limit,
+                importance_min,
+                created_after,
+                context_tags,
+                ..
+            } => {
+                assert_eq!(limit, 4);
+                assert_eq!(importance_min, Some(0.75));
+                assert_eq!(created_after.as_deref(), Some("2026-02-01T00:00:00Z"));
+                assert_eq!(context_tags, Some(vec!["focus".into()]));
+            }
+            _ => panic!("Expected Recent command"),
+        }
+    }
+
+    #[test]
     fn test_cli_advanced_search_command() {
-        let args = vec!["romega", "advanced-search", "query", "--limit", "7"];
+        let args = vec![
+            "romega",
+            "advanced-search",
+            "query",
+            "--limit",
+            "7",
+            "--session-id",
+            "sess-1",
+            "--context-tags",
+            "alpha,beta",
+            "--explain",
+        ];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::AdvancedSearch {
                 query,
                 limit,
+                session_id,
+                context_tags,
+                explain,
                 include_superseded,
                 ..
             } => {
                 assert_eq!(query, "query");
                 assert_eq!(limit, 7);
+                assert_eq!(session_id.as_deref(), Some("sess-1"));
+                assert_eq!(context_tags, Some(vec!["alpha".into(), "beta".into()]));
+                assert!(explain);
                 assert!(!include_superseded);
             }
             _ => panic!("Expected AdvancedSearch command"),
@@ -697,12 +898,30 @@ mod tests {
 
     #[test]
     fn test_cli_phrase_search_command() {
-        let args = vec!["romega", "phrase-search", "exact phrase", "--limit", "4"];
+        let args = vec![
+            "romega",
+            "phrase-search",
+            "exact phrase",
+            "--limit",
+            "4",
+            "--project",
+            "demo",
+            "--context-tags",
+            "focus",
+        ];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::PhraseSearch { phrase, limit, .. } => {
+            Commands::PhraseSearch {
+                phrase,
+                limit,
+                project,
+                context_tags,
+                ..
+            } => {
                 assert_eq!(phrase, "exact phrase");
                 assert_eq!(limit, 4);
+                assert_eq!(project.as_deref(), Some("demo"));
+                assert_eq!(context_tags, Some(vec!["focus".into()]));
             }
             _ => panic!("Expected PhraseSearch command"),
         }

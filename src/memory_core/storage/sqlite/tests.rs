@@ -2789,6 +2789,7 @@ async fn test_advanced_search_filters() {
         &MemoryInput {
             event_type: Some(EventType::Decision),
             project: Some("project-a".to_string()),
+            tags: vec!["focus".to_string()],
             importance: 0.8,
             metadata: serde_json::json!({}),
             ..Default::default()
@@ -2803,6 +2804,7 @@ async fn test_advanced_search_filters() {
         &MemoryInput {
             event_type: Some(EventType::Reminder),
             project: Some("project-b".to_string()),
+            tags: vec!["other".to_string()],
             importance: 0.2,
             metadata: serde_json::json!({}),
             ..Default::default()
@@ -2820,6 +2822,7 @@ async fn test_advanced_search_filters() {
             project: Some("project-a".to_string()),
             include_superseded: None,
             importance_min: Some(0.5),
+            context_tags: Some(vec![" focus ".to_string()]),
             ..Default::default()
         },
     )
@@ -4355,6 +4358,100 @@ async fn test_list_with_event_before_filter() {
     let result = storage.list(0, 10, &opts).await.unwrap();
     assert_eq!(result.memories.len(), 1);
     assert_eq!(result.memories[0].id, "lst-old");
+}
+
+#[tokio::test]
+async fn test_list_with_context_tags_filter() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let tagged_input = MemoryInput {
+        content: "tagged list item".to_string(),
+        tags: vec!["focus".to_string(), "alpha".to_string()],
+        ..Default::default()
+    };
+    storage
+        .store("lst-tagged", "tagged list item", &tagged_input)
+        .await
+        .unwrap();
+
+    let untagged_input = MemoryInput {
+        content: "untagged list item".to_string(),
+        tags: vec!["alpha".to_string()],
+        ..Default::default()
+    };
+    storage
+        .store("lst-untagged", "untagged list item", &untagged_input)
+        .await
+        .unwrap();
+
+    let opts = SearchOptions {
+        context_tags: Some(vec![" focus ".to_string()]),
+        ..Default::default()
+    };
+    let count_only = storage.list(0, 0, &opts).await.unwrap();
+    assert_eq!(count_only.total, 1);
+    assert!(count_only.memories.is_empty());
+
+    let result = storage.list(0, 10, &opts).await.unwrap();
+    assert_eq!(result.total, 1);
+    assert_eq!(result.memories.len(), 1);
+    assert_eq!(result.memories[0].id, "lst-tagged");
+}
+
+#[tokio::test]
+async fn test_list_with_context_tags_matches_legacy_csv_tags() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute(
+            "INSERT INTO memories (id, content, content_hash, source_type, tags, importance, metadata)
+                 VALUES ('csv-focus', 'legacy focus', 'legacy-focus-hash', 'test', 'focus,legacy', 0.9, '{}')",
+            [],
+        )
+        .unwrap();
+    }
+
+    let opts = SearchOptions {
+        context_tags: Some(vec![" focus ".to_string()]),
+        ..Default::default()
+    };
+    let result = storage.list(0, 10, &opts).await.unwrap();
+    assert_eq!(result.total, 1);
+    assert_eq!(result.memories.len(), 1);
+    assert_eq!(result.memories[0].id, "csv-focus");
+}
+
+#[tokio::test]
+async fn test_recent_with_context_tags_filter() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let tagged_input = MemoryInput {
+        content: "tagged recent item".to_string(),
+        tags: vec!["focus".to_string()],
+        ..Default::default()
+    };
+    storage
+        .store("rec-tagged", "tagged recent item", &tagged_input)
+        .await
+        .unwrap();
+
+    let untagged_input = MemoryInput {
+        content: "untagged recent item".to_string(),
+        tags: vec!["other".to_string()],
+        ..Default::default()
+    };
+    storage
+        .store("rec-untagged", "untagged recent item", &untagged_input)
+        .await
+        .unwrap();
+
+    let opts = SearchOptions {
+        context_tags: Some(vec!["focus".to_string()]),
+        ..Default::default()
+    };
+    let results = storage.recent(10, &opts).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "rec-tagged");
 }
 
 #[tokio::test]
