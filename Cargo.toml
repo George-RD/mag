@@ -5,6 +5,9 @@ edition = "2024"
 autobenches = false
 license = "MIT"
 
+[lib]
+doctest = false
+
 [features]
 default = ["real-embeddings"]
 real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:reqwest", "dep:dotenvy"]

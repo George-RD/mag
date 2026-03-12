@@ -36,8 +36,8 @@ This track replaces the current `PlaceholderPipeline` implementation for the `St
 
 ## Acceptance Criteria
 
-- [ ] Running `romega ingest "some content"` stores the data in the local SQLite file.
-- [ ] Subsequent calls to `romega retrieve <id>` correctly return the stored content.
+- [ ] Running `mag ingest "some content"` stores the data in the local SQLite file.
+- [ ] Subsequent calls to `mag retrieve <id>` correctly return the stored content.
 - [ ] All specified schema tables (`memories`, `relationships`) and columns are correctly created and populated.
 - [ ] The `~/.mag/` directory and `memory.db` file are created automatically if missing.
 - [ ] Unit tests for the new `SqliteStorage` module pass with high coverage.

@@ -86,6 +86,9 @@ pub async fn resolve_dataset(
     if force_refresh || !cache_path.exists() {
         let source_url = download_from_sources(kind.source_urls(), &cache_path).await?;
         validate_json_file(&cache_path)?;
+        if !temporary {
+            write_source_metadata(&cache_path, &source_url)?;
+        }
         return Ok(DatasetArtifact {
             source_url,
             path: cache_path,
@@ -94,7 +97,8 @@ pub async fn resolve_dataset(
     }
     validate_json_file(&cache_path)?;
     Ok(DatasetArtifact {
-        source_url: kind.source_urls()[0].to_string(),
+        source_url: read_source_metadata(&cache_path)
+            .unwrap_or_else(|| kind.source_urls()[0].to_string()),
         path: cache_path,
         temporary,
     })
@@ -136,6 +140,8 @@ fn validate_json_file(path: &Path) -> Result<()> {
     let mut de = serde_json::Deserializer::from_reader(&mut reader);
     serde::de::IgnoredAny::deserialize(&mut de)
         .with_context(|| format!("failed to parse JSON dataset at {}", path.display()))?;
+    de.end()
+        .with_context(|| format!("trailing content in JSON dataset at {}", path.display()))?;
     Ok(())
 }
 
@@ -191,6 +197,28 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
         .await
         .with_context(|| format!("failed to finalize {}", path.display()))?;
     Ok(())
+}
+
+fn read_source_metadata(path: &Path) -> Option<String> {
+    let meta_path = source_metadata_path(path);
+    let text = std::fs::read_to_string(meta_path).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn write_source_metadata(path: &Path, source_url: &str) -> Result<()> {
+    std::fs::write(source_metadata_path(path), source_url)
+        .with_context(|| format!("failed to write source metadata for {}", path.display()))
+}
+
+fn source_metadata_path(path: &Path) -> PathBuf {
+    let mut suffix = path.file_name().unwrap_or_default().to_os_string();
+    suffix.push(".source-url");
+    path.with_file_name(suffix)
 }
 
 fn temporary_dataset_path(kind: DatasetKind) -> PathBuf {
@@ -254,5 +282,16 @@ mod tests {
         assert_eq!(dataset.source_url, "user-supplied");
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn source_metadata_round_trip() {
+        let path = std::env::temp_dir().join(format!("mag-benchmark-meta-{}.json", Uuid::new_v4()));
+        write_source_metadata(&path, "https://example.com/dataset.json").unwrap();
+        assert_eq!(
+            read_source_metadata(&path).as_deref(),
+            Some("https://example.com/dataset.json")
+        );
+        let _ = std::fs::remove_file(source_metadata_path(&path));
     }
 }
