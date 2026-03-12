@@ -342,6 +342,9 @@ fn main() -> Result<()> {
     if args.top_k == Some(0) {
         bail!("--top-k must be greater than 0");
     }
+    if args.dataset_path.is_some() && (args.force_refresh || args.temp_dataset) {
+        bail!("--dataset-path cannot be combined with --force-refresh or --temp-dataset");
+    }
 
     let runtime = tokio::runtime::Runtime::new()?;
     let dataset = runtime.block_on(benchmarking::resolve_dataset(
@@ -367,10 +370,18 @@ fn main() -> Result<()> {
     let mut total_query_ms = 0u128;
     let mut total_correct = 0usize;
     let mut categories = BTreeMap::new();
+    let mut samples_evaluated = 0usize;
 
     'samples: for sample in &samples {
+        if let Some(limit) = args.questions
+            && total_queries >= limit
+        {
+            break;
+        }
+
         let storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
         total_memories += runtime.block_on(seed_sample(&storage, sample))?;
+        samples_evaluated += 1;
         rss.sample();
 
         for qa in &sample.qa {
@@ -416,7 +427,7 @@ fn main() -> Result<()> {
     let summary = LoCoMoSummary {
         metadata,
         dataset: "LoCoMo10".to_string(),
-        samples_evaluated: samples.len(),
+        samples_evaluated,
         questions_evaluated: total_queries,
         total_memories_ingested: total_memories,
         total_duration_seconds,
@@ -432,6 +443,5 @@ fn main() -> Result<()> {
     } else {
         print_summary(&summary);
     }
-    dataset.cleanup()?;
     Ok(())
 }

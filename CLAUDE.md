@@ -80,7 +80,7 @@ Query → ONNX embed → Vector search + FTS5 BM25 → RRF fusion → Score refi
 ## Gotchas
 
 - The `conductor/` directory contains product planning docs (tracks, specs, style guides) — it's not runtime code
-- Model files (~134 MB) auto-download to `~/.mag/models/` on first use; use `cargo run --release -- download-model` to pre-download
+- Model files (~134 MB) auto-download under the active app root on first use; check `~/.mag/models/` first, and `~/.romega-memory/models/` if MAG is reusing the legacy root. Use `cargo run --release -- download-model` to pre-download.
 - Event types use the `EventType` enum (22 variants + `Unknown(String)`); priority auto-maps via `EventType::default_priority()`
 - Store lifecycle includes canonicalized-content dedup and event-type Jaccard dedup thresholds
 - CI runs on GitHub Actions (ubuntu-latest): fmt → clippy → test

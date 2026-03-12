@@ -17,9 +17,9 @@ MAG and `omega-memory` solve the same class of problem: durable memory for local
 
 - MAG is Rust-native and ships as a single local binary.
 - MAG uses SQLite directly for storage and retrieval.
-- MAG keeps `omega-memory` as a comparison target and lineage reference, not as the product identity.
+- MAG is benchmarked directly against `omega-memory` on the shared local workload in this repo.
 
-On the shared local benchmark in this repo, MAG scored higher overall (`98 / 100` vs `90 / 100`). On that same workload, `omega-memory` was faster on both seeding and query latency. The README reflects that tradeoff directly instead of collapsing it into a one-line “winner” claim.
+On this shared local workload, MAG scored higher overall while `omega-memory` was faster on seeding and query latency. See the [Benchmarks](#benchmarks) section below for current numbers.
 
 ## Quick Start
 
@@ -140,13 +140,15 @@ cargo test --all-features
 
 ### Benchmark Commands
 
+Clone `omega-memory` locally first. The comparison script accepts either `--omega-repo` or the `OMEGA_REPO` environment variable.
+
 ```bash
 cargo run --release --bin fetch_benchmark_data -- --dataset all
 cargo run --release --bin longmemeval_bench -- --json
 cargo run --release --bin longmemeval_bench -- --official --questions 10 --json
 cargo run --release --bin locomo_bench -- --json
 cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
-uv run --project ~/repos/omega-memory python benches/python_comparison.py
+OMEGA_REPO=/path/to/omega-memory uv run --project "$OMEGA_REPO" python benches/python_comparison.py
 ```
 
 ## License

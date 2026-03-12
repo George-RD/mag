@@ -1111,6 +1111,16 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_paths_command() {
+        let args = vec!["mag", "paths"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Paths => {}
+            _ => panic!("Expected Paths command"),
+        }
+    }
+
+    #[test]
     fn test_cli_maintain_command() {
         let args = vec!["mag", "maintain", "--action", "health", "--warn-mb", "100"];
         let cli = Cli::parse_from(args);

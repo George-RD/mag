@@ -28,7 +28,7 @@ impl Embedder for KeywordEmbedder {
 
 #[test]
 fn test_new_with_path_creates_parent_and_db() {
-    let base = std::env::temp_dir().join(format!("romega-sqlite-test-{}", Uuid::new_v4()));
+    let base = std::env::temp_dir().join(format!("mag-sqlite-test-{}", Uuid::new_v4()));
     let db_path = base.join("nested").join("memory.db");
 
     let storage = SqliteStorage::new_with_path(
@@ -38,6 +38,42 @@ fn test_new_with_path_creates_parent_and_db() {
     assert!(storage.is_ok());
     assert!(db_path.exists());
     assert!(db_path.parent().is_some_and(Path::exists));
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_stats_include_instance_paths_for_custom_storage() {
+    let base = std::env::temp_dir().join(format!("mag-sqlite-test-{}", Uuid::new_v4()));
+    let db_path = base.join("stats").join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+    let app_paths = crate::app_paths::resolve_app_paths().unwrap();
+
+    let stats = storage.stats().await.unwrap();
+    assert_eq!(
+        stats["paths"]["database_path"].as_str(),
+        Some(db_path.display().to_string().as_str())
+    );
+    assert_eq!(
+        stats["paths"]["data_root"].as_str(),
+        db_path
+            .parent()
+            .map(|path| path.display().to_string())
+            .as_deref()
+    );
+    assert_eq!(
+        stats["paths"]["preferred_data_root"].as_str(),
+        Some(app_paths.preferred_data_root.display().to_string().as_str())
+    );
+    assert_eq!(
+        stats["paths"]["legacy_data_root"].as_str(),
+        Some(app_paths.legacy_data_root.display().to_string().as_str())
+    );
+    assert_eq!(stats["paths"]["using_legacy_root"].as_bool(), Some(false));
 
     let _ = fs::remove_dir_all(base);
 }
@@ -4194,16 +4230,6 @@ async fn test_access_rate_stats() {
     assert_eq!(result["total_memories"], 2);
     assert_eq!(result["zero_access_count"], 1);
     assert!(!result["top_accessed"].as_array().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn test_storage_stats_include_resolved_paths() {
-    let storage = SqliteStorage::new_in_memory().unwrap();
-    let result = storage.stats().await.unwrap();
-    assert!(result["paths"]["data_root"].as_str().is_some());
-    assert!(result["paths"]["preferred_data_root"].as_str().is_some());
-    assert!(result["paths"]["legacy_data_root"].as_str().is_some());
-    assert!(result["paths"]["using_legacy_root"].as_bool().is_some());
 }
 
 #[tokio::test]

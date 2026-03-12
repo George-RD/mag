@@ -69,6 +69,11 @@ pub async fn resolve_dataset(
     force_refresh: bool,
     temporary: bool,
 ) -> Result<DatasetArtifact> {
+    if dataset_path.is_some() && (force_refresh || temporary) {
+        return Err(anyhow!(
+            "--dataset-path cannot be combined with --force-refresh or --temp-dataset"
+        ));
+    }
     if let Some(path) = dataset_path {
         validate_json_file(&path)?;
         return Ok(DatasetArtifact {
@@ -124,12 +129,12 @@ pub fn benchmark_metadata_from_parts(
 ) -> BenchmarkMetadata {
     BenchmarkMetadata {
         benchmark: benchmark.to_string(),
-        command: std::env::args().collect::<Vec<_>>().join(" "),
+        command: sanitize_command(std::env::args()),
         date: Utc::now().to_rfc3339(),
         commit: git_commit(),
         machine: machine_descriptor(),
         dataset_source: dataset_source.to_string(),
-        dataset_path: dataset_path.to_string(),
+        dataset_path: sanitize_dataset_path(dataset_path),
     }
 }
 
@@ -190,12 +195,24 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
         .to_os_string();
     part_name.push(".part");
     let part_path = path.with_file_name(part_name);
-    tokio::fs::write(&part_path, &bytes)
-        .await
-        .with_context(|| format!("failed to write {}", part_path.display()))?;
-    tokio::fs::rename(&part_path, path)
-        .await
-        .with_context(|| format!("failed to finalize {}", path.display()))?;
+    let write_result: Result<()> = async {
+        tokio::fs::write(&part_path, &bytes)
+            .await
+            .with_context(|| format!("failed to write {}", part_path.display()))?;
+        let validate_path = part_path.clone();
+        tokio::task::spawn_blocking(move || validate_json_file(&validate_path))
+            .await
+            .context("dataset validation task failed")??;
+        tokio::fs::rename(&part_path, path)
+            .await
+            .with_context(|| format!("failed to finalize {}", path.display()))?;
+        Ok(())
+    }
+    .await;
+    if let Err(err) = write_result {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(err);
+    }
     Ok(())
 }
 
@@ -231,13 +248,62 @@ fn temporary_dataset_path(kind: DatasetKind) -> PathBuf {
 }
 
 impl DatasetArtifact {
-    pub fn cleanup(&self) -> Result<()> {
+    pub fn cleanup(&mut self) -> Result<()> {
         if !self.temporary || !self.path.exists() {
             return Ok(());
         }
-        std::fs::remove_file(&self.path)
-            .with_context(|| format!("failed to remove temporary dataset {}", self.path.display()))
+        std::fs::remove_file(&self.path).with_context(|| {
+            format!("failed to remove temporary dataset {}", self.path.display())
+        })?;
+        self.temporary = false;
+        Ok(())
     }
+}
+
+impl Drop for DatasetArtifact {
+    fn drop(&mut self) {
+        if self.temporary {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn sanitize_command(args: impl IntoIterator<Item = String>) -> String {
+    args.into_iter()
+        .map(|arg| quote_shell_arg(&sanitize_arg(&arg)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn sanitize_arg(arg: &str) -> String {
+    if looks_like_path(arg) {
+        "<redacted_path>".to_string()
+    } else {
+        arg.to_string()
+    }
+}
+
+fn quote_shell_arg(arg: &str) -> String {
+    if arg
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '"' | '\\' | '$' | '`'))
+    {
+        format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        arg.to_string()
+    }
+}
+
+fn sanitize_dataset_path(dataset_path: &str) -> String {
+    Path::new(dataset_path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "<redacted_path>".to_string())
+}
+
+fn looks_like_path(arg: &str) -> bool {
+    Path::new(arg).is_absolute() || arg.starts_with('~') || arg.contains('/') || arg.contains('\\')
 }
 
 fn git_commit() -> Option<String> {

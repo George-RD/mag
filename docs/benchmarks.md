@@ -145,8 +145,11 @@ Degradation from `1K` to `10K`:
 
 Command:
 
+Clone `omega-memory` locally first and point the comparison script at that checkout.
+
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache-mag uv run --project ~/repos/omega-memory python benches/python_comparison.py
+COMPARISON_REPO=/path/to/omega-memory
+OMEGA_REPO="$COMPARISON_REPO" UV_CACHE_DIR=/tmp/uv-cache-mag uv run --project "$COMPARISON_REPO" python benches/python_comparison.py
 ```
 
 Result:
