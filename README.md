@@ -17,9 +17,9 @@ MAG and `omega-memory` solve the same class of problem: durable memory for local
 
 - MAG is Rust-native and ships as a single local binary.
 - MAG uses SQLite directly for storage and retrieval.
-- MAG keeps `omega-memory` as a comparison target and lineage reference, not as the product identity.
+- MAG is benchmarked directly against `omega-memory` on the shared local workload in this repo.
 
-On the shared local benchmark in this repo, MAG scored higher overall (`98 / 100` vs `90 / 100`). On that same workload, `omega-memory` was faster on both seeding and query latency. The README reflects that tradeoff directly instead of collapsing it into a one-line “winner” claim.
+On the shared local benchmark in this repo, MAG scored higher overall (`98 / 100` vs `90 / 100`). On that same workload, `omega-memory` was faster on both seeding and query latency.
 
 ## Quick Start
 
