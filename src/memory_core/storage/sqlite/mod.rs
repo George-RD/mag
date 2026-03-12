@@ -397,7 +397,6 @@ impl SqliteStorage {
                 "total_access_count": total_access,
                 "fts5_indexed": fts_count,
                 "fts5_in_sync": fts_count == total_memories,
-                "paths": crate::app_paths::runtime_paths_json()?,
             }))
         })
         .await

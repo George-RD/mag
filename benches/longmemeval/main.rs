@@ -73,6 +73,9 @@ fn main() -> Result<()> {
     if args.top_k == Some(0) {
         bail!("--top-k must be greater than 0");
     }
+    if args.dataset_path.is_some() && (args.force_refresh || args.temp_dataset) {
+        bail!("--dataset-path cannot be combined with --force-refresh or --temp-dataset");
+    }
     let mut rss = helpers::PeakRss::default();
     rss.sample();
 

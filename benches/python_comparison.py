@@ -6,12 +6,13 @@ omega-memory's SQLiteStore. All 100 questions match the Rust benchmark 1:1.
 
 Usage:
     cd /path/to/mag
-    uv run --project ~/repos/omega-memory python benches/python_comparison.py [--verbose]
+    OMEGA_REPO=/path/to/omega-memory uv run --project "$OMEGA_REPO" python benches/python_comparison.py --omega-repo "$OMEGA_REPO" [--verbose]
 """
 
 import argparse
 import json
 import os
+import platform
 import resource
 import shutil
 import sys
@@ -282,7 +283,7 @@ def parse_args():
 
 
 def machine_descriptor() -> str:
-    return f"{os.uname().sysname} {os.uname().machine}"
+    return f"{platform.system()} {platform.machine()}"
 
 
 def git_commit() -> str | None:
@@ -321,7 +322,7 @@ def main():
     sys.path.insert(0, omega_src)
     try:
         from omega.sqlite_store import SQLiteStore  # noqa: E402
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         emit_skip(f"failed to import omega-memory from {omega_repo}: {exc}")
         return
 

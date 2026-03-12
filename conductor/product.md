@@ -3,6 +3,7 @@
 ## Initial Concept
 i want to do a rust rewrite of /repos/omega-memory
 
+
 ## Vision
 The goal of `mag` is to create a robust, high-performance, and highly portable memory system by rewriting the original `omega-memory` project in Rust. This rewrite aims to eliminate Python dependency requirements, providing a standalone CLI tool and a modular library that can be integrated into various environments, from local development tools to hosted services.
 

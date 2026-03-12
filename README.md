@@ -140,13 +140,15 @@ cargo test --all-features
 
 ### Benchmark Commands
 
+Clone `omega-memory` locally first. The comparison script accepts either `--omega-repo` or the `OMEGA_REPO` environment variable.
+
 ```bash
 cargo run --release --bin fetch_benchmark_data -- --dataset all
 cargo run --release --bin longmemeval_bench -- --json
 cargo run --release --bin longmemeval_bench -- --official --questions 10 --json
 cargo run --release --bin locomo_bench -- --json
 cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
-uv run --project ~/repos/omega-memory python benches/python_comparison.py
+OMEGA_REPO=/path/to/omega-memory uv run --project "$OMEGA_REPO" python benches/python_comparison.py --omega-repo "$OMEGA_REPO"
 ```
 
 ## License

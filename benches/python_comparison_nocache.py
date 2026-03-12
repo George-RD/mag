@@ -3,7 +3,8 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/repos/omega-memory/src"))
+omega_repo = os.path.expanduser(os.environ.get("OMEGA_REPO", "~/repos/omega-memory"))
+sys.path.insert(0, os.path.join(omega_repo, "src"))
 
 # Disable embedding cache BEFORE any store/query calls
 import omega.graphs as g  # noqa: E402

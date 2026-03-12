@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use serde_json::json;
-
 const APP_DIR: &str = ".mag";
 const LEGACY_APP_DIR: &str = ".romega-memory";
 
@@ -29,20 +27,10 @@ pub fn resolve_app_paths() -> Result<AppPaths> {
     Ok(app_paths_for_home(&home_dir()?))
 }
 
-pub fn runtime_paths_json() -> Result<serde_json::Value> {
-    let paths = resolve_app_paths()?;
-    Ok(json!({
-        "data_root": paths.data_root,
-        "preferred_data_root": paths.preferred_data_root,
-        "legacy_data_root": paths.legacy_data_root,
-        "using_legacy_root": paths.using_legacy_root,
-    }))
-}
-
 fn app_paths_for_home(home: &Path) -> AppPaths {
     let preferred = home.join(APP_DIR);
     let legacy = home.join(LEGACY_APP_DIR);
-    let use_legacy = !preferred.exists() && legacy.exists();
+    let use_legacy = !has_runtime_data(&preferred) && has_runtime_data(&legacy);
     let data_root = if use_legacy {
         legacy.clone()
     } else {
@@ -59,6 +47,12 @@ fn app_paths_for_home(home: &Path) -> AppPaths {
         model_root: data_root.join("models"),
         benchmark_root: data_root.join("benchmarks"),
     }
+}
+
+fn has_runtime_data(root: &Path) -> bool {
+    root.join("memory.db").exists()
+        || root.join("models").exists()
+        || root.join("benchmarks").exists()
 }
 
 #[cfg(test)]
@@ -78,6 +72,7 @@ mod tests {
     fn legacy_root_is_used_when_mag_root_is_absent() {
         let home = std::env::temp_dir().join(format!("mag-paths-{}", Uuid::new_v4()));
         std::fs::create_dir_all(home.join(".romega-memory")).unwrap();
+        std::fs::write(home.join(".romega-memory").join("memory.db"), []).unwrap();
 
         let paths = app_paths_for_home(&home);
         assert_eq!(paths.data_root, home.join(".romega-memory"));
@@ -95,6 +90,20 @@ mod tests {
         let paths = app_paths_for_home(&home);
         assert_eq!(paths.data_root, home.join(".mag"));
         assert!(!paths.using_legacy_root);
+
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn empty_mag_root_does_not_block_populated_legacy_root() {
+        let home = std::env::temp_dir().join(format!("mag-paths-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(home.join(".mag")).unwrap();
+        std::fs::create_dir_all(home.join(".romega-memory")).unwrap();
+        std::fs::write(home.join(".romega-memory").join("memory.db"), []).unwrap();
+
+        let paths = app_paths_for_home(&home);
+        assert_eq!(paths.data_root, home.join(".romega-memory"));
+        assert!(paths.using_legacy_root);
 
         let _ = std::fs::remove_dir_all(home);
     }

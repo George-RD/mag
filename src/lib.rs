@@ -1,5 +1,4 @@
 pub mod app_paths;
-#[cfg(feature = "real-embeddings")]
 pub mod benchmarking;
 pub mod memory_core;
 
