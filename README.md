@@ -85,13 +85,13 @@ Latest reruns in this branch were taken on `2026-03-12` at commit `66a9e3e97e0e6
 
 | Benchmark | Result | Notes |
 | --- | --- | --- |
-| Local LongMemEval-style set | `98 / 100` | `2570 ms` seeding, `2081 ms` querying |
-| LoCoMo10 | `476 / 1986` (`24.0%`) | `5882` memories ingested, `252.1 s` total, `22.6 ms` avg query |
-| Scale benchmark | `100% Recall@5` at `1K`, `5K`, `10K` | `18.50 ms` mean, `41.85 ms` p95, `49.90 ms` p99 at `10K` |
-| `omega-memory` comparison | MAG `98 / 100` vs omega `90 / 100` | MAG seeded faster; omega queried faster on this local workload |
-| Official `LongMemEval_S` | Fetch flow implemented; rerun pending | current shell could not resolve the public dataset hosts |
+| Local LongMemEval-style set | `98 / 100` | `1538 ms` seeding, `1013 ms` querying, `335568 KB` peak RSS |
+| LoCoMo10 | `476 / 1986` (`24.0%`) | `5882` memories ingested, `224.75 s` total, `20.22 ms` avg query |
+| Scale benchmark | `100% Recall@5` at `1K`, `5K`, `10K` | `19.61 ms` mean, `42.56 ms` p95, `51.94 ms` p99 at `10K` |
+| `omega-memory` comparison | MAG `98 / 100` vs omega `90 / 100` | omega seeded and queried faster on this local workload |
+| Official `LongMemEval_S` sample | `8 / 10` | external dataset fetch works; full `500`-question publication is still pending |
 
-Full methodology, commands, and result tables are in [docs/benchmarks.md](/Users/george/.codex/worktrees/71fd/romega-memory/docs/benchmarks.md).
+Full methodology, commands, and result tables are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ### Benchmark Safety
 

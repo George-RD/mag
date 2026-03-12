@@ -43,8 +43,9 @@ Result:
 | Total questions | `100` |
 | Correct | `98` |
 | Overall | `98.0%` |
-| Seeding time | `2570 ms` |
-| Query time | `2081 ms` |
+| Seeding time | `1538 ms` |
+| Query time | `1013 ms` |
+| Peak RSS | `335568 KB` |
 
 | Category | Score |
 | --- | --- |
@@ -59,18 +60,28 @@ Result:
 Command:
 
 ```bash
-cargo run --release --bin longmemeval_bench -- --official --json
+cargo run --release --bin longmemeval_bench -- --official --questions 10 --json
 ```
 
-Status:
+Result from the initial official sample rerun:
 
-- External fetch, cache reuse, explicit path override, and optional temp-dataset cleanup are implemented.
-- The official rerun is still pending in this shell because the public dataset hosts could not be resolved during this session.
-- If the dataset is already available locally, the run can be completed with:
+| Metric | Value |
+| --- | --- |
+| Dataset source | `https://huggingface.co/datasets/LIXINYI33/longmemeval-s/resolve/main/longmemeval_s_cleaned.json` |
+| Cached path | `$HOME/.romega-memory/benchmarks/longmemeval/longmemeval_s_cleaned.json` |
+| Questions evaluated | `10 / 500` |
+| Correct | `8` |
+| Raw accuracy | `80.0%` |
+| Total memories ingested | `5177` |
+| Avg memories/question | `517.7` |
+| Total duration | `455.74 s` |
+| Avg query time | `36.3 ms` |
+| Peak RSS | `559536 KB` |
 
-```bash
-cargo run --release --bin longmemeval_bench -- --official --dataset-path /path/to/longmemeval_s_cleaned.json
-```
+Publication status:
+
+- External fetch, cache reuse, explicit path override, and temporary cleanup support are implemented.
+- The README does not yet publish a full `500`-question official score, because that full rerun was not completed in this batch window.
 
 ## LoCoMo10 Retrieval Slice
 
@@ -94,8 +105,9 @@ Result:
 | Memories ingested | `5882` |
 | Correct | `476` |
 | Overall | `23.97%` |
-| Total duration | `252.08 s` |
-| Average query time | `22.56 ms` |
+| Total duration | `224.75 s` |
+| Average query time | `20.22 ms` |
+| Peak RSS | `281184 KB` |
 
 | Category | Score |
 | --- | --- |
@@ -119,14 +131,14 @@ Result:
 
 | Scale | Store throughput | Avg store latency | Mean search | P95 | P99 | Recall@5 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1K | `50.1/s` | `19.95 ms` | `12.22 ms` | `36.96 ms` | `56.27 ms` | `100.0%` |
-| 5K | `58.2/s` | `17.17 ms` | `7.24 ms` | `20.44 ms` | `31.44 ms` | `100.0%` |
-| 10K | `53.9/s` | `18.55 ms` | `18.50 ms` | `41.85 ms` | `49.90 ms` | `100.0%` |
+| 1K | `75.6/s` | `13.22 ms` | `7.85 ms` | `16.80 ms` | `18.78 ms` | `100.0%` |
+| 5K | `61.8/s` | `16.17 ms` | `7.41 ms` | `17.25 ms` | `30.01 ms` | `100.0%` |
+| 10K | `53.3/s` | `18.75 ms` | `19.61 ms` | `42.56 ms` | `51.94 ms` | `100.0%` |
 
 Degradation from `1K` to `10K`:
 
-- Mean search latency: `12.22 ms -> 18.50 ms` (`1.5x`)
-- P95 latency: `36.96 ms -> 41.85 ms` (`1.1x`)
+- Mean search latency: `7.85 ms -> 19.61 ms` (`2.5x`)
+- P95 latency: `16.80 ms -> 42.56 ms` (`2.5x`)
 - Recall@5: `100.0% -> 100.0%`
 
 ## omega-memory Comparison
@@ -144,8 +156,9 @@ Result:
 | Seeded memories | `80` | `80` |
 | Correct | `98 / 100` | `90 / 100` |
 | Overall | `98.0%` | `90.0%` |
-| Seeding time | `2570 ms` | `3503 ms` |
-| Query time | `2081 ms` | `1034 ms` |
+| Seeding time | `1538 ms` | `986 ms` |
+| Query time | `1013 ms` | `501 ms` |
+| Peak RSS | `335568 KB` | `309024 KB` |
 
 Category breakdown for `omega-memory`:
 
@@ -160,6 +173,5 @@ Category breakdown for `omega-memory`:
 Interpretation:
 
 - MAG was more accurate on the shared local workload.
-- MAG was faster on seeding for this local workload.
-- omega-memory was faster on query time for that small benchmark.
+- omega-memory was faster on seeding and query time for that small benchmark.
 - The comparison is intentionally reported as a measured tradeoff, not a blanket win claim.
