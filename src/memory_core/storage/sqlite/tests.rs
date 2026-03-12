@@ -28,7 +28,7 @@ impl Embedder for KeywordEmbedder {
 
 #[test]
 fn test_new_with_path_creates_parent_and_db() {
-    let base = std::env::temp_dir().join(format!("romega-sqlite-test-{}", Uuid::new_v4()));
+    let base = std::env::temp_dir().join(format!("mag-sqlite-test-{}", Uuid::new_v4()));
     let db_path = base.join("nested").join("memory.db");
 
     let storage = SqliteStorage::new_with_path(
@@ -44,13 +44,14 @@ fn test_new_with_path_creates_parent_and_db() {
 
 #[tokio::test]
 async fn test_stats_include_instance_paths_for_custom_storage() {
-    let base = std::env::temp_dir().join(format!("romega-sqlite-test-{}", Uuid::new_v4()));
+    let base = std::env::temp_dir().join(format!("mag-sqlite-test-{}", Uuid::new_v4()));
     let db_path = base.join("stats").join("memory.db");
     let storage = SqliteStorage::new_with_path(
         db_path.clone(),
         std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
     )
     .unwrap();
+    let app_paths = crate::app_paths::resolve_app_paths().unwrap();
 
     let stats = storage.stats().await.unwrap();
     assert_eq!(
@@ -64,6 +65,15 @@ async fn test_stats_include_instance_paths_for_custom_storage() {
             .map(|path| path.display().to_string())
             .as_deref()
     );
+    assert_eq!(
+        stats["paths"]["preferred_data_root"].as_str(),
+        Some(app_paths.preferred_data_root.display().to_string().as_str())
+    );
+    assert_eq!(
+        stats["paths"]["legacy_data_root"].as_str(),
+        Some(app_paths.legacy_data_root.display().to_string().as_str())
+    );
+    assert_eq!(stats["paths"]["using_legacy_root"].as_bool(), Some(false));
 
     let _ = fs::remove_dir_all(base);
 }

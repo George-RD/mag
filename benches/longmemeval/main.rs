@@ -103,7 +103,7 @@ fn main() -> Result<()> {
             judge::load_api_key_from_dotenv();
             judge::init_llm_judge(args.judge_model.as_str())?;
         }
-        let dataset = runtime.block_on(benchmarking::resolve_dataset(
+        let mut dataset = runtime.block_on(benchmarking::resolve_dataset(
             DatasetKind::LongMemEval,
             args.dataset_path.clone(),
             args.force_refresh,

@@ -248,12 +248,15 @@ fn temporary_dataset_path(kind: DatasetKind) -> PathBuf {
 }
 
 impl DatasetArtifact {
-    pub fn cleanup(&self) -> Result<()> {
+    pub fn cleanup(&mut self) -> Result<()> {
         if !self.temporary || !self.path.exists() {
             return Ok(());
         }
-        std::fs::remove_file(&self.path)
-            .with_context(|| format!("failed to remove temporary dataset {}", self.path.display()))
+        std::fs::remove_file(&self.path).with_context(|| {
+            format!("failed to remove temporary dataset {}", self.path.display())
+        })?;
+        self.temporary = false;
+        Ok(())
     }
 }
 
@@ -267,7 +270,7 @@ impl Drop for DatasetArtifact {
 
 fn sanitize_command(args: impl IntoIterator<Item = String>) -> String {
     args.into_iter()
-        .map(|arg| sanitize_arg(&arg))
+        .map(|arg| quote_shell_arg(&sanitize_arg(&arg)))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -275,6 +278,17 @@ fn sanitize_command(args: impl IntoIterator<Item = String>) -> String {
 fn sanitize_arg(arg: &str) -> String {
     if looks_like_path(arg) {
         "<redacted_path>".to_string()
+    } else {
+        arg.to_string()
+    }
+}
+
+fn quote_shell_arg(arg: &str) -> String {
+    if arg
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '"' | '\\' | '$' | '`'))
+    {
+        format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         arg.to_string()
     }

@@ -928,7 +928,13 @@ impl SqliteStorage {
 }
 
 fn build_stats_paths_json(db_path: &Path) -> serde_json::Value {
-    let app_paths = crate::app_paths::resolve_app_paths().ok();
+    let app_paths = match crate::app_paths::resolve_app_paths() {
+        Ok(paths) => Some(paths),
+        Err(error) => {
+            tracing::warn!(error = %error, "failed to resolve app paths for stats");
+            None
+        }
+    };
     let data_root = if db_path.as_os_str() == ":memory:" {
         serde_json::Value::Null
     } else {
