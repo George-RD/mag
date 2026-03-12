@@ -148,7 +148,7 @@ cargo run --release --bin longmemeval_bench -- --json
 cargo run --release --bin longmemeval_bench -- --official --questions 10 --json
 cargo run --release --bin locomo_bench -- --json
 cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
-OMEGA_REPO=/path/to/omega-memory uv run --project "$OMEGA_REPO" python benches/python_comparison.py --omega-repo "$OMEGA_REPO"
+OMEGA_REPO=/path/to/omega-memory uv run --project "$OMEGA_REPO" python benches/python_comparison.py
 ```
 
 ## License

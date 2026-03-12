@@ -149,7 +149,7 @@ Clone `omega-memory` locally first and point the comparison script at that check
 
 ```bash
 COMPARISON_REPO=/path/to/omega-memory
-OMEGA_REPO="$COMPARISON_REPO" UV_CACHE_DIR=/tmp/uv-cache-mag uv run --project "$COMPARISON_REPO" python benches/python_comparison.py --omega-repo "$COMPARISON_REPO"
+OMEGA_REPO="$COMPARISON_REPO" UV_CACHE_DIR=/tmp/uv-cache-mag uv run --project "$COMPARISON_REPO" python benches/python_comparison.py
 ```
 
 Result:
