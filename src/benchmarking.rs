@@ -199,7 +199,10 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
         tokio::fs::write(&part_path, &bytes)
             .await
             .with_context(|| format!("failed to write {}", part_path.display()))?;
-        validate_json_file(&part_path)?;
+        let validate_path = part_path.clone();
+        tokio::task::spawn_blocking(move || validate_json_file(&validate_path))
+            .await
+            .context("dataset validation task failed")??;
         tokio::fs::rename(&part_path, path)
             .await
             .with_context(|| format!("failed to finalize {}", path.display()))?;
@@ -286,11 +289,7 @@ fn sanitize_dataset_path(dataset_path: &str) -> String {
 }
 
 fn looks_like_path(arg: &str) -> bool {
-    Path::new(arg).is_absolute()
-        || arg.starts_with('~')
-        || arg.contains('/')
-        || arg.contains('\\')
-        || arg.contains("/home/")
+    Path::new(arg).is_absolute() || arg.starts_with('~') || arg.contains('/') || arg.contains('\\')
 }
 
 fn git_commit() -> Option<String> {

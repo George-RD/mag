@@ -42,6 +42,32 @@ fn test_new_with_path_creates_parent_and_db() {
     let _ = fs::remove_dir_all(base);
 }
 
+#[tokio::test]
+async fn test_stats_include_instance_paths_for_custom_storage() {
+    let base = std::env::temp_dir().join(format!("romega-sqlite-test-{}", Uuid::new_v4()));
+    let db_path = base.join("stats").join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    let stats = storage.stats().await.unwrap();
+    assert_eq!(
+        stats["paths"]["database_path"].as_str(),
+        Some(db_path.display().to_string().as_str())
+    );
+    assert_eq!(
+        stats["paths"]["data_root"].as_str(),
+        db_path
+            .parent()
+            .map(|path| path.display().to_string())
+            .as_deref()
+    );
+
+    let _ = fs::remove_dir_all(base);
+}
+
 #[test]
 fn test_schema_contains_required_tables_and_columns() {
     let storage = SqliteStorage::new_in_memory().unwrap();
