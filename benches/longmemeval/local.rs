@@ -7,8 +7,8 @@ use anyhow::Result;
 use chrono::{Duration, SecondsFormat, Utc};
 use serde::Deserialize;
 
-use romega_memory::memory_core::storage::sqlite::SqliteStorage;
-use romega_memory::memory_core::*;
+use mag::memory_core::storage::sqlite::SqliteStorage;
+use mag::memory_core::*;
 
 use crate::ABSTENTION_FALLBACK_SCORE;
 use crate::helpers::{
@@ -174,7 +174,7 @@ async fn store_item(
 
 pub(crate) async fn seed_memories(
     storage: &SqliteStorage,
-    embedder: &Arc<dyn romega_memory::memory_core::embedder::Embedder>,
+    embedder: &Arc<dyn mag::memory_core::embedder::Embedder>,
     rss: &mut PeakRss,
 ) -> Result<usize> {
     let data = load_benchmark_data();

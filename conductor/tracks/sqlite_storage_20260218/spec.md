@@ -2,12 +2,12 @@
 
 ## Overview
 
-This track replaces the current `PlaceholderPipeline` implementation for the `Storage` and `Retriever` traits with a persistent SQLite-based backend. This will enable `romega-memory` to store and retrieve data across different CLI sessions and provides the foundation for the semantic graph memory system found in the original `omega-memory`.
+This track replaces the current `PlaceholderPipeline` implementation for the `Storage` and `Retriever` traits with a persistent SQLite-based backend. This will enable `mag` to store and retrieve data across different CLI sessions and provides the foundation for the semantic graph memory system found in the original `omega-memory`.
 
 ## Functional Requirements
 
 - **Persistent Storage:** Implement the `Storage` and `Retriever` traits using the `rusqlite` library.
-- **Default Database Location:** Store the SQLite database at a fixed default path: `~/.romega-memory/memory.db`.
+- **Default Database Location:** Store the SQLite database at a fixed default path: `~/.mag/memory.db`.
 - **Automatic Initialization:** Automatically create the parent directory and initialize the SQLite database file with the required schema if they do not exist on startup.
 - **Rich Metadata & Graph Schema:** The storage schema must support the following:
     - **`memories` Table:**
@@ -39,7 +39,7 @@ This track replaces the current `PlaceholderPipeline` implementation for the `St
 - [ ] Running `romega ingest "some content"` stores the data in the local SQLite file.
 - [ ] Subsequent calls to `romega retrieve <id>` correctly return the stored content.
 - [ ] All specified schema tables (`memories`, `relationships`) and columns are correctly created and populated.
-- [ ] The `~/.romega-memory/` directory and `memory.db` file are created automatically if missing.
+- [ ] The `~/.mag/` directory and `memory.db` file are created automatically if missing.
 - [ ] Unit tests for the new `SqliteStorage` module pass with high coverage.
 
 ## Out of Scope

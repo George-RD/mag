@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "romega-memory": {
-      "command": "./target/release/romega-memory",
+    "mag": {
+      "command": "./target/release/mag",
       "args": ["serve"],
       "env": {
         "RUST_LOG": "info"

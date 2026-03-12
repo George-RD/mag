@@ -1,7 +1,7 @@
 # Track Specification: Project Scaffolding & Core Architecture Design
 
 ## Objective
-Establish a robust, modular, and extensible foundation for the `romega-memory` rewrite in Rust. This includes the project structure, CLI entry point, and the core abstractions (traits) for the memory pipeline.
+Establish a robust, modular, and extensible foundation for the `mag` rewrite in Rust. This includes the project structure, CLI entry point, and the core abstractions (traits) for the memory pipeline.
 
 ## Requirements
 - Define the core pipeline traits: `Ingestor`, `Processor`, `Storage`, and `Retriever`.

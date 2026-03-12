@@ -4197,6 +4197,16 @@ async fn test_access_rate_stats() {
 }
 
 #[tokio::test]
+async fn test_storage_stats_include_resolved_paths() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let result = storage.stats().await.unwrap();
+    assert!(result["paths"]["data_root"].as_str().is_some());
+    assert!(result["paths"]["preferred_data_root"].as_str().is_some());
+    assert!(result["paths"]["legacy_data_root"].as_str().is_some());
+    assert!(result["paths"]["using_legacy_root"].as_bool().is_some());
+}
+
+#[tokio::test]
 async fn test_dual_match_boost_default() {
     // Verify the default value for dual_match_boost
     let params = ScoringParams::default();

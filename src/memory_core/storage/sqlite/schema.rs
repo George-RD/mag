@@ -1,4 +1,5 @@
 use super::*;
+use crate::app_paths;
 
 /// Ensures the parent directory of `path` exists, creating it recursively if needed.
 pub(super) fn initialize_parent_dir(path: &Path) -> Result<()> {
@@ -313,12 +314,8 @@ pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Resolves the default database path (`$HOME/.romega-memory/memory.db`), falling back to `USERPROFILE` on Windows.
+/// Resolves the default database path, preferring `$HOME/.mag/memory.db`
+/// and falling back to the legacy `$HOME/.romega-memory/memory.db`.
 pub(super) fn default_db_path() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .ok_or_else(|| {
-            anyhow!("neither HOME nor USERPROFILE is set — cannot resolve default database path")
-        })?;
-    Ok(PathBuf::from(home).join(".romega-memory").join("memory.db"))
+    app_paths::resolve_app_paths().map(|paths| paths.database_path)
 }

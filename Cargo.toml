@@ -1,5 +1,5 @@
 [package]
-name = "romega-memory"
+name = "mag"
 version = "0.1.0"
 edition = "2024"
 autobenches = false
@@ -49,4 +49,9 @@ required-features = ["real-embeddings"]
 [[bin]]
 name = "scale_bench"
 path = "benches/scale_bench.rs"
+required-features = ["real-embeddings"]
+
+[[bin]]
+name = "locomo_bench"
+path = "benches/locomo/main.rs"
 required-features = ["real-embeddings"]

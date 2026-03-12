@@ -9,8 +9,9 @@ use std::time::Instant;
 use anyhow::{Result, bail};
 use clap::Parser;
 
-use romega_memory::memory_core::storage::sqlite::SqliteStorage;
-use romega_memory::memory_core::{ABSTENTION_MIN_TEXT, OnnxEmbedder};
+use mag::benchmarking::{self, DatasetKind};
+use mag::memory_core::storage::sqlite::SqliteStorage;
+use mag::memory_core::{ABSTENTION_MIN_TEXT, OnnxEmbedder};
 
 mod display;
 mod grid_search;
@@ -26,7 +27,6 @@ const ABSTENTION_FALLBACK_SCORE: f32 = 0.1;
 const DEFAULT_JUDGE_MODEL: &str = "gpt-4o-mini";
 const INPUT_RATE_PER_1M_GPT_4O_MINI: f64 = 0.15;
 const INPUT_RATE_PER_1M_GPT_4_1: f64 = 2.00;
-const DEFAULT_OFFICIAL_DATASET: &str = "data/longmemeval_s_cleaned.json";
 
 #[derive(Debug, Parser)]
 #[command(name = "longmemeval_bench")]
@@ -45,9 +45,15 @@ struct Args {
     /// Run against the official LongMemEval_S dataset (500 questions)
     #[arg(long)]
     official: bool,
-    /// Path to the official dataset JSON (default: data/longmemeval_s_cleaned.json)
+    /// Path to the official dataset JSON. If omitted, MAG uses the benchmark cache.
     #[arg(long)]
     dataset_path: Option<PathBuf>,
+    /// Re-download the official dataset into the benchmark cache before running.
+    #[arg(long)]
+    force_refresh: bool,
+    /// Download the dataset to a temporary path and remove it after the run.
+    #[arg(long)]
+    temp_dataset: bool,
     /// Limit number of questions for quick testing (applies to --official only)
     #[arg(long)]
     questions: Option<usize>,
@@ -94,16 +100,19 @@ fn main() -> Result<()> {
             judge::load_api_key_from_dotenv();
             judge::init_llm_judge(args.judge_model.as_str())?;
         }
-        let dataset_path = args
-            .dataset_path
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_OFFICIAL_DATASET));
+        let dataset = runtime.block_on(benchmarking::resolve_dataset(
+            DatasetKind::LongMemEval,
+            args.dataset_path.clone(),
+            args.force_refresh,
+            args.temp_dataset,
+        ))?;
         if !args.json {
             println!(
                 "Loading official dataset from {}...",
-                dataset_path.display()
+                dataset.path.display()
             );
         }
-        let mut questions = official::load_official_dataset(&dataset_path)?;
+        let mut questions = official::load_official_dataset(&dataset.path)?;
         let dataset_total = questions.len();
         if !args.json {
             println!("Loaded {dataset_total} questions.");
@@ -124,10 +133,12 @@ fn main() -> Result<()> {
                 args.llm_judge
             );
         }
+        let metadata = benchmarking::benchmark_metadata("longmemeval_official", &dataset);
 
         let summary = runtime.block_on(official::run_official_benchmark(
             &questions,
             dataset_total,
+            metadata,
             embedder,
             args.verbose,
             args.llm_judge,
@@ -140,6 +151,7 @@ fn main() -> Result<()> {
         } else {
             official::print_official_results(&summary);
         }
+        dataset.cleanup()?;
         return Ok(());
     }
 
@@ -148,10 +160,10 @@ fn main() -> Result<()> {
         judge::load_api_key_from_dotenv();
         judge::init_llm_judge(args.judge_model.as_str())?;
     }
-    let embedder: std::sync::Arc<dyn romega_memory::memory_core::embedder::Embedder> =
+    let embedder: std::sync::Arc<dyn mag::memory_core::embedder::Embedder> =
         std::sync::Arc::new(OnnxEmbedder::new()?);
     let temp_db_path = if args.file_backed {
-        Some(std::env::temp_dir().join(format!("romega-bench-{}.db", std::process::id())))
+        Some(std::env::temp_dir().join(format!("mag-bench-{}.db", std::process::id())))
     } else {
         None
     };
@@ -247,6 +259,11 @@ fn main() -> Result<()> {
     };
 
     let summary = types::Summary {
+        metadata: benchmarking::benchmark_metadata_from_parts(
+            "longmemeval_local",
+            "repo-local",
+            "data/local_benchmark.json",
+        ),
         seeded_memories,
         seeding_ms,
         querying_ms,

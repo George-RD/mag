@@ -3,9 +3,10 @@ use std::io::Write;
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
+use mag::benchmarking::BenchmarkMetadata;
 
-use romega_memory::memory_core::storage::sqlite::SqliteStorage;
-use romega_memory::memory_core::*;
+use mag::memory_core::storage::sqlite::SqliteStorage;
+use mag::memory_core::*;
 
 use crate::ABSTENTION_FALLBACK_SCORE;
 use crate::helpers::{PeakRss, grade, pct, record_result, summarize_totals, truncate};
@@ -99,6 +100,7 @@ async fn seed_official_question(
 pub(crate) async fn run_official_benchmark(
     questions: &[OfficialQuestion],
     dataset_total: usize,
+    metadata: BenchmarkMetadata,
     embedder: std::sync::Arc<OnnxEmbedder>,
     verbose: bool,
     llm_judge: bool,
@@ -278,6 +280,7 @@ pub(crate) async fn run_official_benchmark(
     };
 
     Ok(OfficialSummary {
+        metadata,
         dataset: "LongMemEval_S".to_string(),
         total_questions: dataset_total,
         questions_evaluated: total,
@@ -302,6 +305,8 @@ pub(crate) fn print_official_results(summary: &OfficialSummary) {
         "  Dataset: {} ({}/{} questions evaluated)",
         summary.dataset, summary.questions_evaluated, summary.total_questions
     );
+    println!("  Source: {}", summary.metadata.dataset_source);
+    println!("  Cache:  {}", summary.metadata.dataset_path);
     println!(
         "  Memories ingested: {} (avg {:.1}/question)",
         summary.total_memories_ingested, summary.avg_memories_per_question

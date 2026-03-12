@@ -28,10 +28,10 @@ impl FeedbackRating {
     }
 }
 
-/// The main CLI entry point for the romega memory system.
+/// The main CLI entry point for MAG.
 #[derive(Parser)]
-#[command(name = "romega")]
-#[command(about = "A modular memory system", long_about = None)]
+#[command(name = "mag")]
+#[command(about = "Memory-Augmented Generation for local agents and MCP clients", long_about = None)]
 pub struct Cli {
     #[arg(long, value_enum, default_value_t = InitModeArg::Default, global = true)]
     pub init_mode: InitModeArg,
@@ -153,6 +153,8 @@ pub enum Commands {
     Relations {
         id: String,
     },
+    /// Shows the active MAG data, model, and benchmark cache paths.
+    Paths,
     /// Searches stored memories by query string.
     Search {
         query: String,
@@ -430,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_cli_ingest_command() {
-        let args = vec!["romega", "ingest", "test content"];
+        let args = vec!["mag", "ingest", "test content"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Ingest {
@@ -451,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_cli_process_command() {
-        let args = vec!["romega", "process", "raw data"];
+        let args = vec!["mag", "process", "raw data"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Process {
@@ -472,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_cli_delete_command() {
-        let args = vec!["romega", "delete", "abc123"];
+        let args = vec!["mag", "delete", "abc123"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Delete { id } => assert_eq!(id, "abc123"),
@@ -482,7 +484,7 @@ mod tests {
 
     #[test]
     fn test_cli_update_command() {
-        let args = vec!["romega", "update", "abc123", "--content", "new content"];
+        let args = vec!["mag", "update", "abc123", "--content", "new content"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Update {
@@ -506,7 +508,7 @@ mod tests {
     #[test]
     fn test_cli_update_command_with_tags() {
         let args = vec![
-            "romega",
+            "mag",
             "update",
             "abc123",
             "--content",
@@ -536,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_cli_update_tags_only() {
-        let args = vec!["romega", "update", "abc123", "--tags", "x,y"];
+        let args = vec!["mag", "update", "abc123", "--tags", "x,y"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Update {
@@ -559,7 +561,7 @@ mod tests {
 
     #[test]
     fn test_cli_list_command_with_filters() {
-        let args = vec!["romega", "list", "--offset", "5", "--limit", "3"];
+        let args = vec!["mag", "list", "--offset", "5", "--limit", "3"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::List { offset, limit, .. } => {
@@ -572,7 +574,7 @@ mod tests {
 
     #[test]
     fn test_cli_relations_command() {
-        let args = vec!["romega", "relations", "abc123"];
+        let args = vec!["mag", "relations", "abc123"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Relations { id } => assert_eq!(id, "abc123"),
@@ -582,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_cli_ingest_with_tags() {
-        let args = vec!["romega", "ingest", "content", "--tags", "x,y"];
+        let args = vec!["mag", "ingest", "content", "--tags", "x,y"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Ingest {
@@ -603,7 +605,7 @@ mod tests {
 
     #[test]
     fn test_cli_ingest_with_importance() {
-        let args = vec!["romega", "ingest", "content", "--importance", "0.9"];
+        let args = vec!["mag", "ingest", "content", "--importance", "0.9"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Ingest { importance, .. } => assert_eq!(importance, 0.9),
@@ -614,7 +616,7 @@ mod tests {
     #[test]
     fn test_cli_ingest_with_metadata() {
         let args = vec![
-            "romega",
+            "mag",
             "ingest",
             "content",
             "--metadata",
@@ -631,7 +633,7 @@ mod tests {
 
     #[test]
     fn test_cli_ingest_with_ttl_seconds() {
-        let args = vec!["romega", "ingest", "content", "--ttl-seconds", "123"];
+        let args = vec!["mag", "ingest", "content", "--ttl-seconds", "123"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Ingest { ttl_seconds, .. } => assert_eq!(ttl_seconds, Some(123)),
@@ -641,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_cli_update_with_importance() {
-        let args = vec!["romega", "update", "abc123", "--importance", "0.8"];
+        let args = vec!["mag", "update", "abc123", "--importance", "0.8"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Update { importance, .. } => assert_eq!(importance, Some(0.8)),
@@ -651,7 +653,7 @@ mod tests {
 
     #[test]
     fn test_cli_retrieve_command() {
-        let args = vec!["romega", "retrieve", "123"];
+        let args = vec!["mag", "retrieve", "123"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Retrieve { id } => assert_eq!(id, "123"),
@@ -662,7 +664,7 @@ mod tests {
     #[test]
     fn test_cli_search_command() {
         let args = vec![
-            "romega",
+            "mag",
             "search",
             "hello",
             "--limit",
@@ -697,7 +699,7 @@ mod tests {
     #[test]
     fn test_cli_list_command() {
         let args = vec![
-            "romega",
+            "mag",
             "list",
             "--limit",
             "6",
@@ -729,7 +731,7 @@ mod tests {
     #[test]
     fn test_cli_semantic_search_command() {
         let args = vec![
-            "romega",
+            "mag",
             "semantic-search",
             "context",
             "--limit",
@@ -759,7 +761,7 @@ mod tests {
 
     #[test]
     fn test_cli_recent_command_with_filters() {
-        let args = vec!["romega", "recent", "--limit", "4"];
+        let args = vec!["mag", "recent", "--limit", "4"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Recent { limit, .. } => assert_eq!(limit, 4),
@@ -770,7 +772,7 @@ mod tests {
     #[test]
     fn test_cli_recent_command() {
         let args = vec![
-            "romega",
+            "mag",
             "recent",
             "--limit",
             "4",
@@ -802,7 +804,7 @@ mod tests {
     #[test]
     fn test_cli_advanced_search_command() {
         let args = vec![
-            "romega",
+            "mag",
             "advanced-search",
             "query",
             "--limit",
@@ -837,7 +839,7 @@ mod tests {
 
     #[test]
     fn test_cli_advanced_search_include_superseded_flag() {
-        let args = vec!["romega", "advanced-search", "query", "--include-superseded"];
+        let args = vec!["mag", "advanced-search", "query", "--include-superseded"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::AdvancedSearch {
@@ -849,7 +851,7 @@ mod tests {
 
     #[test]
     fn test_cli_version_chain_command() {
-        let args = vec!["romega", "version-chain", "abc123"];
+        let args = vec!["mag", "version-chain", "abc123"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::VersionChain { id } => assert_eq!(id, "abc123"),
@@ -859,7 +861,7 @@ mod tests {
 
     #[test]
     fn test_cli_similar_command() {
-        let args = vec!["romega", "similar", "mem-1", "--limit", "3"];
+        let args = vec!["mag", "similar", "mem-1", "--limit", "3"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Similar { id, limit } => {
@@ -873,7 +875,7 @@ mod tests {
     #[test]
     fn test_cli_traverse_command() {
         let args = vec![
-            "romega",
+            "mag",
             "traverse",
             "mem-2",
             "--max-hops",
@@ -899,7 +901,7 @@ mod tests {
     #[test]
     fn test_cli_phrase_search_command() {
         let args = vec![
-            "romega",
+            "mag",
             "phrase-search",
             "exact phrase",
             "--limit",
@@ -929,7 +931,7 @@ mod tests {
 
     #[test]
     fn test_cli_stats_command() {
-        let args = vec!["romega", "stats"];
+        let args = vec!["mag", "stats"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Stats => {}
@@ -939,7 +941,7 @@ mod tests {
 
     #[test]
     fn test_cli_export_command() {
-        let args = vec!["romega", "export"];
+        let args = vec!["mag", "export"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Export => {}
@@ -949,7 +951,7 @@ mod tests {
 
     #[test]
     fn test_cli_import_command() {
-        let args = vec!["romega", "import", "memories.json"];
+        let args = vec!["mag", "import", "memories.json"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Import { path } => assert_eq!(path, "memories.json"),
@@ -959,9 +961,7 @@ mod tests {
 
     #[test]
     fn test_cli_feedback_command() {
-        let args = vec![
-            "romega", "feedback", "mem-1", "helpful", "--reason", "clear",
-        ];
+        let args = vec!["mag", "feedback", "mem-1", "helpful", "--reason", "clear"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Feedback {
@@ -979,7 +979,7 @@ mod tests {
 
     #[test]
     fn test_cli_sweep_command() {
-        let args = vec!["romega", "sweep"];
+        let args = vec!["mag", "sweep"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Sweep => {}
@@ -989,7 +989,7 @@ mod tests {
 
     #[test]
     fn test_cli_profile_command() {
-        let args = vec!["romega", "profile", "read"];
+        let args = vec!["mag", "profile", "read"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Profile { action, data } => {
@@ -1002,14 +1002,7 @@ mod tests {
 
     #[test]
     fn test_cli_checkpoint_command() {
-        let args = vec![
-            "romega",
-            "checkpoint",
-            "Task",
-            "Done",
-            "--project",
-            "romega",
-        ];
+        let args = vec!["mag", "checkpoint", "Task", "Done", "--project", "mag"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Checkpoint {
@@ -1020,7 +1013,7 @@ mod tests {
             } => {
                 assert_eq!(task_title, "Task");
                 assert_eq!(progress, "Done");
-                assert_eq!(project.as_deref(), Some("romega"));
+                assert_eq!(project.as_deref(), Some("mag"));
             }
             _ => panic!("Expected Checkpoint command"),
         }
@@ -1028,14 +1021,7 @@ mod tests {
 
     #[test]
     fn test_cli_resume_task_command() {
-        let args = vec![
-            "romega",
-            "resume-task",
-            "--task-title",
-            "Task",
-            "--limit",
-            "3",
-        ];
+        let args = vec!["mag", "resume-task", "--task-title", "Task", "--limit", "3"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::ResumeTask {
@@ -1051,7 +1037,7 @@ mod tests {
     #[test]
     fn test_cli_remind_command() {
         let args = vec![
-            "romega",
+            "mag",
             "remind",
             "set",
             "--text",
@@ -1077,7 +1063,7 @@ mod tests {
 
     #[test]
     fn test_cli_lessons_command() {
-        let args = vec!["romega", "lessons", "--task", "search", "--limit", "7"];
+        let args = vec!["mag", "lessons", "--task", "search", "--limit", "7"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Lessons { task, limit, .. } => {
@@ -1090,7 +1076,7 @@ mod tests {
 
     #[test]
     fn test_cli_download_model_command() {
-        let args = vec!["romega", "download-model"];
+        let args = vec!["mag", "download-model"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::DownloadModel => {}
@@ -1100,27 +1086,21 @@ mod tests {
 
     #[test]
     fn test_cli_default_init_mode() {
-        let args = vec!["romega", "ingest", "test content"];
+        let args = vec!["mag", "ingest", "test content"];
         let cli = Cli::parse_from(args);
         assert_eq!(cli.init_mode, InitModeArg::Default);
     }
 
     #[test]
     fn test_cli_advanced_init_mode() {
-        let args = vec![
-            "romega",
-            "--init-mode",
-            "advanced",
-            "ingest",
-            "test content",
-        ];
+        let args = vec!["mag", "--init-mode", "advanced", "ingest", "test content"];
         let cli = Cli::parse_from(args);
         assert_eq!(cli.init_mode, InitModeArg::Advanced);
     }
 
     #[test]
     fn test_cli_serve_command() {
-        let args = vec!["romega", "serve"];
+        let args = vec!["mag", "serve"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Serve { cross_encoder } => {
@@ -1132,14 +1112,7 @@ mod tests {
 
     #[test]
     fn test_cli_maintain_command() {
-        let args = vec![
-            "romega",
-            "maintain",
-            "--action",
-            "health",
-            "--warn-mb",
-            "100",
-        ];
+        let args = vec!["mag", "maintain", "--action", "health", "--warn-mb", "100"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Maintain {
@@ -1154,14 +1127,7 @@ mod tests {
 
     #[test]
     fn test_cli_welcome_command() {
-        let args = vec![
-            "romega",
-            "welcome",
-            "--session-id",
-            "s1",
-            "--project",
-            "proj",
-        ];
+        let args = vec!["mag", "welcome", "--session-id", "s1", "--project", "proj"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Welcome {
@@ -1177,7 +1143,7 @@ mod tests {
 
     #[test]
     fn test_cli_protocol_command() {
-        let args = vec!["romega", "protocol"];
+        let args = vec!["mag", "protocol"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Protocol { section } => {
@@ -1189,7 +1155,7 @@ mod tests {
 
     #[test]
     fn test_cli_stats_extended_command() {
-        let args = vec!["romega", "stats-extended", "--action", "types"];
+        let args = vec!["mag", "stats-extended", "--action", "types"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::StatsExtended { action, days } => {

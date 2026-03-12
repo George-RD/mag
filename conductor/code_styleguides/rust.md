@@ -1,4 +1,4 @@
-# Rust Style Guide: romega-memory
+# Rust Style Guide: MAG
 
 ## 1. Tooling & Linting
 - **Formatting:** Use `rustfmt` for all code. Run `cargo fmt` before every commit.

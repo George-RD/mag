@@ -9,12 +9,12 @@ use tokio::{process::Command, time::timeout};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::error::Error>> {
-    let test_home = std::env::temp_dir().join(format!("romega-mcp-smoke-{}", uuid::Uuid::new_v4()));
+    let test_home = std::env::temp_dir().join(format!("mag-mcp-smoke-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&test_home)?;
 
     let mut service = ()
         .serve(TokioChildProcess::new(
-            Command::new(env!("CARGO_BIN_EXE_romega-memory")).configure(|cmd| {
+            Command::new(env!("CARGO_BIN_EXE_mag")).configure(|cmd| {
                 cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
                 cmd.arg("serve");
                 cmd.env("HOME", &test_home);

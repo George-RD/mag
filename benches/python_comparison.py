@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Compare romega-memory (Rust) vs omega-memory (Python) on the same workload.
+"""Compare MAG (Rust) vs omega-memory (Python) on the same workload.
 
 Runs the EXACT same local_benchmark.json seed + query operations through
 omega-memory's SQLiteStore. All 100 questions match the Rust benchmark 1:1.
 
 Usage:
-    cd /path/to/romega-memory
+    cd /path/to/mag
     uv run --project ~/repos/omega-memory python benches/python_comparison.py [--verbose]
 """
 
+import argparse
 import json
 import os
 import resource
@@ -17,13 +18,13 @@ import sys
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
-OMEGA_REPO = os.path.expanduser("~/repos/omega-memory")
-sys.path.insert(0, os.path.join(OMEGA_REPO, "src"))
+DEFAULT_OMEGA_REPO = os.path.expanduser("~/repos/omega-memory")
+VERBOSE = False
 
-from omega.sqlite_store import SQLiteStore  # noqa: E402
-
-VERBOSE = "--verbose" in sys.argv
+if TYPE_CHECKING:
+    from omega.sqlite_store import SQLiteStore
 
 
 def peak_rss_kb() -> int:
@@ -44,7 +45,7 @@ def iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def seed_memories(store: SQLiteStore, data: dict) -> int:
+def seed_memories(store: "SQLiteStore", data: dict) -> int:
     now = datetime.now(timezone.utc)
     count = 0
     seeds = data["seed_memories"]
@@ -148,7 +149,7 @@ def substring_match(results, expected: str) -> bool:
     return any(expected_lower in r.content.lower() for r in results)
 
 
-def run_queries(store: SQLiteStore, data: dict) -> Results:
+def run_queries(store: "SQLiteStore", data: dict) -> Results:
     now = datetime.now(timezone.utc)
     questions = data["questions"]
     res = Results()
@@ -273,10 +274,60 @@ def run_queries(store: SQLiteStore, data: dict) -> Results:
     return res
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--omega-repo", default=os.environ.get("OMEGA_REPO", DEFAULT_OMEGA_REPO))
+    return parser.parse_args()
+
+
+def machine_descriptor() -> str:
+    return f"{os.uname().sysname} {os.uname().machine}"
+
+
+def git_commit() -> str | None:
+    try:
+        import subprocess
+
+        output = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        return output or None
+    except Exception:
+        return None
+
+
+def emit_skip(reason: str):
+    print(
+        json.dumps(
+            {
+                "runtime": "python/omega-memory",
+                "status": "skipped",
+                "reason": reason,
+            },
+            indent=2,
+        )
+    )
+
+
 def main():
+    global VERBOSE
+    args = parse_args()
+    VERBOSE = args.verbose
+    omega_repo = os.path.expanduser(args.omega_repo)
+    omega_src = os.path.join(omega_repo, "src")
+    if not os.path.isdir(omega_src):
+        emit_skip(f"omega-memory repo not found at {omega_repo}")
+        return
+
+    sys.path.insert(0, omega_src)
+    try:
+        from omega.sqlite_store import SQLiteStore  # noqa: E402
+    except Exception as exc:
+        emit_skip(f"failed to import omega-memory from {omega_repo}: {exc}")
+        return
+
     data = load_benchmark_data()
 
-    tmpdir = tempfile.mkdtemp(prefix="romega_pybench_")
+    tmpdir = tempfile.mkdtemp(prefix="mag_pybench_")
     os.environ["OMEGA_HOME"] = tmpdir
     db_path = os.path.join(tmpdir, "bench.db")
 
@@ -306,7 +357,14 @@ def main():
             }
 
         output = {
+            "benchmark": "omega_memory_comparison",
             "runtime": "python/omega-memory",
+            "command": " ".join(sys.argv),
+            "date": datetime.now(timezone.utc).isoformat(),
+            "commit": git_commit(),
+            "machine": machine_descriptor(),
+            "dataset_source": "repo-local",
+            "dataset_path": "data/local_benchmark.json",
             "seeded_memories": seeded,
             "seeding_ms": seeding_ms,
             "querying_ms": querying_ms,

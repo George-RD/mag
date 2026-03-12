@@ -48,7 +48,7 @@ enum StoreOutcome {
 /// Controls how the SQLite storage backend is initialized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InitMode {
-    /// Use the default database path (`~/.romega-memory/memory.db`).
+    /// Use the resolved default database path (`~/.mag/memory.db` with legacy fallback).
     Default,
     /// Reserved for future advanced configuration (currently delegates to `Default`).
     Advanced,
@@ -397,6 +397,7 @@ impl SqliteStorage {
                 "total_access_count": total_access,
                 "fts5_indexed": fts_count,
                 "fts5_in_sync": fts_count == total_memories,
+                "paths": crate::app_paths::runtime_paths_json()?,
             }))
         })
         .await

@@ -17,7 +17,7 @@ cargo test --all-features <test_name>
 cargo build --release
 
 # Run MCP server
-./target/release/romega-memory serve
+./target/release/mag serve
 
 # Benchmarks (requires real-embeddings feature, seeds 80 memories, runs 100 queries)
 cargo run --release --bin longmemeval_bench
@@ -80,7 +80,7 @@ Query → ONNX embed → Vector search + FTS5 BM25 → RRF fusion → Score refi
 ## Gotchas
 
 - The `conductor/` directory contains product planning docs (tracks, specs, style guides) — it's not runtime code
-- Model files (~134 MB) auto-download to `~/.romega-memory/models/` on first use; use `cargo run --release -- download-model` to pre-download
+- Model files (~134 MB) auto-download to `~/.mag/models/` on first use; use `cargo run --release -- download-model` to pre-download
 - Event types use the `EventType` enum (22 variants + `Unknown(String)`); priority auto-maps via `EventType::default_priority()`
 - Store lifecycle includes canonicalized-content dedup and event-type Jaccard dedup thresholds
 - CI runs on GitHub Actions (ubuntu-latest): fmt → clippy → test

@@ -1,4 +1,4 @@
-# Tech Stack: romega-memory
+# Tech Stack: MAG
 
 ## Core Language
 - **Rust:** The primary language for the rewrite, ensuring memory safety, high performance, and zero-dependency portability.

@@ -20,6 +20,7 @@ use tracing::info;
 #[cfg(not(feature = "real-embeddings"))]
 use memory_core::PlaceholderEmbedder;
 
+mod app_paths;
 mod cli;
 mod mcp_server;
 mod memory_core;
@@ -87,6 +88,23 @@ async fn main() -> anyhow::Result<()> {
                 "download-cross-encoder requires the `real-embeddings` feature to be enabled"
             );
         }
+        return Ok(());
+    }
+
+    if matches!(cli.command, Commands::Paths) {
+        let paths = app_paths::resolve_app_paths()?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "data_root": paths.data_root,
+                "preferred_data_root": paths.preferred_data_root,
+                "database_path": paths.database_path,
+                "model_root": paths.model_root,
+                "benchmark_root": paths.benchmark_root,
+                "legacy_data_root": paths.legacy_data_root,
+                "using_legacy_root": paths.using_legacy_root,
+            }))?
+        );
         return Ok(());
     }
 
@@ -332,6 +350,9 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .collect();
             println!("{}", json!({ "relationships": payload }));
+        }
+        Commands::Paths => {
+            unreachable!("paths is handled before storage initialization");
         }
         Commands::Search {
             query,

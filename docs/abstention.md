@@ -1,7 +1,7 @@
 # Abstention Gate
 
 The abstention gate is a collection-level filter in the advanced search pipeline
-that prevents romega-memory from returning results when no stored memory is
+that prevents MAG from returning results when no stored memory is
 genuinely relevant to the query. Rather than always returning the "least bad"
 match, the system returns an empty result set -- signaling to the caller that
 the query cannot be answered from the memory store.
@@ -62,7 +62,7 @@ On the AB (abstention) category of the LongMemEval benchmark:
 
 | System        | AB score |
 |---------------|----------|
-| romega-memory | 20/20    |
+| MAG | 20/20    |
 | omega-memory  | 16/20    |
 
 The 4-point advantage comes entirely from the text_overlap-based gate.
@@ -75,7 +75,7 @@ The threshold is exposed as `abstention_min_text` in the `ScoringParams` struct.
 To adjust it:
 
 ```rust
-use romega_memory::memory_core::scoring::ScoringParams;
+use mag::memory_core::scoring::ScoringParams;
 
 let params = ScoringParams {
     abstention_min_text: 0.25, // more permissive (fewer abstentions)

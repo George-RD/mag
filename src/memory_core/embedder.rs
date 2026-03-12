@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use sha2::{Digest, Sha256};
 
+use crate::app_paths;
+
 /// Trait for generating text embeddings.
 pub trait Embedder: Send + Sync {
     /// Returns the embedding dimension.
@@ -566,15 +568,7 @@ pub async fn download_bge_small_model() -> Result<PathBuf> {
 
 #[cfg(feature = "real-embeddings")]
 fn default_model_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .ok_or_else(|| {
-            anyhow!("neither HOME nor USERPROFILE is set — cannot resolve model directory")
-        })?;
-    Ok(PathBuf::from(home)
-        .join(".romega-memory")
-        .join("models")
-        .join(MODEL_NAME))
+    Ok(app_paths::resolve_app_paths()?.model_root.join(MODEL_NAME))
 }
 
 #[cfg(feature = "real-embeddings")]
