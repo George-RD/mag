@@ -921,7 +921,8 @@ fn build_search_options(
         event_before: &filters.event_before,
     })?;
 
-    Ok(SearchOptions {
+    #[allow(clippy::needless_update)]
+    let opts = SearchOptions {
         event_type: EventType::from_optional(filters.event_type.as_deref()),
         project: filters.project.clone(),
         session_id: filters.session_id.clone(),
@@ -935,7 +936,9 @@ fn build_search_options(
         event_after: times.event_after,
         event_before: times.event_before,
         explain: explain.then_some(true),
-    })
+        ..SearchOptions::default()
+    };
+    Ok(opts)
 }
 
 fn normalize_search_time_filters(
