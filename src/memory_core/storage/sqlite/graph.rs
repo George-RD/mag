@@ -194,6 +194,8 @@ impl SimilarFinder for SqliteStorage {
                             event_type: row_data.event_type,
                             session_id: row_data.session_id,
                             project: row_data.project,
+                            entity_id: row_data.entity_id,
+                            agent_type: row_data.agent_type,
                             score: similarity,
                         });
                     }
@@ -204,7 +206,7 @@ impl SimilarFinder for SqliteStorage {
             {
                 let mut stmt = conn
                     .prepare(
-                        "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
+                        "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
                          FROM memories WHERE embedding IS NOT NULL AND id != ?1 AND superseded_by_id IS NULL",
                     )
                     .context("failed to prepare similar query")?;
@@ -220,6 +222,8 @@ impl SimilarFinder for SqliteStorage {
                             row.get::<_, Option<String>>(6).ok().flatten(),
                             row.get::<_, Option<String>>(7).ok().flatten(),
                             row.get::<_, Option<String>>(8).ok().flatten(),
+                            row.get::<_, Option<String>>(9).ok().flatten(),
+                            row.get::<_, Option<String>>(10).ok().flatten(),
                         ))
                     })
                     .context("failed to execute similar query")?;
@@ -235,6 +239,8 @@ impl SimilarFinder for SqliteStorage {
                         event_type_str,
                         session_id,
                         project,
+                        entity_id,
+                        agent_type,
                     ) = row.context("failed to decode similar row")?;
                     let embedding: Vec<f32> = decode_embedding(&embedding_blob)
                         .context("failed to decode candidate embedding")?;
@@ -248,6 +254,8 @@ impl SimilarFinder for SqliteStorage {
                         event_type: event_type_from_sql(event_type_str),
                         session_id,
                         project,
+                        entity_id,
+                        agent_type,
                         score,
                     });
                 }
@@ -331,14 +339,14 @@ impl VersionChainQuerier for SqliteStorage {
             let (sql, params_values): (&str, Vec<SqlValue>) = if let Some(chain_id) = chain_id {
                 (
                     "SELECT id, content, tags, importance, metadata, event_type, session_id, project,
-                            superseded_by_id, superseded_at, version_chain_id
+                            superseded_by_id, superseded_at, version_chain_id, entity_id, agent_type
                      FROM memories WHERE version_chain_id = ?1 ORDER BY created_at ASC",
                     vec![SqlValue::Text(chain_id)],
                 )
             } else {
                 (
                     "SELECT id, content, tags, importance, metadata, event_type, session_id, project,
-                            superseded_by_id, superseded_at, version_chain_id
+                            superseded_by_id, superseded_at, version_chain_id, entity_id, agent_type
                      FROM memories WHERE id = ?1 ORDER BY created_at ASC",
                     vec![SqlValue::Text(memory_id.clone())],
                 )
@@ -391,6 +399,8 @@ impl VersionChainQuerier for SqliteStorage {
                         event_type: event_type_from_sql(event_type_str),
                         session_id: row.get(6).ok(),
                         project: row.get(7).ok(),
+                        entity_id: row.get(11).ok(),
+                        agent_type: row.get(12).ok(),
                     })
                 })
                 .context("failed to execute version chain query")?;

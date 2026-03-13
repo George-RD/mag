@@ -6,8 +6,9 @@ This document records the benchmark methodology and the latest measured outputs 
 
 - Date: `2026-03-12`
 - Commit: `66a9e3e97e0e65328864c4699ad6b14ccf8a24ae`
-- Machine: `macos aarch64, 12 CPU`
+- Machine: `macOS aarch64, 12 CPU`
 - OS: `macOS 26.3 (25D125)`
+- Note: These published measurements were captured before later PR review follow-up fixes and were not rerun afterward.
 
 ## Dataset Policy
 

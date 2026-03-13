@@ -15,7 +15,13 @@ sys.path.insert(0, omega_src)
 # Disable embedding cache BEFORE any store/query calls
 import omega.graphs as g  # noqa: E402
 
-g._EMBEDDING_CACHE_MAX = 0
+if hasattr(g, "_EMBEDDING_CACHE_MAX"):
+    g._EMBEDDING_CACHE_MAX = 0
+else:
+    print(
+        "warning: omega.graphs._EMBEDDING_CACHE_MAX not found; cache may remain enabled",
+        file=sys.stderr,
+    )
 
 # Import the benchmark after patching
 from python_comparison import main  # noqa: E402

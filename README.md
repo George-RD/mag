@@ -81,7 +81,7 @@ Copy `.mcp.json.example` to `.mcp.json` and point your MCP client at the local b
 
 ## Benchmarks
 
-Latest reruns in this branch were taken on `2026-03-12` at commit `66a9e3e97e0e65328864c4699ad6b14ccf8a24ae`, on `macos aarch64, 12 CPU`.
+Published benchmark snapshots were captured on `2026-03-12` at commit `66a9e3e97e0e65328864c4699ad6b14ccf8a24ae`, on `macOS aarch64, 12 CPU`. They do not include later review-only fixes on this PR branch.
 
 | Benchmark | Result | Notes |
 | --- | --- | --- |

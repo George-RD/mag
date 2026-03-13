@@ -217,7 +217,7 @@ impl Lister for SqliteStorage {
                 .context("failed to count memories")?;
 
             let mut data_sql = String::from(
-                "SELECT id, content, tags, importance, metadata, event_type, session_id, project FROM memories WHERE 1 = 1",
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type FROM memories WHERE 1 = 1",
             );
             if !include_superseded {
                 data_sql.push_str(" AND superseded_by_id IS NULL");

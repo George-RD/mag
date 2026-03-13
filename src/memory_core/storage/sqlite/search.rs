@@ -26,7 +26,7 @@ impl Searcher for SqliteStorage {
             let fts_query = build_fts5_query(&query);
             let include_superseded = opts.include_superseded.unwrap_or(false);
             let mut fts_sql = String::from(
-                "SELECT f.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project
+                "SELECT f.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project, m.entity_id, m.agent_type
                  FROM memories_fts f
                  JOIN memories m ON m.id = f.id
                  WHERE memories_fts MATCH ?1",
@@ -73,7 +73,7 @@ impl Searcher for SqliteStorage {
             let pattern = escape_like_pattern(&query);
 
             let mut sql = String::from(
-                "SELECT id, content, tags, importance, metadata, event_type, session_id, project
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
                  FROM memories
                  WHERE lower(content) LIKE ?1 ESCAPE '\\'",
             );
@@ -134,7 +134,7 @@ impl Recents for SqliteStorage {
             let conn = pool.reader()?;
 
             let mut sql = String::from(
-                "SELECT id, content, tags, importance, metadata, event_type, session_id, project
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
                  FROM memories
                  WHERE 1 = 1",
             );
@@ -245,6 +245,8 @@ impl SemanticSearcher for SqliteStorage {
                                 event_type: row_data.event_type,
                                 session_id: row_data.session_id,
                                 project: row_data.project,
+                                entity_id: row_data.entity_id,
+                                agent_type: row_data.agent_type,
                                 score: similarity,
                             });
                         }
@@ -255,7 +257,7 @@ impl SemanticSearcher for SqliteStorage {
             #[cfg(not(feature = "sqlite-vec"))]
             {
                 let mut sql = String::from(
-                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project
+                    "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
                      FROM memories
                      WHERE embedding IS NOT NULL",
                 );
@@ -290,6 +292,8 @@ impl SemanticSearcher for SqliteStorage {
                         let event_type: Option<String> = row.get(6).ok();
                         let session_id: Option<String> = row.get(7).ok();
                         let project: Option<String> = row.get(8).ok();
+                        let entity_id: Option<String> = row.get(9).ok();
+                        let agent_type: Option<String> = row.get(10).ok();
                         Ok((
                             id,
                             content,
@@ -300,6 +304,8 @@ impl SemanticSearcher for SqliteStorage {
                             event_type,
                             session_id,
                             project,
+                            entity_id,
+                            agent_type,
                         ))
                     })
                     .context("failed to execute semantic search query")?;
@@ -315,6 +321,8 @@ impl SemanticSearcher for SqliteStorage {
                         event_type_str,
                         session_id,
                         project,
+                        entity_id,
+                        agent_type,
                     ) = row.context("failed to decode semantic search row")?;
                     let candidate: Vec<f32> = decode_embedding(&embedding_blob)
                         .context("failed to decode stored embedding")?;
@@ -328,6 +336,8 @@ impl SemanticSearcher for SqliteStorage {
                         event_type: event_type_from_sql(event_type_str),
                         session_id,
                         project,
+                        entity_id,
+                        agent_type,
                         score,
                     });
                 }
@@ -369,7 +379,7 @@ impl PhraseSearcher for SqliteStorage {
             let pattern = escape_like_pattern(&phrase);
 
             let mut sql = String::from(
-                "SELECT id, content, tags, importance, metadata, event_type, session_id, project
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
                  FROM memories
                  WHERE lower(content) LIKE ?1 ESCAPE '\\'",
             );

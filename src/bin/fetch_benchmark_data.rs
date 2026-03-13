@@ -1,8 +1,12 @@
 use anyhow::Result;
+#[cfg(feature = "real-embeddings")]
 use clap::{Parser, ValueEnum};
+#[cfg(feature = "real-embeddings")]
 use mag::benchmarking::{self, DatasetKind};
+#[cfg(feature = "real-embeddings")]
 use serde_json::json;
 
+#[cfg(feature = "real-embeddings")]
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum DatasetArg {
     Longmemeval,
@@ -10,6 +14,7 @@ enum DatasetArg {
     All,
 }
 
+#[cfg(feature = "real-embeddings")]
 #[derive(Debug, Parser)]
 #[command(name = "fetch_benchmark_data")]
 #[command(about = "Download benchmark datasets into the MAG cache")]
@@ -20,6 +25,7 @@ struct Args {
     force_refresh: bool,
 }
 
+#[cfg(feature = "real-embeddings")]
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -47,4 +53,11 @@ async fn main() -> Result<()> {
         serde_json::to_string_pretty(&json!({ "datasets": resolved }))?
     );
     Ok(())
+}
+
+#[cfg(not(feature = "real-embeddings"))]
+fn main() -> Result<()> {
+    Err(anyhow::anyhow!(
+        "fetch_benchmark_data requires the `real-embeddings` feature"
+    ))
 }

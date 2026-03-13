@@ -76,6 +76,14 @@ fn main() -> Result<()> {
     if args.dataset_path.is_some() && (args.force_refresh || args.temp_dataset) {
         bail!("--dataset-path cannot be combined with --force-refresh or --temp-dataset");
     }
+    if !args.official
+        && (args.dataset_path.is_some()
+            || args.force_refresh
+            || args.temp_dataset
+            || args.questions.is_some())
+    {
+        bail!("--dataset-path/--force-refresh/--temp-dataset/--questions require --official");
+    }
     let mut rss = helpers::PeakRss::default();
     rss.sample();
 

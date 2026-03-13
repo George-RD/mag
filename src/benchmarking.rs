@@ -27,7 +27,7 @@ pub struct BenchmarkMetadata {
     pub dataset_path: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DatasetArtifact {
     pub source_url: String,
     pub path: PathBuf,
@@ -88,9 +88,9 @@ pub async fn resolve_dataset(
     } else {
         benchmark_cache_path(kind)?
     };
-    if force_refresh || !cache_path.exists() {
+    let cache_is_valid = cache_path.exists() && validate_json_file(&cache_path).is_ok();
+    if force_refresh || !cache_is_valid {
         let source_url = download_from_sources(kind.source_urls(), &cache_path).await?;
-        validate_json_file(&cache_path)?;
         if !temporary {
             write_source_metadata(&cache_path, &source_url)?;
         }
@@ -100,7 +100,6 @@ pub async fn resolve_dataset(
             temporary,
         });
     }
-    validate_json_file(&cache_path)?;
     Ok(DatasetArtifact {
         source_url: read_source_metadata(&cache_path)
             .unwrap_or_else(|| kind.source_urls()[0].to_string()),
@@ -203,6 +202,7 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
         tokio::task::spawn_blocking(move || validate_json_file(&validate_path))
             .await
             .context("dataset validation task failed")??;
+        remove_file_if_exists(path).await?;
         tokio::fs::rename(&part_path, path)
             .await
             .with_context(|| format!("failed to finalize {}", path.display()))?;
@@ -214,6 +214,15 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
         return Err(err);
     }
     Ok(())
+}
+
+async fn remove_file_if_exists(path: &Path) -> Result<()> {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err)
+            .with_context(|| format!("failed to remove existing dataset {}", path.display())),
+    }
 }
 
 fn read_source_metadata(path: &Path) -> Option<String> {

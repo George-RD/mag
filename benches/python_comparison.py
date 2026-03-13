@@ -13,13 +13,17 @@ import argparse
 import json
 import os
 import platform
-import resource
 import shutil
 import sys
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
+
+try:
+    import resource
+except ImportError:
+    resource = None
 
 DEFAULT_OMEGA_REPO = os.path.expanduser("~/repos/omega-memory")
 VERBOSE = False
@@ -29,6 +33,8 @@ if TYPE_CHECKING:
 
 
 def peak_rss_kb() -> int:
+    if resource is None:
+        return 0
     ru = resource.getrusage(resource.RUSAGE_SELF)
     if sys.platform == "darwin":
         return ru.ru_maxrss // 1024
