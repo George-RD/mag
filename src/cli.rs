@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 /// CLI representation of the storage initialization mode.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +26,35 @@ impl FeedbackRating {
             Self::Outdated => "outdated",
         }
     }
+}
+
+/// Shared filters for commands that query stored memories.
+#[derive(Args, Clone, Debug, Default, PartialEq)]
+pub struct SearchFilterArgs {
+    #[arg(long)]
+    pub event_type: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+    #[arg(long)]
+    pub session_id: Option<String>,
+    #[arg(long)]
+    pub entity_id: Option<String>,
+    #[arg(long)]
+    pub agent_type: Option<String>,
+    #[arg(long)]
+    pub include_superseded: bool,
+    #[arg(long)]
+    pub importance_min: Option<f64>,
+    #[arg(long)]
+    pub created_after: Option<String>,
+    #[arg(long)]
+    pub created_before: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub context_tags: Option<Vec<String>>,
+    #[arg(long)]
+    pub event_after: Option<String>,
+    #[arg(long)]
+    pub event_before: Option<String>,
 }
 
 /// The main CLI entry point for the romega memory system.
@@ -128,26 +157,8 @@ pub enum Commands {
         offset: usize,
         #[arg(long, default_value_t = 10)]
         limit: usize,
-        #[arg(long)]
-        event_type: Option<String>,
-        #[arg(long)]
-        project: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        include_superseded: bool,
-        #[arg(long)]
-        importance_min: Option<f64>,
-        #[arg(long)]
-        created_after: Option<String>,
-        #[arg(long)]
-        created_before: Option<String>,
-        #[arg(long, value_delimiter = ',')]
-        context_tags: Option<Vec<String>>,
-        #[arg(long)]
-        event_after: Option<String>,
-        #[arg(long)]
-        event_before: Option<String>,
+        #[command(flatten)]
+        filters: SearchFilterArgs,
     },
     /// Shows relationships for a given memory.
     Relations {
@@ -158,78 +169,24 @@ pub enum Commands {
         query: String,
         #[arg(long, default_value_t = 10)]
         limit: usize,
-        #[arg(long)]
-        event_type: Option<String>,
-        #[arg(long)]
-        project: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        include_superseded: bool,
-        #[arg(long)]
-        importance_min: Option<f64>,
-        #[arg(long)]
-        created_after: Option<String>,
-        #[arg(long)]
-        created_before: Option<String>,
-        #[arg(long, value_delimiter = ',')]
-        context_tags: Option<Vec<String>>,
-        #[arg(long)]
-        event_after: Option<String>,
-        #[arg(long)]
-        event_before: Option<String>,
+        #[command(flatten)]
+        filters: SearchFilterArgs,
     },
     /// Performs semantic search over stored memories.
     SemanticSearch {
         query: String,
         #[arg(long, default_value_t = 10)]
         limit: usize,
-        #[arg(long)]
-        event_type: Option<String>,
-        #[arg(long)]
-        project: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        include_superseded: bool,
-        #[arg(long)]
-        importance_min: Option<f64>,
-        #[arg(long)]
-        created_after: Option<String>,
-        #[arg(long)]
-        created_before: Option<String>,
-        #[arg(long, value_delimiter = ',')]
-        context_tags: Option<Vec<String>>,
-        #[arg(long)]
-        event_after: Option<String>,
-        #[arg(long)]
-        event_before: Option<String>,
+        #[command(flatten)]
+        filters: SearchFilterArgs,
     },
     /// Advanced multi-phase search with scoring.
     AdvancedSearch {
         query: String,
         #[arg(long, default_value = "10")]
         limit: usize,
-        #[arg(long)]
-        event_type: Option<String>,
-        #[arg(long)]
-        project: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        include_superseded: bool,
-        #[arg(long)]
-        importance_min: Option<f64>,
-        #[arg(long)]
-        created_after: Option<String>,
-        #[arg(long)]
-        created_before: Option<String>,
-        #[arg(long, value_delimiter = ',')]
-        context_tags: Option<Vec<String>>,
-        #[arg(long)]
-        event_after: Option<String>,
-        #[arg(long)]
-        event_before: Option<String>,
+        #[command(flatten)]
+        filters: SearchFilterArgs,
         #[arg(long)]
         explain: bool,
     },
@@ -257,51 +214,15 @@ pub enum Commands {
         phrase: String,
         #[arg(long, default_value = "10")]
         limit: usize,
-        #[arg(long)]
-        event_type: Option<String>,
-        #[arg(long)]
-        project: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        include_superseded: bool,
-        #[arg(long)]
-        importance_min: Option<f64>,
-        #[arg(long)]
-        created_after: Option<String>,
-        #[arg(long)]
-        created_before: Option<String>,
-        #[arg(long, value_delimiter = ',')]
-        context_tags: Option<Vec<String>>,
-        #[arg(long)]
-        event_after: Option<String>,
-        #[arg(long)]
-        event_before: Option<String>,
+        #[command(flatten)]
+        filters: SearchFilterArgs,
     },
     /// Lists recently accessed memories.
     Recent {
         #[arg(long, default_value_t = 10)]
         limit: usize,
-        #[arg(long)]
-        event_type: Option<String>,
-        #[arg(long)]
-        project: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        include_superseded: bool,
-        #[arg(long)]
-        importance_min: Option<f64>,
-        #[arg(long)]
-        created_after: Option<String>,
-        #[arg(long)]
-        created_before: Option<String>,
-        #[arg(long, value_delimiter = ',')]
-        context_tags: Option<Vec<String>>,
-        #[arg(long)]
-        event_after: Option<String>,
-        #[arg(long)]
-        event_before: Option<String>,
+        #[command(flatten)]
+        filters: SearchFilterArgs,
     },
     /// Shows memory store statistics.
     Stats,
@@ -673,22 +594,31 @@ mod tests {
             "2026-01-01T00:00:00Z",
             "--event-before",
             "2026-01-31T00:00:00Z",
+            "--entity-id",
+            "issue-7",
+            "--agent-type",
+            "planner",
         ];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Search {
                 query,
                 limit,
-                importance_min,
-                created_after,
-                event_before,
-                ..
+                filters,
             } => {
                 assert_eq!(query, "hello");
                 assert_eq!(limit, 3);
-                assert_eq!(importance_min, Some(0.8));
-                assert_eq!(created_after.as_deref(), Some("2026-01-01T00:00:00Z"));
-                assert_eq!(event_before.as_deref(), Some("2026-01-31T00:00:00Z"));
+                assert_eq!(filters.importance_min, Some(0.8));
+                assert_eq!(
+                    filters.created_after.as_deref(),
+                    Some("2026-01-01T00:00:00Z")
+                );
+                assert_eq!(
+                    filters.event_before.as_deref(),
+                    Some("2026-01-31T00:00:00Z")
+                );
+                assert_eq!(filters.entity_id.as_deref(), Some("issue-7"));
+                assert_eq!(filters.agent_type.as_deref(), Some("planner"));
             }
             _ => panic!("Expected Search command"),
         }
@@ -710,17 +640,17 @@ mod tests {
         ];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::List {
-                limit,
-                importance_min,
-                created_before,
-                context_tags,
-                ..
-            } => {
+            Commands::List { limit, filters, .. } => {
                 assert_eq!(limit, 6);
-                assert_eq!(importance_min, Some(0.6));
-                assert_eq!(created_before.as_deref(), Some("2026-03-15T00:00:00Z"));
-                assert_eq!(context_tags, Some(vec!["alpha".into(), "beta".into()]));
+                assert_eq!(filters.importance_min, Some(0.6));
+                assert_eq!(
+                    filters.created_before.as_deref(),
+                    Some("2026-03-15T00:00:00Z")
+                );
+                assert_eq!(
+                    filters.context_tags,
+                    Some(vec!["alpha".into(), "beta".into()])
+                );
             }
             _ => panic!("Expected List command"),
         }
@@ -744,14 +674,12 @@ mod tests {
             Commands::SemanticSearch {
                 query,
                 limit,
-                importance_min,
-                event_after,
-                ..
+                filters,
             } => {
                 assert_eq!(query, "context");
                 assert_eq!(limit, 2);
-                assert_eq!(importance_min, Some(0.7));
-                assert_eq!(event_after.as_deref(), Some("2026-02-01T00:00:00Z"));
+                assert_eq!(filters.importance_min, Some(0.7));
+                assert_eq!(filters.event_after.as_deref(), Some("2026-02-01T00:00:00Z"));
             }
             _ => panic!("Expected SemanticSearch command"),
         }
@@ -783,17 +711,14 @@ mod tests {
         ];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Recent {
-                limit,
-                importance_min,
-                created_after,
-                context_tags,
-                ..
-            } => {
+            Commands::Recent { limit, filters } => {
                 assert_eq!(limit, 4);
-                assert_eq!(importance_min, Some(0.75));
-                assert_eq!(created_after.as_deref(), Some("2026-02-01T00:00:00Z"));
-                assert_eq!(context_tags, Some(vec!["focus".into()]));
+                assert_eq!(filters.importance_min, Some(0.75));
+                assert_eq!(
+                    filters.created_after.as_deref(),
+                    Some("2026-02-01T00:00:00Z")
+                );
+                assert_eq!(filters.context_tags, Some(vec!["focus".into()]));
             }
             _ => panic!("Expected Recent command"),
         }
@@ -811,6 +736,10 @@ mod tests {
             "sess-1",
             "--context-tags",
             "alpha,beta",
+            "--entity-id",
+            "ticket-9",
+            "--agent-type",
+            "assistant",
             "--explain",
         ];
         let cli = Cli::parse_from(args);
@@ -818,18 +747,20 @@ mod tests {
             Commands::AdvancedSearch {
                 query,
                 limit,
-                session_id,
-                context_tags,
+                filters,
                 explain,
-                include_superseded,
-                ..
             } => {
                 assert_eq!(query, "query");
                 assert_eq!(limit, 7);
-                assert_eq!(session_id.as_deref(), Some("sess-1"));
-                assert_eq!(context_tags, Some(vec!["alpha".into(), "beta".into()]));
+                assert_eq!(filters.session_id.as_deref(), Some("sess-1"));
+                assert_eq!(
+                    filters.context_tags,
+                    Some(vec!["alpha".into(), "beta".into()])
+                );
+                assert_eq!(filters.entity_id.as_deref(), Some("ticket-9"));
+                assert_eq!(filters.agent_type.as_deref(), Some("assistant"));
                 assert!(explain);
-                assert!(!include_superseded);
+                assert!(!filters.include_superseded);
             }
             _ => panic!("Expected AdvancedSearch command"),
         }
@@ -840,9 +771,7 @@ mod tests {
         let args = vec!["romega", "advanced-search", "query", "--include-superseded"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::AdvancedSearch {
-                include_superseded, ..
-            } => assert!(include_superseded),
+            Commands::AdvancedSearch { filters, .. } => assert!(filters.include_superseded),
             _ => panic!("Expected AdvancedSearch command"),
         }
     }
@@ -914,14 +843,12 @@ mod tests {
             Commands::PhraseSearch {
                 phrase,
                 limit,
-                project,
-                context_tags,
-                ..
+                filters,
             } => {
                 assert_eq!(phrase, "exact phrase");
                 assert_eq!(limit, 4);
-                assert_eq!(project.as_deref(), Some("demo"));
-                assert_eq!(context_tags, Some(vec!["focus".into()]));
+                assert_eq!(filters.project.as_deref(), Some("demo"));
+                assert_eq!(filters.context_tags, Some(vec!["focus".into()]));
             }
             _ => panic!("Expected PhraseSearch command"),
         }

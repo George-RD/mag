@@ -100,6 +100,9 @@ cargo run --release -- semantic-search "how should retries work?"
 # Hybrid retrieval with richer scoring
 cargo run --release -- advanced-search "deployment rollback process"
 
+# Scope retrieval to a specific entity / agent
+cargo run --release -- search "rollback" --entity-id issue-123 --agent-type planner
+
 # Explore recent context
 cargo run --release -- recent --limit 5
 

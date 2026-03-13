@@ -4,7 +4,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, SecondsFormat, TimeZone, Utc};
 use clap::Parser;
-use cli::{Cli, Commands, InitModeArg};
+use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, EventType,
@@ -32,17 +32,6 @@ struct SearchTimeFilters<'a> {
     created_before: &'a Option<String>,
     event_after: &'a Option<String>,
     event_before: &'a Option<String>,
-}
-
-#[derive(Clone, Copy)]
-struct SearchFilterArgs<'a> {
-    event_type: Option<&'a str>,
-    project: &'a Option<String>,
-    session_id: &'a Option<String>,
-    include_superseded: bool,
-    importance_min: Option<f64>,
-    context_tags: &'a Option<Vec<String>>,
-    times: SearchTimeFilters<'a>,
 }
 
 struct NormalizedSearchTimeFilters {
@@ -266,37 +255,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::List {
             offset,
             limit,
-            event_type,
-            project,
-            session_id,
-            include_superseded,
-            importance_min,
-            created_after,
-            created_before,
-            context_tags,
-            event_after,
-            event_before,
+            filters,
         } => {
             info!(offset = *offset, limit = *limit, "Listing memories");
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let opts = build_search_options(SearchFilterArgs {
-                event_type: event_type.as_deref(),
-                project,
-                session_id,
-                include_superseded: *include_superseded,
-                importance_min: *importance_min,
-                context_tags,
-                times: SearchTimeFilters {
-                    created_after,
-                    created_before,
-                    event_after,
-                    event_before,
-                },
-            })?;
+            let opts = build_search_options(filters, false)?;
             let result = mcp_storage.list(*offset, *limit, &opts).await?;
             info!(
                 count = result.memories.len(),
@@ -336,41 +298,14 @@ async fn main() -> anyhow::Result<()> {
         Commands::Search {
             query,
             limit,
-            event_type,
-            project,
-            session_id,
-            include_superseded,
-            importance_min,
-            created_after,
-            created_before,
-            context_tags,
-            event_after,
-            event_before,
+            filters,
         } => {
             info!(
                 query_len = query.len(),
                 limit = *limit,
                 "Searching memories"
             );
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let opts = build_search_options(SearchFilterArgs {
-                event_type: event_type.as_deref(),
-                project,
-                session_id,
-                include_superseded: *include_superseded,
-                importance_min: *importance_min,
-                context_tags,
-                times: SearchTimeFilters {
-                    created_after,
-                    created_before,
-                    event_after,
-                    event_before,
-                },
-            })?;
+            let opts = build_search_options(filters, false)?;
             let results = pipeline.search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Search completed");
             let payload: Vec<_> = results
@@ -393,41 +328,14 @@ async fn main() -> anyhow::Result<()> {
         Commands::SemanticSearch {
             query,
             limit,
-            event_type,
-            project,
-            session_id,
-            include_superseded,
-            importance_min,
-            created_after,
-            created_before,
-            context_tags,
-            event_after,
-            event_before,
+            filters,
         } => {
             info!(
                 query_len = query.len(),
                 limit = *limit,
                 "Semantic searching memories"
             );
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let opts = build_search_options(SearchFilterArgs {
-                event_type: event_type.as_deref(),
-                project,
-                session_id,
-                include_superseded: *include_superseded,
-                importance_min: *importance_min,
-                context_tags,
-                times: SearchTimeFilters {
-                    created_after,
-                    created_before,
-                    event_after,
-                    event_before,
-                },
-            })?;
+            let opts = build_search_options(filters, false)?;
             let results = pipeline.semantic_search(query, *limit, &opts).await?;
             info!(result_count = results.len(), "Semantic search completed");
             let payload: Vec<_> = results
@@ -451,38 +359,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::AdvancedSearch {
             query,
             limit,
-            event_type,
-            project,
-            session_id,
-            include_superseded,
-            importance_min,
-            created_after,
-            created_before,
-            context_tags,
-            event_after,
-            event_before,
+            filters,
             explain,
         } => {
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let mut opts = build_search_options(SearchFilterArgs {
-                event_type: event_type.as_deref(),
-                project,
-                session_id,
-                include_superseded: *include_superseded,
-                importance_min: *importance_min,
-                context_tags,
-                times: SearchTimeFilters {
-                    created_after,
-                    created_before,
-                    event_after,
-                    event_before,
-                },
-            })?;
-            opts.explain = Some(*explain);
+            let opts = build_search_options(filters, *explain)?;
             let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
                 &mcp_storage,
                 query,
@@ -596,36 +476,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::PhraseSearch {
             phrase,
             limit,
-            event_type,
-            project,
-            session_id,
-            include_superseded,
-            importance_min,
-            created_after,
-            created_before,
-            context_tags,
-            event_after,
-            event_before,
+            filters,
         } => {
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let opts = build_search_options(SearchFilterArgs {
-                event_type: event_type.as_deref(),
-                project,
-                session_id,
-                include_superseded: *include_superseded,
-                importance_min: *importance_min,
-                context_tags,
-                times: SearchTimeFilters {
-                    created_after,
-                    created_before,
-                    event_after,
-                    event_before,
-                },
-            })?;
+            let opts = build_search_options(filters, false)?;
             let results = <SqliteStorage as PhraseSearcher>::phrase_search(
                 &mcp_storage,
                 phrase,
@@ -650,39 +503,9 @@ async fn main() -> anyhow::Result<()> {
                 .collect();
             println!("{}", json!({ "results": payload }));
         }
-        Commands::Recent {
-            limit,
-            event_type,
-            project,
-            session_id,
-            include_superseded,
-            importance_min,
-            created_after,
-            created_before,
-            context_tags,
-            event_after,
-            event_before,
-        } => {
+        Commands::Recent { limit, filters } => {
             info!(limit = *limit, "Listing recent memories");
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let opts = build_search_options(SearchFilterArgs {
-                event_type: event_type.as_deref(),
-                project,
-                session_id,
-                include_superseded: *include_superseded,
-                importance_min: *importance_min,
-                context_tags,
-                times: SearchTimeFilters {
-                    created_after,
-                    created_before,
-                    event_after,
-                    event_before,
-                },
-            })?;
+            let opts = build_search_options(filters, false)?;
             let results = pipeline.recent(*limit, &opts).await?;
             info!(result_count = results.len(), "Recent list completed");
             let payload: Vec<_> = results
@@ -1081,20 +904,37 @@ fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Valu
     }
 }
 
-fn build_search_options(args: SearchFilterArgs<'_>) -> anyhow::Result<SearchOptions> {
-    let times = normalize_search_time_filters(args.times)?;
+fn build_search_options(
+    filters: &SearchFilterArgs,
+    explain: bool,
+) -> anyhow::Result<SearchOptions> {
+    if let Some(kind) = filters.event_type.as_deref()
+        && !is_valid_event_type(kind)
+    {
+        anyhow::bail!("invalid --event-type: {kind}");
+    }
+
+    let times = normalize_search_time_filters(SearchTimeFilters {
+        created_after: &filters.created_after,
+        created_before: &filters.created_before,
+        event_after: &filters.event_after,
+        event_before: &filters.event_before,
+    })?;
+
     Ok(SearchOptions {
-        event_type: EventType::from_optional(args.event_type),
-        project: args.project.clone(),
-        session_id: args.session_id.clone(),
-        include_superseded: Some(args.include_superseded),
-        importance_min: args.importance_min,
+        event_type: EventType::from_optional(filters.event_type.as_deref()),
+        project: filters.project.clone(),
+        session_id: filters.session_id.clone(),
+        entity_id: filters.entity_id.clone(),
+        agent_type: filters.agent_type.clone(),
+        include_superseded: Some(filters.include_superseded),
+        importance_min: filters.importance_min,
         created_after: times.created_after,
         created_before: times.created_before,
-        context_tags: args.context_tags.clone(),
+        context_tags: filters.context_tags.clone(),
         event_after: times.event_after,
         event_before: times.event_before,
-        ..Default::default()
+        explain: explain.then_some(true),
     })
 }
 
