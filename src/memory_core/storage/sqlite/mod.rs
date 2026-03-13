@@ -65,6 +65,7 @@ use crate::memory_core::reranker::CrossEncoderReranker;
 #[derive(Clone)]
 pub struct SqliteStorage {
     db_path: PathBuf,
+    stats_paths: StatsPathsSnapshot,
     pool: Arc<ConnPool>,
     embedder: Arc<dyn Embedder>,
     scoring_params: ScoringParams,
@@ -136,6 +137,7 @@ impl SqliteStorage {
         };
 
         Ok(Self {
+            stats_paths: StatsPathsSnapshot::capture(&path),
             db_path: path,
             pool: Arc::new(pool),
             embedder,
@@ -361,6 +363,7 @@ impl SqliteStorage {
     pub async fn stats(&self) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
         let db_path = self.db_path.clone();
+        let stats_paths = self.stats_paths.clone();
 
         tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
@@ -400,7 +403,7 @@ impl SqliteStorage {
                 "total_access_count": total_access,
                 "fts5_indexed": fts_count,
                 "fts5_in_sync": fts_count == total_memories,
-                "paths": build_stats_paths_json(&db_path),
+                "paths": build_stats_paths_json(&db_path, &stats_paths),
             }))
         })
         .await
@@ -702,6 +705,7 @@ impl SqliteStorage {
         let pool = ConnPool::open_in_memory(embedder.dimension())?;
         Ok(Self {
             db_path: PathBuf::from(":memory:"),
+            stats_paths: StatsPathsSnapshot::capture(Path::new(":memory:")),
             pool: Arc::new(pool),
             embedder,
             scoring_params: ScoringParams::default(),
@@ -927,14 +931,34 @@ impl SqliteStorage {
     }
 }
 
-fn build_stats_paths_json(db_path: &Path) -> serde_json::Value {
-    let app_paths = match crate::app_paths::resolve_app_paths() {
-        Ok(paths) => Some(paths),
-        Err(error) => {
-            tracing::warn!(error = %error, "failed to resolve app paths for stats");
-            None
+#[derive(Debug, Clone)]
+struct StatsPathsSnapshot {
+    preferred_data_root: Option<PathBuf>,
+    legacy_data_root: Option<PathBuf>,
+    using_legacy_root: bool,
+}
+
+impl StatsPathsSnapshot {
+    fn capture(db_path: &Path) -> Self {
+        match crate::app_paths::resolve_app_paths() {
+            Ok(paths) => Self {
+                preferred_data_root: Some(paths.preferred_data_root),
+                legacy_data_root: Some(paths.legacy_data_root.clone()),
+                using_legacy_root: db_path.starts_with(&paths.legacy_data_root),
+            },
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to resolve app paths for stats");
+                Self {
+                    preferred_data_root: None,
+                    legacy_data_root: None,
+                    using_legacy_root: false,
+                }
+            }
         }
-    };
+    }
+}
+
+fn build_stats_paths_json(db_path: &Path, stats_paths: &StatsPathsSnapshot) -> serde_json::Value {
     let data_root = if db_path.as_os_str() == ":memory:" {
         serde_json::Value::Null
     } else {
@@ -943,25 +967,23 @@ fn build_stats_paths_json(db_path: &Path) -> serde_json::Value {
             .map(|path| serde_json::Value::String(path.display().to_string()))
             .unwrap_or(serde_json::Value::Null)
     };
-    let preferred_data_root = app_paths
+    let preferred_data_root = stats_paths
+        .preferred_data_root
         .as_ref()
-        .map(|paths| serde_json::Value::String(paths.preferred_data_root.display().to_string()))
+        .map(|path| serde_json::Value::String(path.display().to_string()))
         .unwrap_or(serde_json::Value::Null);
-    let legacy_data_root = app_paths
+    let legacy_data_root = stats_paths
+        .legacy_data_root
         .as_ref()
-        .map(|paths| serde_json::Value::String(paths.legacy_data_root.display().to_string()))
+        .map(|path| serde_json::Value::String(path.display().to_string()))
         .unwrap_or(serde_json::Value::Null);
-    let using_legacy_root = app_paths
-        .as_ref()
-        .map(|paths| db_path.starts_with(&paths.legacy_data_root))
-        .unwrap_or(false);
 
     serde_json::json!({
         "database_path": db_path.display().to_string(),
         "data_root": data_root,
         "preferred_data_root": preferred_data_root,
         "legacy_data_root": legacy_data_root,
-        "using_legacy_root": using_legacy_root,
+        "using_legacy_root": stats_paths.using_legacy_root,
     })
 }
 

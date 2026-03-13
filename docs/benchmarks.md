@@ -13,8 +13,8 @@ This document records the benchmark methodology and the latest measured outputs 
 ## Dataset Policy
 
 - Benchmark datasets are fetched externally and cached under the active MAG root.
-- Default cache root is `~/.mag/benchmarks/`.
-- If `~/.mag/` is absent but `~/.romega-memory/` exists, MAG uses the legacy root.
+- Default cache root is the active MAG benchmark root, usually `~/.mag/benchmarks/`.
+- If `~/.mag/memory.db` is absent but `~/.romega-memory/memory.db` exists, MAG uses the legacy root, even when `~/.mag/` already contains cache directories.
 - `--dataset-path` overrides the cache entirely.
 - `--force-refresh` re-downloads the dataset.
 - `cargo run --release --bin fetch_benchmark_data -- --dataset all` warms the cache without running the benchmarks.

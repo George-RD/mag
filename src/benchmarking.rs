@@ -249,7 +249,7 @@ fn source_metadata_path(path: &Path) -> PathBuf {
 
 fn temporary_dataset_path(kind: DatasetKind) -> PathBuf {
     let stamp = Utc::now().format("%Y%m%d%H%M%S");
-    let filename = format!("{stamp}-{}", kind.filename());
+    let filename = format!("{stamp}-{}-{}", std::process::id(), kind.filename());
     std::env::temp_dir()
         .join("mag-benchmarks")
         .join(kind.cache_subdir())

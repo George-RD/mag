@@ -37,7 +37,7 @@ The main binary is `./target/release/mag`.
 cargo run --release -- paths
 ```
 
-New installs use `~/.mag/`. For one release cycle, if `~/.mag/` does not exist but `~/.romega-memory/` does, MAG continues using the legacy root. The `paths` command shows the active data, database, model, and benchmark-cache locations explicitly.
+New installs use `~/.mag/`. For one release cycle, if `~/.mag/memory.db` is absent but `~/.romega-memory/memory.db` exists, MAG continues using the legacy root, even when `~/.mag/` already contains cache directories. The `paths` command shows the active data, database, model, and benchmark-cache locations explicitly.
 
 ### Download Models
 
