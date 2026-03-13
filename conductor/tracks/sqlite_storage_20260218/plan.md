@@ -4,7 +4,7 @@
 - [x] Task: Add `rusqlite` and `uuid` to `Cargo.toml`.
 - [x] Task: Create `src/memory_core/storage/mod.rs` and `src/memory_core/storage/sqlite.rs` modules.
 - [x] Task: Implement `SqliteStorage` struct and its initialization logic.
-    - [x] Write unit tests for directory and database file creation at `~/.romega-memory/`.
+    - [x] Write unit tests for directory and database file creation at `~/.mag/`.
     - [x] Implement `SqliteStorage::new()` with auto-initialization logic.
 - [x] Task: Define the SQLite schema for `memories` and `relationships` tables.
     - [x] Write unit tests to verify table and column existence after initialization.

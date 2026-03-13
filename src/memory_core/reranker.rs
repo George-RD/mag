@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
+use crate::app_paths;
+
 #[cfg(feature = "real-embeddings")]
 const CROSS_ENCODER_MODEL_NAME: &str = "ms-marco-MiniLM-L-6-v2";
 #[cfg(feature = "real-embeddings")]
@@ -261,14 +263,8 @@ fn sigmoid(x: f32) -> f32 {
 
 #[cfg(feature = "real-embeddings")]
 fn default_cross_encoder_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .ok_or_else(|| {
-            anyhow!("neither HOME nor USERPROFILE is set — cannot resolve model directory")
-        })?;
-    Ok(PathBuf::from(home)
-        .join(".romega-memory")
-        .join("models")
+    Ok(app_paths::resolve_app_paths()?
+        .model_root
         .join(CROSS_ENCODER_MODEL_NAME))
 }
 

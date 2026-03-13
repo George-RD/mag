@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
+use mag::app_paths;
 
 const ITERATIONS: usize = 100;
 const MODEL_NAME: &str = "bge-small-en-v1.5";
@@ -45,13 +46,7 @@ fn test_texts() -> Vec<String> {
 }
 
 fn default_model_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .ok_or_else(|| anyhow!("HOME not set"))?;
-    Ok(PathBuf::from(home)
-        .join(".romega-memory")
-        .join("models")
-        .join(MODEL_NAME))
+    Ok(app_paths::resolve_app_paths()?.model_root.join(MODEL_NAME))
 }
 
 struct TimingStats {

@@ -1,6 +1,6 @@
 # Parity Harness
 
-This directory provides a local scaffold for comparing `romega-memory` and `omega-memory` behavior/latency.
+This directory provides a local scaffold for comparing `mag` and `omega-memory` behavior/latency.
 
 ## Quick start
 
@@ -18,5 +18,5 @@ bash parity/run_parity.sh
 
 ## Notes
 
-- If `OMEGA_MEMORY_CMD` is not set, the harness still runs `romega-memory` checks.
+- If `OMEGA_MEMORY_CMD` is not set, the harness still runs `mag` checks.
 - This scaffold is intentionally minimal and safe for local development.

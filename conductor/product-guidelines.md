@@ -1,4 +1,4 @@
-# Product Guidelines: romega-memory
+# Product Guidelines: MAG
 
 ## Interaction Design & Tone
 - **Primary Tone:** Professional & Efficient. Interaction should be concise, clear, and focused on task completion.

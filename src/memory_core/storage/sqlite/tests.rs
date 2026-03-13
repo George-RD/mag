@@ -28,7 +28,7 @@ impl Embedder for KeywordEmbedder {
 
 #[test]
 fn test_new_with_path_creates_parent_and_db() {
-    let base = std::env::temp_dir().join(format!("romega-sqlite-test-{}", Uuid::new_v4()));
+    let base = std::env::temp_dir().join(format!("mag-sqlite-test-{}", Uuid::new_v4()));
     let db_path = base.join("nested").join("memory.db");
 
     let storage = SqliteStorage::new_with_path(
@@ -40,6 +40,30 @@ fn test_new_with_path_creates_parent_and_db() {
     assert!(db_path.parent().is_some_and(Path::exists));
 
     let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_stats_include_instance_paths_for_custom_storage() {
+    let base = std::env::temp_dir().join(format!("mag-sqlite-test-{}", Uuid::new_v4()));
+    let db_path = base.join("stats").join("memory.db");
+    let mut storage = SqliteStorage::new_in_memory().unwrap();
+    storage.db_path = db_path.clone();
+
+    let stats = storage.stats().await.unwrap();
+    assert_eq!(
+        stats["paths"]["database_path"].as_str(),
+        Some(db_path.display().to_string().as_str())
+    );
+    assert_eq!(
+        stats["paths"]["data_root"].as_str(),
+        db_path
+            .parent()
+            .map(|path| path.display().to_string())
+            .as_deref()
+    );
+    assert!(stats["paths"].get("preferred_data_root").is_some());
+    assert!(stats["paths"].get("legacy_data_root").is_some());
+    assert!(stats["paths"].get("using_legacy_root").is_some());
 }
 
 #[test]

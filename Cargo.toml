@@ -1,13 +1,16 @@
 [package]
-name = "romega-memory"
+name = "mag"
 version = "0.1.0"
 edition = "2024"
 autobenches = false
 license = "MIT"
 
+[lib]
+doctest = false
+
 [features]
 default = ["real-embeddings"]
-real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:reqwest", "dep:dotenvy"]
+real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:dotenvy"]
 mimalloc = ["dep:mimalloc"]
 sqlite-vec = ["dep:sqlite-vec"]
 
@@ -29,7 +32,7 @@ rmcp = { version = "0.16.0", features = ["server", "client", "transport-io", "tr
 ort = { version = "=2.0.0-rc.11", optional = true }
 tokenizers = { version = "0.22", optional = true, default-features = false, features = ["onig"] }
 ndarray = { version = "0.16", optional = true }
-reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 dotenvy = { version = "0.15", optional = true }
 num_cpus = "1.16"
 lru = "0.12"
@@ -49,4 +52,9 @@ required-features = ["real-embeddings"]
 [[bin]]
 name = "scale_bench"
 path = "benches/scale_bench.rs"
+required-features = ["real-embeddings"]
+
+[[bin]]
+name = "locomo_bench"
+path = "benches/locomo/main.rs"
 required-features = ["real-embeddings"]

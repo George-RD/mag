@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 
-use romega_memory::memory_core::storage::sqlite::SqliteStorage;
-use romega_memory::memory_core::{OnnxEmbedder, ScoringParams};
+use mag::memory_core::storage::sqlite::SqliteStorage;
+use mag::memory_core::{OnnxEmbedder, ScoringParams};
 
 use crate::helpers::{PeakRss, category_percentage, compact_decimal, summarize_totals, truncate};
 use crate::local::{run_benchmark, seed_memories};
@@ -200,7 +200,7 @@ pub(crate) async fn run_grid_search(verbose: bool) -> Result<Vec<GridSearchResul
     let total = parameter_sets.len();
     let mut results = Vec::with_capacity(total);
 
-    let embedder: std::sync::Arc<dyn romega_memory::memory_core::embedder::Embedder> =
+    let embedder: std::sync::Arc<dyn mag::memory_core::embedder::Embedder> =
         std::sync::Arc::new(OnnxEmbedder::new()?);
     for (index, (label, params)) in parameter_sets.into_iter().enumerate() {
         let start = Instant::now();

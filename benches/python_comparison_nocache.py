@@ -3,12 +3,25 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/repos/omega-memory/src"))
+omega_repo = os.path.expanduser(os.environ.get("OMEGA_REPO", "~/repos/omega-memory"))
+omega_src = os.path.join(omega_repo, "src")
+if not os.path.isdir(omega_src):
+    raise SystemExit(
+        f"omega-memory repo not found at {omega_repo} "
+        f"(resolved OMEGA_REPO={os.environ.get('OMEGA_REPO', '~/repos/omega-memory')})"
+    )
+sys.path.insert(0, omega_src)
 
 # Disable embedding cache BEFORE any store/query calls
 import omega.graphs as g  # noqa: E402
 
-g._EMBEDDING_CACHE_MAX = 0
+if hasattr(g, "_EMBEDDING_CACHE_MAX"):
+    g._EMBEDDING_CACHE_MAX = 0
+else:
+    print(
+        "warning: omega.graphs._EMBEDDING_CACHE_MAX not found; cache may remain enabled",
+        file=sys.stderr,
+    )
 
 # Import the benchmark after patching
 from python_comparison import main  # noqa: E402

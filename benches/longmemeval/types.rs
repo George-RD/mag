@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
+use mag::benchmarking::BenchmarkMetadata;
+use mag::memory_core::ScoringParams;
 use serde::{Deserialize, Serialize};
-
-use romega_memory::memory_core::ScoringParams;
 
 // ── Official LongMemEval_S dataset types ──────────────────────────────────
 
@@ -44,6 +44,7 @@ pub(crate) struct OfficialQuestion {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct OfficialSummary {
+    pub metadata: BenchmarkMetadata,
     pub dataset: String,
     pub total_questions: usize,
     pub questions_evaluated: usize,
@@ -87,6 +88,7 @@ pub(crate) struct CategoryResult {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Summary {
+    pub metadata: BenchmarkMetadata,
     pub seeded_memories: usize,
     pub seeding_ms: u128,
     pub querying_ms: u128,

@@ -15,10 +15,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow};
 use clap::Parser;
 
-use romega_memory::memory_core::storage::sqlite::SqliteStorage;
-use romega_memory::memory_core::{
-    AdvancedSearcher, EventType, MemoryInput, OnnxEmbedder, SearchOptions,
-};
+use mag::memory_core::storage::sqlite::SqliteStorage;
+use mag::memory_core::{AdvancedSearcher, EventType, MemoryInput, OnnxEmbedder, SearchOptions};
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -319,7 +317,7 @@ struct ScaleResult {
 // ── Main benchmark logic ─────────────────────────────────────────────────────
 
 fn create_temp_db_path() -> Result<PathBuf> {
-    let dir = std::env::temp_dir().join("romega-scale-bench");
+    let dir = std::env::temp_dir().join("mag-scale-bench");
     std::fs::create_dir_all(&dir)?;
     let filename = format!("scale_bench_{}.db", std::process::id());
     Ok(dir.join(filename))

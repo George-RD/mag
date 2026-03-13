@@ -2,7 +2,7 @@ use chrono::{Duration, Utc};
 use std::process::Command;
 
 fn run_cli(home: &std::path::Path, args: &[&str]) -> anyhow::Result<(String, String)> {
-    let output = Command::new(env!("CARGO_BIN_EXE_romega-memory"))
+    let output = Command::new(env!("CARGO_BIN_EXE_mag"))
         .args(args)
         .env("HOME", home)
         .env("USERPROFILE", home)
@@ -41,7 +41,7 @@ fn assert_entity_agent_fields(
 
 #[test]
 fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
-    let test_home = std::env::temp_dir().join(format!("romega-cli-smoke-{}", uuid::Uuid::new_v4()));
+    let test_home = std::env::temp_dir().join(format!("mag-cli-smoke-{}", uuid::Uuid::new_v4()));
     let created_cutoff = (Utc::now() - Duration::days(1)).to_rfc3339();
     std::fs::create_dir_all(&test_home)?;
 
@@ -136,6 +136,15 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
     let (relations_stdout, _relations_stderr) = run_cli(&test_home, &["relations", &reingest_id])?;
     let relations_json: serde_json::Value = serde_json::from_str(relations_stdout.trim())?;
     assert!(relations_json["relationships"].as_array().is_some());
+
+    let (paths_stdout, _paths_stderr) = run_cli(&test_home, &["paths"])?;
+    let paths_json: serde_json::Value = serde_json::from_str(paths_stdout.trim())?;
+    let expected_data_root = test_home.join(".mag").display().to_string();
+    assert_eq!(
+        paths_json["data_root"].as_str(),
+        Some(expected_data_root.as_str())
+    );
+    assert_eq!(paths_json["using_legacy_root"].as_bool(), Some(false));
 
     let (stats_stdout, _stats_stderr) = run_cli(&test_home, &["stats"])?;
     let stats_json: serde_json::Value = serde_json::from_str(stats_stdout.trim())?;

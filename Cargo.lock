@@ -1159,6 +1159,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "670fdfda89751bc4a84ac13eaa63e205cf0fd22b4c9a5fbfa085b63c1f1d3a30"
 
 [[package]]
+name = "mag"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "lru",
+ "mimalloc",
+ "ndarray 0.16.1",
+ "num_cpus",
+ "ort",
+ "reqwest",
+ "rmcp",
+ "rusqlite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlite-vec",
+ "tokenizers",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1860,35 +1889,6 @@ dependencies = [
  "quote",
  "serde_json",
  "syn",
-]
-
-[[package]]
-name = "romega-memory"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "dotenvy",
- "lru",
- "mimalloc",
- "ndarray 0.16.1",
- "num_cpus",
- "ort",
- "reqwest",
- "rmcp",
- "rusqlite",
- "schemars",
- "serde",
- "serde_json",
- "sha2",
- "sqlite-vec",
- "tokenizers",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

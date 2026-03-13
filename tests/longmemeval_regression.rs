@@ -1,7 +1,5 @@
-use romega_memory::memory_core::storage::sqlite::SqliteStorage;
-use romega_memory::memory_core::{
-    AdvancedSearcher, EventType, MemoryInput, SearchOptions, Storage,
-};
+use mag::memory_core::storage::sqlite::SqliteStorage;
+use mag::memory_core::{AdvancedSearcher, EventType, MemoryInput, SearchOptions, Storage};
 
 async fn seed(
     storage: &SqliteStorage,

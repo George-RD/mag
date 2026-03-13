@@ -2,70 +2,24 @@
 
 Memory-Augmented Generation for local agents and MCP clients.
 
-`MAG` is the product name. The Rust crate, binary, and default data directory are still named `romega-memory`, so the commands and paths below use that name.
+MAG is a Rust-first memory system for coding agents and MCP-compatible tools. It stores structured memory in SQLite, supports lexical and semantic retrieval, exposes both a CLI and a stdio MCP server, and runs without a Python runtime or a separate vector database.
 
-## What MAG Is
+## Why MAG
 
-MAG is a Rust-first memory system for coding agents and MCP-compatible tools. It stores structured memory in SQLite, supports text and semantic retrieval, exposes a local CLI and stdio MCP server, and runs without a Python runtime or an external vector database.
+- One local binary, one local database.
+- Hybrid retrieval with FTS5, ONNX embeddings, optional `sqlite-vec`, graph traversal, and multi-phase advanced search.
+- Agent-oriented workflows: checkpoints, reminders, lessons, profile state, lifecycle tools, and MCP integration.
+- Portable operations: additive migrations, JSON export/import, and no standing service dependency.
 
-It is designed for the workflows this repository already supports well:
+## Compared With omega-memory
 
-- local-first agent memory with one binary and one database
-- hybrid retrieval with SQLite FTS5 plus optional `sqlite-vec` acceleration
-- task continuity features like checkpoints, reminders, lessons, and profile state
-- portable export/import without standing infrastructure
+MAG and `omega-memory` solve the same class of problem: durable memory for local agents. The difference is operating model.
 
-## Why Use MAG
+- MAG is Rust-native and ships as a single local binary.
+- MAG uses SQLite directly for storage and retrieval.
+- MAG is benchmarked directly against `omega-memory` on the shared local workload in this repo.
 
-- Single Rust binary. No Python environment, no separate vector service, no hosted dependency.
-- Hybrid retrieval. Text search, semantic search, phrase search, similar-memory lookup, graph traversal, and multi-phase advanced search.
-- Practical agent surface. The current build ships 32 CLI commands and 16 MCP tools.
-- Local embeddings. Uses `bge-small-en-v1.5` through ONNX by default.
-- SQLite-first operations. WAL mode, additive migrations, FTS5 indexing, and optional `sqlite-vec`.
-
-## Benchmarks
-
-These numbers were rerun on `2026-03-11 22:42:12 +0400` from branch `codex/retrieval-scaling-batch`, on a MacBook Pro (`Mac14,6`, Apple M2 Max, 12 CPU cores, 32 GB RAM) running macOS `26.3 (25D125)`. Commands used: `cargo run --release --bin longmemeval_bench -- --json` and `cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50`.
-
-### LongMemEval Local Rerun
-
-Command used:
-
-```bash
-cargo run --release --bin longmemeval_bench -- --json
-```
-
-| Metric | Result |
-| --- | --- |
-| Dataset | 80 seeded memories, 100 queries, 5 categories |
-| Overall accuracy | 98 / 100 (98.0%) |
-| Seeding time | 2791 ms |
-| Query time | 1687 ms |
-| Peak RSS | 338,144 KB |
-
-| Category | Score |
-| --- | --- |
-| Information extraction | 20 / 20 |
-| Multi-session reasoning | 20 / 20 |
-| Temporal reasoning | 19 / 20 |
-| Knowledge update | 19 / 20 |
-| Abstention | 20 / 20 |
-
-### Scale Benchmark Rerun
-
-Command used:
-
-```bash
-cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
-```
-
-| Scale | Mean Search | P95 | P99 | Recall@5 |
-| --- | ---: | ---: | ---: | ---: |
-| 1K memories | 5.51 ms | 11.50 ms | 13.19 ms | 100.0% |
-| 5K memories | 4.86 ms | 10.14 ms | 10.81 ms | 100.0% |
-| 10K memories | 14.02 ms | 26.22 ms | 30.68 ms | 100.0% |
-
-From 1K to 10K memories, the rerun showed 2.5x mean-search slowdown and 2.3x P95 slowdown while keeping Recall@5 at 100%.
+On this shared local workload, MAG scored higher overall while `omega-memory` was faster on seeding and query latency. See the [Benchmarks](#benchmarks) section below for current numbers.
 
 ## Quick Start
 
@@ -75,38 +29,44 @@ From 1K to 10K memories, the rerun showed 2.5x mean-search slowdown and 2.3x P95
 cargo build --release
 ```
 
-The binary is written to `./target/release/romega-memory`.
+The main binary is `./target/release/mag`.
 
-### Download the Embedding Model
+### Show Active Paths
+
+```bash
+cargo run --release -- paths
+```
+
+New installs use `~/.mag/`. For one release cycle, if `~/.mag/memory.db` is absent but `~/.romega-memory/memory.db` exists, MAG continues using the legacy root, even when `~/.mag/` already contains cache directories. The `paths` command shows the active data, database, model, and benchmark-cache locations explicitly.
+
+### Download Models
 
 ```bash
 cargo run --release -- download-model
+cargo run --release -- download-cross-encoder
 ```
 
-This downloads `bge-small-en-v1.5` to `~/.romega-memory/models/`. The model is also auto-downloaded on first use.
+Model files are cached under the active MAG root, usually `~/.mag/models/`.
+
+### Warm Benchmark Datasets
+
+```bash
+cargo run --release --bin fetch_benchmark_data -- --dataset all
+```
+
+Benchmark datasets are fetched externally and cached under the active MAG root, usually:
+
+- `~/.mag/benchmarks/longmemeval/`
+- `~/.mag/benchmarks/locomo/`
 
 ### Try the CLI
 
 ```bash
-# Store a memory
 cargo run --release -- ingest "The retry logic should use exponential backoff with jitter"
-
-# Search by text
 cargo run --release -- search "retry logic"
-
-# Search by meaning
 cargo run --release -- semantic-search "how should retries work?"
-
-# Hybrid retrieval with richer scoring
 cargo run --release -- advanced-search "deployment rollback process"
-
-# Scope retrieval to a specific entity / agent
-cargo run --release -- search "rollback" --entity-id issue-123 --agent-type planner
-
-# Explore recent context
 cargo run --release -- recent --limit 5
-
-# Full help
 cargo run --release -- --help
 ```
 
@@ -114,95 +74,59 @@ cargo run --release -- --help
 
 ```bash
 cargo run --release -- serve
-```
-
-Or run the built binary directly:
-
-```bash
-./target/release/romega-memory serve
+./target/release/mag serve
 ```
 
 Copy `.mcp.json.example` to `.mcp.json` and point your MCP client at the local binary.
 
-## Current Surface Area
+## Benchmarks
 
-### CLI
+Published benchmark snapshots were captured on `2026-03-12` at commit `66a9e3e97e0e65328864c4699ad6b14ccf8a24ae`, on `macOS aarch64, 12 CPU`. They do not include later review-only fixes on this PR branch.
 
-The CLI currently exposes 32 commands, including:
+| Benchmark | Result | Notes |
+| --- | --- | --- |
+| Local LongMemEval-style set | `98 / 100` | `1538 ms` seeding, `1013 ms` querying, `335568 KB` peak RSS |
+| LoCoMo10 | `476 / 1986` (`24.0%`) | `5882` memories ingested, `224.75 s` total, `20.22 ms` avg query |
+| Scale benchmark | `100% Recall@5` at `1K`, `5K`, `10K` | `19.61 ms` mean, `42.56 ms` p95, `51.94 ms` p99 at `10K` |
+| `omega-memory` comparison | MAG `98 / 100` vs omega `90 / 100` | omega seeded and queried faster on this local workload |
+| Official `LongMemEval_S` sample | `8 / 10` | external dataset fetch works; full `500`-question publication is still pending |
 
-- ingest, process, retrieve, delete, update
-- list, recent, search, semantic-search, phrase-search, advanced-search, similar
-- relations, traverse, version-chain
-- checkpoint, resume-task, remind, lessons, profile, welcome, protocol
-- maintain, sweep, stats, stats-extended, export, import
-- download-model, download-cross-encoder, serve
+Full methodology, commands, and result tables are in [docs/benchmarks.md](docs/benchmarks.md).
 
-### MCP Tools
+### Benchmark Safety
 
-The MCP server currently exposes 16 tools:
-
-| Category | Tools |
-| --- | --- |
-| Storage | `memory_store`, `memory_store_batch`, `memory_retrieve`, `memory_delete`, `memory_update` |
-| Retrieval | `memory_search`, `memory_list`, `memory_relations` |
-| Lifecycle | `memory_feedback`, `memory_lifecycle` |
-| Cross-session | `memory_checkpoint`, `memory_remind`, `memory_lessons`, `memory_profile` |
-| System | `memory_admin`, `memory_session_info` |
+Benchmark runs do not touch the normal MAG production database. The official LongMemEval harness uses a fresh in-memory SQLite database per question, and the LoCoMo harness uses a fresh in-memory SQLite database per sample. The main persistent side effect is dataset/model caching under the active MAG root.
 
 ## Retrieval Model
 
-MAG supports several retrieval paths:
+MAG currently supports:
 
-- FTS5 text search with porter stemming
+- text search over FTS5
 - semantic search over ONNX embeddings
-- similar-memory lookup from an existing memory ID
-- relationship traversal and version-chain lookup
-- advanced search that fuses vector and lexical candidates
+- similar-memory lookup from a stored memory ID
+- graph traversal and version-chain lookup
+- advanced retrieval that fuses vector and lexical candidates
 
-The advanced path combines vector similarity and FTS results, applies reciprocal-rank fusion, boosts dual matches, and then refines the score with factors like event type, time decay, priority, word overlap, importance, and feedback signals.
+The advanced path combines vector similarity and FTS hits with reciprocal-rank fusion, then refines ranking with event type, time decay, word overlap, importance, priority, and feedback signals.
 
 ## Architecture
 
 ```text
-romega-memory
+mag
 ├── src/
 │   ├── main.rs
 │   ├── cli.rs
 │   ├── mcp_server.rs
+│   ├── app_paths.rs
+│   ├── benchmarking.rs
 │   └── memory_core/
-│       ├── mod.rs
-│       ├── embedder.rs
-│       ├── reranker.rs
-│       ├── scoring.rs
-│       └── storage/sqlite/
-│           ├── mod.rs
-│           ├── schema.rs
-│           ├── crud.rs
-│           ├── search.rs
-│           ├── advanced.rs
-│           ├── graph.rs
-│           ├── lifecycle.rs
-│           ├── session.rs
-│           ├── admin.rs
-│           └── helpers.rs
 ├── benches/
 │   ├── longmemeval/
+│   ├── locomo/
 │   ├── onnx_profile.rs
 │   └── scale_bench.rs
 └── tests/
-    ├── cli_output_smoke.rs
-    ├── longmemeval_regression.rs
-    ├── mcp_smoke.rs
-    └── parity_harness.rs
 ```
-
-Core implementation choices:
-
-- SQLite storage with additive schema migrations
-- blocking DB work isolated in `tokio::task::spawn_blocking`
-- ONNX embeddings behind the `Embedder` trait
-- optional `sqlite-vec` acceleration for vector candidate generation
-- hot-cache and query-cache support in the SQLite storage layer
 
 ## Development
 
@@ -216,25 +140,16 @@ cargo test --all-features
 
 ### Benchmark Commands
 
+Clone `omega-memory` locally first. The comparison script accepts either `--omega-repo` or the `OMEGA_REPO` environment variable.
+
 ```bash
-cargo run --release --bin longmemeval_bench
+cargo run --release --bin fetch_benchmark_data -- --dataset all
 cargo run --release --bin longmemeval_bench -- --json
-cargo run --release --bin longmemeval_bench -- --concurrent
+cargo run --release --bin longmemeval_bench -- --official --questions 10 --json
+cargo run --release --bin locomo_bench -- --json
 cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
-cargo run --release --bin onnx_profile
+OMEGA_REPO=/path/to/omega-memory uv run --project "$OMEGA_REPO" python benches/python_comparison.py
 ```
-
-### Feature Flags
-
-| Flag | Default | Description |
-| --- | :---: | --- |
-| `real-embeddings` | ON | ONNX runtime, tokenizer support, model download |
-| `sqlite-vec` | OFF | Vector acceleration through `sqlite-vec` |
-| `mimalloc` | OFF | Alternative allocator |
-
-## Lineage
-
-MAG is implemented in this repository as `romega-memory`, an independent Rust reimplementation inspired by [omega-memory](https://github.com/pchaganti/gx-omega-memory). The conceptual lineage is shared; the code is not.
 
 ## License
 
