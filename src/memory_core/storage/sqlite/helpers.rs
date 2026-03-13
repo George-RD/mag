@@ -436,6 +436,8 @@ pub(super) fn search_result_from_row(row: &rusqlite::Row) -> rusqlite::Result<Se
         event_type: event_type_from_sql(event_type_str),
         session_id: row.get(6).ok(),
         project: row.get(7).ok(),
+        entity_id: row.get(8).ok(),
+        agent_type: row.get(9).ok(),
     })
 }
 

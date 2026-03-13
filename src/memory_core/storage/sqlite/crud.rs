@@ -667,7 +667,7 @@ impl Tagger for SqliteStorage {
             let json_clause = json_conditions.join(" AND ");
             let csv_clause = csv_conditions.join(" AND ");
             let mut sql = format!(
-                "SELECT id, content, tags, importance, metadata, event_type, session_id, project FROM memories \
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type FROM memories \
                  WHERE ((json_valid(memories.tags) AND {json_clause}) \
                          OR (NOT json_valid(memories.tags) AND memories.tags != '' AND {csv_clause})) \
                  "

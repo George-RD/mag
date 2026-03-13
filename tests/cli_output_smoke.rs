@@ -23,6 +23,22 @@ fn run_cli(home: &std::path::Path, args: &[&str]) -> anyhow::Result<(String, Str
     ))
 }
 
+fn assert_entity_agent_fields(
+    result: &serde_json::Value,
+    entity_id: &str,
+    agent_type: &str,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        result["entity_id"].as_str() == Some(entity_id),
+        "missing or incorrect entity_id in result payload: {result}"
+    );
+    anyhow::ensure!(
+        result["agent_type"].as_str() == Some(agent_type),
+        "missing or incorrect agent_type in result payload: {result}"
+    );
+    Ok(())
+}
+
 #[test]
 fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
     let test_home = std::env::temp_dir().join(format!("romega-cli-smoke-{}", uuid::Uuid::new_v4()));
@@ -394,6 +410,124 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
             .iter()
             .any(|result| result["id"].as_str() == Some(control_filter_id.as_str()))
     );
+
+    let (entity_target_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "ingest",
+            "entity-agent target",
+            "--entity-id",
+            "issue-123",
+            "--agent-type",
+            "planner",
+            "--referenced-date",
+            "2026-03-02T00:00:00Z",
+        ],
+    )?;
+    let entity_target_json: serde_json::Value = serde_json::from_str(entity_target_stdout.trim())?;
+    let entity_target_id = entity_target_json["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing id in entity target output"))?
+        .to_string();
+
+    let (entity_control_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "ingest",
+            "entity-agent target",
+            "--entity-id",
+            "issue-999",
+            "--agent-type",
+            "executor",
+            "--referenced-date",
+            "2026-03-02T00:00:00Z",
+        ],
+    )?;
+    let entity_control_json: serde_json::Value =
+        serde_json::from_str(entity_control_stdout.trim())?;
+    let entity_control_id = entity_control_json["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing id in entity control output"))?
+        .to_string();
+
+    let (entity_advanced_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "advanced-search",
+            "entity-agent target",
+            "--entity-id",
+            "issue-123",
+            "--agent-type",
+            "planner",
+            "--explain",
+        ],
+    )?;
+    let entity_advanced_json: serde_json::Value =
+        serde_json::from_str(entity_advanced_stdout.trim())?;
+    let entity_advanced_results = entity_advanced_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in entity advanced search output"))?;
+    assert_eq!(entity_advanced_results.len(), 1);
+    assert_eq!(
+        entity_advanced_results[0]["id"].as_str(),
+        Some(entity_target_id.as_str())
+    );
+    assert_ne!(
+        entity_advanced_results[0]["id"].as_str(),
+        Some(entity_control_id.as_str())
+    );
+    assert_entity_agent_fields(&entity_advanced_results[0], "issue-123", "planner")?;
+    assert!(entity_advanced_results[0]["metadata"]["_explain"].is_object());
+
+    let (entity_list_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "list",
+            "--limit",
+            "5",
+            "--entity-id",
+            "issue-123",
+            "--agent-type",
+            "planner",
+        ],
+    )?;
+    let entity_list_json: serde_json::Value = serde_json::from_str(entity_list_stdout.trim())?;
+    let entity_list_results = entity_list_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in entity list output"))?;
+    assert_eq!(entity_list_results.len(), 1);
+    assert_eq!(
+        entity_list_results[0]["id"].as_str(),
+        Some(entity_target_id.as_str())
+    );
+    assert_entity_agent_fields(&entity_list_results[0], "issue-123", "planner")?;
+
+    let (entity_recent_stdout, _) = run_cli(
+        &test_home,
+        &[
+            "recent",
+            "--limit",
+            "5",
+            "--entity-id",
+            "issue-123",
+            "--agent-type",
+            "planner",
+        ],
+    )?;
+    let entity_recent_json: serde_json::Value = serde_json::from_str(entity_recent_stdout.trim())?;
+    let entity_recent_results = entity_recent_json["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing results in entity recent output"))?;
+    assert_eq!(entity_recent_results.len(), 1);
+    assert_eq!(
+        entity_recent_results[0]["id"].as_str(),
+        Some(entity_target_id.as_str())
+    );
+    assert_ne!(
+        entity_recent_results[0]["id"].as_str(),
+        Some(entity_control_id.as_str())
+    );
+    assert_entity_agent_fields(&entity_recent_results[0], "issue-123", "planner")?;
 
     let _ = std::fs::remove_dir_all(&test_home);
     Ok(())
