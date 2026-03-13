@@ -277,7 +277,9 @@ async fn main() -> anyhow::Result<()> {
                         "metadata": m.metadata,
                         "event_type": m.event_type,
                         "session_id": m.session_id,
-                        "project": m.project
+                        "project": m.project,
+                        "entity_id": m.entity_id,
+                        "agent_type": m.agent_type
                     })
                 })
                 .collect();
@@ -319,7 +321,9 @@ async fn main() -> anyhow::Result<()> {
                         "metadata": result.metadata,
                         "event_type": result.event_type,
                         "session_id": result.session_id,
-                        "project": result.project
+                        "project": result.project,
+                        "entity_id": result.entity_id,
+                        "agent_type": result.agent_type
                     })
                 })
                 .collect();
@@ -350,7 +354,9 @@ async fn main() -> anyhow::Result<()> {
                         "metadata": result.metadata,
                         "event_type": result.event_type,
                         "session_id": result.session_id,
-                        "project": result.project
+                        "project": result.project,
+                        "entity_id": result.entity_id,
+                        "agent_type": result.agent_type
                     })
                 })
                 .collect();
@@ -382,7 +388,9 @@ async fn main() -> anyhow::Result<()> {
                         "metadata": result.metadata,
                         "event_type": result.event_type,
                         "session_id": result.session_id,
-                        "project": result.project
+                        "project": result.project,
+                        "entity_id": result.entity_id,
+                        "agent_type": result.agent_type
                     })
                 })
                 .collect();
@@ -412,6 +420,8 @@ async fn main() -> anyhow::Result<()> {
                         "event_type": memory.event_type,
                         "session_id": memory.session_id,
                         "project": memory.project,
+                        "entity_id": memory.entity_id,
+                        "agent_type": memory.agent_type,
                     })
                 })
                 .collect();
@@ -432,7 +442,9 @@ async fn main() -> anyhow::Result<()> {
                         "metadata": result.metadata,
                         "event_type": result.event_type,
                         "session_id": result.session_id,
-                        "project": result.project
+                        "project": result.project,
+                        "entity_id": result.entity_id,
+                        "agent_type": result.agent_type
                     })
                 })
                 .collect();
@@ -497,7 +509,9 @@ async fn main() -> anyhow::Result<()> {
                         "metadata": result.metadata,
                         "event_type": result.event_type,
                         "session_id": result.session_id,
-                        "project": result.project
+                        "project": result.project,
+                        "entity_id": result.entity_id,
+                        "agent_type": result.agent_type
                     })
                 })
                 .collect();
@@ -519,7 +533,9 @@ async fn main() -> anyhow::Result<()> {
                         "metadata": result.metadata,
                         "event_type": result.event_type,
                         "session_id": result.session_id,
-                        "project": result.project
+                        "project": result.project,
+                        "entity_id": result.entity_id,
+                        "agent_type": result.agent_type
                     })
                 })
                 .collect();

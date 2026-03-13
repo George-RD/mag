@@ -934,9 +934,9 @@ struct RankedSemanticCandidate {
     #[allow(dead_code)] // Stored for diagnostics; abstention uses collection-level text_overlap
     vec_sim: Option<f64>,
     text_overlap: f64,
-    /// Stored for in-memory filtering; not exposed in SemanticResult.
+    /// Stored for in-memory filtering and kept in sync with `SemanticResult`.
     entity_id: Option<String>,
-    /// Stored for in-memory filtering; not exposed in SemanticResult.
+    /// Stored for in-memory filtering and kept in sync with `SemanticResult`.
     agent_type: Option<String>,
     /// Component scores for explain mode; populated only when `SearchOptions.explain` is true.
     explain: Option<serde_json::Value>,

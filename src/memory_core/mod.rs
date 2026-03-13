@@ -503,6 +503,8 @@ pub struct SearchResult {
     pub event_type: Option<EventType>,
     pub session_id: Option<String>,
     pub project: Option<String>,
+    pub entity_id: Option<String>,
+    pub agent_type: Option<String>,
 }
 
 /// Semantic search result item with similarity score.
@@ -521,6 +523,8 @@ pub struct SemanticResult {
     pub event_type: Option<EventType>,
     pub session_id: Option<String>,
     pub project: Option<String>,
+    pub entity_id: Option<String>,
+    pub agent_type: Option<String>,
     /// Similarity score in the range [0.0, 1.0].
     pub score: f32,
 }
@@ -953,6 +957,8 @@ impl Searcher for PlaceholderPipeline {
             event_type: None,
             session_id: None,
             project: None,
+            entity_id: None,
+            agent_type: None,
         }])
     }
 }
@@ -969,6 +975,8 @@ impl Recents for PlaceholderPipeline {
             event_type: None,
             session_id: None,
             project: None,
+            entity_id: None,
+            agent_type: None,
         }])
     }
 }
@@ -990,6 +998,8 @@ impl SemanticSearcher for PlaceholderPipeline {
             event_type: None,
             session_id: None,
             project: None,
+            entity_id: None,
+            agent_type: None,
             score: 1.0,
         }])
     }
@@ -1048,6 +1058,8 @@ mod tests {
                 event_type: None,
                 session_id: None,
                 project: None,
+                entity_id: None,
+                agent_type: None,
             }])
         }
     }
@@ -1064,6 +1076,8 @@ mod tests {
                 event_type: None,
                 session_id: None,
                 project: None,
+                entity_id: None,
+                agent_type: None,
             }])
         }
     }
@@ -1085,6 +1099,8 @@ mod tests {
                 event_type: None,
                 session_id: None,
                 project: None,
+                entity_id: None,
+                agent_type: None,
                 score: 0.99,
             }])
         }

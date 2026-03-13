@@ -25,6 +25,8 @@ struct HotEntry {
     access_count: i64,
     session_id: Option<String>,
     project: Option<String>,
+    entity_id: Option<String>,
+    agent_type: Option<String>,
     metadata: serde_json::Value,
     expires_at_unix: Option<i64>,
     tokens: HashSet<String>,
@@ -72,6 +74,7 @@ impl HotTierCache {
         let mut stmt = conn
             .prepare(
                 "SELECT id, content, tags, importance, event_type, access_count, session_id, project,
+                        entity_id, agent_type,
                         metadata,
                         CASE
                             WHEN ttl_seconds IS NULL THEN NULL
@@ -93,7 +96,7 @@ impl HotTierCache {
                 let tags = parse_tags_from_db(&raw_tags);
                 let tag_tokens = tags.join(" ");
                 let tokens = token_set(&format!("{content} {tag_tokens}"), 3);
-                let raw_metadata: String = row.get(8)?;
+                let raw_metadata: String = row.get(10)?;
                 Ok(HotEntry {
                     id: row.get(0)?,
                     content,
@@ -103,8 +106,10 @@ impl HotTierCache {
                     access_count: row.get(5)?,
                     session_id: row.get(6)?,
                     project: row.get(7)?,
+                    entity_id: row.get(8)?,
+                    agent_type: row.get(9)?,
                     metadata: parse_metadata_from_db(&raw_metadata),
-                    expires_at_unix: row.get(9)?,
+                    expires_at_unix: row.get(11)?,
                     tokens,
                 })
             })
@@ -253,6 +258,8 @@ impl HotTierCache {
                         event_type: entry.event_type.clone(),
                         session_id: entry.session_id.clone(),
                         project: entry.project.clone(),
+                        entity_id: entry.entity_id.clone(),
+                        agent_type: entry.agent_type.clone(),
                         score,
                     })
                 })
