@@ -183,7 +183,18 @@ impl SqliteStorage {
     }
 
     #[allow(dead_code)]
-    pub fn with_scoring_params(mut self, mut params: ScoringParams) -> Self {
+    pub fn with_scoring_params(mut self, params: ScoringParams) -> Self {
+        self.set_scoring_params(params);
+        self
+    }
+
+    /// Replaces the scoring parameters on an existing instance.
+    ///
+    /// Also invalidates the query cache so subsequent searches use the new
+    /// parameters.  This is cheaper than rebuilding the entire storage when
+    /// only the ranking configuration changes (e.g. during grid search).
+    #[allow(dead_code)]
+    pub fn set_scoring_params(&mut self, mut params: ScoringParams) {
         if params.graph_seed_min > params.graph_seed_max {
             std::mem::swap(&mut params.graph_seed_min, &mut params.graph_seed_max);
         }
@@ -191,7 +202,7 @@ impl SqliteStorage {
             params.rrf_k = ScoringParams::default().rrf_k;
         }
         self.scoring_params = params;
-        self
+        self.invalidate_query_cache();
     }
 
     /// Clears the query result cache. Called after every write operation.

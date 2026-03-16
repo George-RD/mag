@@ -202,14 +202,23 @@ pub(crate) async fn run_grid_search(verbose: bool) -> Result<Vec<GridSearchResul
 
     let embedder: std::sync::Arc<dyn mag::memory_core::embedder::Embedder> =
         std::sync::Arc::new(OnnxEmbedder::new()?);
+
+    // Seed the database ONCE — all parameter combos share the same data.
+    // Only ScoringParams change between iterations (they affect ranking,
+    // not stored content), so re-seeding is unnecessary.
+    let mut storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
+    let mut rss = PeakRss::default();
+    rss.sample();
+
+    let seed_start = Instant::now();
+    seed_memories(&storage, &embedder, &mut rss).await?;
+    let seed_ms = seed_start.elapsed().as_millis();
+    eprintln!("Grid search: seeded once in {seed_ms} ms ({total} combos to evaluate)");
+
     for (index, (label, params)) in parameter_sets.into_iter().enumerate() {
         let start = Instant::now();
-        let storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?
-            .with_scoring_params(params.clone());
-        let mut rss = PeakRss::default();
-        rss.sample();
+        storage.set_scoring_params(params.clone());
 
-        seed_memories(&storage, &embedder, &mut rss).await?;
         let categories = run_benchmark(
             &storage,
             false,
