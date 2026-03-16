@@ -3,110 +3,77 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use clap::Parser;
-use mag::benchmarking::{self, BenchmarkMetadata, DatasetKind};
+
+use mag::benchmarking::{self, DatasetKind};
+use mag::memory_core::OnnxEmbedder;
+use mag::memory_core::embedder::Embedder;
 use mag::memory_core::storage::sqlite::SqliteStorage;
-use mag::memory_core::{AdvancedSearcher, MemoryInput, OnnxEmbedder, SearchOptions, Searcher};
-use serde::{Deserialize, Serialize};
+
+mod dataset;
+mod display;
+mod llm;
+mod openai_embedder;
+mod scoring;
+mod seeding;
+mod types;
+
+const DEFAULT_LLM_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_LOCAL_MODEL: &str = "qwen3.5-9b-optiq";
+const DEFAULT_LOCAL_URL: &str = "http://localhost:1234/v1/chat/completions";
 
 #[derive(Debug, Parser)]
 #[command(name = "locomo_bench")]
 #[command(about = "LoCoMo retrieval benchmark for MAG")]
 struct Args {
+    /// Output results as JSON.
     #[arg(long)]
     json: bool,
+    /// Print per-question details.
     #[arg(long)]
     verbose: bool,
+    /// Path to a pre-downloaded locomo10.json dataset.
     #[arg(long)]
     dataset_path: Option<PathBuf>,
+    /// Force re-download of the dataset.
     #[arg(long)]
     force_refresh: bool,
+    /// Use a temporary dataset path (cleaned up on exit).
     #[arg(long)]
     temp_dataset: bool,
+    /// Limit the number of conversation samples to evaluate.
     #[arg(long)]
     samples: Option<usize>,
+    /// Limit the total number of questions to evaluate.
     #[arg(long)]
     questions: Option<usize>,
+    /// Retrieve top-k results per question (default: 5).
     #[arg(long)]
     top_k: Option<usize>,
+    /// Use LLM generation + token F1 scoring instead of substring matching.
+    #[arg(long)]
+    llm_judge: bool,
+    /// Use a local LM Studio server (no API key needed, implies --llm-judge).
+    #[arg(long)]
+    local: bool,
+    /// OpenAI-compatible API endpoint URL (default: OpenAI, or localhost:1234 with --local).
+    #[arg(long)]
+    llm_url: Option<String>,
+    /// Model name for LLM generation (default: gpt-4o-mini, or qwen3.5-9b-optiq with --local).
+    #[arg(long)]
+    llm_model: Option<String>,
+    /// Use OpenAI text-embedding-3-large (3072-dim) instead of local ONNX bge-small-en-v1.5.
+    /// Requires OPENAI_API_KEY in environment or .env.local file.
+    #[arg(long)]
+    openai_embeddings: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct LoCoMoSample {
-    sample_id: String,
-    conversation: serde_json::Map<String, serde_json::Value>,
-    qa: Vec<LoCoMoQuestion>,
-}
-
-#[derive(Debug, Deserialize)]
-struct DialogueTurn {
-    speaker: String,
-    dia_id: String,
-    text: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct LoCoMoQuestion {
-    question: String,
-    #[serde(default, deserialize_with = "deserialize_optional_answer")]
-    answer: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_optional_answer")]
-    adversarial_answer: Option<String>,
-    evidence: Vec<String>,
-    category: i64,
-}
-
-impl LoCoMoQuestion {
-    fn expected_answer(&self) -> &str {
-        self.answer
-            .as_deref()
-            .or(self.adversarial_answer.as_deref())
-            .unwrap_or("")
-    }
-}
-
-fn deserialize_optional_answer<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value: Option<serde_json::Value> = Option::deserialize(deserializer)?;
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    match value {
-        serde_json::Value::String(text) => Ok(Some(text)),
-        serde_json::Value::Number(number) => Ok(Some(number.to_string())),
-        other => Ok(Some(other.to_string())),
-    }
-}
-
-#[derive(Debug, Default, Clone, Serialize)]
-struct CategoryResult {
-    total: usize,
-    correct: usize,
-    details: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct LoCoMoSummary {
-    metadata: BenchmarkMetadata,
-    dataset: String,
-    samples_evaluated: usize,
-    questions_evaluated: usize,
-    total_memories_ingested: usize,
-    total_duration_seconds: f64,
-    avg_query_ms: f64,
-    peak_rss_kb: u64,
-    raw_correct: usize,
-    raw_percentage: f64,
-    categories: BTreeMap<String, CategoryResult>,
-}
+// ── Peak RSS tracking ───────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
 struct PeakRss {
@@ -133,209 +100,30 @@ fn current_rss_kb() -> Result<u64> {
     Ok(text.trim().parse()?)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn current_rss_kb() -> Result<u64> {
+    let status = std::fs::read_to_string("/proc/self/status")?;
+    for line in status.lines() {
+        if let Some(value) = line.strip_prefix("VmRSS:") {
+            let kb: u64 = value.trim().trim_end_matches(" kB").trim().parse()?;
+            return Ok(kb);
+        }
+    }
+    Ok(0)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn current_rss_kb() -> Result<u64> {
     Ok(0)
 }
 
-fn pct(correct: usize, total: usize) -> f64 {
-    if total == 0 {
-        0.0
-    } else {
-        correct as f64 / total as f64 * 100.0
-    }
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+fn truncate(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
 }
 
-fn grade(percentage: f64) -> &'static str {
-    if percentage >= 90.0 {
-        "A"
-    } else if percentage >= 75.0 {
-        "B"
-    } else if percentage >= 60.0 {
-        "C"
-    } else if percentage >= 40.0 {
-        "D"
-    } else {
-        "F"
-    }
-}
-
-fn record_result(
-    by_category: &mut BTreeMap<String, CategoryResult>,
-    category: &str,
-    passed: bool,
-    detail: Option<String>,
-) {
-    let entry = by_category.entry(category.to_string()).or_default();
-    entry.total += 1;
-    if passed {
-        entry.correct += 1;
-    }
-    if let Some(line) = detail {
-        entry.details.push(line);
-    }
-}
-
-fn load_dataset(path: &std::path::Path) -> Result<Vec<LoCoMoSample>> {
-    let file = std::fs::File::open(path)
-        .map_err(|e| anyhow!("failed to open dataset at {}: {e}", path.display()))?;
-    let reader = std::io::BufReader::new(file);
-    let samples: Vec<LoCoMoSample> = serde_json::from_reader(reader)
-        .map_err(|e| anyhow!("failed to parse dataset JSON: {e}"))?;
-    Ok(samples)
-}
-
-async fn seed_sample(storage: &SqliteStorage, sample: &LoCoMoSample) -> Result<usize> {
-    let mut count = 0usize;
-    let mut session_keys = sample
-        .conversation
-        .keys()
-        .filter(|key| {
-            key.starts_with("session_")
-                && !key.ends_with("_date_time")
-                && !key.ends_with("_summary")
-                && !key.ends_with("_observation")
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    session_keys.sort_by_key(|key| {
-        key.trim_start_matches("session_")
-            .parse::<u32>()
-            .unwrap_or(u32::MAX)
-    });
-
-    for key in session_keys {
-        let Some(turns_value) = sample.conversation.get(&key) else {
-            continue;
-        };
-        let Some(turns) = turns_value.as_array() else {
-            continue;
-        };
-        let date_key = format!("{key}_date_time");
-        let referenced_date = sample
-            .conversation
-            .get(&date_key)
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned);
-        for (turn_idx, turn) in turns.iter().enumerate() {
-            let turn: DialogueTurn = serde_json::from_value(turn.clone()).map_err(|e| {
-                anyhow!(
-                    "failed to parse dialogue turn for {}: {e}",
-                    sample.sample_id
-                )
-            })?;
-            if turn.text.trim().is_empty() {
-                continue;
-            }
-            let memory_id = format!("locomo-{}-{key}-{turn_idx}", sample.sample_id);
-            let input = MemoryInput {
-                content: String::new(),
-                id: None,
-                tags: Vec::new(),
-                importance: 0.5,
-                metadata: serde_json::json!({ "dia_id": turn.dia_id }),
-                session_id: Some(key.clone()),
-                agent_type: Some(turn.speaker.clone()),
-                referenced_date: referenced_date.clone(),
-                ..MemoryInput::default()
-            };
-            storage
-                .store(
-                    &memory_id,
-                    &format!("{}: {}", turn.speaker, turn.text),
-                    &input,
-                )
-                .await?;
-            count += 1;
-        }
-    }
-
-    Ok(count)
-}
-
-fn no_filter() -> SearchOptions {
-    SearchOptions {
-        event_type: None,
-        project: None,
-        session_id: None,
-        include_superseded: None,
-        importance_min: None,
-        created_after: None,
-        created_before: None,
-        context_tags: None,
-        entity_id: None,
-        agent_type: None,
-        event_after: None,
-        event_before: None,
-        explain: None,
-    }
-}
-
-async fn query_hits(storage: &SqliteStorage, question: &str, top_k: usize) -> Result<Vec<String>> {
-    let filters = no_filter();
-    let advanced = storage.advanced_search(question, top_k, &filters).await?;
-    if !advanced.is_empty() {
-        return Ok(advanced.into_iter().map(|hit| hit.content).collect());
-    }
-
-    let basic = storage.search(question, top_k, &filters).await?;
-    Ok(basic.into_iter().map(|hit| hit.content).collect())
-}
-
-fn normalize_answer(text: &str) -> String {
-    text.to_lowercase()
-}
-
-fn answer_present(hits: &[String], expected: &str) -> bool {
-    if expected.is_empty() {
-        return false;
-    }
-    let expected = normalize_answer(expected);
-    hits.iter()
-        .any(|hit| normalize_answer(hit).contains(expected.as_str()))
-}
-
-fn category_key(category: i64) -> String {
-    format!("category_{category}")
-}
-
-fn print_summary(summary: &LoCoMoSummary) {
-    println!();
-    println!("========================================================================");
-    println!("  MAG — LoCoMo Benchmark Results");
-    println!("========================================================================");
-    println!("  Dataset: {}", summary.dataset);
-    println!("  Source: {}", summary.metadata.dataset_source);
-    println!("  Cache:  {}", summary.metadata.dataset_path);
-    println!(
-        "  Samples: {}  Questions: {}",
-        summary.samples_evaluated, summary.questions_evaluated
-    );
-    println!(
-        "  Memories ingested: {}  Duration: {:.1}s  Avg query: {:.0}ms",
-        summary.total_memories_ingested, summary.total_duration_seconds, summary.avg_query_ms
-    );
-    println!("  Peak RSS: {} KB", summary.peak_rss_kb);
-    println!();
-    for (key, cat) in &summary.categories {
-        let percentage = pct(cat.correct, cat.total);
-        println!(
-            "  {key:12} {:>3}/{:<3} {:>5.1}% ({})",
-            cat.correct,
-            cat.total,
-            percentage,
-            grade(percentage)
-        );
-        for line in &cat.details {
-            println!("{line}");
-        }
-    }
-    println!();
-    println!(
-        "  RAW: {}/{} = {:.1}%",
-        summary.raw_correct, summary.questions_evaluated, summary.raw_percentage
-    );
-}
+// ── Main ────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
     let args = Args::parse();
@@ -347,19 +135,69 @@ fn main() -> Result<()> {
     }
 
     let runtime = tokio::runtime::Runtime::new()?;
+
+    // Resolve and load dataset via the shared benchmarking module.
     let dataset = runtime.block_on(benchmarking::resolve_dataset(
         DatasetKind::LoCoMo10,
         args.dataset_path.clone(),
         args.force_refresh,
         args.temp_dataset,
     ))?;
-    let mut samples = load_dataset(&dataset.path)?;
+    let mut samples = dataset::load_dataset(&dataset.path)?;
+    if !args.json {
+        eprintln!(
+            "Loaded {} samples from {}",
+            samples.len(),
+            dataset.path.display()
+        );
+    }
     if let Some(limit) = args.samples {
         samples.truncate(limit);
     }
 
     let metadata = benchmarking::benchmark_metadata("locomo", &dataset);
-    let embedder = std::sync::Arc::new(OnnxEmbedder::new()?);
+
+    // Initialize LLM if needed.
+    let use_llm = args.llm_judge || args.local;
+    if use_llm {
+        let model = args.llm_model.as_deref().unwrap_or(if args.local {
+            DEFAULT_LOCAL_MODEL
+        } else {
+            DEFAULT_LLM_MODEL
+        });
+        let url = args.llm_url.as_deref().unwrap_or(if args.local {
+            DEFAULT_LOCAL_URL
+        } else {
+            llm::OPENAI_URL
+        });
+        if args.local {
+            llm::init_llm_local(model, url)?;
+        } else {
+            llm::load_api_key_from_dotenv();
+            llm::init_llm(model, url)?;
+        }
+        if !args.json {
+            eprintln!("LLM generation mode: {} @ {}", model, url);
+        }
+    }
+
+    let embedder: std::sync::Arc<dyn Embedder> = if args.openai_embeddings {
+        llm::load_api_key_from_dotenv();
+        let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+            anyhow::anyhow!(
+                "--openai-embeddings requires OPENAI_API_KEY (env var or .env.local file)"
+            )
+        })?;
+        if !args.json {
+            eprintln!("Embedder: OpenAI text-embedding-3-large (3072-dim)");
+        }
+        std::sync::Arc::new(openai_embedder::OpenAiEmbedder::new(api_key)?)
+    } else {
+        if !args.json {
+            eprintln!("Embedder: ONNX bge-small-en-v1.5 (384-dim)");
+        }
+        std::sync::Arc::new(OnnxEmbedder::new()?)
+    };
     let top_k = args.top_k.unwrap_or(5);
     let start = Instant::now();
     let mut rss = PeakRss::default();
@@ -369,8 +207,14 @@ fn main() -> Result<()> {
     let mut total_queries = 0usize;
     let mut total_query_ms = 0u128;
     let mut total_correct = 0usize;
+    let mut total_f1_sum = 0.0f64;
+    let mut total_evidence_recall_sum = 0.0f64;
     let mut categories = BTreeMap::new();
     let mut samples_evaluated = 0usize;
+    let total_question_count = args
+        .questions
+        .unwrap_or(usize::MAX)
+        .min(samples.iter().map(|s| s.qa.len()).sum::<usize>());
 
     'samples: for sample in &samples {
         if let Some(limit) = args.questions
@@ -379,8 +223,10 @@ fn main() -> Result<()> {
             break;
         }
 
+        // Fresh database per sample -- isolates conversations.
         let storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
-        total_memories += runtime.block_on(seed_sample(&storage, sample))?;
+        let seeded = runtime.block_on(seeding::seed_sample(&storage, sample))?;
+        total_memories += seeded;
         samples_evaluated += 1;
         rss.sample();
 
@@ -392,31 +238,114 @@ fn main() -> Result<()> {
             }
 
             let query_start = Instant::now();
-            let hits = runtime.block_on(query_hits(&storage, &qa.question, top_k))?;
+            let hits =
+                runtime.block_on(seeding::query_with_metadata(&storage, &qa.question, top_k))?;
             let query_ms = query_start.elapsed().as_millis();
             total_query_ms += query_ms;
             total_queries += 1;
+            rss.sample();
 
             let expected_answer = qa.expected_answer();
-            let passed = answer_present(&hits, expected_answer);
-            if passed {
+            let category = qa.category_key();
+
+            // Substring match (always computed for backward compat).
+            let substr_passed = scoring::substring_match(&hits, expected_answer);
+
+            // Evidence recall.
+            let ev_recall = scoring::evidence_recall(&hits, &qa.evidence);
+
+            // Token F1: compare expected answer against either LLM-generated
+            // answer or concatenated retrieved content.
+            // For adversarial (cat-5) questions in LLM mode, score by whether
+            // the LLM correctly identifies information as absent.
+            let is_adversarial = category == "adversarial";
+            let (f1, _actual_text) = if use_llm && !expected_answer.is_empty() {
+                match runtime.block_on(llm::generate_answer(&qa.question, &hits)) {
+                    Ok(generated) => {
+                        if is_adversarial {
+                            let score = if scoring::adversarial_check(&generated) {
+                                1.0
+                            } else {
+                                0.0
+                            };
+                            (score, generated)
+                        } else {
+                            let (_, _, f1) = scoring::token_f1(&generated, expected_answer);
+                            (f1, generated)
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("warning: LLM generation failed, using retrieval text: {err}");
+                        let concat = hits
+                            .iter()
+                            .map(|h| h.content.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let (_, _, f1) = scoring::token_f1(&concat, expected_answer);
+                        (f1, concat)
+                    }
+                }
+            } else {
+                let concat = hits
+                    .iter()
+                    .map(|h| h.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let (_, _, f1) = if expected_answer.is_empty() {
+                    (0.0, 0.0, 0.0)
+                } else {
+                    scoring::token_f1(&concat, expected_answer)
+                };
+                (f1, concat)
+            };
+
+            total_f1_sum += f1;
+            total_evidence_recall_sum += ev_recall;
+            if substr_passed {
                 total_correct += 1;
             }
-            let category = category_key(qa.category);
-            let detail = if args.verbose && !passed {
+
+            let detail = if args.verbose {
+                let status = if substr_passed { "PASS" } else { "FAIL" };
                 Some(format!(
-                    "  [FAIL] {} → expected {} (evidence: {})",
-                    qa.question,
-                    expected_answer,
-                    qa.evidence.join(", ")
+                    "  [{status}] Q: {}  E: {}  F1={:.2}  EvR={:.2}",
+                    truncate(&qa.question, 50),
+                    truncate(expected_answer, 30),
+                    f1,
+                    ev_recall,
                 ))
             } else {
                 None
             };
-            record_result(&mut categories, &category, passed, detail);
-            rss.sample();
+
+            display::record_result(
+                &mut categories,
+                category,
+                substr_passed,
+                f1,
+                ev_recall,
+                detail,
+            );
+
+            // Progress on stderr.
+            let (cat_correct, cat_total) = categories
+                .get(category)
+                .map(|c| (c.correct, c.total))
+                .unwrap_or((0, 0));
+            let status_char = if substr_passed { '✓' } else { '✗' };
+            eprint!(
+                "\r[{}/{}] {status_char} {} — {}/{} substr, F1={:.2} ({seeded} mems, {query_ms}ms)         ",
+                total_queries,
+                total_question_count,
+                truncate(category, 15),
+                cat_correct,
+                cat_total,
+                f1,
+            );
+            let _ = std::io::stderr().flush();
         }
     }
+    eprintln!(); // Finish progress line.
 
     let total_duration_seconds = start.elapsed().as_secs_f64();
     let avg_query_ms = if total_queries == 0 {
@@ -424,7 +353,18 @@ fn main() -> Result<()> {
     } else {
         total_query_ms as f64 / total_queries as f64
     };
-    let summary = LoCoMoSummary {
+    let mean_f1 = if total_queries == 0 {
+        0.0
+    } else {
+        total_f1_sum / total_queries as f64
+    };
+    let mean_evidence_recall = if total_queries == 0 {
+        0.0
+    } else {
+        total_evidence_recall_sum / total_queries as f64
+    };
+
+    let summary = types::LoCoMoSummary {
         metadata,
         dataset: "LoCoMo10".to_string(),
         samples_evaluated,
@@ -434,14 +374,17 @@ fn main() -> Result<()> {
         avg_query_ms,
         peak_rss_kb: rss.peak_kb,
         raw_correct: total_correct,
-        raw_percentage: pct(total_correct, total_queries),
+        raw_percentage: display::pct(total_correct, total_queries),
+        mean_f1,
+        mean_evidence_recall,
         categories,
     };
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
-        print_summary(&summary);
+        display::print_results(&summary);
     }
+
     Ok(())
 }
