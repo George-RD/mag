@@ -39,6 +39,20 @@ lru = "0.12"
 mimalloc = { version = "0.1", optional = true }
 sqlite-vec = { version = "0.1.6", optional = true }
 
+[lints.rust]
+unused_must_use = "deny"
+unreachable_patterns = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
+dead_code = "warn"              # warn not deny — parallel agents may create functions before callers exist
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+# Numeric safety for embeddings/scoring paths (allow until ~75 existing violations fixed, then deny)
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+
 [[bin]]
 name = "longmemeval_bench"
 path = "benches/longmemeval/main.rs"
