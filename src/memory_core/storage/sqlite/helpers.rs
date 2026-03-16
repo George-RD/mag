@@ -1,9 +1,76 @@
 use std::sync::MutexGuard;
+use std::time::Duration;
 
 use super::*;
 
 /// Fallback timestamp used when a row's `created_at` column is missing or unparseable.
 pub(super) const EPOCH_FALLBACK: &str = "1970-01-01T00:00:00.000Z";
+
+/// Returns `true` when a rusqlite error indicates SQLite lock contention
+/// (`SQLITE_BUSY`). Used to decide whether to retry a transaction.
+pub(super) fn is_lock_error(err: &rusqlite::Error) -> bool {
+    matches!(
+        err,
+        rusqlite::Error::SqliteFailure(e, _)
+            if e.code == rusqlite::ffi::ErrorCode::DatabaseBusy
+    )
+}
+
+/// Maximum number of retry attempts for lock contention.
+const RETRY_MAX_ATTEMPTS: u32 = 5;
+
+/// Base delay between retries (doubled each attempt).
+const RETRY_BASE_DELAY_MS: u64 = 10;
+
+/// Retries `f` with exponential backoff when it returns a lock contention error.
+///
+/// This is a **synchronous** function intended to run inside `spawn_blocking`.
+/// Uses `std::thread::sleep` (not tokio) for delays.
+///
+/// - Max attempts: 5
+/// - Backoff: 10ms, 20ms, 40ms, 80ms, 160ms (+ random 0-50% jitter)
+/// - Non-lock errors are returned immediately without retry.
+pub(super) fn retry_on_lock<T, F>(mut f: F) -> std::result::Result<T, rusqlite::Error>
+where
+    F: FnMut() -> std::result::Result<T, rusqlite::Error>,
+{
+    let mut attempt = 0_u32;
+    loop {
+        match f() {
+            Ok(val) => return Ok(val),
+            Err(err) if is_lock_error(&err) && attempt + 1 < RETRY_MAX_ATTEMPTS => {
+                attempt += 1;
+                let base_ms = RETRY_BASE_DELAY_MS * 2_u64.pow(attempt - 1);
+                // Simple jitter: add 0-50% of base_ms using a cheap hash of the attempt
+                // counter and a timestamp nanos component to avoid pulling in a rand dependency.
+                let jitter_ms = {
+                    let nanos = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.subsec_nanos() as u64)
+                        .unwrap_or(0);
+                    let seed = nanos.wrapping_mul(u64::from(attempt).wrapping_add(7));
+                    seed % (base_ms / 2 + 1)
+                };
+                let delay = Duration::from_millis(base_ms + jitter_ms);
+                tracing::debug!(
+                    attempt,
+                    delay_ms = delay.as_millis(),
+                    "sqlite lock contention, retrying"
+                );
+                std::thread::sleep(delay);
+            }
+            Err(err) => {
+                if is_lock_error(&err) {
+                    tracing::warn!(
+                        attempts = RETRY_MAX_ATTEMPTS,
+                        "sqlite lock contention persisted after all retries"
+                    );
+                }
+                return Err(err);
+            }
+        }
+    }
+}
 
 /// Computes a u64 hash key for the query result cache.
 pub(super) fn query_cache_key(query: &str, limit: usize, opts: &super::SearchOptions) -> u64 {
@@ -1169,5 +1236,97 @@ mod tests {
         assert!(!is_keyword_query("what framework are we using"));
         assert!(!is_keyword_query("database connection pool"));
         assert!(!is_keyword_query(""));
+    }
+
+    // ── is_lock_error / retry_on_lock tests ────────────────────────────
+
+    #[test]
+    fn is_lock_error_detects_busy() {
+        let err = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: rusqlite::ffi::ErrorCode::DatabaseBusy,
+                extended_code: 5,
+            },
+            Some("database is locked".to_string()),
+        );
+        assert!(is_lock_error(&err));
+    }
+
+    #[test]
+    fn is_lock_error_rejects_other_errors() {
+        let err = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: rusqlite::ffi::ErrorCode::ReadOnly,
+                extended_code: 8,
+            },
+            None,
+        );
+        assert!(!is_lock_error(&err));
+
+        let err2 = rusqlite::Error::QueryReturnedNoRows;
+        assert!(!is_lock_error(&err2));
+    }
+
+    #[test]
+    fn retry_on_lock_returns_immediately_for_non_lock_error() {
+        let mut attempts = 0u32;
+        let result: std::result::Result<(), rusqlite::Error> = retry_on_lock(|| {
+            attempts += 1;
+            Err(rusqlite::Error::QueryReturnedNoRows)
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts, 1, "should not retry for non-lock errors");
+    }
+
+    #[test]
+    fn retry_on_lock_succeeds_on_first_try() {
+        let mut attempts = 0u32;
+        let result = retry_on_lock(|| {
+            attempts += 1;
+            Ok(42)
+        });
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn retry_on_lock_retries_on_busy_then_succeeds() {
+        let mut attempts = 0u32;
+        let result = retry_on_lock(|| {
+            attempts += 1;
+            if attempts < 3 {
+                Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error {
+                        code: rusqlite::ffi::ErrorCode::DatabaseBusy,
+                        extended_code: 5,
+                    },
+                    None,
+                ))
+            } else {
+                Ok("success")
+            }
+        });
+        assert_eq!(result.unwrap(), "success");
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn retry_on_lock_exhausts_retries() {
+        let mut attempts = 0u32;
+        let result: std::result::Result<(), rusqlite::Error> = retry_on_lock(|| {
+            attempts += 1;
+            Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ffi::ErrorCode::DatabaseBusy,
+                    extended_code: 5,
+                },
+                None,
+            ))
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            attempts, 5,
+            "should attempt exactly RETRY_MAX_ATTEMPTS times"
+        );
     }
 }

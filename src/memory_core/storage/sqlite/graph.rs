@@ -430,8 +430,7 @@ impl VersionChainQuerier for SqliteStorage {
 
         tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
-            let tx = conn
-                .unchecked_transaction()
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start supersede transaction")?;
 
             let old_exists: Option<String> = tx
