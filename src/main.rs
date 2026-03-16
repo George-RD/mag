@@ -951,6 +951,12 @@ fn build_search_options(
         anyhow::bail!("invalid --event-type: {kind}");
     }
 
+    if let Some(imp) = filters.importance_min
+        && !(0.0..=1.0).contains(&imp)
+    {
+        anyhow::bail!("--importance-min must be between 0.0 and 1.0, got {imp}");
+    }
+
     let times = normalize_search_time_filters(SearchTimeFilters {
         created_after: &filters.created_after,
         created_before: &filters.created_before,
