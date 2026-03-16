@@ -5,5 +5,20 @@
       "Bash(for pr:lint)",
       "Bash(for pr:test)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r \".file_path // empty\" 2>/dev/null); if [ -n \"$FILE\" ] && [[ \"$FILE\" == *.rs ]]; then cd /Users/george/repos/romega-memory && cargo fmt --all -- --check 2>&1 & cargo check --all-features 2>&1 & wait; fi'",
+            "timeout": 30,
+            "statusMessage": "Rust check (fmt + cargo check)"
+          }
+        ]
+      }
+    ]
   }
 }
