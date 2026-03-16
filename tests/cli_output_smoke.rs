@@ -23,6 +23,15 @@ fn run_cli(home: &std::path::Path, args: &[&str]) -> anyhow::Result<(String, Str
     ))
 }
 
+fn run_cli_raw(home: &std::path::Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_mag"))
+        .args(args)
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .output()
+        .expect("failed to execute process")
+}
+
 fn assert_entity_agent_fields(
     result: &serde_json::Value,
     entity_id: &str,
@@ -540,4 +549,35 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
 
     let _ = std::fs::remove_dir_all(&test_home);
     Ok(())
+}
+
+#[test]
+fn cli_rejects_out_of_range_importance_min() {
+    let test_home = std::env::temp_dir().join(format!("mag-cli-imp-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&test_home).unwrap();
+
+    // Values above 1.0 should be rejected
+    let output = run_cli_raw(&test_home, &["search", "test", "--importance-min", "2.0"]);
+    assert!(
+        !output.status.success(),
+        "expected failure for --importance-min 2.0"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--importance-min must be between 0.0 and 1.0"),
+        "unexpected stderr: {stderr}"
+    );
+
+    // Negative values should be rejected
+    let output = run_cli_raw(&test_home, &["search", "test", "--importance-min", "-0.5"]);
+    assert!(
+        !output.status.success(),
+        "expected failure for --importance-min -0.5"
+    );
+
+    // Valid value should succeed (the command itself may find no results, but shouldn't error)
+    let result = run_cli(&test_home, &["search", "test", "--importance-min", "0.5"]);
+    assert!(result.is_ok(), "expected success for --importance-min 0.5");
+
+    let _ = std::fs::remove_dir_all(&test_home);
 }
