@@ -63,6 +63,11 @@ pub(crate) async fn seed_sample(storage: &SqliteStorage, sample: &LoCoMoSample) 
             if let Some(ref date) = referenced_date {
                 meta["date"] = serde_json::Value::String(date.clone());
             }
+            let content = if let Some(ref date) = referenced_date {
+                format!("[{}] {}: {}", date, turn.speaker, turn.text)
+            } else {
+                format!("{}: {}", turn.speaker, turn.text)
+            };
             let input = MemoryInput {
                 content: String::new(),
                 metadata: meta,
@@ -71,13 +76,7 @@ pub(crate) async fn seed_sample(storage: &SqliteStorage, sample: &LoCoMoSample) 
                 referenced_date: referenced_date.clone(),
                 ..MemoryInput::default()
             };
-            storage
-                .store(
-                    &memory_id,
-                    &format!("{}: {}", turn.speaker, turn.text),
-                    &input,
-                )
-                .await?;
+            storage.store(&memory_id, &content, &input).await?;
             count += 1;
         }
     }

@@ -9,6 +9,11 @@ use crate::types::{OpenAiChatRequest, OpenAiChatResponse, OpenAiMessage, Retriev
 
 pub(crate) const OPENAI_URL: &str = "https://api.openai.com/v1/chat/completions";
 
+const SYSTEM_MSG: &str = "You are a helpful assistant that answers questions based only on the \
+     provided context. If the information needed to answer the question is not present in the \
+     context, respond with: 'The information is not mentioned in the provided context.' \
+     Do not make up or infer information that is not explicitly stated.";
+
 static LLM_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static LLM_API_KEY: OnceLock<Option<String>> = OnceLock::new();
 static LLM_MODEL: OnceLock<String> = OnceLock::new();
@@ -87,21 +92,22 @@ pub(crate) async fn generate_answer(question: &str, hits: &[RetrievalHit]) -> Re
         .collect::<Vec<_>>()
         .join("\n");
 
-    let prompt = format!(
-        "Based on the following conversation excerpts, answer the question concisely.\n\n\
-         Context:\n{context}\n\n\
-         Question: {question}\n\n\
-         Answer:"
-    );
+    let user_msg = format!("Context:\n{context}\n\nQuestion: {question}\n\nAnswer concisely.");
 
     let body = OpenAiChatRequest {
         model,
         temperature: 0.0,
         max_tokens: 256,
-        messages: vec![OpenAiMessage {
-            role: "user".to_string(),
-            content: prompt,
-        }],
+        messages: vec![
+            OpenAiMessage {
+                role: "system".to_string(),
+                content: SYSTEM_MSG.to_string(),
+            },
+            OpenAiMessage {
+                role: "user".to_string(),
+                content: user_msg,
+            },
+        ],
     };
 
     let mut request = client.post(url).json(&body);
