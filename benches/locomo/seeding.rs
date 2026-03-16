@@ -97,34 +97,31 @@ pub(crate) async fn query_with_metadata(
         <SqliteStorage as AdvancedSearcher>::advanced_search(storage, question, top_k, &filters)
             .await;
 
-    let use_fallback = match &advanced {
-        Ok(items) if !items.is_empty() => false,
-        Ok(_) => true,
+    match advanced {
+        Ok(items) if !items.is_empty() => {
+            return Ok(items
+                .into_iter()
+                .map(|item| RetrievalHit {
+                    content: item.content,
+                    score: item.score,
+                    metadata: item.metadata,
+                })
+                .collect());
+        }
         Err(err) => {
             eprintln!("warning: advanced_search failed, falling back: {err}");
-            true
         }
-    };
-
-    if use_fallback {
-        let items = <SqliteStorage as Searcher>::search(storage, question, top_k, &filters).await?;
-        Ok(items
-            .into_iter()
-            .map(|item| RetrievalHit {
-                content: item.content,
-                score: 0.1,
-                metadata: item.metadata,
-            })
-            .collect())
-    } else {
-        Ok(advanced
-            .unwrap()
-            .into_iter()
-            .map(|item| RetrievalHit {
-                content: item.content,
-                score: item.score,
-                metadata: item.metadata,
-            })
-            .collect())
+        _ => {}
     }
+
+    // Fallback to basic search.
+    let items = <SqliteStorage as Searcher>::search(storage, question, top_k, &filters).await?;
+    Ok(items
+        .into_iter()
+        .map(|item| RetrievalHit {
+            content: item.content,
+            score: 0.1,
+            metadata: item.metadata,
+        })
+        .collect())
 }
