@@ -50,7 +50,11 @@ fn collect_vector_candidates(
                     u8::try_from(p).unwrap_or(3)
                 } else {
                     let dp = et_ref.default_priority();
-                    if dp == 0 { 3 } else { u8::try_from(dp).unwrap_or(3) }
+                    if dp == 0 {
+                        3
+                    } else {
+                        u8::try_from(dp).unwrap_or(3)
+                    }
                 };
                 let initial_score =
                     type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
@@ -282,7 +286,11 @@ fn collect_fts_candidates(
                     u8::try_from(p).unwrap_or(3)
                 } else {
                     let dp = et_ref.default_priority();
-                    if dp == 0 { 3 } else { u8::try_from(dp).unwrap_or(3) }
+                    if dp == 0 {
+                        3
+                    } else {
+                        u8::try_from(dp).unwrap_or(3)
+                    }
                 };
                 let initial_score =
                     type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
@@ -692,7 +700,11 @@ fn fuse_refine_and_output(
                             u8::try_from(p).unwrap_or(3)
                         } else {
                             let dp = neighbor_et_ref.default_priority();
-                            if dp == 0 { 3 } else { u8::try_from(dp).unwrap_or(3) }
+                            if dp == 0 {
+                                3
+                            } else {
+                                u8::try_from(dp).unwrap_or(3)
+                            }
                         };
                         neighbor_score *=
                             time_decay_et(&created_at, neighbor_et_ref, scoring_params);

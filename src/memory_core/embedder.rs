@@ -311,6 +311,7 @@ impl Embedder for OnnxEmbedder {
             let mut mask_sum = 0.0f32;
 
             for token_idx in 0..effective_len {
+                // Attention mask values are 0 or 1, so cast to f32 is lossless.
                 #[allow(clippy::cast_precision_loss)]
                 let mask_value = encoding.get_attention_mask()[token_idx] as f32;
                 if mask_value <= 0.0 {
@@ -511,6 +512,7 @@ impl Embedder for OnnxEmbedder {
                 let mut mask_sum = 0.0f32;
 
                 for token_idx in 0..effective_len {
+                    // Attention mask values are 0 or 1, so cast to f32 is lossless.
                     #[allow(clippy::cast_precision_loss)]
                     let mask_value = enc.get_attention_mask()[token_idx] as f32;
                     if mask_value <= 0.0 {

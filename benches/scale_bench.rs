@@ -281,11 +281,23 @@ fn compute_latency_stats(durations: &[Duration]) -> LatencyStats {
     #[allow(clippy::cast_precision_loss)]
     let mean_us = micros.iter().sum::<f64>() / count as f64;
     let last = count - 1;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p50_us = micros[((last as f64) * 0.50).round() as usize];
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p95_us = micros[((last as f64) * 0.95).round() as usize];
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p99_us = micros[((last as f64) * 0.99).round() as usize];
 
     LatencyStats {

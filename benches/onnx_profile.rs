@@ -83,11 +83,23 @@ fn report(label: &str, durations: &[Duration]) {
     let last = sorted.len() - 1;
     let min = sorted[0];
     let max = sorted[last];
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p50 = sorted[((last as f64) * 0.50).round() as usize];
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p95 = sorted[((last as f64) * 0.95).round() as usize];
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p99 = sorted[((last as f64) * 0.99).round() as usize];
     let std_dev = {
         let variance = sorted.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / count;
@@ -251,8 +263,10 @@ fn main() -> Result<()> {
         if shape.len() != 3 || shape[0] != 1 {
             return Err(anyhow!("unexpected ONNX output shape: {shape:?}"));
         }
-        let output_seq_len = usize::try_from(shape[1]).unwrap_or(0);
-        let hidden_size = usize::try_from(shape[2]).unwrap_or(0);
+        let output_seq_len = usize::try_from(shape[1])
+            .map_err(|_| anyhow!("invalid output_seq_len in shape: {shape:?}"))?;
+        let hidden_size = usize::try_from(shape[2])
+            .map_err(|_| anyhow!("invalid hidden_size in shape: {shape:?}"))?;
         let expected_len = output_seq_len * hidden_size;
         if output.len() != expected_len {
             return Err(anyhow!(

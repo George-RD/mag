@@ -836,9 +836,17 @@ pub(crate) async fn run_concurrent_benchmark(storage: &SqliteStorage, json: bool
 
         latencies.sort_by(|a, b| a.total_cmp(b));
         let p50 = latencies[latencies.len() / 2];
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let p95 = latencies[(latencies.len() as f64 * 0.95) as usize];
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let p99 =
             latencies[(latencies.len() as f64 * 0.99).min((latencies.len() - 1) as f64) as usize];
         #[allow(clippy::cast_precision_loss)]

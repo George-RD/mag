@@ -39,7 +39,9 @@ pub(crate) fn compute_task_averaged(results: &BTreeMap<String, CategoryResult>) 
         return 0.0;
     }
     #[allow(clippy::cast_precision_loss)]
-    { cat_pcts.iter().sum::<f64>() / cat_pcts.len() as f64 }
+    {
+        cat_pcts.iter().sum::<f64>() / cat_pcts.len() as f64
+    }
 }
 
 pub(crate) fn load_official_dataset(path: &std::path::Path) -> Result<Vec<OfficialQuestion>> {

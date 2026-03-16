@@ -214,7 +214,9 @@ fn main() -> Result<()> {
         args.verbose,
         &mut rss,
         #[allow(clippy::cast_possible_truncation)]
-        { ABSTENTION_MIN_TEXT as f32 },
+        {
+            ABSTENTION_MIN_TEXT as f32
+        },
         top_k,
     ))?;
     let querying_ms = query_start.elapsed().as_millis();

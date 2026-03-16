@@ -164,7 +164,15 @@ pub(crate) async fn llm_judge_eval(
     let prompt_tokens = parsed
         .usage
         .as_ref()
-        .map(|u| u.prompt_tokens.try_into().unwrap_or(0))
+        .map(|u| {
+            u.prompt_tokens.try_into().unwrap_or_else(|_| {
+                eprintln!(
+                    "warn: prompt_tokens {} overflows usize, using 1",
+                    u.prompt_tokens
+                );
+                1usize
+            })
+        })
         .unwrap_or(0);
     let answer = parsed
         .choices
