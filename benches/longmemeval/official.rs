@@ -130,6 +130,7 @@ pub(crate) async fn run_official_benchmark(
         event_after: None,
         event_before: None,
         explain: None,
+        query_intent: None,
     };
 
     for (index, question) in questions.iter().enumerate() {

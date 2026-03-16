@@ -421,6 +421,7 @@ pub(crate) async fn run_benchmark(
         event_after: None,
         event_before: None,
         explain: None,
+        query_intent: None,
     };
 
     // ── Information extraction questions ───────────────────────────────
@@ -473,6 +474,7 @@ pub(crate) async fn run_benchmark(
         event_after: Some(week_ago.clone()),
         event_before: Some(now_iso.clone()),
         explain: None,
+        query_intent: None,
     };
     for q in &data.questions.temporal.recent_week {
         check_top3(
@@ -503,6 +505,7 @@ pub(crate) async fn run_benchmark(
         event_after: Some(iso(now - Duration::days(14))),
         event_before: Some(now_iso.clone()),
         explain: None,
+        query_intent: None,
     };
     for q in &data.questions.temporal.two_weeks {
         check_top3(
@@ -533,6 +536,7 @@ pub(crate) async fn run_benchmark(
         event_after: Some(iso(now - Duration::days(30))),
         event_before: Some(now_iso.clone()),
         explain: None,
+        query_intent: None,
     };
     for q in &data.questions.temporal.month {
         check_top3(
@@ -566,6 +570,7 @@ pub(crate) async fn run_benchmark(
             event_after: Some(iso(now - Duration::days(eor.range_start_days_ago))),
             event_before: Some(iso(now - Duration::days(eor.range_end_days_ago))),
             explain: None,
+            query_intent: None,
         };
         let hits = query_top3(storage, &eor.query, top_k, &old_opts).await?;
         rss.sample();
@@ -615,6 +620,7 @@ pub(crate) async fn run_benchmark(
             event_after: Some(iso(now - Duration::days(*days_window))),
             event_before: Some(now_iso.clone()),
             explain: None,
+            query_intent: None,
         };
         let hits = query_top3(storage, &wc.query, top_k, &window_opts).await?;
         rss.sample();
@@ -661,6 +667,7 @@ pub(crate) async fn run_benchmark(
             )),
             event_before: Some(iso(now - Duration::days(i * rw.window_size_days))),
             explain: None,
+            query_intent: None,
         };
         let hits = query_top3(storage, &rw.query, top_k, &rolling_opts).await?;
         rss.sample();

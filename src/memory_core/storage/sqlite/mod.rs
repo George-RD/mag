@@ -16,12 +16,12 @@ use uuid::Uuid;
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
-    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
-    Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
-    SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
-    Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider, embedder::Embedder,
-    feedback_factor, jaccard_pre, jaccard_similarity, priority_factor, time_decay_et, token_set,
-    type_weight_et, word_overlap_pre,
+    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, QueryIntent,
+    Recents, Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams,
+    SearchOptions, SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder,
+    StatsProvider, Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
+    embedder::Embedder, feedback_factor, jaccard_pre, jaccard_similarity, priority_factor,
+    time_decay_et, token_set, type_weight_et, word_overlap_pre,
 };
 
 /// Query result cache TTL in seconds.
@@ -1130,8 +1130,8 @@ mod session;
 pub(crate) use helpers::cosine_similarity;
 use helpers::{
     ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
-    content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
-    event_type_to_sql, expand_temporal_query, is_keyword_query, matches_search_options,
+    classify_intent, content_hash, decode_embedding, encode_embedding, escape_like_pattern,
+    event_type_from_sql, event_type_to_sql, expand_temporal_query, matches_search_options,
     normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, query_cache_key,
     retry_on_lock, search_result_from_row, to_param_refs, validate_iso8601,
 };

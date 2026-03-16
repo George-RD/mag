@@ -96,6 +96,7 @@ pub(super) fn query_cache_key(query: &str, limit: usize, opts: &super::SearchOpt
     opts.event_after.hash(&mut hasher);
     opts.event_before.hash(&mut hasher);
     opts.explain.hash(&mut hasher);
+    opts.query_intent.map(|i| i as u8).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -142,6 +143,58 @@ pub(super) fn is_keyword_query(query: &str) -> bool {
     }
 
     false
+}
+
+/// Classifies a query into a `QueryIntent` for per-intent scoring profile selection.
+///
+/// Classification hierarchy:
+/// 1. **Keyword** — code identifiers, file paths, backticks (reuses `is_keyword_query`)
+/// 2. **Conceptual** — "how does", "why", "explain" (understanding-seeking)
+/// 3. **Factual** — "what", "who", "which", "when", "where", "remind" (fact-seeking)
+/// 4. **General** — everything else (balanced scoring)
+///
+/// Conceptual is checked before Factual because "how does" would otherwise match
+/// the "how many"/"how much" factual prefix.
+pub(super) fn classify_intent(query: &str) -> super::QueryIntent {
+    use super::QueryIntent;
+
+    if is_keyword_query(query) {
+        return QueryIntent::Keyword;
+    }
+
+    let lower = query.to_lowercase();
+
+    // Conceptual signals: questions seeking understanding (checked first
+    // because "how does" must not fall through to factual "how many/much").
+    let conceptual_prefixes = [
+        "how does",
+        "how do",
+        "how is",
+        "how are",
+        "why ",
+        "explain ",
+        "describe ",
+    ];
+    if conceptual_prefixes.iter().any(|p| lower.starts_with(p)) {
+        return QueryIntent::Conceptual;
+    }
+
+    // Factual signals: questions seeking specific facts.
+    let factual_prefixes = [
+        "what ",
+        "who ",
+        "which ",
+        "where ",
+        "when ",
+        "how many ",
+        "how much ",
+        "remind ",
+    ];
+    if factual_prefixes.iter().any(|p| lower.starts_with(p)) {
+        return QueryIntent::Factual;
+    }
+
+    QueryIntent::General
 }
 
 /// Default number of reader connections in the pool for file-backed databases.
@@ -1327,6 +1380,131 @@ mod tests {
         assert_eq!(
             attempts, 5,
             "should attempt exactly RETRY_MAX_ATTEMPTS times"
+        );
+    }
+
+    // ── classify_intent tests ─────────────────────────────────────────
+
+    use super::super::QueryIntent;
+
+    #[test]
+    fn intent_keyword_backticks() {
+        assert_eq!(classify_intent("`FooBar`"), QueryIntent::Keyword);
+        assert_eq!(classify_intent("src/main.rs"), QueryIntent::Keyword);
+        assert_eq!(classify_intent("SqliteStorage"), QueryIntent::Keyword);
+        assert_eq!(classify_intent("query_cache_key"), QueryIntent::Keyword);
+    }
+
+    #[test]
+    fn intent_factual_what() {
+        assert_eq!(
+            classify_intent("what framework are we using"),
+            QueryIntent::Factual
+        );
+        assert_eq!(
+            classify_intent("What is the database schema"),
+            QueryIntent::Factual
+        );
+    }
+
+    #[test]
+    fn intent_factual_who_which_where_when() {
+        assert_eq!(
+            classify_intent("who wrote the embedder module"),
+            QueryIntent::Factual
+        );
+        assert_eq!(
+            classify_intent("which tests cover scoring"),
+            QueryIntent::Factual
+        );
+        assert_eq!(
+            classify_intent("where is the config stored"),
+            QueryIntent::Factual
+        );
+        assert_eq!(
+            classify_intent("when was the last deploy"),
+            QueryIntent::Factual
+        );
+    }
+
+    #[test]
+    fn intent_factual_how_many_how_much() {
+        assert_eq!(
+            classify_intent("how many tests are there"),
+            QueryIntent::Factual
+        );
+        assert_eq!(
+            classify_intent("how much memory does it use"),
+            QueryIntent::Factual
+        );
+    }
+
+    #[test]
+    fn intent_factual_remind() {
+        assert_eq!(
+            classify_intent("remind me about the API key rotation"),
+            QueryIntent::Factual
+        );
+    }
+
+    #[test]
+    fn intent_conceptual_how_does() {
+        assert_eq!(
+            classify_intent("how does the search pipeline work"),
+            QueryIntent::Conceptual
+        );
+        assert_eq!(
+            classify_intent("How do embeddings get computed"),
+            QueryIntent::Conceptual
+        );
+    }
+
+    #[test]
+    fn intent_conceptual_why() {
+        assert_eq!(
+            classify_intent("why did we choose SQLite"),
+            QueryIntent::Conceptual
+        );
+    }
+
+    #[test]
+    fn intent_conceptual_explain_describe() {
+        assert_eq!(
+            classify_intent("explain the RRF fusion algorithm"),
+            QueryIntent::Conceptual
+        );
+        assert_eq!(
+            classify_intent("describe the memory lifecycle"),
+            QueryIntent::Conceptual
+        );
+    }
+
+    #[test]
+    fn intent_general_fallback() {
+        assert_eq!(
+            classify_intent("database connection pool"),
+            QueryIntent::General
+        );
+        assert_eq!(classify_intent("recent errors"), QueryIntent::General);
+        assert_eq!(classify_intent("rust memory system"), QueryIntent::General);
+    }
+
+    #[test]
+    fn intent_empty_is_general() {
+        assert_eq!(classify_intent(""), QueryIntent::General);
+    }
+
+    #[test]
+    fn intent_conceptual_beats_factual_for_how() {
+        // "how does" should classify as Conceptual, not Factual
+        assert_eq!(
+            classify_intent("how does the scoring work"),
+            QueryIntent::Conceptual
+        );
+        // "how many" should still be Factual
+        assert_eq!(
+            classify_intent("how many memories are stored"),
+            QueryIntent::Factual
         );
     }
 }

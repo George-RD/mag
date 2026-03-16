@@ -36,6 +36,23 @@ pub enum MemoryKind {
     Semantic,
 }
 
+/// Classified intent of a search query, used to select per-intent scoring profiles.
+///
+/// The classifier is heuristic-based (no ML model) and runs in the search
+/// hot path, so it must be zero-allocation and branch-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QueryIntent {
+    /// Code identifiers, file paths, backticks — skip embedding, FTS5 only.
+    Keyword,
+    /// "What is X?", "Who?", "Which?" — boost FTS + word overlap.
+    Factual,
+    /// "How does X work?", "Why?", "Explain" — boost vector similarity.
+    Conceptual,
+    /// Default — balanced vector + FTS.
+    #[default]
+    General,
+}
+
 /// Strongly-typed event type for memories.
 ///
 /// Serializes to/from its snake_case string representation for SQLite TEXT
@@ -397,6 +414,9 @@ pub struct SearchOptions {
     pub event_before: Option<String>,
     /// When true, inject `_explain` component scores into each result's metadata.
     pub explain: Option<bool>,
+    /// Override auto-detected query intent for scoring profile selection.
+    /// When `None`, the search pipeline classifies intent automatically.
+    pub query_intent: Option<QueryIntent>,
 }
 
 #[derive(Debug, Clone)]

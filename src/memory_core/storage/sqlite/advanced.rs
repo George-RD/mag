@@ -5,6 +5,27 @@ const ADVANCED_FTS_CANDIDATE_MULTIPLIER: usize = 20;
 const ADVANCED_FTS_CANDIDATE_MIN: usize = 100;
 const ADVANCED_FTS_CANDIDATE_MAX: usize = 5_000;
 
+/// Intent-specific weight multipliers applied to a clone of `ScoringParams`.
+///
+/// - **Keyword**: No adjustments (embedding already skipped in Phase 0).
+/// - **Factual**: Boost FTS weight and word overlap for precise recall.
+/// - **Conceptual**: Boost vector weight for semantic understanding.
+/// - **General**: No adjustments (current defaults are well-tuned).
+fn apply_intent_profile(mut params: ScoringParams, intent: QueryIntent) -> ScoringParams {
+    match intent {
+        QueryIntent::Keyword | QueryIntent::General => {}
+        QueryIntent::Factual => {
+            params.rrf_weight_fts *= 1.3;
+            params.word_overlap_weight *= 1.2;
+        }
+        QueryIntent::Conceptual => {
+            params.rrf_weight_vec *= 1.3;
+            params.abstention_min_text *= 0.8;
+        }
+    }
+    params
+}
+
 fn advanced_fts_candidate_limit(limit: usize) -> usize {
     let oversampled_limit = limit
         .saturating_mul(ADVANCED_FTS_CANDIDATE_MULTIPLIER)
@@ -962,7 +983,9 @@ impl AdvancedSearcher for SqliteStorage {
         {
             opts.event_before = Some(before);
         }
-        let keyword_only = is_keyword_query(&query);
+        // ── Intent classification ────────────────────────────────────────
+        let intent = opts.query_intent.unwrap_or_else(|| classify_intent(&query));
+        let keyword_only = intent == QueryIntent::Keyword;
         let cache_key = query_cache_key(&query, limit, &opts);
 
         // ── Cache check ──────────────────────────────────────────────────
@@ -975,7 +998,7 @@ impl AdvancedSearcher for SqliteStorage {
 
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
-        let scoring_params = self.scoring_params.clone();
+        let scoring_params = apply_intent_profile(self.scoring_params.clone(), intent);
         let hot_results = if let Some(hot_cache) = &self.hot_cache {
             if let Err(error) = self.ensure_hot_cache_ready().await {
                 tracing::error!(error = %error, "failed to refresh hot tier cache");
@@ -1148,8 +1171,10 @@ impl AdvancedSearcher for SqliteStorage {
 
 #[cfg(test)]
 mod tests {
-    use super::{advanced_fts_candidate_limit, collect_fts_candidates};
-    use crate::memory_core::{MemoryInput, SearchOptions, Storage, storage::SqliteStorage};
+    use super::{advanced_fts_candidate_limit, apply_intent_profile, collect_fts_candidates};
+    use crate::memory_core::{
+        MemoryInput, QueryIntent, ScoringParams, SearchOptions, Storage, storage::SqliteStorage,
+    };
     use rusqlite::params;
 
     #[test]
@@ -1269,5 +1294,49 @@ mod tests {
 
         assert_eq!(recent_candidates.len(), 1);
         assert_eq!(recent_candidates[0].0, "recent-event-match");
+    }
+
+    // ── apply_intent_profile tests ────────────────────────────────────
+
+    #[test]
+    fn intent_profile_general_unchanged() {
+        let base = ScoringParams::default();
+        let adjusted = apply_intent_profile(base.clone(), QueryIntent::General);
+        assert!((adjusted.rrf_weight_vec - base.rrf_weight_vec).abs() < 1e-9);
+        assert!((adjusted.rrf_weight_fts - base.rrf_weight_fts).abs() < 1e-9);
+        assert!((adjusted.word_overlap_weight - base.word_overlap_weight).abs() < 1e-9);
+        assert!((adjusted.abstention_min_text - base.abstention_min_text).abs() < 1e-9);
+    }
+
+    #[test]
+    fn intent_profile_keyword_unchanged() {
+        let base = ScoringParams::default();
+        let adjusted = apply_intent_profile(base.clone(), QueryIntent::Keyword);
+        assert!((adjusted.rrf_weight_vec - base.rrf_weight_vec).abs() < 1e-9);
+        assert!((adjusted.rrf_weight_fts - base.rrf_weight_fts).abs() < 1e-9);
+    }
+
+    #[test]
+    fn intent_profile_factual_boosts_fts() {
+        let base = ScoringParams::default();
+        let adjusted = apply_intent_profile(base.clone(), QueryIntent::Factual);
+        assert!(adjusted.rrf_weight_fts > base.rrf_weight_fts);
+        assert!((adjusted.rrf_weight_fts - base.rrf_weight_fts * 1.3).abs() < 1e-9);
+        assert!(adjusted.word_overlap_weight > base.word_overlap_weight);
+        assert!((adjusted.word_overlap_weight - base.word_overlap_weight * 1.2).abs() < 1e-9);
+        // Vector weight unchanged
+        assert!((adjusted.rrf_weight_vec - base.rrf_weight_vec).abs() < 1e-9);
+    }
+
+    #[test]
+    fn intent_profile_conceptual_boosts_vec() {
+        let base = ScoringParams::default();
+        let adjusted = apply_intent_profile(base.clone(), QueryIntent::Conceptual);
+        assert!(adjusted.rrf_weight_vec > base.rrf_weight_vec);
+        assert!((adjusted.rrf_weight_vec - base.rrf_weight_vec * 1.3).abs() < 1e-9);
+        assert!(adjusted.abstention_min_text < base.abstention_min_text);
+        assert!((adjusted.abstention_min_text - base.abstention_min_text * 0.8).abs() < 1e-9);
+        // FTS weight unchanged
+        assert!((adjusted.rrf_weight_fts - base.rrf_weight_fts).abs() < 1e-9);
     }
 }
