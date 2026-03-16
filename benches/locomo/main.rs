@@ -64,7 +64,7 @@ struct Args {
     /// Limit the total number of questions to evaluate.
     #[arg(long)]
     questions: Option<usize>,
-    /// Retrieve top-k results per question (default: 5).
+    /// Retrieve top-k results per question (default: 20).
     #[arg(long)]
     top_k: Option<usize>,
     /// Use LLM generation + token F1 scoring instead of substring matching.
@@ -232,7 +232,7 @@ fn main() -> Result<()> {
         }
         std::sync::Arc::new(OnnxEmbedder::new()?)
     };
-    let top_k = args.top_k.unwrap_or(5);
+    let top_k = args.top_k.unwrap_or(20);
     let start = Instant::now();
     let mut rss = PeakRss::default();
     rss.sample();
