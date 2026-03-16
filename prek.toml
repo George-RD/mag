@@ -1,0 +1,28 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+# ── Builtin checks (instant, Rust-native) ───────────────────────────────
+[[repos]]
+repo = "builtin"
+hooks = [
+    { id = "trailing-whitespace" },
+    { id = "end-of-file-fixer" },
+    { id = "check-added-large-files", args = ["--maxkb=1024"] },
+]
+
+# ── Rust toolchain checks ────────────────────────────────────────────────
+[[repos]]
+repo = "local"
+hooks = [
+    # fmt must run first (auto-fixes), then clippy checks the formatted code
+    { id = "rustfmt", name = "rustfmt", language = "system", entry = "cargo fmt --all", pass_filenames = false, types = ["rust"], priority = 10 },
+    { id = "clippy", name = "clippy", language = "system", entry = "cargo clippy --all-targets --all-features -- -D warnings", pass_filenames = false, types = ["rust"], require_serial = true, priority = 20 },
+]
+
+# ── CodeRabbit (optional, non-blocking) ──────────────────────────────────
+[[repos]]
+repo = "local"
+hooks = [
+    { id = "coderabbit", name = "CodeRabbit lint", language = "system", entry = "sh -c 'coderabbit review --type uncommitted --plain || true'", pass_filenames = false, always_run = true, priority = 30, verbose = true },
+]
