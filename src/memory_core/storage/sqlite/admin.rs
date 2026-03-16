@@ -638,7 +638,11 @@ impl WelcomeProvider for SqliteStorage {
             .await
             .unwrap_or_default();
 
-        let greeting = format!("Welcome back! You have {total} memories stored.");
+        let greeting = if total == 0 {
+            "Welcome to MAG! Store your first memory to get started.".to_string()
+        } else {
+            format!("Welcome back! You have {total} memories stored.")
+        };
 
         Ok(serde_json::json!({
             "greeting": greeting,
