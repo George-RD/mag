@@ -30,6 +30,7 @@ impl MaintenanceManager for SqliteStorage {
                     |row| row.get(0),
                 )
                 .unwrap_or(0);
+            #[allow(clippy::cast_precision_loss)]
             let db_size_mb = db_size_bytes as f64 / (1024.0 * 1024.0);
 
             let mut warnings: Vec<String> = Vec::new();
@@ -232,6 +233,7 @@ impl MaintenanceManager for SqliteStorage {
                     let intersection = word_sets[i].intersection(&word_sets[j]).count();
                     let union = word_sets[i].union(&word_sets[j]).count();
                     if union > 0 {
+                        #[allow(clippy::cast_precision_loss)]
                         let similarity = intersection as f64 / union as f64;
                         if similarity >= similarity_threshold {
                             let pi = find(&mut parent, i);
@@ -343,7 +345,7 @@ impl MaintenanceManager for SqliteStorage {
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
                 .context("failed to count memories for auto_compact")?;
 
-            if (total as usize) < count_threshold {
+            if usize::try_from(total).unwrap_or(0) < count_threshold {
                 return Ok::<_, anyhow::Error>(serde_json::json!({
                     "triggered": false,
                     "total_memories": total,
@@ -783,6 +785,7 @@ impl StatsProvider for SqliteStorage {
                 )
                 .unwrap_or(0);
 
+            #[allow(clippy::cast_precision_loss)]
             let growth_pct = if prev_count > 0 {
                 ((period_new - prev_count) as f64 / prev_count as f64) * 100.0
             } else if period_new > 0 {
@@ -867,6 +870,7 @@ impl StatsProvider for SqliteStorage {
 
             let top_accessed: Vec<serde_json::Value> = top_rows.filter_map(|r| r.ok()).collect();
 
+            #[allow(clippy::cast_precision_loss)]
             let never_pct = if total > 0 {
                 (zero_access as f64 / total as f64) * 100.0
             } else {

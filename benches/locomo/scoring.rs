@@ -97,8 +97,11 @@ pub(crate) fn token_f1(predicted: &str, expected: &str) -> (f64, f64, f64) {
         return (0.0, 0.0, 0.0);
     }
 
+    #[allow(clippy::cast_precision_loss)]
     let overlap = pred_tokens.intersection(&exp_tokens).count() as f64;
+    #[allow(clippy::cast_precision_loss)]
     let precision = overlap / pred_tokens.len() as f64;
+    #[allow(clippy::cast_precision_loss)]
     let recall = overlap / exp_tokens.len() as f64;
 
     if precision + recall == 0.0 {
@@ -125,7 +128,10 @@ pub(crate) fn evidence_recall(hits: &[RetrievalHit], expected_dia_ids: &[String]
         .filter(|id| retrieved_ids.contains(id.as_str()))
         .count();
 
-    found as f64 / expected_dia_ids.len() as f64
+    #[allow(clippy::cast_precision_loss)]
+    {
+        found as f64 / expected_dia_ids.len() as f64
+    }
 }
 
 // ── Substring match (backward compat) ───────────────────────────────────
@@ -169,8 +175,12 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
     }
     let combined_tokens = normalize_tokens(&combined);
 
+    #[allow(clippy::cast_precision_loss)]
     let overlap = expected_tokens.intersection(&combined_tokens).count() as f64;
-    overlap / expected_tokens.len() as f64
+    #[allow(clippy::cast_precision_loss)]
+    {
+        overlap / expected_tokens.len() as f64
+    }
 }
 
 // ── Adversarial detection ────────────────────────────────────────────────

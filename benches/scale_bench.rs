@@ -144,6 +144,7 @@ fn generate_input(index: usize) -> MemoryInput {
         content: String::new(),
         id: None,
         tags: vec![tag1.to_string(), tag2.to_string()],
+        #[allow(clippy::cast_precision_loss)]
         importance: 0.3 + (index % 7) as f64 * 0.1, // 0.3 to 0.9
         metadata: serde_json::json!({}),
         event_type: Some(event_type.parse::<EventType>().unwrap_or(EventType::Memory)),
@@ -277,10 +278,26 @@ fn compute_latency_stats(durations: &[Duration]) -> LatencyStats {
     micros.sort_by(|a, b| a.total_cmp(b));
 
     let count = micros.len();
+    #[allow(clippy::cast_precision_loss)]
     let mean_us = micros.iter().sum::<f64>() / count as f64;
     let last = count - 1;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p50_us = micros[((last as f64) * 0.50).round() as usize];
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p95_us = micros[((last as f64) * 0.95).round() as usize];
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let p99_us = micros[((last as f64) * 0.99).round() as usize];
 
     LatencyStats {
@@ -412,11 +429,13 @@ async fn run_benchmark(args: &Args) -> Result<Vec<ScaleResult>> {
         let store_elapsed = store_start.elapsed();
         memories_stored += memories_to_add;
 
+        #[allow(clippy::cast_precision_loss)]
         let store_throughput = if store_elapsed.as_secs_f64() > 0.0 {
             memories_to_add as f64 / store_elapsed.as_secs_f64()
         } else {
             0.0
         };
+        #[allow(clippy::cast_precision_loss)]
         let avg_store_latency_us = if memories_to_add > 0 {
             store_elapsed.as_secs_f64() * 1_000_000.0 / memories_to_add as f64
         } else {
@@ -462,6 +481,7 @@ async fn run_benchmark(args: &Args) -> Result<Vec<ScaleResult>> {
                 found += 1;
             }
         }
+        #[allow(clippy::cast_precision_loss)]
         let recall_at_5 = found as f64 / needles.len() as f64;
         eprintln!(
             "      Recall@5: {}/{} = {:.1}%",

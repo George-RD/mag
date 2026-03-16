@@ -14,6 +14,7 @@ pub(crate) fn print_results(results: &BTreeMap<String, CategoryResult>) -> (usiz
     for (key, label) in categories() {
         if let Some(cat) = results.get(key) {
             let percent = pct(cat.correct, cat.total);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let filled = (percent / 5.0).floor() as usize;
             let bar = format!(
                 "{}{}",

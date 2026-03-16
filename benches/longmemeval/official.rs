@@ -38,7 +38,10 @@ pub(crate) fn compute_task_averaged(results: &BTreeMap<String, CategoryResult>) 
     if cat_pcts.is_empty() {
         return 0.0;
     }
-    cat_pcts.iter().sum::<f64>() / cat_pcts.len() as f64
+    #[allow(clippy::cast_precision_loss)]
+    {
+        cat_pcts.iter().sum::<f64>() / cat_pcts.len() as f64
+    }
 }
 
 pub(crate) fn load_official_dataset(path: &std::path::Path) -> Result<Vec<OfficialQuestion>> {
@@ -268,11 +271,13 @@ pub(crate) async fn run_official_benchmark(
     let overall_seconds = overall_start.elapsed().as_secs_f64();
     let (raw_correct, _raw_total, raw_pct) = summarize_totals(&results);
     let task_averaged = compute_task_averaged(&results);
+    #[allow(clippy::cast_precision_loss)]
     let avg_mems = if total > 0 {
         total_memories as f64 / total as f64
     } else {
         0.0
     };
+    #[allow(clippy::cast_precision_loss)]
     let avg_query = if total > 0 {
         total_query_ms as f64 / total as f64
     } else {
@@ -321,6 +326,7 @@ pub(crate) fn print_official_results(summary: &OfficialSummary) {
     for (key, label) in official_categories() {
         if let Some(cat) = summary.categories.get(key) {
             let percent = pct(cat.correct, cat.total);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let filled = (percent / 5.0).floor() as usize;
             let bar = format!(
                 "{}{}",

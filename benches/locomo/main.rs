@@ -395,16 +395,19 @@ fn main() -> Result<()> {
     eprintln!(); // Finish progress line.
 
     let total_duration_seconds = start.elapsed().as_secs_f64();
+    #[allow(clippy::cast_precision_loss)]
     let avg_query_ms = if total_queries == 0 {
         0.0
     } else {
         total_query_ms as f64 / total_queries as f64
     };
+    #[allow(clippy::cast_precision_loss)]
     let mean_f1 = if total_queries == 0 {
         0.0
     } else {
         total_f1_sum / total_queries as f64
     };
+    #[allow(clippy::cast_precision_loss)]
     let mean_evidence_recall = if total_queries == 0 {
         0.0
     } else {

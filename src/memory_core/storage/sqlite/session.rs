@@ -591,7 +591,7 @@ impl LessonQuerier for SqliteStorage {
                     .unwrap_or(0)
                     .cmp(&a["access_count"].as_i64().unwrap_or(0))
             });
-            results.truncate(limit as usize);
+            results.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
 
             Ok::<_, anyhow::Error>(results)
         })
