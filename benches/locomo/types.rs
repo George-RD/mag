@@ -100,6 +100,7 @@ pub(crate) struct CategoryResult {
 pub(crate) struct LoCoMoSummary {
     pub metadata: mag::benchmarking::BenchmarkMetadata,
     pub dataset: String,
+    pub scoring_mode: String,
     pub samples_evaluated: usize,
     pub questions_evaluated: usize,
     pub total_memories_ingested: usize,

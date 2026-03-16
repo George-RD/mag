@@ -8,12 +8,24 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Result, bail};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 use mag::benchmarking::{self, DatasetKind};
 use mag::memory_core::OnnxEmbedder;
 use mag::memory_core::embedder::Embedder;
 use mag::memory_core::storage::sqlite::SqliteStorage;
+
+/// How to score each question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+enum ScoringMode {
+    /// Compare expected answer as substring of retrieved content (default).
+    #[default]
+    Substring,
+    /// AutoMem-compatible word-overlap recall on retrieved content + metadata.
+    WordOverlap,
+    /// LLM-generated answer scored via token F1 (requires --llm-judge or --local).
+    LlmF1,
+}
 
 mod dataset;
 mod display;
@@ -71,6 +83,10 @@ struct Args {
     /// Requires OPENAI_API_KEY in environment or .env.local file.
     #[arg(long)]
     openai_embeddings: bool,
+    /// Scoring mode: substring, word-overlap, or llm-f1.
+    /// If omitted, defaults to substring unless --llm-judge/--local implies llm-f1.
+    #[arg(long, value_enum)]
+    scoring_mode: Option<ScoringMode>,
 }
 
 // ── Peak RSS tracking ───────────────────────────────────────────────────
@@ -134,6 +150,21 @@ fn main() -> Result<()> {
         bail!("--dataset-path cannot be combined with --force-refresh or --temp-dataset");
     }
 
+    // Resolve effective scoring mode: explicit --scoring-mode wins.
+    // Otherwise, --llm-judge/--local implies llm-f1; fallback default is substring.
+    let scoring_mode = match args.scoring_mode {
+        Some(mode) => mode,
+        None if args.llm_judge || args.local => ScoringMode::LlmF1,
+        None => ScoringMode::Substring,
+    };
+
+    if scoring_mode == ScoringMode::LlmF1 && !(args.llm_judge || args.local) {
+        bail!("--scoring-mode llm-f1 requires --llm-judge or --local");
+    }
+    if scoring_mode == ScoringMode::WordOverlap && (args.llm_judge || args.local) {
+        bail!("--scoring-mode word-overlap is incompatible with --llm-judge / --local");
+    }
+
     let runtime = tokio::runtime::Runtime::new()?;
 
     // Resolve and load dataset via the shared benchmarking module.
@@ -158,7 +189,7 @@ fn main() -> Result<()> {
     let metadata = benchmarking::benchmark_metadata("locomo", &dataset);
 
     // Initialize LLM if needed.
-    let use_llm = args.llm_judge || args.local;
+    let use_llm = scoring_mode == ScoringMode::LlmF1;
     if use_llm {
         let model = args.llm_model.as_deref().unwrap_or(if args.local {
             DEFAULT_LOCAL_MODEL
@@ -179,6 +210,9 @@ fn main() -> Result<()> {
         if !args.json {
             eprintln!("LLM generation mode: {} @ {}", model, url);
         }
+    }
+    if !args.json {
+        eprintln!("Scoring mode: {scoring_mode:?}");
     }
 
     let embedder: std::sync::Arc<dyn Embedder> = if args.openai_embeddings {
@@ -254,49 +288,62 @@ fn main() -> Result<()> {
             // Evidence recall.
             let ev_recall = scoring::evidence_recall(&hits, &qa.evidence);
 
-            // Token F1: compare expected answer against either LLM-generated
-            // answer or concatenated retrieved content.
-            // For adversarial (cat-5) questions in LLM mode, score by whether
-            // the LLM correctly identifies information as absent.
+            // Primary score: depends on the chosen scoring mode.
             let is_adversarial = category == "adversarial";
-            let (f1, _actual_text) = if use_llm && !expected_answer.is_empty() {
-                match runtime.block_on(llm::generate_answer(&qa.question, &hits)) {
-                    Ok(generated) => {
-                        if is_adversarial {
-                            let score = if scoring::adversarial_check(&generated) {
-                                1.0
+            let (f1, _actual_text) = match scoring_mode {
+                ScoringMode::WordOverlap => {
+                    // AutoMem-compatible: recall-oriented word overlap on
+                    // retrieved content + metadata dates.
+                    let score = if expected_answer.is_empty() {
+                        0.0
+                    } else {
+                        scoring::word_overlap_score(&hits, expected_answer)
+                    };
+                    (score, String::new())
+                }
+                ScoringMode::LlmF1 if !expected_answer.is_empty() => {
+                    match runtime.block_on(llm::generate_answer(&qa.question, &hits)) {
+                        Ok(generated) => {
+                            if is_adversarial {
+                                let score = if scoring::adversarial_check(&generated) {
+                                    1.0
+                                } else {
+                                    0.0
+                                };
+                                (score, generated)
                             } else {
-                                0.0
-                            };
-                            (score, generated)
-                        } else {
-                            let (_, _, f1) = scoring::token_f1(&generated, expected_answer);
-                            (f1, generated)
+                                let (_, _, f1) = scoring::token_f1(&generated, expected_answer);
+                                (f1, generated)
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "warning: LLM generation failed, using retrieval text: {err}"
+                            );
+                            let concat = hits
+                                .iter()
+                                .map(|h| h.content.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            let (_, _, f1) = scoring::token_f1(&concat, expected_answer);
+                            (f1, concat)
                         }
                     }
-                    Err(err) => {
-                        eprintln!("warning: LLM generation failed, using retrieval text: {err}");
-                        let concat = hits
-                            .iter()
-                            .map(|h| h.content.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" ");
-                        let (_, _, f1) = scoring::token_f1(&concat, expected_answer);
-                        (f1, concat)
-                    }
                 }
-            } else {
-                let concat = hits
-                    .iter()
-                    .map(|h| h.content.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let (_, _, f1) = if expected_answer.is_empty() {
-                    (0.0, 0.0, 0.0)
-                } else {
-                    scoring::token_f1(&concat, expected_answer)
-                };
-                (f1, concat)
+                ScoringMode::Substring | ScoringMode::LlmF1 => {
+                    // Substring mode, or LlmF1 fallback when expected is empty.
+                    let concat = hits
+                        .iter()
+                        .map(|h| h.content.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let (_, _, f1) = if expected_answer.is_empty() {
+                        (0.0, 0.0, 0.0)
+                    } else {
+                        scoring::token_f1(&concat, expected_answer)
+                    };
+                    (f1, concat)
+                }
             };
 
             total_f1_sum += f1;
@@ -364,9 +411,16 @@ fn main() -> Result<()> {
         total_evidence_recall_sum / total_queries as f64
     };
 
+    let scoring_label = match scoring_mode {
+        ScoringMode::Substring => "substring",
+        ScoringMode::WordOverlap => "word-overlap",
+        ScoringMode::LlmF1 => "llm-f1",
+    };
+
     let summary = types::LoCoMoSummary {
         metadata,
         dataset: "LoCoMo10".to_string(),
+        scoring_mode: scoring_label.to_string(),
         samples_evaluated,
         questions_evaluated: total_queries,
         total_memories_ingested: total_memories,

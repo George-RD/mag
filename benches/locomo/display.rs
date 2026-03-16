@@ -51,11 +51,20 @@ pub(crate) fn locomo_categories() -> Vec<(&'static str, &'static str)> {
 }
 
 pub(crate) fn print_results(summary: &LoCoMoSummary) {
+    // Substring mode uses token_f1 on concatenated retrieval text.
+    let score_col = match summary.scoring_mode.as_str() {
+        "word-overlap" => "WdOvlp",
+        "llm-f1" => "LlmF1",
+        "substring" => "TokF1",
+        _ => "TokF1",
+    };
+
     println!();
     println!("========================================================================");
     println!("  MAG — LoCoMo Benchmark Results");
     println!("========================================================================");
     println!("  Dataset: {}", summary.dataset);
+    println!("  Scoring: {}", summary.scoring_mode);
     println!("  Source:  {}", summary.metadata.dataset_source);
     println!("  Cache:   {}", summary.metadata.dataset_path);
     println!(
@@ -72,7 +81,7 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
     // Header.
     println!(
         "  {:22} {:>7}  {:>7}  {:>7}  {:>10}",
-        "Category", "Substr", "F1", "Ev.Rec", "Count"
+        "Category", "Substr", score_col, "Ev.Rec", "Count"
     );
     println!("  {}", "-".repeat(60));
 
@@ -97,13 +106,19 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
         }
     }
 
+    let score_label = match summary.scoring_mode.as_str() {
+        "word-overlap" => "WORD OVERLAP",
+        "llm-f1" => "MEAN LLM F1",
+        _ => "MEAN TOKEN F1",
+    };
+
     println!();
     println!("------------------------------------------------------------------------");
     println!(
         "  SUBSTRING:        {}/{} = {:.1}%",
         summary.raw_correct, summary.questions_evaluated, summary.raw_percentage
     );
-    println!("  MEAN TOKEN F1:    {:.1}%", summary.mean_f1 * 100.0);
+    println!("  {score_label:16}{:.1}%", summary.mean_f1 * 100.0);
     println!(
         "  MEAN EV. RECALL:  {:.1}%",
         summary.mean_evidence_recall * 100.0

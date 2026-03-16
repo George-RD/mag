@@ -139,6 +139,40 @@ pub(crate) fn substring_match(hits: &[RetrievalHit], expected: &str) -> bool {
         .any(|hit| hit.content.to_lowercase().contains(expected.as_str()))
 }
 
+// ── Word-overlap score (AutoMem-compatible) ─────────────────────────────
+
+/// Compute recall-oriented word overlap between retrieved hits and the expected
+/// answer.  This mirrors the AutoMem evaluation approach: concatenate all hit
+/// content + metadata dates into one text, normalize both sides, then return
+/// `overlap_count / expected_token_count`.
+pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
+    if expected.is_empty() {
+        return 0.0;
+    }
+
+    // Build a single text from all hits: content + any metadata date field.
+    let mut combined = String::new();
+    for hit in hits {
+        if !combined.is_empty() {
+            combined.push(' ');
+        }
+        combined.push_str(&hit.content);
+        if let Some(date) = hit.metadata.get("date").and_then(|v| v.as_str()) {
+            combined.push(' ');
+            combined.push_str(date);
+        }
+    }
+
+    let expected_tokens = normalize_tokens(expected);
+    if expected_tokens.is_empty() {
+        return 0.0;
+    }
+    let combined_tokens = normalize_tokens(&combined);
+
+    let overlap = expected_tokens.intersection(&combined_tokens).count() as f64;
+    overlap / expected_tokens.len() as f64
+}
+
 // ── Adversarial detection ────────────────────────────────────────────────
 
 /// Phrases that indicate the LLM correctly identified information as absent.
@@ -382,5 +416,92 @@ mod tests {
         assert!(!adversarial_check(
             "Bob mentioned he likes hiking in the mountains."
         ));
+    }
+
+    // ── word_overlap_score tests ────────────────────────────────────────
+
+    #[test]
+    fn test_word_overlap_perfect_recall() {
+        let hits = vec![RetrievalHit {
+            content: "Alice went to Paris last Tuesday".to_string(),
+            score: 0.9,
+            metadata: serde_json::json!({}),
+        }];
+        // "Paris" appears in the hit content, so recall should be 1.0
+        let score = word_overlap_score(&hits, "Paris");
+        assert!((score - 1.0).abs() < 1e-9, "score was {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_partial_recall() {
+        let hits = vec![RetrievalHit {
+            content: "Alice went to Paris".to_string(),
+            score: 0.9,
+            metadata: serde_json::json!({}),
+        }];
+        // Expected: "Paris on Tuesday" => tokens: {pari, tuesday}
+        // Hit tokens include {alic, went, pari} — overlap = {pari} = 1/2
+        let score = word_overlap_score(&hits, "Paris on Tuesday");
+        assert!((score - 0.5).abs() < 0.01, "expected ~0.5, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_no_match() {
+        let hits = vec![RetrievalHit {
+            content: "something completely unrelated".to_string(),
+            score: 0.9,
+            metadata: serde_json::json!({}),
+        }];
+        let score = word_overlap_score(&hits, "Paris Tuesday");
+        assert!(score < 0.01, "expected ~0.0, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_empty_expected() {
+        let hits = vec![RetrievalHit {
+            content: "some content".to_string(),
+            score: 0.9,
+            metadata: serde_json::json!({}),
+        }];
+        let score = word_overlap_score(&hits, "");
+        assert!(score.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_word_overlap_empty_hits() {
+        let score = word_overlap_score(&[], "Paris Tuesday");
+        assert!(score.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_word_overlap_includes_metadata_date() {
+        let hits = vec![RetrievalHit {
+            content: "Alice went somewhere".to_string(),
+            score: 0.9,
+            metadata: serde_json::json!({"date": "2023-03-15", "dia_id": "d1"}),
+        }];
+        // "2023" should appear in combined text via metadata date
+        let score = word_overlap_score(&hits, "2023");
+        assert!((score - 1.0).abs() < 1e-9, "expected 1.0, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_multiple_hits() {
+        let hits = vec![
+            RetrievalHit {
+                content: "Alice went to Paris".to_string(),
+                score: 0.9,
+                metadata: serde_json::json!({}),
+            },
+            RetrievalHit {
+                content: "Bob arrived on Tuesday".to_string(),
+                score: 0.8,
+                metadata: serde_json::json!({}),
+            },
+        ];
+        // Expected: "Paris Tuesday" => tokens {pari, tuesday}
+        // Hit 1 has "pari", hit 2 has "tuesday" — full recall
+        let score = word_overlap_score(&hits, "Paris Tuesday");
+        assert!((score - 1.0).abs() < 1e-9, "expected 1.0, got {score}");
     }
 }
