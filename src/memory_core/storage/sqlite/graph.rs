@@ -183,6 +183,7 @@ impl SimilarFinder for SqliteStorage {
                     if ranked.len() >= limit {
                         break;
                     }
+                    #[allow(clippy::cast_possible_truncation)]
                     let similarity = vec_distance_to_similarity(distance) as f32;
                     if let Some(row_data) = hydrated_rows.remove(&candidate_id) {
                         ranked.push(SemanticResult {

@@ -180,6 +180,7 @@ impl HotTierCache {
                 return Vec::new();
             }
 
+            #[allow(clippy::cast_precision_loss)]
             let max_access = entries
                 .iter()
                 .filter(|entry| {
@@ -220,11 +221,13 @@ impl HotTierCache {
                     }
 
                     let jaccard = jaccard_pre(&query_tokens, &entry.tokens);
+                    #[allow(clippy::cast_precision_loss)]
                     let access_norm = if max_access > 0.0 {
                         entry.access_count as f64 / max_access
                     } else {
                         0.0
                     };
+                    #[allow(clippy::cast_possible_truncation)]
                     let score = (overlap * 0.75
                         + jaccard * 0.15
                         + entry.importance * 0.05

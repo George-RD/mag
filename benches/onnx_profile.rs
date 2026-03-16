@@ -74,6 +74,7 @@ fn report(label: &str, durations: &[Duration]) {
         println!("  {label:<22} no samples");
         return;
     }
+    #[allow(clippy::cast_precision_loss)]
     let count = durations.len() as f64;
     let total: Duration = durations.iter().sum();
     let mean = total.as_secs_f64() / count * 1000.0; // ms
@@ -82,8 +83,11 @@ fn report(label: &str, durations: &[Duration]) {
     let last = sorted.len() - 1;
     let min = sorted[0];
     let max = sorted[last];
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
     let p50 = sorted[((last as f64) * 0.50).round() as usize];
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
     let p95 = sorted[((last as f64) * 0.95).round() as usize];
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
     let p99 = sorted[((last as f64) * 0.99).round() as usize];
     let std_dev = {
         let variance = sorted.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / count;
@@ -247,8 +251,8 @@ fn main() -> Result<()> {
         if shape.len() != 3 || shape[0] != 1 {
             return Err(anyhow!("unexpected ONNX output shape: {shape:?}"));
         }
-        let output_seq_len = shape[1] as usize;
-        let hidden_size = shape[2] as usize;
+        let output_seq_len = usize::try_from(shape[1]).unwrap_or(0);
+        let hidden_size = usize::try_from(shape[2]).unwrap_or(0);
         let expected_len = output_seq_len * hidden_size;
         if output.len() != expected_len {
             return Err(anyhow!(
@@ -261,6 +265,7 @@ fn main() -> Result<()> {
         let mut pooled = vec![0.0f32; hidden_size];
         let mut mask_sum = 0.0f32;
         for token_idx in 0..effective_len {
+            #[allow(clippy::cast_precision_loss)]
             let mask_value = encoding.get_attention_mask()[token_idx] as f32;
             if mask_value <= 0.0 {
                 continue;
@@ -343,10 +348,9 @@ fn main() -> Result<()> {
         "  Wall time for {ITERATIONS} embeddings: {:.3}s",
         overall_elapsed.as_secs_f64()
     );
-    println!(
-        "  Throughput: {:.1} embeddings/sec",
-        ITERATIONS as f64 / overall_elapsed.as_secs_f64()
-    );
+    #[allow(clippy::cast_precision_loss)]
+    let throughput = ITERATIONS as f64 / overall_elapsed.as_secs_f64();
+    println!("  Throughput: {throughput:.1} embeddings/sec");
     println!();
 
     // ── Mutex overhead measurement ────────────────────────────────────
@@ -420,6 +424,7 @@ fn main() -> Result<()> {
     if token_counts.is_empty() {
         println!("  no samples");
     } else {
+        #[allow(clippy::cast_precision_loss)]
         let avg_tokens: f64 = token_counts.iter().sum::<usize>() as f64 / token_counts.len() as f64;
         println!(
             "  min={} avg={:.1} max={} (for {} texts)",

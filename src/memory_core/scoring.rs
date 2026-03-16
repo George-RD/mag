@@ -143,7 +143,9 @@ fn word_overlap(query_words: &[&str], text: &str) -> f64 {
         .filter(|w| text_words.contains(*w))
         .count();
 
-    overlap as f64 / filtered_query.len() as f64
+    #[allow(clippy::cast_precision_loss)]
+    let result = overlap as f64 / filtered_query.len() as f64;
+    result
 }
 
 pub fn jaccard_similarity(text_a: &str, text_b: &str, min_word_len: usize) -> f64 {
@@ -160,7 +162,9 @@ pub fn jaccard_similarity(text_a: &str, text_b: &str, min_word_len: usize) -> f6
     if union == 0 {
         0.0
     } else {
-        intersection as f64 / union as f64
+        #[allow(clippy::cast_precision_loss)]
+        let result = intersection as f64 / union as f64;
+        result
     }
 }
 
@@ -189,8 +193,10 @@ pub fn feedback_factor(feedback_score: i64, scoring_params: &ScoringParams) -> f
             scoring_params.feedback_strong_suppress // explicit negative — strong suppress
         }
     } else if feedback_score > 0 {
-        (1.0 + (feedback_score as f64 * scoring_params.feedback_positive_scale))
-            .min(scoring_params.feedback_positive_cap)
+        #[allow(clippy::cast_precision_loss)]
+        let result = (1.0 + (feedback_score as f64 * scoring_params.feedback_positive_scale))
+            .min(scoring_params.feedback_positive_cap);
+        result
     } else {
         1.0 // neutral (no feedback = no effect)
     }
@@ -379,7 +385,9 @@ pub fn word_overlap_pre(query_tokens: &HashSet<String>, text_tokens: &HashSet<St
         .filter(|w| text_tokens.contains(*w))
         .count();
 
-    overlap as f64 / query_tokens.len() as f64
+    #[allow(clippy::cast_precision_loss)]
+    let result = overlap as f64 / query_tokens.len() as f64;
+    result
 }
 
 /// Extra bonus for candidates that cover most query terms.
@@ -406,7 +414,9 @@ pub fn jaccard_pre(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
     if union == 0 {
         0.0
     } else {
-        intersection as f64 / union as f64
+        #[allow(clippy::cast_precision_loss)]
+        let result = intersection as f64 / union as f64;
+        result
     }
 }
 
@@ -455,8 +465,11 @@ fn parse_iso8601_to_unix_seconds(value: &str) -> Option<f64> {
     }
 
     let days = days_from_civil(year, month as i32, day as i32);
+    #[allow(clippy::cast_precision_loss)]
     let day_seconds = (hour as i64 * 3600 + minute as i64 * 60 + second as i64) as f64;
-    Some(days as f64 * 86_400.0 + day_seconds + fraction)
+    #[allow(clippy::cast_precision_loss)]
+    let result = days as f64 * 86_400.0 + day_seconds + fraction;
+    Some(result)
 }
 
 fn days_from_civil(year: i32, month: i32, day: i32) -> i64 {
@@ -487,6 +500,7 @@ mod tests {
     }
 
     fn unix_to_iso8601(timestamp: f64) -> String {
+        #[allow(clippy::cast_possible_truncation)]
         let total_seconds = timestamp.floor() as i64;
         let day = total_seconds.div_euclid(86_400);
         let second_of_day = total_seconds.rem_euclid(86_400);
@@ -504,10 +518,13 @@ mod tests {
         let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
         let doe = z - era * 146_097;
         let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        #[allow(clippy::cast_possible_truncation)]
         let y = yoe as i32 + era as i32 * 400;
         let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
         let mp = (5 * doy + 2) / 153;
+        #[allow(clippy::cast_possible_truncation)]
         let day = (doy - (153 * mp + 2) / 5 + 1) as i32;
+        #[allow(clippy::cast_possible_truncation)]
         let month = (mp + if mp < 10 { 3 } else { -9 }) as i32;
         let year = y + if month <= 2 { 1 } else { 0 };
         (year, month, day)

@@ -174,7 +174,7 @@ impl Lister for SqliteStorage {
                 let count: i64 = stmt
                     .query_row(param_refs.as_slice(), |row| row.get(0))
                     .context("failed to count memories")?;
-                Ok::<_, anyhow::Error>(count as usize)
+                Ok::<_, anyhow::Error>(usize::try_from(count).unwrap_or(0))
             })
             .await
             .context("spawn_blocking join error")??;
@@ -256,7 +256,7 @@ impl Lister for SqliteStorage {
 
             Ok::<_, anyhow::Error>(ListResult {
                 memories,
-                total: total as usize,
+                total: usize::try_from(total).unwrap_or(0),
             })
         })
         .await

@@ -364,7 +364,7 @@ pub(super) fn resolve_priority(event_type: Option<&str>, priority: Option<i64>) 
     if let Some(value) = priority
         && (1..=5).contains(&value)
     {
-        return value as u8;
+        return u8::try_from(value).unwrap_or(3);
     }
     event_type
         .map(|value| {
@@ -372,7 +372,7 @@ pub(super) fn resolve_priority(event_type: Option<&str>, priority: Option<i64>) 
                 .parse::<EventType>()
                 .unwrap_or_else(|err| match err {});
             let priority = event_type.default_priority();
-            if priority == 0 { 3 } else { priority as u8 }
+            if priority == 0 { 3 } else { u8::try_from(priority).unwrap_or(3) }
         })
         .unwrap_or(3)
 }
@@ -957,9 +957,10 @@ fn compute_ago(now: &chrono::NaiveDate, n: i64, unit: &str) -> Option<(String, S
         "week" => *now - Duration::weeks(n),
         "month" => {
             // Approximate: subtract n months
-            let total_months = now.year() * 12 + now.month() as i32 - 1 - n as i32;
+            let n_i32 = i32::try_from(n).unwrap_or(0);
+            let total_months = now.year() * 12 + now.month() as i32 - 1 - n_i32;
             let year = total_months / 12;
-            let month = (total_months % 12 + 1) as u32;
+            let month = u32::try_from(total_months % 12 + 1).unwrap_or(1);
             let day = now.day().min(28); // safe day
             chrono::NaiveDate::from_ymd_opt(year, month, day)?
         }

@@ -47,10 +47,10 @@ fn collect_vector_candidates(
                 let priority_value = if let Some(p) = row_data.priority
                     && (1..=5).contains(&p)
                 {
-                    p as u8
+                    u8::try_from(p).unwrap_or(3)
                 } else {
                     let dp = et_ref.default_priority();
-                    if dp == 0 { 3 } else { dp as u8 }
+                    if dp == 0 { 3 } else { u8::try_from(dp).unwrap_or(3) }
                 };
                 let initial_score =
                     type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
@@ -279,10 +279,10 @@ fn collect_fts_candidates(
                 let priority_value = if let Some(p) = priority
                     && (1..=5).contains(&p)
                 {
-                    p as u8
+                    u8::try_from(p).unwrap_or(3)
                 } else {
                     let dp = et_ref.default_priority();
-                    if dp == 0 { 3 } else { dp as u8 }
+                    if dp == 0 { 3 } else { u8::try_from(dp).unwrap_or(3) }
                 };
                 let initial_score =
                     type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
@@ -403,6 +403,7 @@ fn fuse_refine_and_output(
     };
 
     for (rank, (id, _sim, mut candidate)) in vector_candidates.into_iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
         let rrf_score = scoring_params.rrf_weight_vec / (scoring_params.rrf_k + rank as f64 + 1.0);
         let et_ref = candidate
             .result
@@ -429,6 +430,7 @@ fn fuse_refine_and_output(
     }
     let mut dual_match_ids: HashSet<String> = HashSet::new();
     for (rank, (id, bm25_raw, candidate)) in fts_candidates.into_iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
         let rrf_score = scoring_params.rrf_weight_fts / (scoring_params.rrf_k + rank as f64 + 1.0);
         if let Some(existing) = ranked.get_mut(&id) {
             // Present in both -- add the FTS RRF contribution
@@ -555,6 +557,7 @@ fn fuse_refine_and_output(
                     .iter()
                     .filter(|t| candidate_tags.contains(*t))
                     .count();
+                #[allow(clippy::cast_precision_loss)]
                 let ratio = matched as f64 / context_norm.len() as f64;
                 candidate.score *= 1.0 + ratio * scoring_params.context_tag_weight;
             }
@@ -686,10 +689,10 @@ fn fuse_refine_and_output(
                         let neighbor_pv = if let Some(p) = priority
                             && (1..=5).contains(&p)
                         {
-                            p as u8
+                            u8::try_from(p).unwrap_or(3)
                         } else {
                             let dp = neighbor_et_ref.default_priority();
-                            if dp == 0 { 3 } else { dp as u8 }
+                            if dp == 0 { 3 } else { u8::try_from(dp).unwrap_or(3) }
                         };
                         neighbor_score *=
                             time_decay_et(&created_at, neighbor_et_ref, scoring_params);
@@ -819,7 +822,9 @@ fn fuse_refine_and_output(
         } else {
             0.0
         };
-        candidate.result.score = normalized as f32;
+        #[allow(clippy::cast_possible_truncation)]
+        let normalized_f32 = normalized as f32;
+        candidate.result.score = normalized_f32;
 
         // Always inject text_overlap for confidence computation
         if let serde_json::Value::Object(ref mut meta) = candidate.result.metadata {

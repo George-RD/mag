@@ -164,7 +164,7 @@ pub(crate) async fn llm_judge_eval(
     let prompt_tokens = parsed
         .usage
         .as_ref()
-        .map(|u| u.prompt_tokens as usize)
+        .map(|u| u.prompt_tokens.try_into().unwrap_or(0))
         .unwrap_or(0);
     let answer = parsed
         .choices
@@ -254,6 +254,7 @@ pub(crate) async fn run_llm_judge(
         record_result(&mut results, eval.category.as_str(), passed, detail);
     }
 
+    #[allow(clippy::cast_precision_loss)]
     let estimated_input_cost_usd = input_tokens as f64 / 1_000_000.0 * rate;
     let cost = JudgeCostEstimate {
         model,

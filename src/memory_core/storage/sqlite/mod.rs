@@ -859,6 +859,7 @@ impl SqliteStorage {
                     if candidate_id == source_id_for_query {
                         continue;
                     }
+                    #[allow(clippy::cast_possible_truncation)]
                     let similarity = vec_distance_to_similarity(distance) as f32;
                     if similarity < 0.45 {
                         continue;

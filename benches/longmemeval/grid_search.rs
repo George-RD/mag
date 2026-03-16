@@ -214,7 +214,8 @@ pub(crate) async fn run_grid_search(verbose: bool) -> Result<Vec<GridSearchResul
             &storage,
             false,
             &mut rss,
-            params.abstention_min_text as f32,
+            #[allow(clippy::cast_possible_truncation)]
+            { params.abstention_min_text as f32 },
             3,
         )
         .await?;
