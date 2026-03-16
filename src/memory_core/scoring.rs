@@ -171,8 +171,9 @@ pub fn jaccard_similarity(text_a: &str, text_b: &str, min_word_len: usize) -> f6
 /// Abstention threshold — collection-level gate on max text overlap.
 /// Dense embeddings (bge-small-en-v1.5) produce 0.80+ cosine similarity even
 /// for unrelated content, so vec_sim is NOT used for abstention.
-/// Text overlap cleanly separates relevant (0.33+) from irrelevant (0.00–0.25).
-pub const ABSTENTION_MIN_TEXT: f64 = 0.30;
+/// Lowered from 0.30 to 0.15 to avoid dropping valid results for
+/// numeric/synonym-heavy queries where word overlap is inherently lower.
+pub const ABSTENTION_MIN_TEXT: f64 = 0.15;
 
 /// Graph enrichment — disabled by grid search (neighbor injection hurts accuracy).
 pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.0;
@@ -202,6 +203,76 @@ pub fn feedback_factor(feedback_score: i64, scoring_params: &ScoringParams) -> f
     }
 }
 
+/// Common English stopwords that dilute BM25 scoring and word overlap.
+/// Used by both `token_set()` (scoring) and `build_fts5_query()` (FTS5).
+pub(crate) fn is_stopword(word: &str) -> bool {
+    matches!(
+        word,
+        "a" | "an"
+            | "and"
+            | "are"
+            | "as"
+            | "at"
+            | "be"
+            | "but"
+            | "by"
+            | "do"
+            | "for"
+            | "from"
+            | "had"
+            | "has"
+            | "have"
+            | "he"
+            | "her"
+            | "his"
+            | "how"
+            | "if"
+            | "in"
+            | "into"
+            | "is"
+            | "it"
+            | "its"
+            | "me"
+            | "my"
+            | "no"
+            | "not"
+            | "of"
+            | "on"
+            | "or"
+            | "our"
+            | "out"
+            | "she"
+            | "so"
+            | "than"
+            | "that"
+            | "the"
+            | "their"
+            | "them"
+            | "then"
+            | "there"
+            | "these"
+            | "they"
+            | "this"
+            | "to"
+            | "too"
+            | "up"
+            | "us"
+            | "very"
+            | "was"
+            | "we"
+            | "were"
+            | "what"
+            | "when"
+            | "which"
+            | "who"
+            | "will"
+            | "with"
+            | "would"
+            | "you"
+            | "your"
+    )
+}
+
 pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
     let mut tokens = HashSet::new();
 
@@ -217,6 +288,15 @@ pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
         for word in raw.split(|c: char| !c.is_alphanumeric()) {
             let trimmed = word.trim();
             if trimmed.len() < min_word_len {
+                // Preserve numeric tokens (e.g. "42", "2023") and mixed
+                // alphanumeric tokens with digits (e.g. "3d", "v2") as long as
+                // they have at least 1 character. This prevents numbers from
+                // being silently dropped by the min_word_len filter.
+                let has_digit = trimmed.chars().any(|c| c.is_ascii_digit());
+                if has_digit && !trimmed.is_empty() {
+                    tokens.insert(trimmed.to_lowercase());
+                    continue;
+                }
                 // For space-separated short all-uppercase acronyms (no punctuation
                 // in the raw token, e.g. the "CI" in "CI CD") include the
                 // lowercased form so that "CI CD" and "CI/CD" share tokens.
@@ -229,6 +309,9 @@ pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
                 continue;
             }
             let lower = trimmed.to_lowercase();
+            if is_stopword(&lower) {
+                continue;
+            }
             tokens.insert(simple_stem(&lower).into_owned());
         }
 
@@ -1018,5 +1101,79 @@ mod tests {
         // With weight=0, boost should be 1.0 regardless of overlap (no-op multiplier)
         assert!((query_coverage_boost(1.0, &params) - 1.0).abs() < 1e-9);
         assert!((query_coverage_boost(0.5, &params) - 1.0).abs() < 1e-9);
+    }
+
+    // ── token_set numeric preservation tests ──────────────────────────
+
+    #[test]
+    fn test_token_set_preserves_pure_numbers() {
+        let tokens = token_set("version 42 was released", 3);
+        assert!(tokens.contains("42"), "expected '42' in {:?}", tokens);
+    }
+
+    #[test]
+    fn test_token_set_preserves_year_numbers() {
+        let tokens = token_set("deployed in 2023", 3);
+        assert!(tokens.contains("2023"), "expected '2023' in {:?}", tokens);
+    }
+
+    #[test]
+    fn test_token_set_preserves_short_alphanumeric_with_digits() {
+        // "v2", "3d" should be preserved even though len < 3
+        let tokens = token_set("using v2 and 3d models", 3);
+        assert!(tokens.contains("v2"), "expected 'v2' in {:?}", tokens);
+        assert!(tokens.contains("3d"), "expected '3d' in {:?}", tokens);
+    }
+
+    #[test]
+    fn test_token_set_numeric_overlap() {
+        // Ensure numeric tokens enable word overlap matching
+        let query_tokens = token_set("version 42", 3);
+        let text_tokens = token_set("released version 42 of the system", 3);
+        let overlap = word_overlap_pre(&query_tokens, &text_tokens);
+        assert!(
+            overlap > 0.9,
+            "expected high overlap for numeric query, got {}",
+            overlap
+        );
+    }
+
+    // ── stopword filtering tests ──────────────────────────────────────
+
+    #[test]
+    fn test_token_set_filters_stopwords() {
+        let tokens = token_set("the path to the database", 3);
+        assert!(
+            !tokens.contains("the"),
+            "'the' should be filtered as stopword, got {:?}",
+            tokens
+        );
+        assert!(tokens.contains("path"), "expected 'path' in {:?}", tokens);
+        assert!(
+            tokens.contains("database"),
+            "expected 'database' in {:?}",
+            tokens
+        );
+    }
+
+    // ── abstention threshold tests ────────────────────────────────────
+
+    #[test]
+    fn test_abstention_threshold_lowered() {
+        assert!(
+            (ABSTENTION_MIN_TEXT - 0.15).abs() < 1e-9,
+            "ABSTENTION_MIN_TEXT should be 0.15, got {}",
+            ABSTENTION_MIN_TEXT
+        );
+    }
+
+    #[test]
+    fn test_abstention_default_params_uses_lowered_threshold() {
+        let params = ScoringParams::default();
+        assert!(
+            (params.abstention_min_text - 0.15).abs() < 1e-9,
+            "default abstention_min_text should be 0.15, got {}",
+            params.abstention_min_text
+        );
     }
 }
