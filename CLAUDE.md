@@ -68,13 +68,42 @@ Query → ONNX embed → Vector search + FTS5 BM25 → RRF fusion → Score refi
 
 ## Conventions
 
-- Semantic commits: `feat(scope):`, `fix(scope):`, `perf(scope):`, `refactor(scope):`
+- Semantic change descriptions: `<type>(<scope>): <description>` (e.g., `feat(memory): add TTL sweep metrics`)
 - All DB I/O wrapped in `tokio::task::spawn_blocking` — never block the async executor
 - No `unwrap()`/`expect()` in production paths
 - No stdout output in MCP server mode — stdout is the protocol channel; logs go to stderr via `tracing`
 - Schema migrations are additive only — never drop or rename columns; use `ALTER TABLE ADD COLUMN` with error ignoring
 - Trait-first design in `memory_core` — add new trait + impl rather than modifying existing signatures
 - Struct-based API signatures: `MemoryInput` (store), `MemoryUpdate` (update), `SearchOptions` (search/filter)
+
+## Version Control (jj)
+
+This repo uses jj (Jujutsu) in colocated mode. The `/jj` skill handles commit/push/PR workflows.
+
+- **Never use bare `git commit`, `git rebase`, `git checkout`** — only `jj` commands. `git status`/`git log` for reads are fine.
+- Working copy is always a live commit (`@`). No staging area — every file change auto-amends `@`.
+- To "commit": `jj describe -m "msg" && jj new` (or `jj commit -m "msg"`)
+- To push: `jj bookmark set <name> -r @- && jj git push --bookmark <name> --allow-new`
+- Bookmarks follow branch convention: `feat/...`, `fix/...`, `perf/...`, `refactor/...`
+- `jj undo` reverses any operation. `jj op log` is the reflog equivalent.
+
+### Quality gate (run before pushing)
+
+Git hooks do NOT fire under jj. Run explicitly:
+
+```bash
+prek run                          # uses prek.toml
+# OR manually:
+cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features
+```
+
+### PR workflow
+
+1. `jj describe -m "feat(scope): description" && jj new`
+2. `jj bookmark set feat/my-feature -r @-`
+3. `prek run`
+4. `jj git push --bookmark feat/my-feature --allow-new`
+5. `gh pr create --head feat/my-feature --title "..." --body "..."`
 
 ## Testing
 
