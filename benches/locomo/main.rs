@@ -27,6 +27,8 @@ enum ScoringMode {
     LlmF1,
 }
 
+#[path = "../bench_utils/mod.rs"]
+mod bench_utils;
 mod dataset;
 mod display;
 mod llm;
@@ -34,6 +36,9 @@ mod openai_embedder;
 mod scoring;
 mod seeding;
 mod types;
+
+use bench_utils::formatting::{pct, truncate};
+use bench_utils::metrics::PeakRss;
 
 const DEFAULT_LLM_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_LOCAL_MODEL: &str = "qwen3.5-9b-optiq";
@@ -87,56 +92,6 @@ struct Args {
     /// If omitted, defaults to substring unless --llm-judge/--local implies llm-f1.
     #[arg(long, value_enum)]
     scoring_mode: Option<ScoringMode>,
-}
-
-// ── Peak RSS tracking ───────────────────────────────────────────────────
-
-#[derive(Debug, Default)]
-struct PeakRss {
-    peak_kb: u64,
-}
-
-impl PeakRss {
-    fn sample(&mut self) {
-        if let Ok(kb) = current_rss_kb()
-            && kb > self.peak_kb
-        {
-            self.peak_kb = kb;
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn current_rss_kb() -> Result<u64> {
-    let pid = std::process::id();
-    let output = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid.to_string()])
-        .output()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    Ok(text.trim().parse()?)
-}
-
-#[cfg(target_os = "linux")]
-fn current_rss_kb() -> Result<u64> {
-    let status = std::fs::read_to_string("/proc/self/status")?;
-    for line in status.lines() {
-        if let Some(value) = line.strip_prefix("VmRSS:") {
-            let kb: u64 = value.trim().trim_end_matches(" kB").trim().parse()?;
-            return Ok(kb);
-        }
-    }
-    Ok(0)
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn current_rss_kb() -> Result<u64> {
-    Ok(0)
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-fn truncate(value: &str, max_chars: usize) -> String {
-    value.chars().take(max_chars).collect()
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -431,7 +386,7 @@ fn main() -> Result<()> {
         avg_query_ms,
         peak_rss_kb: rss.peak_kb,
         raw_correct: total_correct,
-        raw_percentage: display::pct(total_correct, total_queries),
+        raw_percentage: pct(total_correct, total_queries),
         mean_f1,
         mean_evidence_recall,
         categories,

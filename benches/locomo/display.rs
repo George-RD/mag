@@ -1,17 +1,7 @@
 use std::collections::BTreeMap;
 
+use crate::bench_utils::formatting::{grade, pct};
 use crate::types::{CategoryResult, LoCoMoSummary};
-
-pub(crate) fn pct(correct: usize, total: usize) -> f64 {
-    if total == 0 {
-        0.0
-    } else {
-        #[allow(clippy::cast_precision_loss)]
-        {
-            correct as f64 / total as f64 * 100.0
-        }
-    }
-}
 
 fn avg_f1(cat: &CategoryResult) -> f64 {
     if cat.total == 0 {
@@ -32,20 +22,6 @@ fn avg_evidence(cat: &CategoryResult) -> f64 {
         {
             cat.evidence_recall_sum / cat.total as f64 * 100.0
         }
-    }
-}
-
-fn grade(percentage: f64) -> &'static str {
-    if percentage >= 90.0 {
-        "A"
-    } else if percentage >= 75.0 {
-        "B"
-    } else if percentage >= 60.0 {
-        "C"
-    } else if percentage >= 40.0 {
-        "D"
-    } else {
-        "F"
     }
 }
 

@@ -13,6 +13,8 @@ use mag::benchmarking::{self, DatasetKind};
 use mag::memory_core::storage::sqlite::SqliteStorage;
 use mag::memory_core::{ABSTENTION_MIN_TEXT, OnnxEmbedder};
 
+#[path = "../bench_utils/mod.rs"]
+mod bench_utils;
 mod display;
 mod grid_search;
 mod helpers;
@@ -84,7 +86,7 @@ fn main() -> Result<()> {
     {
         bail!("--dataset-path/--force-refresh/--temp-dataset/--questions require --official");
     }
-    let mut rss = helpers::PeakRss::default();
+    let mut rss = bench_utils::metrics::PeakRss::default();
     rss.sample();
 
     let runtime = tokio::runtime::Runtime::new()?;
