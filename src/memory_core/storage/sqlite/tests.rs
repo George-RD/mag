@@ -6152,3 +6152,358 @@ async fn hot_cache_refresh_task_releases_pool_on_drop() {
 
     assert!(weak_pool.upgrade().is_none());
 }
+
+// ── selective cache invalidation tests ────────────────────────────────
+
+#[tokio::test]
+async fn selective_invalidation_preserves_unrelated_cache_entries() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store two memories in different projects.
+    storage
+        .store(
+            "proj-a-1",
+            "alpha project memory about databases",
+            &MemoryInput {
+                content: "alpha project memory about databases".to_string(),
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    storage
+        .store(
+            "proj-b-1",
+            "beta project memory about networking",
+            &MemoryInput {
+                content: "beta project memory about networking".to_string(),
+                project: Some("beta".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Populate cache with a project-filtered query for "beta".
+    let beta_opts = SearchOptions {
+        project: Some("beta".to_string()),
+        ..Default::default()
+    };
+    let results_before =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "networking", 5, &beta_opts)
+            .await
+            .unwrap();
+    assert!(!results_before.is_empty());
+
+    // Store a new memory in project "alpha" — should NOT invalidate the "beta" cache.
+    storage
+        .store(
+            "proj-a-2",
+            "another alpha project memory about servers",
+            &MemoryInput {
+                content: "another alpha project memory about servers".to_string(),
+                project: Some("alpha".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // The "beta" cache entry should still be present (not evicted).
+    let cache_key = super::helpers::query_cache_key("networking", 5, &beta_opts);
+    let cache_hit = storage
+        .query_cache
+        .lock()
+        .ok()
+        .and_then(|mut cache| cache.get(&cache_key).cloned());
+    assert!(
+        cache_hit.is_some(),
+        "beta project cache entry should survive alpha-project write"
+    );
+}
+
+#[tokio::test]
+async fn selective_invalidation_evicts_matching_project_entry() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    storage
+        .store(
+            "proj-x-1",
+            "project x memory about databases",
+            &MemoryInput {
+                content: "project x memory about databases".to_string(),
+                project: Some("x".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Populate cache with a project-filtered query for "x".
+    let x_opts = SearchOptions {
+        project: Some("x".to_string()),
+        ..Default::default()
+    };
+    let _results =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "databases", 5, &x_opts)
+            .await
+            .unwrap();
+
+    // Store another memory in the SAME project "x" — should invalidate matching cache entry.
+    storage
+        .store(
+            "proj-x-2",
+            "project x memory about indexing strategies",
+            &MemoryInput {
+                content: "project x memory about indexing strategies".to_string(),
+                project: Some("x".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let cache_key = super::helpers::query_cache_key("databases", 5, &x_opts);
+    let cache_hit = storage
+        .query_cache
+        .lock()
+        .ok()
+        .and_then(|mut cache| cache.get(&cache_key).cloned());
+    assert!(
+        cache_hit.is_none(),
+        "project x cache entry should be evicted by project x write"
+    );
+}
+
+#[tokio::test]
+async fn selective_invalidation_evicts_unfiltered_queries() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    storage
+        .store(
+            "unf-1",
+            "unfiltered memory about caching strategies",
+            &MemoryInput {
+                content: "unfiltered memory about caching strategies".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Populate cache with an unfiltered query (no project/session/type filter).
+    let opts = SearchOptions::default();
+    let _results =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "caching", 5, &opts)
+            .await
+            .unwrap();
+
+    // Store a memory with specific project — unfiltered entries must be evicted.
+    storage
+        .store(
+            "unf-2",
+            "another memory about caching with project scope",
+            &MemoryInput {
+                content: "another memory about caching with project scope".to_string(),
+                project: Some("myproject".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let cache_key = super::helpers::query_cache_key("caching", 5, &opts);
+    let cache_hit = storage
+        .query_cache
+        .lock()
+        .ok()
+        .and_then(|mut cache| cache.get(&cache_key).cloned());
+    assert!(
+        cache_hit.is_none(),
+        "unfiltered cache entry should be evicted by any write"
+    );
+}
+
+#[tokio::test]
+async fn import_invalidates_cache() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    storage
+        .store(
+            "import-cache-1",
+            "memory before import for cache test",
+            &MemoryInput {
+                content: "memory before import for cache test".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Populate cache.
+    let opts = SearchOptions::default();
+    let _results =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "before import", 5, &opts)
+            .await
+            .unwrap();
+
+    // Verify cache is populated.
+    let cache_key = super::helpers::query_cache_key("before import", 5, &opts);
+    let populated = storage
+        .query_cache
+        .lock()
+        .ok()
+        .and_then(|mut cache| cache.get(&cache_key).cloned());
+    assert!(
+        populated.is_some(),
+        "cache should be populated before import"
+    );
+
+    // Import data.
+    let export = storage.export_all().await.unwrap();
+    storage.import_all(&export).await.unwrap();
+
+    // Cache should be fully cleared after import.
+    let after_import = storage
+        .query_cache
+        .lock()
+        .ok()
+        .map(|cache| cache.len())
+        .unwrap_or(0);
+    assert_eq!(after_import, 0, "cache should be empty after import");
+}
+
+#[tokio::test]
+async fn sweep_expired_invalidates_cache() {
+    use crate::memory_core::ExpirationSweeper;
+
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store a memory with a 1-second TTL.
+    storage
+        .store(
+            "sweep-cache-1",
+            "ephemeral memory for sweep cache test",
+            &MemoryInput {
+                content: "ephemeral memory for sweep cache test".to_string(),
+                ttl_seconds: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Populate cache.
+    let opts = SearchOptions::default();
+    let _results =
+        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "ephemeral", 5, &opts)
+            .await
+            .unwrap();
+
+    // Force the memory to be expired by backdating created_at.
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute(
+            "UPDATE memories SET created_at = datetime('now', '-10 seconds') WHERE id = 'sweep-cache-1'",
+            [],
+        )
+        .unwrap();
+    }
+
+    // Run sweep.
+    let swept = storage.sweep_expired().await.unwrap();
+    assert_eq!(swept, 1, "should have swept 1 expired memory");
+
+    // Cache should be cleared.
+    let after_sweep = storage
+        .query_cache
+        .lock()
+        .ok()
+        .map(|cache| cache.len())
+        .unwrap_or(0);
+    assert_eq!(after_sweep, 0, "cache should be empty after sweep");
+}
+
+#[test]
+fn cache_entry_affected_check_logic() {
+    use std::time::Instant;
+
+    // Entry with project="alpha" filter.
+    let entry = CachedQuery {
+        inserted_at: Instant::now(),
+        results: Vec::new(),
+        event_type_filter: None,
+        project_filter: Some("alpha".to_string()),
+        session_id_filter: None,
+    };
+
+    // Write to project "alpha" — affected.
+    assert!(SqliteStorage::cache_entry_could_be_affected(
+        &entry,
+        None,
+        Some("alpha"),
+        None
+    ));
+
+    // Write to project "beta" — NOT affected.
+    assert!(!SqliteStorage::cache_entry_could_be_affected(
+        &entry,
+        None,
+        Some("beta"),
+        None
+    ));
+
+    // Write with no project — affected (could match unfiltered project dimension).
+    assert!(SqliteStorage::cache_entry_could_be_affected(
+        &entry, None, None, None
+    ));
+
+    // Entry with all filters set.
+    let strict_entry = CachedQuery {
+        inserted_at: Instant::now(),
+        results: Vec::new(),
+        event_type_filter: Some("decision".to_string()),
+        project_filter: Some("alpha".to_string()),
+        session_id_filter: Some("sess-1".to_string()),
+    };
+
+    // Write matches all three dimensions.
+    assert!(SqliteStorage::cache_entry_could_be_affected(
+        &strict_entry,
+        Some("decision"),
+        Some("alpha"),
+        Some("sess-1"),
+    ));
+
+    // Write matches event_type and project, but different session — NOT affected.
+    assert!(!SqliteStorage::cache_entry_could_be_affected(
+        &strict_entry,
+        Some("decision"),
+        Some("alpha"),
+        Some("sess-2"),
+    ));
+
+    // Write with different event_type — NOT affected.
+    assert!(!SqliteStorage::cache_entry_could_be_affected(
+        &strict_entry,
+        Some("observation"),
+        Some("alpha"),
+        Some("sess-1"),
+    ));
+
+    // Unfiltered entry — always affected.
+    let unfiltered = CachedQuery {
+        inserted_at: Instant::now(),
+        results: Vec::new(),
+        event_type_filter: None,
+        project_filter: None,
+        session_id_filter: None,
+    };
+    assert!(SqliteStorage::cache_entry_could_be_affected(
+        &unfiltered,
+        Some("anything"),
+        Some("any_project"),
+        Some("any_session"),
+    ));
+}

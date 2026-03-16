@@ -74,7 +74,7 @@ impl MaintenanceManager for SqliteStorage {
     async fn consolidate(&self, prune_days: i64, max_summaries: i64) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
 
             let before: i64 = conn
@@ -168,7 +168,12 @@ impl MaintenanceManager for SqliteStorage {
             }))
         })
         .await
-        .context("spawn_blocking join error")?
+        .context("spawn_blocking join error")?;
+
+        // Maintenance may have pruned memories — full cache clear.
+        self.invalidate_query_cache();
+
+        result
     }
 
     async fn compact(
@@ -181,7 +186,7 @@ impl MaintenanceManager for SqliteStorage {
         let pool = Arc::clone(&self.pool);
         let event_type = event_type.to_string();
 
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
 
             // Get candidates
@@ -328,7 +333,14 @@ impl MaintenanceManager for SqliteStorage {
             }))
         })
         .await
-        .context("spawn_blocking join error")?
+        .context("spawn_blocking join error")?;
+
+        if !dry_run {
+            // Compaction may have modified/deleted memories — full cache clear.
+            self.invalidate_query_cache();
+        }
+
+        result
     }
 
     async fn auto_compact(
@@ -338,7 +350,7 @@ impl MaintenanceManager for SqliteStorage {
     ) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
 
             let total: i64 = conn
@@ -498,14 +510,21 @@ impl MaintenanceManager for SqliteStorage {
             }))
         })
         .await
-        .context("spawn_blocking join error")?
+        .context("spawn_blocking join error")?;
+
+        if !dry_run {
+            // Auto-compaction may have superseded memories — full cache clear.
+            self.invalidate_query_cache();
+        }
+
+        result
     }
 
     async fn clear_session(&self, session_id: &str) -> Result<usize> {
         let pool = Arc::clone(&self.pool);
         let session_id = session_id.to_string();
 
-        tokio::task::spawn_blocking(move || {
+        let deleted = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
 
             let tx = conn
@@ -547,7 +566,14 @@ impl MaintenanceManager for SqliteStorage {
             Ok::<_, anyhow::Error>(deleted)
         })
         .await
-        .context("spawn_blocking join error")?
+        .context("spawn_blocking join error")??;
+
+        if deleted > 0 {
+            // Bulk session deletion — full cache clear.
+            self.invalidate_query_cache();
+        }
+
+        Ok(deleted)
     }
 }
 
