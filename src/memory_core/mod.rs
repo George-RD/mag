@@ -810,6 +810,29 @@ pub trait WelcomeProvider: Send + Sync {
     ) -> Result<serde_json::Value>;
 }
 
+/// Backup info returned by `BackupManager::create_backup`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupInfo {
+    pub path: std::path::PathBuf,
+    pub size_bytes: u64,
+    pub created_at: String,
+}
+
+/// Manages database backup, rotation, and restore.
+#[async_trait]
+pub trait BackupManager: Send + Sync {
+    /// Create a binary backup of the database file, returning backup metadata.
+    async fn create_backup(&self) -> Result<BackupInfo>;
+    /// Rotate backups, keeping only the `max_count` most recent. Returns the number removed.
+    async fn rotate_backups(&self, max_count: usize) -> Result<usize>;
+    /// List available backups with path and size.
+    async fn list_backups(&self) -> Result<Vec<BackupInfo>>;
+    /// Restore from a backup file. Creates a safety backup of the current DB first.
+    async fn restore_backup(&self, backup_path: &std::path::Path) -> Result<()>;
+    /// Run automatic startup backup if needed (>24h since last). Returns backup path if created.
+    async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>>;
+}
+
 /// Extended statistics beyond basic counts.
 #[async_trait]
 pub trait StatsProvider: Send + Sync {

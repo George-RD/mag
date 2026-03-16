@@ -6531,3 +6531,221 @@ fn cache_entry_affected_check_logic() {
         Some("any_session"),
     ));
 }
+
+// ── Backup / Restore tests ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_create_backup_produces_valid_file() {
+    use crate::memory_core::BackupManager;
+
+    let base = std::env::temp_dir().join(format!("mag-backup-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // Store a memory so the DB has content
+    let input = MemoryInput {
+        content: "backup test memory".to_string(),
+        importance: 0.7,
+        ..MemoryInput::default()
+    };
+    <SqliteStorage as Storage>::store(&storage, "bk-1", "backup test memory", &input)
+        .await
+        .unwrap();
+
+    // Create backup
+    let info = storage.create_backup().await.unwrap();
+    assert!(info.path.exists());
+    assert!(info.size_bytes > 0);
+    assert!(!info.created_at.is_empty());
+
+    // Verify it's in the backups directory
+    assert_eq!(info.path.parent().unwrap().file_name().unwrap(), "backups");
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_rotate_backups_keeps_only_n() {
+    use crate::memory_core::BackupManager;
+
+    let base = std::env::temp_dir().join(format!("mag-rotate-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // Create 5 backups (with slight delays to ensure unique timestamps)
+    for i in 0..5 {
+        // Manually create backup files with distinct timestamps
+        let backups_dir = db_path.parent().unwrap().join("backups");
+        fs::create_dir_all(&backups_dir).unwrap();
+        let name = format!("memory.db.20260301_00000{i}.bak");
+        fs::write(backups_dir.join(&name), format!("backup {i}")).unwrap();
+    }
+
+    // Verify we have 5 backups
+    let before = storage.list_backups().await.unwrap();
+    assert_eq!(before.len(), 5);
+
+    // Rotate keeping only 3
+    let removed = storage.rotate_backups(3).await.unwrap();
+    assert_eq!(removed, 2);
+
+    // Verify only 3 remain
+    let after = storage.list_backups().await.unwrap();
+    assert_eq!(after.len(), 3);
+
+    // The remaining should be the newest (highest timestamps)
+    let names: Vec<String> = after
+        .iter()
+        .map(|b| b.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(names.contains(&"memory.db.20260301_000002.bak".to_string()));
+    assert!(names.contains(&"memory.db.20260301_000003.bak".to_string()));
+    assert!(names.contains(&"memory.db.20260301_000004.bak".to_string()));
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_restore_backup_replaces_current_db() {
+    use crate::memory_core::BackupManager;
+
+    let base = std::env::temp_dir().join(format!("mag-restore-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // Store a memory
+    let input = MemoryInput {
+        content: "original memory".to_string(),
+        importance: 0.7,
+        ..MemoryInput::default()
+    };
+    <SqliteStorage as Storage>::store(&storage, "restore-1", "original memory", &input)
+        .await
+        .unwrap();
+
+    // Create a backup
+    let backup_info = storage.create_backup().await.unwrap();
+
+    // Store another memory after the backup
+    let input2 = MemoryInput {
+        content: "post-backup memory".to_string(),
+        importance: 0.8,
+        ..MemoryInput::default()
+    };
+    <SqliteStorage as Storage>::store(&storage, "restore-2", "post-backup memory", &input2)
+        .await
+        .unwrap();
+
+    // Restore the backup
+    storage.restore_backup(&backup_info.path).await.unwrap();
+
+    // Verify the safety backup was created (pre_restore_ file)
+    let backups_dir = db_path.parent().unwrap().join("backups");
+    let pre_restore: Vec<_> = fs::read_dir(&backups_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains("pre_restore_"))
+        .collect();
+    assert!(!pre_restore.is_empty(), "safety backup should exist");
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_list_backups_empty_returns_empty() {
+    use crate::memory_core::BackupManager;
+
+    let base = std::env::temp_dir().join(format!("mag-list-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path,
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    let backups = storage.list_backups().await.unwrap();
+    assert!(backups.is_empty());
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_maybe_startup_backup_creates_on_first_run() {
+    use crate::memory_core::BackupManager;
+
+    let base = std::env::temp_dir().join(format!("mag-startup-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // First call should create a backup (no previous backups)
+    let result = storage.maybe_startup_backup().await.unwrap();
+    assert!(result.is_some(), "first startup should create a backup");
+
+    // Verify backup file exists
+    let info = result.unwrap();
+    assert!(info.path.exists());
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_maybe_startup_backup_skips_when_recent() {
+    use crate::memory_core::BackupManager;
+
+    let base = std::env::temp_dir().join(format!("mag-startup-skip-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+    let storage = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // Create a backup manually (simulates recent backup)
+    storage.create_backup().await.unwrap();
+
+    // Second call should skip (backup is very recent)
+    let result = storage.maybe_startup_backup().await.unwrap();
+    assert!(
+        result.is_none(),
+        "startup should skip when recent backup exists"
+    );
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn test_backup_in_memory_returns_error() {
+    use crate::memory_core::BackupManager;
+
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let result = storage.create_backup().await;
+    assert!(result.is_err(), "backup of in-memory DB should fail");
+}
+
+#[tokio::test]
+async fn test_maybe_startup_backup_skips_in_memory() {
+    use crate::memory_core::BackupManager;
+
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let result = storage.maybe_startup_backup().await.unwrap();
+    assert!(
+        result.is_none(),
+        "startup backup should skip for in-memory DB"
+    );
+}

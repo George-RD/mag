@@ -7,11 +7,11 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, EventType,
-    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
-    MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager,
-    RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder, StatsProvider, Updater,
-    VersionChainQuerier, WelcomeProvider, is_valid_event_type,
+    AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Deleter, Embedder,
+    EventType, ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister,
+    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
+    ProfileManager, RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder,
+    StatsProvider, Updater, VersionChainQuerier, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -121,6 +121,12 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "real-embeddings"))]
     let embedder: Arc<dyn Embedder> = Arc::new(PlaceholderEmbedder);
     let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
+
+    // Automatic startup backup (file-backed DBs only, max every 24h)
+    if let Err(e) = <SqliteStorage as BackupManager>::maybe_startup_backup(&sqlite_storage).await {
+        tracing::warn!("startup backup failed (non-fatal): {e}");
+    }
+
     let mcp_storage = sqlite_storage.clone();
 
     let pipeline = Pipeline::new(
@@ -775,6 +781,7 @@ async fn main() -> anyhow::Result<()> {
             min_cluster_size,
             dry_run,
             session_id,
+            backup_path,
         } => match action.as_str() {
             "health" => {
                 let result = <SqliteStorage as MaintenanceManager>::check_health(
@@ -814,8 +821,49 @@ async fn main() -> anyhow::Result<()> {
                     <SqliteStorage as MaintenanceManager>::clear_session(&mcp_storage, sid).await?;
                 println!("{}", json!({"session_id": sid, "removed": removed}));
             }
+            "backup" => {
+                let info = <SqliteStorage as BackupManager>::create_backup(&mcp_storage).await?;
+                <SqliteStorage as BackupManager>::rotate_backups(&mcp_storage, 5).await?;
+                println!(
+                    "{}",
+                    json!({
+                        "path": info.path.display().to_string(),
+                        "size_bytes": info.size_bytes,
+                        "created_at": info.created_at,
+                    })
+                );
+            }
+            "backup-list" | "backup_list" => {
+                let backups = <SqliteStorage as BackupManager>::list_backups(&mcp_storage).await?;
+                let payload: Vec<_> = backups
+                    .iter()
+                    .map(|b| {
+                        json!({
+                            "path": b.path.display().to_string(),
+                            "size_bytes": b.size_bytes,
+                            "created_at": b.created_at,
+                        })
+                    })
+                    .collect();
+                println!("{}", json!({ "backups": payload, "count": backups.len() }));
+            }
+            "backup-restore" | "backup_restore" => {
+                let path_str = backup_path.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("--backup-path is required for backup-restore")
+                })?;
+                let path = std::path::Path::new(path_str);
+                <SqliteStorage as BackupManager>::restore_backup(&mcp_storage, path).await?;
+                println!(
+                    "{}",
+                    json!({
+                        "restored": true,
+                        "from": path_str,
+                        "note": "restart the server to use the restored database"
+                    })
+                );
+            }
             other => anyhow::bail!(
-                "invalid maintain action: {other} (expected health|consolidate|compact|clear-session)"
+                "invalid maintain action: {other} (expected health|consolidate|compact|clear-session|backup|backup-list|backup-restore)"
             ),
         },
         Commands::Welcome {
