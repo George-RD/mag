@@ -4,8 +4,8 @@ This document records the benchmark methodology and the latest measured outputs 
 
 ## Environment
 
-- Date: `2026-03-12`
-- Commit: `66a9e3e97e0e65328864c4699ad6b14ccf8a24ae`
+- Date: `2026-03-16`
+- Commit: `4028f4749e2e444110e3cee10e14de83a68b0b4b`
 - Machine: `macOS aarch64, 12 CPU`
 - OS: `macOS 26.3 (25D125)`
 - Note: These published measurements were captured before later PR review follow-up fixes and were not rerun afterward.
@@ -84,41 +84,62 @@ Publication status:
 - External fetch, cache reuse, explicit path override, and temporary cleanup support are implemented.
 - The README does not yet publish a full `500`-question official score, because that full rerun was not completed in this batch window.
 
-## LoCoMo10 Retrieval Slice
+## LoCoMo10 Retrieval Benchmark
 
-Command:
+**Methodology:** For each of 10 LoCoMo conversations (~600 turns each), seed all turns as memories into a fresh in-memory database, then evaluate retrieval quality across 5 question categories. Primary metric is word-overlap recall (AutoMem-compatible); substring match and evidence recall are also reported.
+
+Commands:
 
 ```bash
+# Substring scoring (default)
 cargo run --release --bin locomo_bench -- --json
+# Word-overlap scoring (AutoMem-comparable)
+cargo run --release --bin locomo_bench -- --scoring-mode word-overlap --json
+# Fast iteration (2 samples, ~304 questions, ~15s)
+cargo run --release --bin locomo_bench -- --samples 2 --scoring-mode word-overlap
 ```
 
-Dataset source used by this run:
+Dataset: [`locomo10.json`](https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json) (10 conversations, 1986 questions)
 
-- `https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json`
-- Cached at `$HOME/.romega-memory/benchmarks/locomo/locomo10.json` because the active root resolved to the legacy MAG-compatible location
+### Run parameters
 
-Result:
-
-| Metric | Value |
+| Parameter | Value |
 | --- | --- |
+| Commit | `4028f47` |
+| Date | `2026-03-16` |
 | Samples evaluated | `10` |
 | Questions evaluated | `1986` |
 | Memories ingested | `5882` |
-| Correct | `476` |
-| Overall | `23.97%` |
-| Total duration | `224.75 s` |
-| Average query time | `20.22 ms` |
-| Peak RSS | `281184 KB` |
+| Top-k | `20` |
+| Total duration | `112.0 s` |
+| Average query time | `13.3 ms` |
+| Peak RSS | `277 MB` |
 
-| Category | Score |
-| --- | --- |
-| category_1 | `20 / 282` |
-| category_2 | `16 / 321` |
-| category_3 | `6 / 96` |
-| category_4 | `291 / 841` |
-| category_5 | `143 / 446` |
+### Results by category (word-overlap)
 
-This is a retrieval-oriented LoCoMo slice, not a full generative benchmark. The README describes it that way intentionally.
+| Category | Questions | Word Overlap | Substring | Evidence Recall |
+| --- | ---: | ---: | ---: | ---: |
+| Single-Hop QA | 282 | `57.9%` | `14.5%` | `50.9%` |
+| Temporal Reasoning | 321 | `75.5%` | `15.0%` | `80.0%` |
+| Multi-Hop QA | 96 | `32.5%` | `8.3%` | `43.1%` |
+| Open-Domain | 841 | `83.4%` | `45.4%` | `83.3%` |
+| Adversarial | 446 | `78.3%` | `43.0%` | `78.1%` |
+| **Overall** | **1986** | **`74.9%`** | **`33.8%`** | **`75.1%`** |
+
+### Comparison (word-overlap, 2-sample fast run)
+
+| Category | MAG | AutoMem |
+| --- | ---: | ---: |
+| Single-Hop QA | `61.4%` | `79.8%` |
+| Temporal Reasoning | `87.8%` | `85.1%` |
+| Multi-Hop QA | `43.7%` | `50.0%` |
+| Open-Domain | `76.5%` | `95.8%` |
+| Adversarial | `72.6%` | `100.0%` |
+| **Overall** | **`74.4%`** | **`90.5%`** |
+
+AutoMem numbers are from the [LoCoMo paper](https://arxiv.org/abs/2402.03174) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 2 --scoring-mode word-overlap --top-k 20`.
+
+This is a retrieval-oriented benchmark, not a full generative evaluation. The README describes it that way intentionally.
 
 ## Scale Benchmark
 

@@ -23,6 +23,12 @@ cargo build --release
 cargo run --release --bin longmemeval_bench
 cargo run --release --bin longmemeval_bench -- --grid-search  # parameter optimization
 
+# LoCoMo benchmark (retrieval quality across 5 categories)
+# Use --samples 2 for fast iteration (~304q, ~15s); full 10-sample only for validation after batched PRs
+cargo run --release --bin locomo_bench -- --samples 2                                # substring baseline
+cargo run --release --bin locomo_bench -- --samples 2 --scoring-mode word-overlap    # AutoMem-comparable
+cargo run --release --bin locomo_bench -- --llm-judge --samples 2                    # LLM judge (needs OPENAI_API_KEY in .env.local)
+
 # Benchmark measurement (wall time, CPU time, RSS) — run 2-3 warm iterations
 # macOS: /usr/bin/time -l   Linux: /usr/bin/time -v
 /usr/bin/time -l cargo run --release --bin longmemeval_bench -- --json
@@ -79,6 +85,10 @@ Query → ONNX embed → Vector search + FTS5 BM25 → RRF fusion → Score refi
 
 ## Gotchas
 
+- `benches/locomo/` is a modular 8-file benchmark suite, not a single-file bench
+- LoCoMo-10 IS the reduced dataset (original had 50 conversations); `--samples 2` is the standard fast iteration mode
+- LoCoMo categories: cat 1=single-hop, cat 2=temporal, cat 3=multi-hop, cat 4=open-domain, cat 5=adversarial
+- `.env.local` contains OPENAI_API_KEY — in .gitignore, loaded by `dotenvy::from_filename(".env.local")` in llm.rs
 - The `conductor/` directory contains product planning docs (tracks, specs, style guides) — it's not runtime code
 - Model files (~134 MB) auto-download under the active app root on first use; check `~/.mag/models/` first, and `~/.romega-memory/models/` if MAG is reusing the legacy root. Use `cargo run --release -- download-model` to pre-download.
 - Event types use the `EventType` enum (22 variants + `Unknown(String)`); priority auto-maps via `EventType::default_priority()`
