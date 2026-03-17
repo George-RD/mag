@@ -6754,3 +6754,324 @@ async fn test_maybe_startup_backup_skips_in_memory() {
         "startup backup should skip for in-memory DB"
     );
 }
+
+// ── Cache invalidation integration tests ─────────────────────────────────
+
+#[tokio::test]
+async fn test_cache_invalidation_on_store_then_search() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store a memory and search for it via advanced_search to populate the cache.
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "ci-s1",
+        "quantum computing research breakthrough",
+        &MemoryInput {
+            tags: vec!["science".into()],
+            importance: 0.8,
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let results1 = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "quantum computing",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results1.iter().any(|r| r.id == "ci-s1"),
+        "first memory should appear in search results"
+    );
+
+    // Store another memory with overlapping terms — this should invalidate the cache.
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "ci-s2",
+        "quantum computing hardware advances",
+        &MemoryInput {
+            tags: vec!["science".into()],
+            importance: 0.9,
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Search again — the new memory should appear because cache was invalidated.
+    let results2 = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "quantum computing",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results2.iter().any(|r| r.id == "ci-s2"),
+        "second memory should appear after cache invalidation by store"
+    );
+    assert!(
+        results2.iter().any(|r| r.id == "ci-s1"),
+        "first memory should still appear"
+    );
+}
+
+#[tokio::test]
+async fn test_cache_invalidation_on_update() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store a memory and search for it to populate the cache.
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "ci-u1",
+        "photosynthesis chloroplast biology",
+        &MemoryInput {
+            tags: vec!["biology".into()],
+            importance: 0.7,
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let results_before = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "photosynthesis",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results_before.iter().any(|r| r.id == "ci-u1"),
+        "memory should be found by old terms before update"
+    );
+
+    // Update the content to completely different terms.
+    storage
+        .update(
+            "ci-u1",
+            &MemoryUpdate {
+                content: Some("volcanic eruption geology seismology".into()),
+                tags: None,
+                importance: None,
+                metadata: None,
+                event_type: None,
+                priority: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    // Search with old terms — should NOT find the updated memory.
+    let results_old = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "photosynthesis",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !results_old.iter().any(|r| r.id == "ci-u1"),
+        "memory should NOT be found by old terms after update"
+    );
+
+    // Search with new terms — should find it.
+    let results_new = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "volcanic eruption",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results_new.iter().any(|r| r.id == "ci-u1"),
+        "memory should be found by new terms after update"
+    );
+}
+
+#[tokio::test]
+async fn test_cache_invalidation_on_delete() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store a memory and search for it to populate the cache.
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "ci-d1",
+        "ephemeral data processing pipeline",
+        &MemoryInput {
+            tags: vec!["engineering".into()],
+            importance: 0.6,
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let results_before = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "ephemeral data processing",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results_before.iter().any(|r| r.id == "ci-d1"),
+        "memory should be found before deletion"
+    );
+
+    // Delete the memory.
+    let deleted = storage.delete("ci-d1").await.unwrap();
+    assert!(deleted, "delete should return true for existing memory");
+
+    // Search again — should NOT find the deleted memory.
+    let results_after = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "ephemeral data processing",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !results_after.iter().any(|r| r.id == "ci-d1"),
+        "memory should NOT be found after deletion"
+    );
+}
+
+#[tokio::test]
+async fn test_cache_invalidation_on_sweep() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store a memory with a short TTL.
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "ci-sw1",
+        "transient notification message alert",
+        &MemoryInput {
+            ttl_seconds: Some(1),
+            importance: 0.5,
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Search for it to populate the cache.
+    let results_before = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "transient notification",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results_before.iter().any(|r| r.id == "ci-sw1"),
+        "memory should be found before sweep"
+    );
+
+    // Force the created_at timestamp into the past so TTL has expired.
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute(
+            "UPDATE memories SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = 'ci-sw1'",
+            [],
+        )
+        .unwrap();
+    }
+
+    // Sweep expired memories.
+    let swept = <SqliteStorage as ExpirationSweeper>::sweep_expired(&storage)
+        .await
+        .unwrap();
+    assert_eq!(swept, 1, "one memory should be swept");
+
+    // Search again — should NOT find the swept memory.
+    let results_after = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "transient notification",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !results_after.iter().any(|r| r.id == "ci-sw1"),
+        "memory should NOT be found after sweep"
+    );
+}
+
+#[tokio::test]
+async fn test_search_cache_hit_returns_same_results() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store some memories.
+    for (id, content) in [
+        ("ci-ch1", "neural network deep learning optimization"),
+        ("ci-ch2", "neural network architecture design patterns"),
+        ("ci-ch3", "database indexing performance tuning"),
+    ] {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            id,
+            content,
+            &MemoryInput {
+                importance: 0.7,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // Search twice with the same query — results should be identical (cache hit).
+    let results1 = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "neural network",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let results2 = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        &storage,
+        "neural network",
+        10,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        results1.len(),
+        results2.len(),
+        "cached search should return same number of results"
+    );
+    for (r1, r2) in results1.iter().zip(results2.iter()) {
+        assert_eq!(r1.id, r2.id, "cached search should return same result ids");
+        assert_eq!(
+            r1.content, r2.content,
+            "cached search should return same content"
+        );
+        assert_eq!(
+            r1.score, r2.score,
+            "cached search should return same scores"
+        );
+    }
+}
