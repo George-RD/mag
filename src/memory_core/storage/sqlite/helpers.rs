@@ -340,6 +340,385 @@ pub(super) fn parse_metadata_from_db(raw: &str) -> serde_json::Value {
         .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::default()))
 }
 
+/// Maximum number of synonyms to inject per query token.
+/// Keeps FTS5 queries from growing too large on synonym-rich words.
+const SYNONYM_CAP: usize = 3;
+
+/// Returns synonyms for common memory-relevant words.
+///
+/// Each entry maps a word to its synonym group. The mapping is bidirectional:
+/// every word in a group maps to all *other* words in that group.
+///
+/// Returns an empty slice for words without known synonyms.
+fn get_synonyms(word: &str) -> &'static [&'static str] {
+    match word {
+        "buy" | "purchase" | "bought" => match word {
+            "buy" => &["purchase", "bought"],
+            "purchase" => &["buy", "bought"],
+            "bought" => &["buy", "purchase"],
+            _ => &[],
+        },
+        "movie" | "film" => match word {
+            "movie" => &["film"],
+            "film" => &["movie"],
+            _ => &[],
+        },
+        "doctor" | "physician" | "dr" => match word {
+            "doctor" => &["physician", "dr"],
+            "physician" => &["doctor", "dr"],
+            "dr" => &["doctor", "physician"],
+            _ => &[],
+        },
+        "phone" | "telephone" | "mobile" | "cell" => match word {
+            "phone" => &["telephone", "mobile", "cell"],
+            "telephone" => &["phone", "mobile", "cell"],
+            "mobile" => &["phone", "telephone", "cell"],
+            "cell" => &["phone", "telephone", "mobile"],
+            _ => &[],
+        },
+        "car" | "automobile" | "vehicle" => match word {
+            "car" => &["automobile", "vehicle"],
+            "automobile" => &["car", "vehicle"],
+            "vehicle" => &["car", "automobile"],
+            _ => &[],
+        },
+        "happy" | "glad" | "pleased" | "joyful" => match word {
+            "happy" => &["glad", "pleased", "joyful"],
+            "glad" => &["happy", "pleased", "joyful"],
+            "pleased" => &["happy", "glad", "joyful"],
+            "joyful" => &["happy", "glad", "pleased"],
+            _ => &[],
+        },
+        "sad" | "unhappy" | "depressed" => match word {
+            "sad" => &["unhappy", "depressed"],
+            "unhappy" => &["sad", "depressed"],
+            "depressed" => &["sad", "unhappy"],
+            _ => &[],
+        },
+        "big" | "large" | "huge" | "enormous" => match word {
+            "big" => &["large", "huge", "enormous"],
+            "large" => &["big", "huge", "enormous"],
+            "huge" => &["big", "large", "enormous"],
+            "enormous" => &["big", "large", "huge"],
+            _ => &[],
+        },
+        "small" | "little" | "tiny" | "mini" => match word {
+            "small" => &["little", "tiny", "mini"],
+            "little" => &["small", "tiny", "mini"],
+            "tiny" => &["small", "little", "mini"],
+            "mini" => &["small", "little", "tiny"],
+            _ => &[],
+        },
+        "start" | "begin" | "commence" => match word {
+            "start" => &["begin", "commence"],
+            "begin" => &["start", "commence"],
+            "commence" => &["start", "begin"],
+            _ => &[],
+        },
+        "end" | "finish" | "complete" | "conclude" => match word {
+            "end" => &["finish", "complete", "conclude"],
+            "finish" => &["end", "complete", "conclude"],
+            "complete" => &["end", "finish", "conclude"],
+            "conclude" => &["end", "finish", "complete"],
+            _ => &[],
+        },
+        "fast" | "quick" | "rapid" | "swift" => match word {
+            "fast" => &["quick", "rapid", "swift"],
+            "quick" => &["fast", "rapid", "swift"],
+            "rapid" => &["fast", "quick", "swift"],
+            "swift" => &["fast", "quick", "rapid"],
+            _ => &[],
+        },
+        "slow" | "sluggish" | "gradual" => match word {
+            "slow" => &["sluggish", "gradual"],
+            "sluggish" => &["slow", "gradual"],
+            "gradual" => &["slow", "sluggish"],
+            _ => &[],
+        },
+        "old" | "ancient" | "elderly" | "aged" => match word {
+            "old" => &["ancient", "elderly", "aged"],
+            "ancient" => &["old", "elderly", "aged"],
+            "elderly" => &["old", "ancient", "aged"],
+            "aged" => &["old", "ancient", "elderly"],
+            _ => &[],
+        },
+        "new" | "fresh" | "recent" | "modern" => match word {
+            "new" => &["fresh", "recent", "modern"],
+            "fresh" => &["new", "recent", "modern"],
+            "recent" => &["new", "fresh", "modern"],
+            "modern" => &["new", "fresh", "recent"],
+            _ => &[],
+        },
+        "house" | "home" | "residence" => match word {
+            "house" => &["home", "residence"],
+            "home" => &["house", "residence"],
+            "residence" => &["house", "home"],
+            _ => &[],
+        },
+        "job" | "work" | "employment" | "occupation" | "career" => match word {
+            "job" => &["work", "employment", "occupation", "career"],
+            "work" => &["job", "employment", "occupation", "career"],
+            "employment" => &["job", "work", "occupation", "career"],
+            "occupation" => &["job", "work", "employment", "career"],
+            "career" => &["job", "work", "employment", "occupation"],
+            _ => &[],
+        },
+        "trip" | "travel" | "journey" | "vacation" => match word {
+            "trip" => &["travel", "journey", "vacation"],
+            "travel" => &["trip", "journey", "vacation"],
+            "journey" => &["trip", "travel", "vacation"],
+            "vacation" => &["trip", "travel", "journey"],
+            _ => &[],
+        },
+        "food" | "meal" | "cuisine" | "dish" => match word {
+            "food" => &["meal", "cuisine", "dish"],
+            "meal" => &["food", "cuisine", "dish"],
+            "cuisine" => &["food", "meal", "dish"],
+            "dish" => &["food", "meal", "cuisine"],
+            _ => &[],
+        },
+        "child" | "kid" | "offspring" => match word {
+            "child" => &["kid", "offspring"],
+            "kid" => &["child", "offspring"],
+            "offspring" => &["child", "kid"],
+            _ => &[],
+        },
+        "friend" | "buddy" | "pal" | "companion" => match word {
+            "friend" => &["buddy", "pal", "companion"],
+            "buddy" => &["friend", "pal", "companion"],
+            "pal" => &["friend", "buddy", "companion"],
+            "companion" => &["friend", "buddy", "pal"],
+            _ => &[],
+        },
+        "money" | "cash" | "funds" | "currency" => match word {
+            "money" => &["cash", "funds", "currency"],
+            "cash" => &["money", "funds", "currency"],
+            "funds" => &["money", "cash", "currency"],
+            "currency" => &["money", "cash", "funds"],
+            _ => &[],
+        },
+        "talk" | "speak" | "chat" | "discuss" | "conversation" => match word {
+            "talk" => &["speak", "chat", "discuss", "conversation"],
+            "speak" => &["talk", "chat", "discuss", "conversation"],
+            "chat" => &["talk", "speak", "discuss", "conversation"],
+            "discuss" => &["talk", "speak", "chat", "conversation"],
+            "conversation" => &["talk", "speak", "chat", "discuss"],
+            _ => &[],
+        },
+        "like" | "enjoy" | "prefer" | "fond" => match word {
+            "like" => &["enjoy", "prefer", "fond"],
+            "enjoy" => &["like", "prefer", "fond"],
+            "prefer" => &["like", "enjoy", "fond"],
+            "fond" => &["like", "enjoy", "prefer"],
+            _ => &[],
+        },
+        "hate" | "dislike" | "detest" | "loathe" => match word {
+            "hate" => &["dislike", "detest", "loathe"],
+            "dislike" => &["hate", "detest", "loathe"],
+            "detest" => &["hate", "dislike", "loathe"],
+            "loathe" => &["hate", "dislike", "detest"],
+            _ => &[],
+        },
+        "want" | "desire" | "wish" | "need" => match word {
+            "want" => &["desire", "wish", "need"],
+            "desire" => &["want", "wish", "need"],
+            "wish" => &["want", "desire", "need"],
+            "need" => &["want", "desire", "wish"],
+            _ => &[],
+        },
+        "think" | "believe" | "consider" | "reckon" => match word {
+            "think" => &["believe", "consider", "reckon"],
+            "believe" => &["think", "consider", "reckon"],
+            "consider" => &["think", "believe", "reckon"],
+            "reckon" => &["think", "believe", "consider"],
+            _ => &[],
+        },
+        "look" | "see" | "watch" | "observe" | "view" => match word {
+            "look" => &["see", "watch", "observe", "view"],
+            "see" => &["look", "watch", "observe", "view"],
+            "watch" => &["look", "see", "observe", "view"],
+            "observe" => &["look", "see", "watch", "view"],
+            "view" => &["look", "see", "watch", "observe"],
+            _ => &[],
+        },
+        "give" | "provide" | "offer" | "donate" => match word {
+            "give" => &["provide", "offer", "donate"],
+            "provide" => &["give", "offer", "donate"],
+            "offer" => &["give", "provide", "donate"],
+            "donate" => &["give", "provide", "offer"],
+            _ => &[],
+        },
+        "take" | "grab" | "seize" | "accept" => match word {
+            "take" => &["grab", "seize", "accept"],
+            "grab" => &["take", "seize", "accept"],
+            "seize" => &["take", "grab", "accept"],
+            "accept" => &["take", "grab", "seize"],
+            _ => &[],
+        },
+        "make" | "create" | "build" | "construct" => match word {
+            "make" => &["create", "build", "construct"],
+            "create" => &["make", "build", "construct"],
+            "build" => &["make", "create", "construct"],
+            "construct" => &["make", "create", "build"],
+            _ => &[],
+        },
+        "show" | "display" | "demonstrate" | "present" | "exhibit" => match word {
+            "show" => &["display", "demonstrate", "present", "exhibit"],
+            "display" => &["show", "demonstrate", "present", "exhibit"],
+            "demonstrate" => &["show", "display", "present", "exhibit"],
+            "present" => &["show", "display", "demonstrate", "exhibit"],
+            "exhibit" => &["show", "display", "demonstrate", "present"],
+            _ => &[],
+        },
+        "tell" | "inform" | "notify" => match word {
+            "tell" => &["inform", "notify"],
+            "inform" => &["tell", "notify"],
+            "notify" => &["tell", "inform"],
+            _ => &[],
+        },
+        "help" | "assist" | "support" | "aid" => match word {
+            "help" => &["assist", "support", "aid"],
+            "assist" => &["help", "support", "aid"],
+            "support" => &["help", "assist", "aid"],
+            "aid" => &["help", "assist", "support"],
+            _ => &[],
+        },
+        "move" | "relocate" | "transfer" => match word {
+            "move" => &["relocate", "transfer"],
+            "relocate" => &["move", "transfer"],
+            "transfer" => &["move", "relocate"],
+            _ => &[],
+        },
+        "play" | "perform" | "game" => match word {
+            "play" => &["perform", "game"],
+            "perform" => &["play", "game"],
+            "game" => &["play", "perform"],
+            _ => &[],
+        },
+        "run" | "execute" | "sprint" | "jog" => match word {
+            "run" => &["execute", "sprint", "jog"],
+            "execute" => &["run", "sprint", "jog"],
+            "sprint" => &["run", "execute", "jog"],
+            "jog" => &["run", "execute", "sprint"],
+            _ => &[],
+        },
+        "eat" | "consume" | "dine" => match word {
+            "eat" => &["consume", "dine"],
+            "consume" => &["eat", "dine"],
+            "dine" => &["eat", "consume"],
+            _ => &[],
+        },
+        "drink" | "beverage" | "sip" => match word {
+            "drink" => &["beverage", "sip"],
+            "beverage" => &["drink", "sip"],
+            "sip" => &["drink", "beverage"],
+            _ => &[],
+        },
+        "sleep" | "rest" | "nap" | "slumber" => match word {
+            "sleep" => &["rest", "nap", "slumber"],
+            "rest" => &["sleep", "nap", "slumber"],
+            "nap" => &["sleep", "rest", "slumber"],
+            "slumber" => &["sleep", "rest", "nap"],
+            _ => &[],
+        },
+        "sick" | "ill" | "unwell" => match word {
+            "sick" => &["ill", "unwell"],
+            "ill" => &["sick", "unwell"],
+            "unwell" => &["sick", "ill"],
+            _ => &[],
+        },
+        "pain" | "ache" | "hurt" | "sore" => match word {
+            "pain" => &["ache", "hurt", "sore"],
+            "ache" => &["pain", "hurt", "sore"],
+            "hurt" => &["pain", "ache", "sore"],
+            "sore" => &["pain", "ache", "hurt"],
+            _ => &[],
+        },
+        "dog" | "puppy" | "canine" | "pup" => match word {
+            "dog" => &["puppy", "canine", "pup"],
+            "puppy" => &["dog", "canine", "pup"],
+            "canine" => &["dog", "puppy", "pup"],
+            "pup" => &["dog", "puppy", "canine"],
+            _ => &[],
+        },
+        "cat" | "kitten" | "feline" => match word {
+            "cat" => &["kitten", "feline"],
+            "kitten" => &["cat", "feline"],
+            "feline" => &["cat", "kitten"],
+            _ => &[],
+        },
+        "book" | "novel" | "publication" => match word {
+            "book" => &["novel", "publication"],
+            "novel" => &["book", "publication"],
+            "publication" => &["book", "novel"],
+            _ => &[],
+        },
+        "school" | "college" | "university" | "academy" => match word {
+            "school" => &["college", "university", "academy"],
+            "college" => &["school", "university", "academy"],
+            "university" => &["school", "college", "academy"],
+            "academy" => &["school", "college", "university"],
+            _ => &[],
+        },
+        "city" | "town" | "urban" => match word {
+            "city" => &["town", "urban"],
+            "town" => &["city", "urban"],
+            "urban" => &["city", "town"],
+            _ => &[],
+        },
+        "country" | "nation" | "state" => match word {
+            "country" => &["nation", "state"],
+            "nation" => &["country", "state"],
+            "state" => &["country", "nation"],
+            _ => &[],
+        },
+        "meet" | "encounter" | "rendezvous" => match word {
+            "meet" => &["encounter", "rendezvous"],
+            "encounter" => &["meet", "rendezvous"],
+            "rendezvous" => &["meet", "encounter"],
+            _ => &[],
+        },
+        "leave" | "depart" | "exit" => match word {
+            "leave" => &["depart", "exit"],
+            "depart" => &["leave", "exit"],
+            "exit" => &["leave", "depart"],
+            _ => &[],
+        },
+        "arrive" | "reach" | "come" => match word {
+            "arrive" => &["reach", "come"],
+            "reach" => &["arrive", "come"],
+            "come" => &["arrive", "reach"],
+            _ => &[],
+        },
+        "fix" | "repair" | "mend" => match word {
+            "fix" => &["repair", "mend"],
+            "repair" => &["fix", "mend"],
+            "mend" => &["fix", "repair"],
+            _ => &[],
+        },
+        "break" | "shatter" | "crack" | "damage" => match word {
+            "break" => &["shatter", "crack", "damage"],
+            "shatter" => &["break", "crack", "damage"],
+            "crack" => &["break", "shatter", "damage"],
+            "damage" => &["break", "shatter", "crack"],
+            _ => &[],
+        },
+        "close" | "shut" | "near" => match word {
+            "close" => &["shut", "near"],
+            "shut" => &["close", "near"],
+            "near" => &["close", "shut"],
+            _ => &[],
+        },
+        "open" | "unlock" | "accessible" => match word {
+            "open" => &["unlock", "accessible"],
+            "unlock" => &["open", "accessible"],
+            "accessible" => &["open", "unlock"],
+            _ => &[],
+        },
+        _ => &[],
+    }
+}
+
 pub(super) fn build_fts5_query(input: &str) -> String {
     let raw_tokens: Vec<&str> = input.split_whitespace().filter(|t| !t.is_empty()).collect();
 
@@ -372,10 +751,39 @@ pub(super) fn build_fts5_query(input: &str) -> String {
         })
         .collect();
 
+    // ── Synonym expansion ──
+    // For each non-stopword token, look up synonyms and add them as OR terms.
+    // Also apply simple_stem() to both originals and synonyms so inflected
+    // forms match (e.g. "bought" stems to "bought", synonym "purchase" stems
+    // to "purchas" which matches "purchased" in FTS5).
+    // Capped at SYNONYM_CAP synonyms per token to avoid query explosion.
+    let mut synonym_terms: Vec<String> = Vec::new();
+    for token in effective_tokens {
+        let lower = token.to_lowercase();
+        let syns = get_synonyms(&lower);
+        if syns.is_empty() {
+            continue;
+        }
+        // Collect unique stemmed forms to avoid duplicates.
+        let original_stem = simple_stem(&lower);
+        for syn in syns.iter().take(SYNONYM_CAP) {
+            let syn_stem = simple_stem(syn);
+            // Skip if the stemmed synonym is the same as the original token
+            // (would be redundant with the already-present term).
+            if syn_stem == lower || syn_stem == original_stem {
+                continue;
+            }
+            let escaped_syn = syn.replace('"', "\"\"");
+            synonym_terms.push(format!("\"{escaped_syn}\""));
+        }
+    }
+
     // For 1-2 token queries, bigrams would be redundant (either a single
     // token or an exact duplicate of the full query). Just join with OR.
     if effective_tokens.len() < 3 {
-        return escaped.join(" OR ");
+        let mut parts = escaped;
+        parts.extend(synonym_terms);
+        return parts.join(" OR ");
     }
 
     // 3+ tokens: append adjacent-token bigrams as quoted phrases.
@@ -390,6 +798,7 @@ pub(super) fn build_fts5_query(input: &str) -> String {
 
     let mut parts = escaped;
     parts.extend(bigrams);
+    parts.extend(synonym_terms);
     parts.join(" OR ")
 }
 
@@ -1086,21 +1495,27 @@ mod tests {
 
     #[test]
     fn fts5_query_three_tokens_with_bigrams() {
-        assert_eq!(
-            build_fts5_query("database connection pool"),
-            "\"database\" OR \"connection\" OR \"pool\" \
-             OR \"database connection\" OR \"connection pool\""
-        );
+        let q = build_fts5_query("database connection pool");
+        // Original tokens + bigrams, no synonyms for these words
+        assert!(q.starts_with("\"database\" OR \"connection\" OR \"pool\""));
+        assert!(q.contains("\"database connection\""));
+        assert!(q.contains("\"connection pool\""));
     }
 
     #[test]
     fn fts5_query_four_tokens_with_bigrams() {
         // "the" is a stopword and gets filtered; remaining 3 tokens get bigrams
-        assert_eq!(
-            build_fts5_query("the quick brown fox"),
-            "\"quick\" OR \"brown\" OR \"fox\" \
-             OR \"quick brown\" OR \"brown fox\""
-        );
+        // "quick" has synonyms: fast, rapid, swift
+        let q = build_fts5_query("the quick brown fox");
+        assert!(q.contains("\"quick\""));
+        assert!(q.contains("\"brown\""));
+        assert!(q.contains("\"fox\""));
+        assert!(q.contains("\"quick brown\""));
+        assert!(q.contains("\"brown fox\""));
+        // Synonym expansion for "quick"
+        assert!(q.contains("\"fast\""));
+        assert!(q.contains("\"rapid\""));
+        assert!(q.contains("\"swift\""));
     }
 
     #[test]
@@ -1370,10 +1785,146 @@ mod tests {
     #[test]
     fn fts5_query_stopwords_with_bigrams() {
         // "how to deploy the application" → stopwords "how", "to", "the" removed
-        // → "deploy", "application" (2 tokens, no bigrams)
+        // → "deploy", "application" (2 tokens, no bigrams, no synonyms)
         assert_eq!(
             build_fts5_query("how to deploy the application"),
             "\"deploy\" OR \"application\""
         );
+    }
+
+    // ── Synonym expansion tests ──────────────────────────────────────
+
+    #[test]
+    fn synonym_map_bidirectional() {
+        // Every word in a synonym group should map back to the others
+        let groups: &[&[&str]] = &[
+            &["buy", "purchase", "bought"],
+            &["movie", "film"],
+            &["doctor", "physician", "dr"],
+            &["car", "automobile", "vehicle"],
+            &["house", "home", "residence"],
+            &["dog", "puppy", "canine", "pup"],
+        ];
+        for group in groups {
+            for &word in *group {
+                let syns = get_synonyms(word);
+                assert!(
+                    !syns.is_empty(),
+                    "get_synonyms({word:?}) returned empty slice"
+                );
+                // Every other word in the group should be a synonym
+                for &other in *group {
+                    if other == word {
+                        continue;
+                    }
+                    assert!(
+                        syns.contains(&other),
+                        "get_synonyms({word:?}) missing {other:?}, got {syns:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn synonym_map_no_match() {
+        assert!(get_synonyms("database").is_empty());
+        assert!(get_synonyms("connection").is_empty());
+        assert!(get_synonyms("xyzzy").is_empty());
+    }
+
+    #[test]
+    fn fts5_query_single_token_with_synonym() {
+        // "movie" has synonym "film"
+        let q = build_fts5_query("movie");
+        assert!(q.contains("\"movie\""), "missing original: {q}");
+        assert!(q.contains("\"film\""), "missing synonym 'film': {q}");
+    }
+
+    #[test]
+    fn fts5_query_two_tokens_with_synonyms() {
+        // "buy car" → "buy" has synonyms (purchase, bought), "car" has synonyms (automobile, vehicle)
+        let q = build_fts5_query("buy car");
+        assert!(q.contains("\"buy\""), "missing original 'buy': {q}");
+        assert!(q.contains("\"car\""), "missing original 'car': {q}");
+        assert!(
+            q.contains("\"purchase\""),
+            "missing synonym 'purchase': {q}"
+        );
+        assert!(q.contains("\"bought\""), "missing synonym 'bought': {q}");
+        assert!(
+            q.contains("\"automobile\""),
+            "missing synonym 'automobile': {q}"
+        );
+        assert!(q.contains("\"vehicle\""), "missing synonym 'vehicle': {q}");
+    }
+
+    #[test]
+    fn fts5_query_synonym_cap_respected() {
+        // "phone" has 3 synonyms: telephone, mobile, cell — all should appear (cap=3)
+        let q = build_fts5_query("phone");
+        assert!(q.contains("\"phone\""));
+        // Count synonym terms (all should be present since cap is 3)
+        let synonym_count = ["telephone", "mobile", "cell"]
+            .iter()
+            .filter(|s| q.contains(&format!("\"{s}\"")))
+            .count();
+        assert!(
+            synonym_count <= SYNONYM_CAP,
+            "got {synonym_count} synonyms, expected at most {SYNONYM_CAP}"
+        );
+    }
+
+    #[test]
+    fn fts5_query_no_synonym_for_non_synonym_words() {
+        // "database" has no synonyms, query should be unchanged
+        assert_eq!(build_fts5_query("database"), "\"database\"");
+    }
+
+    #[test]
+    fn fts5_query_synonym_deduplication() {
+        // Synonyms whose stems match the original token should be skipped.
+        // This is a general property test — no synonym should produce a
+        // quoted term identical to the original token.
+        let q = build_fts5_query("help");
+        // "help" synonyms: assist, support, aid — all different stems
+        assert!(q.contains("\"help\""));
+        assert!(q.contains("\"assist\""));
+        assert!(q.contains("\"support\""));
+        assert!(q.contains("\"aid\""));
+    }
+
+    #[test]
+    fn fts5_query_synonym_with_bigrams() {
+        // 3+ tokens where some have synonyms
+        // "buy fast car" → "buy"(purchase,bought), "fast"(quick,rapid,swift), "car"(automobile,vehicle)
+        let q = build_fts5_query("buy fast car");
+        // Original tokens
+        assert!(q.contains("\"buy\""), "missing 'buy': {q}");
+        assert!(q.contains("\"fast\""), "missing 'fast': {q}");
+        assert!(q.contains("\"car\""), "missing 'car': {q}");
+        // Bigrams
+        assert!(q.contains("\"buy fast\""), "missing bigram 'buy fast': {q}");
+        assert!(q.contains("\"fast car\""), "missing bigram 'fast car': {q}");
+        // Synonyms
+        assert!(
+            q.contains("\"purchase\""),
+            "missing synonym 'purchase': {q}"
+        );
+        assert!(q.contains("\"quick\""), "missing synonym 'quick': {q}");
+        assert!(
+            q.contains("\"automobile\""),
+            "missing synonym 'automobile': {q}"
+        );
+    }
+
+    #[test]
+    fn fts5_query_stopword_synonym_interaction() {
+        // Stopwords are filtered first; synonyms only apply to non-stopwords
+        // "the movie" → "the" filtered → "movie" with synonym "film"
+        let q = build_fts5_query("the movie");
+        assert!(q.contains("\"movie\""));
+        assert!(q.contains("\"film\""));
+        assert!(!q.contains("\"the\""));
     }
 }

@@ -362,7 +362,7 @@ pub(crate) fn token_set(text: &str, min_word_len: usize) -> HashSet<String> {
 /// - Never reduces a word below 3 characters.
 /// - Idempotent: stemming an already-stemmed word returns the same result.
 /// - No external crates — pure string operations.
-fn simple_stem(word: &str) -> Cow<'_, str> {
+pub(crate) fn simple_stem(word: &str) -> Cow<'_, str> {
     // Short words are returned as-is (nothing to strip safely).
     if word.len() < 4 {
         return Cow::Borrowed(word);

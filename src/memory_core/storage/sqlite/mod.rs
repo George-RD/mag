@@ -20,8 +20,8 @@ use crate::memory_core::{
     Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
     SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
     Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider, embedder::Embedder,
-    feedback_factor, is_stopword, jaccard_pre, jaccard_similarity, priority_factor, time_decay_et,
-    token_set, type_weight_et, word_overlap_pre,
+    feedback_factor, is_stopword, jaccard_pre, jaccard_similarity, priority_factor, simple_stem,
+    time_decay_et, token_set, type_weight_et, word_overlap_pre,
 };
 
 /// Query result cache TTL in seconds.
