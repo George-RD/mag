@@ -95,7 +95,11 @@ pub(crate) async fn generate_answer(question: &str, hits: &[RetrievalHit]) -> Re
         .collect::<Vec<_>>()
         .join("\n");
 
+<<<<<<< Updated upstream
     let user_msg = format!("Context:\n{context}\n\nQuestion: {question}\n\nAnswer concisely.");
+=======
+    let user_prompt = format!("Context:\n{context}\n\nQuestion: {question}\n\nAnswer concisely.");
+>>>>>>> Stashed changes
 
     let body = OpenAiChatRequest {
         model,
@@ -104,11 +108,24 @@ pub(crate) async fn generate_answer(question: &str, hits: &[RetrievalHit]) -> Re
         messages: vec![
             OpenAiMessage {
                 role: "system".to_string(),
+<<<<<<< Updated upstream
                 content: SYSTEM_MSG.to_string(),
             },
             OpenAiMessage {
                 role: "user".to_string(),
                 content: user_msg,
+=======
+                content: "You are a helpful assistant that answers questions based only on \
+                    the provided context. If the information needed to answer the question \
+                    is not present in the context, respond with: 'The information is not \
+                    mentioned in the provided context.' Do not make up or infer information \
+                    that is not explicitly stated."
+                    .to_string(),
+            },
+            OpenAiMessage {
+                role: "user".to_string(),
+                content: user_prompt,
+>>>>>>> Stashed changes
             },
         ],
     };
