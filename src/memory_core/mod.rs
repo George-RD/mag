@@ -175,6 +175,7 @@ impl EventType {
             EventType::TaskCompletion => Some(0.85),
             EventType::Decision => Some(0.80),
             EventType::LessonLearned => Some(0.85),
+            EventType::UserFact => Some(0.85),
             _ => None,
         }
     }
@@ -183,7 +184,11 @@ impl EventType {
     pub fn is_supersession_type(&self) -> bool {
         matches!(
             self,
-            EventType::Decision | EventType::LessonLearned | EventType::UserPreference
+            EventType::Decision
+                | EventType::LessonLearned
+                | EventType::UserPreference
+                | EventType::UserFact
+                | EventType::Reminder
         )
     }
 
@@ -201,6 +206,7 @@ impl EventType {
             EventType::TaskCompletion,
             EventType::Decision,
             EventType::LessonLearned,
+            EventType::UserFact,
         ]
     }
 }

@@ -109,6 +109,7 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         "CREATE INDEX IF NOT EXISTS idx_memories_project_created_active ON memories(project, created_at DESC) WHERE superseded_by_id IS NULL",
         "CREATE INDEX IF NOT EXISTS idx_memories_session_created_active ON memories(session_id, created_at DESC) WHERE superseded_by_id IS NULL",
         "CREATE INDEX IF NOT EXISTS idx_memories_event_created_active ON memories(event_type, created_at DESC) WHERE superseded_by_id IS NULL",
+        "CREATE INDEX IF NOT EXISTS idx_memories_entity_id ON memories(entity_id)",
         "CREATE INDEX IF NOT EXISTS idx_memories_canonical ON memories(canonical_hash)",
         "CREATE INDEX IF NOT EXISTS idx_memories_version_chain ON memories(version_chain_id)",
         "CREATE INDEX IF NOT EXISTS idx_memories_superseded ON memories(superseded_by_id)",
