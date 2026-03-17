@@ -183,6 +183,27 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
     }
 }
 
+// ── Word-overlap on text (for E2E scoring) ───────────────────────────────
+
+/// Compute word-overlap recall between LLM-generated text and expected answer.
+/// Reuses `normalize_tokens()` for consistency with retrieval word-overlap.
+pub(crate) fn word_overlap_on_text(generated: &str, expected: &str) -> f64 {
+    if expected.is_empty() {
+        return 0.0;
+    }
+    let expected_tokens = normalize_tokens(expected);
+    if expected_tokens.is_empty() {
+        return 0.0;
+    }
+    let generated_tokens = normalize_tokens(generated);
+    #[allow(clippy::cast_precision_loss)]
+    let overlap = expected_tokens.intersection(&generated_tokens).count() as f64;
+    #[allow(clippy::cast_precision_loss)]
+    {
+        overlap / expected_tokens.len() as f64
+    }
+}
+
 // ── Adversarial detection ────────────────────────────────────────────────
 
 /// Phrases that indicate the LLM correctly identified information as absent.
@@ -513,5 +534,59 @@ mod tests {
         // Hit 1 has "pari", hit 2 has "tuesday" — full recall
         let score = word_overlap_score(&hits, "Paris Tuesday");
         assert!((score - 1.0).abs() < 1e-9, "expected 1.0, got {score}");
+    }
+
+    // ── word_overlap_on_text tests ─────────────────────────────────────
+
+    #[test]
+    fn test_word_overlap_on_text_exact_match() {
+        let score = word_overlap_on_text("Alice went to Paris", "Alice went to Paris");
+        assert!((score - 1.0).abs() < 1e-9, "expected 1.0, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_partial_match() {
+        // Expected: "Paris on Tuesday" => tokens {pari, tuesday}
+        // Generated: "Alice visited Paris" => tokens {alic, visit, pari}
+        // Overlap: {pari} => 1/2 = 0.5
+        let score = word_overlap_on_text("Alice visited Paris", "Paris on Tuesday");
+        assert!((score - 0.5).abs() < 0.01, "expected ~0.5, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_no_match() {
+        let score = word_overlap_on_text("something completely different", "Paris Tuesday");
+        assert!(score < 0.01, "expected ~0.0, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_empty_expected() {
+        let score = word_overlap_on_text("some generated text", "");
+        assert!(score.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_empty_generated() {
+        let score = word_overlap_on_text("", "Paris Tuesday");
+        assert!(score.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_both_empty() {
+        let score = word_overlap_on_text("", "");
+        assert!(score.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_case_insensitive() {
+        let score = word_overlap_on_text("PARIS TUESDAY", "paris tuesday");
+        assert!((score - 1.0).abs() < 1e-9, "expected 1.0, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_stopwords_only_expected() {
+        // "the a an" are all stopwords, so expected_tokens is empty → returns 0.0
+        let score = word_overlap_on_text("the a an is are", "the a an");
+        assert!(score.abs() < 1e-9);
     }
 }

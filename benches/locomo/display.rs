@@ -40,6 +40,7 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
     let score_col = match summary.scoring_mode.as_str() {
         "word-overlap" => "WdOvlp",
         "llm-f1" => "LlmF1",
+        "e2e-word-overlap" => "E2eWO",
         "substring" => "TokF1",
         _ => "TokF1",
     };
@@ -94,6 +95,7 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
     let score_label = match summary.scoring_mode.as_str() {
         "word-overlap" => "WORD OVERLAP",
         "llm-f1" => "MEAN LLM F1",
+        "e2e-word-overlap" => "E2E WORD OVERLAP",
         _ => "MEAN TOKEN F1",
     };
 
