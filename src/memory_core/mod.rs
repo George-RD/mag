@@ -18,13 +18,13 @@ pub use embedder::OnnxEmbedder;
 #[allow(unused_imports)]
 pub use embedder::{Embedder, PlaceholderEmbedder};
 #[allow(unused_imports)]
-pub(crate) use scoring::token_set;
-#[allow(unused_imports)]
 pub use scoring::{
     ABSTENTION_MIN_TEXT, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, RRF_WEIGHT_FTS,
     RRF_WEIGHT_VEC, ScoringParams, feedback_factor, jaccard_pre, jaccard_similarity,
     priority_factor, time_decay_et, type_weight_et, word_overlap_pre,
 };
+#[allow(unused_imports)]
+pub(crate) use scoring::{is_stopword, token_set};
 
 pub const TTL_EPHEMERAL: i64 = 3600;
 pub const TTL_SHORT_TERM: i64 = 86_400;

@@ -347,8 +347,24 @@ pub(super) fn build_fts5_query(input: &str) -> String {
         return "\"\"".to_string();
     }
 
+    // Filter out stopwords before constructing the FTS5 query to prevent
+    // common words like "the", "to", "is" from diluting BM25 scores.
+    let filtered_tokens: Vec<&str> = raw_tokens
+        .iter()
+        .copied()
+        .filter(|t| !is_stopword(&t.to_lowercase()))
+        .collect();
+
+    // If all tokens were stopwords, fall back to using the original tokens
+    // so we don't produce an empty query.
+    let effective_tokens = if filtered_tokens.is_empty() {
+        &raw_tokens
+    } else {
+        &filtered_tokens
+    };
+
     // Escape each token for FTS5 (double-quote escaping) and wrap in quotes.
-    let escaped: Vec<String> = raw_tokens
+    let escaped: Vec<String> = effective_tokens
         .iter()
         .map(|t| {
             let e = t.replace('"', "\"\"");
@@ -358,12 +374,12 @@ pub(super) fn build_fts5_query(input: &str) -> String {
 
     // For 1-2 token queries, bigrams would be redundant (either a single
     // token or an exact duplicate of the full query). Just join with OR.
-    if raw_tokens.len() < 3 {
+    if effective_tokens.len() < 3 {
         return escaped.join(" OR ");
     }
 
     // 3+ tokens: append adjacent-token bigrams as quoted phrases.
-    let bigrams: Vec<String> = raw_tokens
+    let bigrams: Vec<String> = effective_tokens
         .windows(2)
         .map(|pair| {
             let a = pair[0].replace('"', "\"\"");
@@ -1079,10 +1095,11 @@ mod tests {
 
     #[test]
     fn fts5_query_four_tokens_with_bigrams() {
+        // "the" is a stopword and gets filtered; remaining 3 tokens get bigrams
         assert_eq!(
             build_fts5_query("the quick brown fox"),
-            "\"the\" OR \"quick\" OR \"brown\" OR \"fox\" \
-             OR \"the quick\" OR \"quick brown\" OR \"brown fox\""
+            "\"quick\" OR \"brown\" OR \"fox\" \
+             OR \"quick brown\" OR \"brown fox\""
         );
     }
 
@@ -1327,6 +1344,36 @@ mod tests {
         assert_eq!(
             attempts, 5,
             "should attempt exactly RETRY_MAX_ATTEMPTS times"
+        );
+    }
+
+    // ── FTS5 stopword filtering tests ─────────────────────────────────
+
+    #[test]
+    fn fts5_query_filters_stopwords() {
+        // "to" and "the" are stopwords; only "path" and "database" should remain
+        assert_eq!(
+            build_fts5_query("path to the database"),
+            "\"path\" OR \"database\""
+        );
+    }
+
+    #[test]
+    fn fts5_query_all_stopwords_fallback() {
+        // When all tokens are stopwords, fall back to original tokens (with bigrams for 3+)
+        assert_eq!(
+            build_fts5_query("is it the"),
+            "\"is\" OR \"it\" OR \"the\" OR \"is it\" OR \"it the\""
+        );
+    }
+
+    #[test]
+    fn fts5_query_stopwords_with_bigrams() {
+        // "how to deploy the application" → stopwords "how", "to", "the" removed
+        // → "deploy", "application" (2 tokens, no bigrams)
+        assert_eq!(
+            build_fts5_query("how to deploy the application"),
+            "\"deploy\" OR \"application\""
         );
     }
 }

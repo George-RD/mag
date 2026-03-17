@@ -3676,11 +3676,16 @@ async fn test_lessons_query_basic() {
 #[tokio::test]
 async fn test_lessons_exclude_session() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    for (id, session) in [("ls-1", "s1"), ("ls-2", "s2")] {
+    // Use distinct content to avoid dedup/supersession between the two lessons.
+    let content_pairs = [
+        ("ls-1", "s1", "Always keep database checkpoints small"),
+        ("ls-2", "s2", "Run clippy before every commit push"),
+    ];
+    for (id, session, content) in content_pairs {
         <SqliteStorage as Storage>::store(
             &storage,
             id,
-            &format!("Lesson from {session}"),
+            content,
             &MemoryInput {
                 event_type: Some(EventType::LessonLearned),
                 session_id: Some(session.to_string()),
