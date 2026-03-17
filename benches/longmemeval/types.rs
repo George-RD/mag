@@ -4,6 +4,10 @@ use mag::benchmarking::BenchmarkMetadata;
 use mag::memory_core::ScoringParams;
 use serde::{Deserialize, Serialize};
 
+pub(crate) use crate::bench_utils::openai_types::{
+    OpenAiChatRequest, OpenAiChatResponse, OpenAiMessage,
+};
+
 // ── Official LongMemEval_S dataset types ──────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -137,46 +141,4 @@ pub(crate) struct GridSearchSummary {
 pub(crate) struct Hit {
     pub content: String,
     pub score: f32,
-}
-
-// ── OpenAI types ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-pub(crate) struct OpenAiChatRequest {
-    pub model: String,
-    pub temperature: f32,
-    pub max_tokens: u16,
-    pub messages: Vec<OpenAiMessage>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct OpenAiMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiChatResponse {
-    pub choices: Vec<OpenAiChoice>,
-    #[serde(default)]
-    pub usage: Option<OpenAiUsage>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiUsage {
-    pub prompt_tokens: u64,
-    #[allow(dead_code)]
-    pub completion_tokens: u64,
-    #[allow(dead_code)]
-    pub total_tokens: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiChoice {
-    pub message: OpenAiResponseMessage,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiResponseMessage {
-    pub content: String,
 }

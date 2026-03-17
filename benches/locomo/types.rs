@@ -2,6 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub(crate) use crate::bench_utils::openai_types::{
+    OpenAiChatRequest, OpenAiChatResponse, OpenAiMessage,
+};
+
 // ── LoCoMo dataset types ────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -112,48 +116,4 @@ pub(crate) struct LoCoMoSummary {
     pub mean_f1: f64,
     pub mean_evidence_recall: f64,
     pub categories: BTreeMap<String, CategoryResult>,
-}
-
-// ── OpenAI types ────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-pub(crate) struct OpenAiChatRequest {
-    pub model: String,
-    pub temperature: f32,
-    pub max_tokens: u16,
-    pub messages: Vec<OpenAiMessage>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct OpenAiMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiChatResponse {
-    pub choices: Vec<OpenAiChoice>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub usage: Option<OpenAiUsage>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiUsage {
-    #[allow(dead_code)]
-    pub prompt_tokens: u64,
-    #[allow(dead_code)]
-    pub completion_tokens: u64,
-    #[allow(dead_code)]
-    pub total_tokens: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiChoice {
-    pub message: OpenAiResponseMessage,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAiResponseMessage {
-    pub content: String,
 }

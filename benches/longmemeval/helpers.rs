@@ -1,52 +1,15 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 
-use anyhow::Result;
-
 use crate::types::{CategoryResult, Hit, QuestionEvaluation};
 
-// ── Peak RSS tracking ─────────────────────────────────────────────────────
-
-#[derive(Debug, Default)]
-pub(crate) struct PeakRss {
-    pub peak_kb: u64,
-}
-
-impl PeakRss {
-    pub fn sample(&mut self) {
-        if let Ok(kb) = current_rss_kb()
-            && kb > self.peak_kb
-        {
-            self.peak_kb = kb;
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn current_rss_kb() -> Result<u64> {
-    use std::process::Command;
-    let pid = std::process::id();
-    let output = Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid.to_string()])
-        .output()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let kb: u64 = text.trim().parse()?;
-    Ok(kb)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn current_rss_kb() -> Result<u64> {
-    Ok(0)
-}
+pub(crate) use crate::bench_utils::formatting::{grade, pct, truncate};
+pub(crate) use crate::bench_utils::metrics::PeakRss;
 
 // ── Formatting helpers ────────────────────────────────────────────────────
 
 pub(crate) fn iso(ts: chrono::DateTime<chrono::Utc>) -> String {
     ts.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
-
-pub(crate) fn truncate(value: &str, max_chars: usize) -> String {
-    value.chars().take(max_chars).collect()
 }
 
 pub(crate) fn substring_match(hits: &[Hit], expected_substring: &str) -> bool {
@@ -65,30 +28,6 @@ pub(crate) fn categories() -> Vec<(&'static str, &'static str)> {
         ("knowledge_update", "Knowledge Update"),
         ("abstention", "Abstention"),
     ]
-}
-
-pub(crate) fn grade(percentage: f64) -> &'static str {
-    if percentage >= 90.0 {
-        "A"
-    } else if percentage >= 75.0 {
-        "B"
-    } else if percentage >= 60.0 {
-        "C"
-    } else if percentage >= 40.0 {
-        "D"
-    } else {
-        "F"
-    }
-}
-
-pub(crate) fn pct(correct: usize, total: usize) -> f64 {
-    if total == 0 {
-        return 0.0;
-    }
-    #[allow(clippy::cast_precision_loss)]
-    {
-        correct as f64 / total as f64 * 100.0
-    }
 }
 
 pub(crate) fn summarize_totals(
