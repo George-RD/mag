@@ -158,16 +158,16 @@ cargo run --release --bin locomo_bench -- --e2e --local --samples 2
 cargo run --release --bin locomo_bench -- --scoring-mode e2e-word-overlap --llm-judge --samples 2
 ```
 
-Results will be populated after the first benchmark run with this mode.
+| Category | MAG (E2E) | MAG (retrieval) | AutoMem |
+| --- | ---: | ---: | ---: |
+| Single-Hop QA | `25.0%` | `60.0%` | `79.8%` |
+| Temporal Reasoning | `49.3%` | `87.6%` | `85.1%` |
+| Multi-Hop QA | `5.8%` | `43.7%` | `50.0%` |
+| Open-Domain | `54.1%` | `78.4%` | `95.8%` |
+| Adversarial | `98.6%` | `74.4%` | `100.0%` |
+| **Overall** | **`57.3%`** | **`75.3%`** | **`90.5%`** |
 
-| Category | MAG (E2E) | AutoMem |
-| --- | ---: | ---: |
-| Single-Hop QA | _TBD_ | `79.8%` |
-| Temporal Reasoning | _TBD_ | `85.1%` |
-| Multi-Hop QA | _TBD_ | `50.0%` |
-| Open-Domain | _TBD_ | `95.8%` |
-| Adversarial | _TBD_ | `100.0%` |
-| **Overall** | _TBD_ | **`90.5%`** |
+E2E numbers from `--e2e --llm-judge --samples 2` with gpt-4o-mini (2026-03-17). The LLM generates concise answers, so word-overlap recall is lower than retrieval-only for non-adversarial categories (fewer matching tokens). Adversarial jumps from 74.4% to 98.6% because the LLM correctly identifies absent information. This confirms the gap to AutoMem is primarily in retrieval quality, not evaluation methodology.
 
 ## Scale Benchmark
 
