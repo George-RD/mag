@@ -148,37 +148,55 @@ impl Storage for SqliteStorage {
             if let Some(ref event_type_value) = event_type
                 && event_type_enum.as_ref().is_some_and(|et| et.is_supersession_type())
             {
+                // Build supersession query with optional entity_id narrowing
+                let entity_narrowing = if entity_id.is_some() {
+                    " AND entity_id = ?3"
+                } else {
+                    ""
+                };
+                let sup_sql = format!(
+                    "SELECT id, content, embedding FROM memories
+                     WHERE event_type = ?1
+                       AND id != ?2
+                       AND superseded_by_id IS NULL
+                       AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                       {entity_narrowing}
+                     ORDER BY created_at DESC LIMIT 10"
+                );
                 let mut sup_stmt = tx
-                    .prepare(
-                        "SELECT id, content, embedding FROM memories
-                         WHERE event_type = ?1
-                           AND id != ?2
-                           AND superseded_by_id IS NULL
-                           AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
-                         ORDER BY created_at DESC LIMIT 10",
-                    )
+                    .prepare(&sup_sql)
                     .context("failed to prepare supersession query")?;
 
-                let sup_rows = sup_stmt
-                    .query_map(params![event_type_value, &id_for_store], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<Vec<u8>>>(2).ok().flatten(),
-                        ))
-                    })
-                    .context("failed to execute supersession query")?;
+                let row_mapper = |row: &rusqlite::Row<'_>| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<Vec<u8>>>(2).ok().flatten(),
+                    ))
+                };
+                let sup_candidates: Vec<(String, String, Option<Vec<u8>>)> =
+                    if let Some(ref eid) = entity_id {
+                        sup_stmt
+                            .query_map(params![event_type_value, &id_for_store, eid], row_mapper)
+                            .context("failed to execute supersession query")?
+                            .collect::<Result<Vec<_>, _>>()
+                            .context("failed to decode supersession rows")?
+                    } else {
+                        sup_stmt
+                            .query_map(params![event_type_value, &id_for_store], row_mapper)
+                            .context("failed to execute supersession query")?
+                            .collect::<Result<Vec<_>, _>>()
+                            .context("failed to decode supersession rows")?
+                    };
 
                 let emb_data = &embedding_vec;
-                for row in sup_rows {
-                    let (candidate_id, candidate_content, candidate_emb) =
-                        row.context("failed to decode supersession row")?;
+                for (candidate_id, candidate_content, candidate_emb) in &sup_candidates {
 
                     // Primary signal: cosine similarity (catches semantic overlap
                     // even when wording changes significantly)
                     let cosine_ok = if let Some(emb_blob) = candidate_emb
                         && let Ok(candidate_embedding) =
-                            decode_embedding(&emb_blob)
+                            decode_embedding(emb_blob)
                     {
                         let cosine = cosine_similarity(emb_data, &candidate_embedding);
                         cosine >= SUPERSESSION_COSINE_THRESHOLD
@@ -191,12 +209,12 @@ impl Storage for SqliteStorage {
 
                     // Secondary signal: Jaccard word overlap (prevents cross-topic
                     // false matches from cosine alone)
-                    let jaccard = jaccard_similarity(&data, &candidate_content, 3);
+                    let jaccard = jaccard_similarity(&data, candidate_content, 3);
                     if jaccard < SUPERSESSION_JACCARD_THRESHOLD {
                         continue;
                     }
 
-                    superseded_ids.push(candidate_id);
+                    superseded_ids.push(candidate_id.clone());
                 }
                 drop(sup_stmt);
             }

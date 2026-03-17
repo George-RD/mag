@@ -7075,3 +7075,171 @@ async fn test_search_cache_hit_returns_same_results() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_user_fact_supersession_same_entity() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "uf-a",
+        "alpha Jim is in France",
+        &MemoryInput {
+            event_type: Some(EventType::UserFact),
+            entity_id: Some("jim".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "uf-b",
+        "alpha Jim is in Germany",
+        &MemoryInput {
+            event_type: Some(EventType::UserFact),
+            entity_id: Some("jim".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let (superseded_by, _) = storage.debug_get_versioning_fields("uf-a").unwrap();
+    assert_eq!(
+        superseded_by.as_deref(),
+        Some("uf-b"),
+        "first UserFact should be superseded by second with same entity_id"
+    );
+}
+
+#[tokio::test]
+async fn test_user_fact_no_cross_entity_supersession() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "uf-jim",
+        "alpha Jim is in France",
+        &MemoryInput {
+            event_type: Some(EventType::UserFact),
+            entity_id: Some("jim".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "uf-alice",
+        "alpha Alice is 30 years old",
+        &MemoryInput {
+            event_type: Some(EventType::UserFact),
+            entity_id: Some("alice".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let (superseded_by, _) = storage.debug_get_versioning_fields("uf-jim").unwrap();
+    assert!(
+        superseded_by.is_none(),
+        "UserFact with different entity_id should NOT be superseded"
+    );
+}
+
+#[tokio::test]
+async fn test_reminder_supersession() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "rem-a",
+        "alpha reminder: team standup at 9am",
+        &MemoryInput {
+            event_type: Some(EventType::Reminder),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "rem-b",
+        "alpha reminder: team standup moved to 10am",
+        &MemoryInput {
+            event_type: Some(EventType::Reminder),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let (superseded_by, _) = storage.debug_get_versioning_fields("rem-a").unwrap();
+    assert_eq!(
+        superseded_by.as_deref(),
+        Some("rem-b"),
+        "first Reminder should be superseded by second"
+    );
+}
+
+#[tokio::test]
+async fn test_entity_scoped_decision_supersession() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "dec-a",
+        "alpha decided to use React for frontend",
+        &MemoryInput {
+            event_type: Some(EventType::Decision),
+            entity_id: Some("frontend".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "dec-b",
+        "alpha decided to use Vue for frontend",
+        &MemoryInput {
+            event_type: Some(EventType::Decision),
+            entity_id: Some("frontend".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "dec-c",
+        "alpha decided to use Postgres for database",
+        &MemoryInput {
+            event_type: Some(EventType::Decision),
+            entity_id: Some("database".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let (superseded_by_a, _) = storage.debug_get_versioning_fields("dec-a").unwrap();
+    assert_eq!(
+        superseded_by_a.as_deref(),
+        Some("dec-b"),
+        "first Decision should be superseded by second with same entity_id"
+    );
+
+    let (superseded_by_c, _) = storage.debug_get_versioning_fields("dec-c").unwrap();
+    assert!(
+        superseded_by_c.is_none(),
+        "Decision with different entity_id should NOT be superseded"
+    );
+}
