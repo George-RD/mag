@@ -8,6 +8,7 @@ use tracing::info;
 use uuid::Uuid;
 
 pub mod embedder;
+pub mod entity;
 pub mod reranker;
 pub mod scoring;
 pub mod storage;
