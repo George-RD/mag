@@ -879,19 +879,7 @@ async fn main() -> anyhow::Result<()> {
             println!("{result}");
         }
         Commands::Protocol { section: _ } => {
-            let protocol = serde_json::json!({
-                "tools": [
-                    "memory_store", "memory_store_batch", "memory_retrieve",
-                    "memory_delete", "memory_update",
-                    "memory_search",
-                    "memory_list", "memory_relations",
-                    "memory_feedback", "memory_lifecycle",
-                    "memory_checkpoint", "memory_remind", "memory_lessons",
-                    "memory_admin",
-                    "memory_profile", "memory_session_info",
-                ],
-                "tool_count": 16,
-            });
+            let protocol = mcp_server::tool_registry_json();
             println!("{protocol}");
         }
         Commands::StatsExtended { action, days } => match action.as_str() {

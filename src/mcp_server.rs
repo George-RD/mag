@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use anyhow::Result;
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
@@ -20,6 +22,150 @@ use crate::memory_core::{
     StatsProvider, Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
     is_valid_event_type,
 };
+
+// ──────────────────────── Tool Registry ────────────────────────
+
+/// Metadata for a single MCP tool, used to generate protocol docs and CLI output.
+pub struct ToolMeta {
+    pub name: &'static str,
+    pub summary: &'static str,
+    pub category: &'static str,
+}
+
+/// Canonical registry of all MCP tools. This is the single source of truth for
+/// tool names, summaries, and categories. Keep in sync with `#[tool(...)]` attrs.
+pub const TOOL_REGISTRY: &[ToolMeta] = &[
+    // Storage & Retrieval
+    ToolMeta {
+        name: "memory_store",
+        summary: "Store new memory content with tags, importance, metadata",
+        category: "Storage & Retrieval",
+    },
+    ToolMeta {
+        name: "memory_store_batch",
+        summary: "Batch store multiple memories with optimized embedding",
+        category: "Storage & Retrieval",
+    },
+    ToolMeta {
+        name: "memory_retrieve",
+        summary: "Retrieve a memory by ID",
+        category: "Storage & Retrieval",
+    },
+    ToolMeta {
+        name: "memory_delete",
+        summary: "Delete a memory by ID",
+        category: "Storage & Retrieval",
+    },
+    ToolMeta {
+        name: "memory_update",
+        summary: "Update content, tags, importance, or metadata",
+        category: "Storage & Retrieval",
+    },
+    // Search & Listing
+    ToolMeta {
+        name: "memory_search",
+        summary: "Unified search (mode: text|semantic|phrase|tag|similar, advanced: bool)",
+        category: "Search & Listing",
+    },
+    ToolMeta {
+        name: "memory_list",
+        summary: "List memories (sort: created|recent)",
+        category: "Search & Listing",
+    },
+    // Relationships & Graph
+    ToolMeta {
+        name: "memory_relations",
+        summary: "Manage relationships (action: list|add|traverse|version_chain)",
+        category: "Relationships & Graph",
+    },
+    // Lifecycle & Feedback
+    ToolMeta {
+        name: "memory_feedback",
+        summary: "Record feedback (helpful/unhelpful/outdated)",
+        category: "Lifecycle & Feedback",
+    },
+    ToolMeta {
+        name: "memory_lifecycle",
+        summary: "System maintenance (action: sweep|health|consolidate|compact|auto_compact|clear_session)",
+        category: "Lifecycle & Feedback",
+    },
+    // Cross-Session
+    ToolMeta {
+        name: "memory_checkpoint",
+        summary: "Task checkpoints (action: save|resume)",
+        category: "Cross-Session",
+    },
+    ToolMeta {
+        name: "memory_remind",
+        summary: "Set, list, or dismiss reminders",
+        category: "Cross-Session",
+    },
+    ToolMeta {
+        name: "memory_lessons",
+        summary: "Query lesson_learned memories",
+        category: "Cross-Session",
+    },
+    ToolMeta {
+        name: "memory_profile",
+        summary: "Read/update user profile",
+        category: "Cross-Session",
+    },
+    // System
+    ToolMeta {
+        name: "memory_admin",
+        summary: "Administrative actions (action: health|export|import)",
+        category: "System",
+    },
+    ToolMeta {
+        name: "memory_session_info",
+        summary: "Welcome briefing or protocol (mode: welcome|protocol)",
+        category: "System",
+    },
+];
+
+/// Category display order for protocol markdown output.
+const CATEGORY_ORDER: &[&str] = &[
+    "Storage & Retrieval",
+    "Search & Listing",
+    "Relationships & Graph",
+    "Lifecycle & Feedback",
+    "Cross-Session",
+    "System",
+];
+
+/// Generate the protocol markdown from [`TOOL_REGISTRY`].
+pub fn generate_protocol_markdown() -> String {
+    let count = TOOL_REGISTRY.len();
+    let mut out = format!("# MAG Protocol\n\n## Available Tools ({count})\n");
+
+    for &cat in CATEGORY_ORDER {
+        let _ = write!(out, "\n### {cat}\n");
+        for tool in TOOL_REGISTRY.iter().filter(|t| t.category == cat) {
+            let _ = writeln!(out, "- **{}** — {}", tool.name, tool.summary);
+        }
+    }
+
+    out.push_str(
+        "\n## Usage Guidelines\n\
+         - Call **memory_session_info** with `mode=\"welcome\"` at session start for context\n\
+         - Use **memory_search** with `advanced=true` when you want the multi-phase retrieval path for a supported mode\n\
+         - Use **memory_lifecycle** with action=sweep periodically to clean expired memories\n\
+         - Use **memory_lifecycle** with action=consolidate to prune stale data\n",
+    );
+
+    out
+}
+
+/// Return a JSON value with `tools` (name array) and `tool_count` derived from
+/// [`TOOL_REGISTRY`]. Used by the CLI `protocol` sub-command.
+pub fn tool_registry_json() -> serde_json::Value {
+    let names: Vec<&str> = TOOL_REGISTRY.iter().map(|t| t.name).collect();
+    let count = names.len();
+    json!({
+        "tools": names,
+        "tool_count": count,
+    })
+}
 
 /// Serialize a collection of items into a `Vec<serde_json::Value>`, returning
 /// `McpError::internal_error` on the first serialization failure.
@@ -1336,44 +1482,7 @@ impl McpMemoryServer {
                 )]))
             }
             "protocol" => {
-                let protocol = r#"# MAG Protocol
-
-## Available Tools (16)
-
-### Storage & Retrieval
-- **memory_store** — Store new memory content with tags, importance, metadata
-- **memory_store_batch** — Batch store multiple memories with optimized embedding
-- **memory_retrieve** — Retrieve a memory by ID
-- **memory_delete** — Delete a memory by ID
-- **memory_update** — Update content, tags, importance, or metadata
-
-### Search & Listing
-- **memory_search** — Unified search (mode: text|semantic|phrase|tag|similar, advanced: bool)
-- **memory_list** — List memories (sort: created|recent)
-
-### Relationships & Graph
-- **memory_relations** — Manage relationships (action: list|add|traverse|version_chain)
-
-### Lifecycle & Feedback
-- **memory_feedback** — Record feedback (helpful/unhelpful/outdated)
-- **memory_lifecycle** — System maintenance (action: sweep|health|consolidate|compact|auto_compact|clear_session|backup|backup_list)
-
-### Cross-Session
-- **memory_checkpoint** — Task checkpoints (action: save|resume)
-- **memory_remind** — Set, list, or dismiss reminders
-- **memory_lessons** — Query lesson_learned memories
-- **memory_profile** — Read/update user profile
-
-### System
-- **memory_admin** — Administrative actions (action: health|export|import)
-- **memory_session_info** — Welcome briefing or protocol (mode: welcome|protocol)
-
-## Usage Guidelines
-- Call **memory_session_info** with `mode="welcome"` at session start for context
-- Use **memory_search** with `advanced=true` when you want the multi-phase retrieval path for a supported mode
-- Use **memory_lifecycle** with action=sweep periodically to clean expired memories
-- Use **memory_lifecycle** with action=consolidate to prune stale data
-"#;
+                let protocol = generate_protocol_markdown();
                 Ok(CallToolResult::success(vec![Content::text(protocol)]))
             }
             other => Err(McpError::invalid_params(
@@ -1397,6 +1506,76 @@ impl ServerHandler for McpMemoryServer {
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guard against registry drift — update `TOOL_REGISTRY` when adding or
+    /// removing MCP tools.
+    #[test]
+    fn tool_registry_has_expected_count() {
+        assert_eq!(
+            TOOL_REGISTRY.len(),
+            16,
+            "TOOL_REGISTRY length changed — update the expected count and verify all tools are listed"
+        );
+    }
+
+    /// Every tool name in the registry must be unique.
+    #[test]
+    fn tool_registry_names_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for tool in TOOL_REGISTRY {
+            assert!(
+                seen.insert(tool.name),
+                "duplicate tool name in TOOL_REGISTRY: {}",
+                tool.name
+            );
+        }
+    }
+
+    /// Every category referenced in TOOL_REGISTRY must appear in CATEGORY_ORDER.
+    #[test]
+    fn tool_registry_categories_in_order() {
+        for tool in TOOL_REGISTRY {
+            assert!(
+                CATEGORY_ORDER.contains(&tool.category),
+                "tool '{}' has category '{}' not in CATEGORY_ORDER",
+                tool.name,
+                tool.category
+            );
+        }
+    }
+
+    #[test]
+    fn generate_protocol_markdown_contains_all_tools() {
+        let md = generate_protocol_markdown();
+        for tool in TOOL_REGISTRY {
+            assert!(
+                md.contains(tool.name),
+                "protocol markdown missing tool: {}",
+                tool.name
+            );
+        }
+        // Verify computed count in header
+        assert!(md.contains(&format!("## Available Tools ({})", TOOL_REGISTRY.len())));
+    }
+
+    #[test]
+    fn tool_registry_json_matches_registry() {
+        let val = tool_registry_json();
+        let tools = val["tools"].as_array().expect("tools should be an array");
+        assert_eq!(tools.len(), TOOL_REGISTRY.len());
+        assert_eq!(val["tool_count"], TOOL_REGISTRY.len());
+        for (i, tool) in TOOL_REGISTRY.iter().enumerate() {
+            assert_eq!(
+                tools[i].as_str().expect("tool name should be a string"),
+                tool.name
+            );
         }
     }
 }
