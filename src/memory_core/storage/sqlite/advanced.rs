@@ -967,10 +967,10 @@ impl AdvancedSearcher for SqliteStorage {
 
         // ── Cache check ──────────────────────────────────────────────────
         if let Ok(mut cache) = self.query_cache.lock()
-            && let Some((cached_at, results)) = cache.get(&cache_key)
-            && cached_at.elapsed().as_secs() < super::QUERY_CACHE_TTL_SECS
+            && let Some(cached) = cache.get(&cache_key)
+            && cached.inserted_at.elapsed().as_secs() < super::QUERY_CACHE_TTL_SECS
         {
-            return Ok(results.clone());
+            return Ok(cached.results.clone());
         }
 
         let pool = Arc::clone(&self.pool);
@@ -1079,6 +1079,11 @@ impl AdvancedSearcher for SqliteStorage {
             .context("spawn_blocking join error")??
         };
 
+        // Capture filter dimensions for cache metadata before opts moves into closure.
+        let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
+        let cache_project_filter = opts.project.clone();
+        let cache_session_id_filter = opts.session_id.clone();
+
         // Phases 3-6: RRF fusion, score refinement, graph enrichment,
         // abstention + dedup. Needs one reader for graph queries.
         #[cfg(feature = "real-embeddings")]
@@ -1125,7 +1130,16 @@ impl AdvancedSearcher for SqliteStorage {
 
         // ── Cache store ──────────────────────────────────────────────────
         if let Ok(mut cache) = self.query_cache.lock() {
-            cache.put(cache_key, (std::time::Instant::now(), results.clone()));
+            cache.put(
+                cache_key,
+                super::CachedQuery {
+                    inserted_at: std::time::Instant::now(),
+                    results: results.clone(),
+                    event_type_filter: cache_event_type_filter,
+                    project_filter: cache_project_filter,
+                    session_id_filter: cache_session_id_filter,
+                },
+            );
         }
 
         Ok(results)

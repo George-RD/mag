@@ -8,12 +8,17 @@ impl Storage for SqliteStorage {
         let metadata_json = serde_json::to_string(&input.metadata)
             .context("failed to serialize metadata to JSON")?;
 
+        // Capture filter dimensions for selective cache invalidation.
+        let invalidation_event_type = event_type_to_sql(&input.event_type);
+        let invalidation_project = input.project.clone();
+        let invalidation_session_id = input.session_id.clone();
+
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let id = id.to_string();
         let data = data.to_string();
         let importance = input.importance;
-        let event_type = event_type_to_sql(&input.event_type);
+        let event_type = invalidation_event_type.clone();
         let event_type_enum = input.event_type.clone();
         let session_id = input.session_id.clone();
         let project = input.project.clone();
@@ -378,7 +383,11 @@ impl Storage for SqliteStorage {
         .await
         .context("spawn_blocking join error")??;
 
-        self.invalidate_query_cache();
+        self.invalidate_cache_selective(
+            invalidation_event_type.as_deref(),
+            invalidation_project.as_deref(),
+            invalidation_session_id.as_deref(),
+        );
         self.refresh_hot_cache_best_effort();
 
         if matches!(outcome, StoreOutcome::Inserted)

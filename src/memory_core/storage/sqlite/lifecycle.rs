@@ -94,7 +94,7 @@ impl ExpirationSweeper for SqliteStorage {
     async fn sweep_expired(&self) -> Result<usize> {
         let pool = Arc::clone(&self.pool);
 
-        tokio::task::spawn_blocking(move || {
+        let count = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
             let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start sweep transaction")?;
@@ -136,7 +136,14 @@ impl ExpirationSweeper for SqliteStorage {
             Ok::<_, anyhow::Error>(expired_ids.len())
         })
         .await
-        .context("spawn_blocking join error")?
+        .context("spawn_blocking join error")??;
+
+        if count > 0 {
+            // Expired memories could belong to any type/project/session, so full clear.
+            self.invalidate_query_cache();
+        }
+
+        Ok(count)
     }
 }
 
