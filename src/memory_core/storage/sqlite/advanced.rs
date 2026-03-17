@@ -1,3 +1,4 @@
+use super::helpers::{IntentProfile, QueryIntent, classify_query_intent};
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;
 
@@ -962,7 +963,9 @@ impl AdvancedSearcher for SqliteStorage {
         {
             opts.event_before = Some(before);
         }
-        let keyword_only = is_keyword_query(&query);
+        let intent = classify_query_intent(&query);
+        let keyword_only = intent == QueryIntent::Keyword;
+        let intent_profile = IntentProfile::for_intent(intent);
         let cache_key = query_cache_key(&query, limit, &opts);
 
         // ── Cache check ──────────────────────────────────────────────────
@@ -975,7 +978,11 @@ impl AdvancedSearcher for SqliteStorage {
 
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
-        let scoring_params = self.scoring_params.clone();
+        // Apply intent-based multipliers to scoring params.
+        let mut scoring_params = self.scoring_params.clone();
+        scoring_params.rrf_weight_vec *= intent_profile.vec_weight_mult;
+        scoring_params.rrf_weight_fts *= intent_profile.fts_weight_mult;
+        scoring_params.word_overlap_weight *= intent_profile.word_overlap_mult;
         let hot_results = if let Some(hot_cache) = &self.hot_cache {
             if let Err(error) = self.ensure_hot_cache_ready().await {
                 tracing::error!(error = %error, "failed to refresh hot tier cache");
@@ -1014,6 +1021,14 @@ impl AdvancedSearcher for SqliteStorage {
         let include_superseded = opts.include_superseded.unwrap_or(false);
         let explain_enabled = opts.explain.unwrap_or(false);
 
+        // Apply top_k_mult: scale candidate oversampling while keeping final limit intact.
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let candidate_limit = ((limit as f64 * intent_profile.top_k_mult).ceil() as usize).max(1);
+
         // Phases 1+2: Vector search and FTS5 search.
         // Keyword queries skip vector search entirely (FTS5 only).
         // When the pool has dedicated readers, run them on separate
@@ -1027,7 +1042,7 @@ impl AdvancedSearcher for SqliteStorage {
                 let sp = scoring_params.clone();
                 move || {
                     let conn = pool.reader()?;
-                    collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)
+                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
                 }
             })
             .await
@@ -1042,7 +1057,14 @@ impl AdvancedSearcher for SqliteStorage {
                     let sp = scoring_params.clone();
                     move || {
                         let conn = pool.reader()?;
-                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &o, &sp)
+                        collect_vector_candidates(
+                            &conn,
+                            &emb,
+                            candidate_limit,
+                            include_superseded,
+                            &o,
+                            &sp,
+                        )
                     }
                 }),
                 tokio::task::spawn_blocking({
@@ -1052,7 +1074,14 @@ impl AdvancedSearcher for SqliteStorage {
                     let sp = scoring_params.clone();
                     move || {
                         let conn = pool.reader()?;
-                        collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)
+                        collect_fts_candidates(
+                            &conn,
+                            &q,
+                            candidate_limit,
+                            &o,
+                            include_superseded,
+                            &sp,
+                        )
                     }
                 }),
             )
@@ -1068,10 +1097,22 @@ impl AdvancedSearcher for SqliteStorage {
                 let sp = scoring_params.clone();
                 move || {
                     let conn = pool.reader()?;
-                    let vec_c =
-                        collect_vector_candidates(&conn, &emb, limit, include_superseded, &o, &sp)?;
-                    let fts_c =
-                        collect_fts_candidates(&conn, &q, limit, &o, include_superseded, &sp)?;
+                    let vec_c = collect_vector_candidates(
+                        &conn,
+                        &emb,
+                        candidate_limit,
+                        include_superseded,
+                        &o,
+                        &sp,
+                    )?;
+                    let fts_c = collect_fts_candidates(
+                        &conn,
+                        &q,
+                        candidate_limit,
+                        &o,
+                        include_superseded,
+                        &sp,
+                    )?;
                     Ok::<_, anyhow::Error>((vec_c, fts_c))
                 }
             })
