@@ -13,11 +13,12 @@ use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryInput,
-    MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier, ReminderManager,
-    Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder, StatsProvider, Storage,
-    Tagger, Updater, VersionChainQuerier, WelcomeProvider, is_valid_event_type,
+    AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Deleter, EventType,
+    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
+    MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier,
+    ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder,
+    StatsProvider, Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
+    is_valid_event_type,
 };
 
 /// Serialize a collection of items into a `Vec<serde_json::Value>`, returning
@@ -840,7 +841,7 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_lifecycle",
-        description = "System maintenance. Actions: 'sweep' (default, expire TTL-based memories), 'health' (diagnostic with thresholds), 'consolidate' (prune stale data), 'compact' (merge near-duplicates), 'auto_compact' (embedding-based dedup), 'clear_session' (remove session data)."
+        description = "System maintenance. Actions: 'sweep' (default, expire TTL-based memories), 'health' (diagnostic with thresholds), 'consolidate' (prune stale data), 'compact' (merge near-duplicates), 'auto_compact' (embedding-based dedup), 'clear_session' (remove session data), 'backup' (create binary backup), 'backup_list' (list available backups)."
     )]
     async fn memory_lifecycle(
         &self,
@@ -936,9 +937,43 @@ impl McpMemoryServer {
                     json!({"session_id": sid, "removed": removed}).to_string(),
                 )]))
             }
+            "backup" => {
+                let info = <SqliteStorage as BackupManager>::create_backup(&self.storage)
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("backup failed: {e}"), None))?;
+                let _ = <SqliteStorage as BackupManager>::rotate_backups(&self.storage, 5).await;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({
+                        "path": info.path.display().to_string(),
+                        "size_bytes": info.size_bytes,
+                        "created_at": info.created_at,
+                    })
+                    .to_string(),
+                )]))
+            }
+            "backup_list" => {
+                let backups = <SqliteStorage as BackupManager>::list_backups(&self.storage)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("backup list failed: {e}"), None)
+                    })?;
+                let payload: Vec<_> = backups
+                    .iter()
+                    .map(|b| {
+                        json!({
+                            "path": b.path.display().to_string(),
+                            "size_bytes": b.size_bytes,
+                            "created_at": b.created_at,
+                        })
+                    })
+                    .collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "backups": payload, "count": backups.len() }).to_string(),
+                )]))
+            }
             other => Err(McpError::invalid_params(
                 format!(
-                    "unknown lifecycle action: {other} (expected sweep|health|consolidate|compact|auto_compact|clear_session)"
+                    "unknown lifecycle action: {other} (expected sweep|health|consolidate|compact|auto_compact|clear_session|backup|backup_list)"
                 ),
                 None,
             )),
@@ -1321,7 +1356,7 @@ impl McpMemoryServer {
 
 ### Lifecycle & Feedback
 - **memory_feedback** — Record feedback (helpful/unhelpful/outdated)
-- **memory_lifecycle** — System maintenance (action: sweep|health|consolidate|compact|auto_compact|clear_session)
+- **memory_lifecycle** — System maintenance (action: sweep|health|consolidate|compact|auto_compact|clear_session|backup|backup_list)
 
 ### Cross-Session
 - **memory_checkpoint** — Task checkpoints (action: save|resume)

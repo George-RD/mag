@@ -291,7 +291,7 @@ pub enum Commands {
         #[arg(long, default_value_t = 5)]
         limit: usize,
     },
-    /// System maintenance: health check, consolidate, compact, clear-session.
+    /// System maintenance: health check, consolidate, compact, clear-session, backup, backup-list, backup-restore.
     Maintain {
         #[arg(long)]
         action: String,
@@ -315,6 +315,9 @@ pub enum Commands {
         dry_run: bool,
         #[arg(long)]
         session_id: Option<String>,
+        /// Path to a backup file (for backup-restore action).
+        #[arg(long)]
+        backup_path: Option<String>,
     },
     /// Session startup briefing.
     Welcome {
@@ -1087,6 +1090,57 @@ mod tests {
             } => {
                 assert_eq!(action, "health");
                 assert_eq!(warn_mb, Some(100.0));
+            }
+            _ => panic!("Expected Maintain command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_maintain_backup_command() {
+        let args = vec!["mag", "maintain", "--action", "backup"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Maintain { action, .. } => {
+                assert_eq!(action, "backup");
+            }
+            _ => panic!("Expected Maintain command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_maintain_backup_list_command() {
+        let args = vec!["mag", "maintain", "--action", "backup-list"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Maintain { action, .. } => {
+                assert_eq!(action, "backup-list");
+            }
+            _ => panic!("Expected Maintain command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_maintain_backup_restore_command() {
+        let args = vec![
+            "mag",
+            "maintain",
+            "--action",
+            "backup-restore",
+            "--backup-path",
+            "/tmp/memory.db.20260101_000000.bak",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Maintain {
+                action,
+                backup_path,
+                ..
+            } => {
+                assert_eq!(action, "backup-restore");
+                assert_eq!(
+                    backup_path.as_deref(),
+                    Some("/tmp/memory.db.20260101_000000.bak")
+                );
             }
             _ => panic!("Expected Maintain command"),
         }
