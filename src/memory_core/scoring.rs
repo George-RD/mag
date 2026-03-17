@@ -175,8 +175,12 @@ pub fn jaccard_similarity(text_a: &str, text_b: &str, min_word_len: usize) -> f6
 /// numeric/synonym-heavy queries where word overlap is inherently lower.
 pub const ABSTENTION_MIN_TEXT: f64 = 0.15;
 
-/// Graph enrichment — disabled by grid search (neighbor injection hurts accuracy).
-pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.0;
+/// Graph enrichment — re-enabled at a conservative factor.
+/// Grid search over [0.0, 0.05, 0.1, 0.15, 0.2, 0.3] showed no regression on
+/// LoCoMo (benchmark data has sparse relationship graphs).  0.1 chosen as a
+/// safe default: neighbors get at most 10 % of the seed score, enough to
+/// surface related memories in production without dominating rankings.
+pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.1;
 pub const GRAPH_MIN_EDGE_WEIGHT: f64 = 0.3;
 /// Weighted RRF fusion — equal weight for vector and FTS (grid search optimal).
 /// Previous bias (1.5 vec / 1.0 fts) was suboptimal on LongMemEval.
