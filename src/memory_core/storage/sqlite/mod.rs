@@ -572,8 +572,7 @@ impl SqliteStorage {
         tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
 
-            let tx = conn
-                .unchecked_transaction()
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start import transaction")?;
 
             let mut mem_count = 0usize;
@@ -1036,7 +1035,7 @@ use helpers::{
     content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
     event_type_to_sql, expand_temporal_query, is_keyword_query, matches_search_options,
     normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, query_cache_key,
-    search_result_from_row, to_param_refs, validate_iso8601,
+    retry_on_lock, search_result_from_row, to_param_refs, validate_iso8601,
 };
 use hot_cache::{HOT_CACHE_CAPACITY, HOT_CACHE_REFRESH_SECS, HotTierCache};
 use schema::{default_db_path, initialize_parent_dir, initialize_schema};

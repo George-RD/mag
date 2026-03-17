@@ -277,8 +277,7 @@ impl MaintenanceManager for SqliteStorage {
 
                     let keep_id = &candidates[cluster[0]].0;
 
-                    let tx = conn
-                        .unchecked_transaction()
+                    let tx = retry_on_lock(|| conn.unchecked_transaction())
                         .context("failed to start compaction transaction")?;
 
                     tx.execute(
@@ -441,8 +440,7 @@ impl MaintenanceManager for SqliteStorage {
 
                 if !valid_clusters.is_empty() && !dry_run {
                     // Single transaction for all clusters of this event type
-                    let tx = conn
-                        .unchecked_transaction()
+                    let tx = retry_on_lock(|| conn.unchecked_transaction())
                         .context("failed to start auto_compact transaction")?;
 
                     for cluster in &valid_clusters {
@@ -508,8 +506,7 @@ impl MaintenanceManager for SqliteStorage {
         tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
 
-            let tx = conn
-                .unchecked_transaction()
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start clear_session transaction")?;
 
             // Delete relationships first

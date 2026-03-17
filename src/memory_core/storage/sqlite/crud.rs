@@ -28,8 +28,7 @@ impl Storage for SqliteStorage {
             let c_hash = content_hash(&data);
             let normalized_hash = canonical_hash(&data);
             let conn = pool.writer()?;
-            let tx = conn
-                .unchecked_transaction()
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start sqlite transaction")?;
 
             // ── Phase 1: Combined canonical-hash + Jaccard dedup (single query) ──
@@ -409,8 +408,7 @@ impl Retriever for SqliteStorage {
 
         tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
-            let tx = conn
-                .unchecked_transaction()
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start sqlite transaction")?;
 
             let content: Option<String> = tx
@@ -450,8 +448,7 @@ impl Deleter for SqliteStorage {
 
         let deleted = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
-            let tx = conn
-                .unchecked_transaction()
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start delete transaction")?;
             tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
                 .context("failed to delete memory from FTS index")?;
@@ -588,8 +585,7 @@ impl Updater for SqliteStorage {
                 params.push(value);
             }
 
-            let tx = conn
-                .unchecked_transaction()
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start update transaction")?;
 
             let changes = tx

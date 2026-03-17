@@ -186,8 +186,7 @@ pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> R
         .query_row("SELECT count(*) FROM vec_memories", [], |row| row.get(0))
         .context("failed to count vec_memories rows")?;
     if vec_count == 0 {
-        let tx = conn
-            .unchecked_transaction()
+        let tx = retry_on_lock(|| conn.unchecked_transaction())
             .context("failed to begin vec migration transaction")?;
 
         let mut read_stmt = tx
