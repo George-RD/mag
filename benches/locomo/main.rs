@@ -97,6 +97,9 @@ struct Args {
     /// Shorthand for --scoring-mode e2e-word-overlap (requires --llm-judge or --local).
     #[arg(long)]
     e2e: bool,
+    /// Output per-question JSONL trace with full flow (question, retrieved, generated, scores).
+    #[arg(long)]
+    trace: bool,
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -338,6 +341,40 @@ fn main() -> Result<()> {
                     (f1, concat)
                 }
             };
+
+            // Also compute retrieval word-overlap for comparison in trace mode.
+            let retrieval_wo = if args.trace && !expected_answer.is_empty() {
+                scoring::word_overlap_score(&hits, expected_answer)
+            } else {
+                0.0
+            };
+
+            if args.trace {
+                let top_hits: Vec<serde_json::Value> = hits
+                    .iter()
+                    .take(3)
+                    .map(|h| {
+                        serde_json::json!({
+                            "content": truncate(&h.content, 150),
+                            "score": format!("{:.3}", h.score),
+                        })
+                    })
+                    .collect();
+                let trace = serde_json::json!({
+                    "q": total_queries,
+                    "category": category,
+                    "question": &qa.question,
+                    "expected": expected_answer,
+                    "generated": if _actual_text.is_empty() { None } else { Some(&_actual_text) },
+                    "retrieval_wo": format!("{:.2}", retrieval_wo),
+                    "e2e_wo": format!("{:.2}", f1),
+                    "ev_recall": format!("{:.2}", ev_recall),
+                    "top_hits": top_hits,
+                    "hit_count": hits.len(),
+                });
+                // Write trace to stdout (not stderr) to avoid clobbering by progress \r
+                println!("{}", serde_json::to_string(&trace).unwrap_or_default());
+            }
 
             total_f1_sum += f1;
             total_evidence_recall_sum += ev_recall;
