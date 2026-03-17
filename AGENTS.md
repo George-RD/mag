@@ -64,7 +64,7 @@ Query → Intent classify (Keyword/Factual/Conceptual/General)
       → Vector search + FTS5 BM25
       → RRF fusion → Cross-encoder rerank (optional)
       → Score refinement (type × time_decay × priority × word_overlap × importance × feedback × query_coverage)
-      → Graph enrichment (Phase 5, currently disabled)
+      → Graph enrichment (Phase 5, factor=0.1)
       → Abstention gate → Results
 ```
 
@@ -139,7 +139,7 @@ This repo uses jj (Jujutsu) in colocated mode.
 - `.env.local` contains OPENAI_API_KEY — in .gitignore, loaded by `dotenvy::from_filename(".env.local")`
 - `conductor/` contains product planning docs — not runtime code
 - Model files (~134 MB) auto-download on first use; `~/.mag/models/` preferred, `~/.romega-memory/models/` legacy
-- `GRAPH_NEIGHBOR_FACTOR=0.0` — graph enrichment Phase 5 is disabled; guarded by `if > 0.0`
+- `GRAPH_NEIGHBOR_FACTOR=0.1` — graph enrichment Phase 5 re-enabled at conservative factor; guarded by `if > 0.0`
 - Git hooks do NOT fire under jj — run `prek run` explicitly before pushing
 
 ## Tool-Specific Notes
