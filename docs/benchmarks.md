@@ -137,7 +137,7 @@ Dataset: [`locomo10.json`](https://raw.githubusercontent.com/snap-research/locom
 | Adversarial | `72.6%` | `100.0%` |
 | **Overall** | **`74.4%`** | **`90.5%`** |
 
-AutoMem numbers are from the [LoCoMo paper](https://arxiv.org/abs/2402.03174) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 2 --scoring-mode word-overlap --top-k 20`.
+AutoMem numbers are from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 2 --scoring-mode word-overlap --top-k 20`.
 
 This is a retrieval-oriented benchmark, not a full generative evaluation. The README describes it that way intentionally.
 
