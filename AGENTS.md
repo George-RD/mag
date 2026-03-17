@@ -1,100 +1,156 @@
-# PROJECT KNOWLEDGE BASE
+# AGENTS.md
 
-**Generated:** 2026-02-20
-**Branch:** main
+Universal agent guidance for AI coding assistants working on this repository.
+Vendor-neutral — applies to Claude Code, Cursor, Windsurf, Copilot, and any AI tool.
 
-## OVERVIEW
-
-romega-memory is a Rust rewrite of omega-memory focused on parity, local portability, and MCP-first usage.
-Current implementation is SQLite-backed memory storage with CLI + MCP stdio server and smoke-tested integration.
-
-## STRUCTURE
-
-```text
-romega-memory/
-├── src/                  # Runtime code: CLI, MCP server, memory core
-├── tests/                # Integration tests (MCP child-process smoke)
-├── conductor/            # Product/tracks/style/workflow source of truth
-├── .github/workflows/    # CI checks (fmt, clippy, tests)
-├── .mcp.json             # Project MCP launcher config
-└── Cargo.toml            # Dependencies and feature surface
-```
-
-## WHERE TO LOOK
-
-| Task | Location | Notes |
-|---|---|---|
-| CLI command wiring | `src/cli.rs`, `src/main.rs` | Add enum variant + match arm together |
-| MCP tool behavior | `src/mcp_server.rs` | 30 tools: store/retrieve/delete/update/search/semantic/tag/list/recent/relations/add_relation/health/stats/export/import/advanced_search/similar/traverse/phrase_search/feedback/sweep/checkpoint/resume_task/profile/remind/lessons/maintain/welcome/protocol/stats_extended |
-| Storage schema/ops | `src/memory_core/storage/sqlite.rs` | Uses `spawn_blocking` for DB I/O; FTS5 virtual table for full-text search |
-| Pipeline trait boundaries | `src/memory_core/mod.rs` | 26 traits: Ingestor/Processor/Storage/Retriever/Searcher/Recents/SemanticSearcher/Deleter/Updater/Tagger/Lister/RelationshipQuerier/Embedder/AdvancedSearcher/GraphTraverser/SimilarFinder/PhraseSearcher/FeedbackRecorder/ExpirationSweeper/ProfileManager/CheckpointManager/ReminderManager/LessonQuerier/MaintenanceManager/WelcomeProvider/StatsProvider |
-| Scoring system | `src/memory_core/scoring.rs` | Type weights, priority factors, time decay, word overlap, Jaccard similarity |
-| Embedding system | `src/memory_core/embedder.rs` | `Embedder` trait, `PlaceholderEmbedder`, `OnnxEmbedder` (feature-gated), model download |
-| FTS5 search | `src/memory_core/storage/sqlite.rs` | Standalone FTS5 table synced on store/update/delete; LIKE fallback |
-| Integration protocol checks | `tests/mcp_smoke.rs` | Hermetic HOME/USERPROFILE isolation |
-| Product direction/tracks | `conductor/product.md`, `conductor/tracks.md` | Parity target and sequencing |
-
-## CONVENTIONS
-
-- Run strict local gate before pushing: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features`.
-- Keep runtime logs on stderr in MCP mode; stdout must stay protocol-clean.
-- Keep blocking SQLite work inside `tokio::task::spawn_blocking`.
-- Preserve additive command/tool behavior; do not break `ingest`, `process`, `retrieve`, `serve`.
-- Follow semantic commits: `<type>(<scope>): <description>`.
-
-## ANTI-PATTERNS (THIS PROJECT)
-
-- Do not use `unwrap()`/`expect()` in production paths.
-- Do not block async executor with direct sync DB I/O.
-- Do not merge with unresolved review comments; close all bot/human threads.
-- Do not leave CI-parity checks unrun locally even if remote CI is infra-blocked.
-- Do not mix MCP protocol output with app logs on stdout.
-
-## UNIQUE STYLES
-
-- Conductor workflow is first-class: plans/specs/tracks are maintained alongside code.
-- Trait-first architecture in `memory_core` allows incremental backend and processor replacement.
-- MCP development is expected to be testable locally with `.mcp.json` and smoke tests.
-
-## COMMANDS
+## Commands
 
 ```bash
-# local parity gate
+# Quality gate (preferred — uses prek.toml)
+prek run
+
+# Or manually:
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 
-# run app modes
-cargo run -- ingest "hello"
-cargo run -- retrieve "<memory-id>"
-cargo run -- serve
+# Run a single test
+cargo test --all-features <test_name>
 
-# review loop helpers
-gh pr view <num> --json reviews,comments,statusCheckRollup
-gh api repos/George-RD/romega-memory/pulls/<num>/comments
+# Build release binary
+cargo build --release
+
+# Run MCP server
+./target/release/mag serve
+
+# Benchmarks
+cargo run --release --bin longmemeval_bench
+cargo run --release --bin longmemeval_bench -- --grid-search  # parameter optimization
+
+# LoCoMo benchmark (retrieval quality, 5 categories)
+# --samples 2 for fast iteration (~304q, ~15s); full 10-sample only for validation
+cargo run --release --bin locomo_bench -- --samples 2                                # substring baseline
+cargo run --release --bin locomo_bench -- --samples 2 --scoring-mode word-overlap    # AutoMem-comparable
+cargo run --release --bin locomo_bench -- --llm-judge --samples 2                    # LLM judge (needs OPENAI_API_KEY)
 ```
 
-## NOTES
+## Architecture
 
-- CI currently has external billing instability; local strict verification remains mandatory.
-- Keep MCP smoke tests hermetic (temp HOME/USERPROFILE) to avoid mutating user state.
-- Real embeddings implemented via `Embedder` trait with `OnnxEmbedder` (bge-small-en-v1.5, 384-dim) and `PlaceholderEmbedder` (SHA256 fallback, 32-dim).
-- Feature flag `real-embeddings` (default ON) controls ONNX dependency inclusion.
-- Model auto-downloads from HuggingFace to `~/.romega-memory/models/bge-small-en-v1.5/` on first use.
-- `download-model` CLI command for explicit model pre-download.
-- New CLI operations (delete, update, list, relations, stats, export, import, feedback, sweep, checkpoint, resume-task, profile, remind, lessons, maintain, welcome, protocol, stats-extended) use `mcp_storage` directly, not Pipeline.
-- Tags stored as JSON arrays in the `tags` TEXT column; queried via SQLite `json_each()`.
-- FTS5 full-text search with BM25 ranking; LIKE fallback for edge cases.
-- Memories have importance (0.0–1.0), metadata (JSON), access_count, session_id, event_type, project, priority, entity_id, agent_type, ttl_seconds, canonical_hash fields.
-- Relationships have weight (0.0–1.0), metadata (JSON), and created_at fields.
-- Cross-session profile uses `user_profile` table with key/value JSON payload rows.
-- Export/import supports full JSON data portability including relationships and all extended fields.
-- Traits use struct-based signatures: `MemoryInput` (store), `MemoryUpdate` (update), `SearchOptions` (search/recent/semantic/tag/list).
-- Event types are validated against `VALID_EVENT_TYPES`; priority auto-maps from event type via `default_priority_for_event_type`.
-- Schema migrations are additive (ALTER TABLE ADD COLUMN with error ignoring for existing DBs).
-- Store lifecycle includes canonicalized-content dedup, event-type Jaccard dedup thresholds, and non-fatal auto-relate relationship linking.
-- TTL lifecycle includes auto-assignment by event type, explicit overrides, feedback scoring signals, and expiration sweeping cleanup.
-- Advanced search uses multi-phase scoring: vector similarity + FTS5 BM25 + type weighting + time decay + word overlap + importance boost + dedup.
-- Graph traversal via BFS with configurable max_hops (1-5), min_weight, and edge type filtering.
-- Scoring module (`scoring.rs`) holds parity constants: TYPE_WEIGHTS, DEFAULT_PRIORITY, and scoring helper functions.
-- `SearchOptions` extended with `importance_min`, `created_after`, `created_before`, `context_tags` for advanced filtering.
+Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. 16 MCP tools exposed via stdio protocol. No external services required.
+
+### Key modules
+
+- `src/main.rs` — CLI dispatch via clap
+- `src/mcp_server.rs` — MCP stdio server (16 tools), `TOOL_REGISTRY` const array
+- `src/memory_core/mod.rs` — 27+ traits defining the pipeline interface
+- `src/memory_core/embedder.rs` — `OnnxEmbedder` (real) and `PlaceholderEmbedder` (SHA256 fallback)
+- `src/memory_core/scoring.rs` — 26 externalized `ScoringParams`, type weights, word overlap, Jaccard
+- `src/memory_core/storage/sqlite/` — SQLite backend:
+  - `schema.rs` — table creation, additive migrations
+  - `crud.rs` — store/retrieve/update/delete
+  - `search.rs` — FTS5 BM25 + vector similarity
+  - `advanced.rs` — 6-phase RRF pipeline (vector + FTS5 + rerank + refinement + graph + abstention)
+  - `graph.rs` — relationship traversal (BFS, max_hops)
+  - `lifecycle.rs` — TTL, sweep, feedback
+  - `session.rs` — checkpoint, profile, session_info
+  - `admin.rs` — health/export/import/stats, backup/restore
+  - `helpers.rs` — retry logic, intent classification, cache keys, FTS5 query building
+
+### Search pipeline
+
+```
+Query → Intent classify (Keyword/Factual/Conceptual/General)
+      → ONNX embed (skip for Keyword)
+      → Vector search + FTS5 BM25
+      → RRF fusion → Cross-encoder rerank (optional)
+      → Score refinement (type × time_decay × priority × word_overlap × importance × feedback × query_coverage)
+      → Graph enrichment (Phase 5, currently disabled)
+      → Abstention gate → Results
+```
+
+### Feature flags
+
+- `real-embeddings` (default ON) — ONNX runtime, tokenizers, model download
+- `mimalloc` — alternative allocator
+- `sqlite-vec` — vector search acceleration
+
+## Conventions
+
+- Semantic commits: `<type>(<scope>): <description>` (e.g., `feat(memory): add TTL sweep`)
+- All DB I/O in `tokio::task::spawn_blocking` — never block the async executor
+- No `unwrap()`/`expect()` in production — use `anyhow::Context` or `?`
+- No stdout in MCP server mode — stdout is protocol channel; logs to stderr via `tracing`
+- Schema migrations additive only — never drop/rename columns; `ALTER TABLE ADD COLUMN` with error ignoring
+- Trait-first design — add new trait + impl rather than modifying existing signatures
+- Struct-based API: `MemoryInput` (store), `MemoryUpdate` (update), `SearchOptions` (search/filter)
+- SQLite lock contention: `retry_on_lock()` with bounded backoff (5 attempts, 10-160ms + jitter)
+- Cache invalidation: selective for `store()`, full clear for bulk operations (import/sweep/compact)
+
+## Quality Gates
+
+Every code change MUST pass before pushing:
+
+1. **Format**: `cargo fmt --all -- --check`
+2. **Lint**: `cargo clippy --all-targets --all-features -- -D warnings`
+3. **Tests**: `cargo test --all-features`
+4. **Benchmark** (if touching scoring/search/storage): `cargo run --release --bin locomo_bench -- --samples 2 --scoring-mode word-overlap` — no regressions without justification
+
+Run `prek run` for gates 1-3.
+
+## Post-Implementation Checklist
+
+- [ ] Quality gates pass (`prek run`)
+- [ ] Benchmark shows no regression (if applicable)
+- [ ] New public APIs have tests
+- [ ] Run code simplification review — check for unnecessary complexity, duplication, missed reuse
+- [ ] Update AGENTS.md if architecture or conventions changed
+
+## Version Control (jj)
+
+This repo uses jj (Jujutsu) in colocated mode.
+
+- **Never use bare `git commit`, `git rebase`, `git checkout`** — only `jj` commands. `git status`/`git log` for reads are fine.
+- Working copy is always a live commit (`@`). No staging area — every file change auto-amends `@`.
+- To "commit": `jj describe -m "msg" && jj new` (or `jj commit -m "msg"`)
+- To push: `jj bookmark set <name> -r @- && jj git push --bookmark <name> --allow-new`
+- Bookmarks: `feat/...`, `fix/...`, `perf/...`, `refactor/...`
+- `jj undo` reverses any operation. `jj op log` is the reflog.
+
+### PR workflow
+
+1. `jj describe -m "feat(scope): description" && jj new`
+2. `jj bookmark set feat/my-feature -r @-`
+3. `prek run`
+4. `jj git push --bookmark feat/my-feature --allow-new`
+5. `gh pr create --head feat/my-feature --title "..." --body "..."`
+
+## Testing
+
+- 500+ unit tests + integration tests, all using in-memory SQLite (`:memory:`)
+- MCP smoke tests (`tests/mcp_smoke.rs`) use hermetic HOME/USERPROFILE isolation
+- Tags stored as JSON arrays, queried via `json_each()`
+- `SearchOptions::default()` used everywhere for search parameter construction
+
+## Gotchas
+
+- `benches/locomo/` is a modular 8-file benchmark suite, not a single-file bench
+- LoCoMo-10 IS the reduced dataset (original had 50 conversations); `--samples 2` is fast iteration mode
+- LoCoMo categories: cat 1=single-hop, 2=temporal, 3=multi-hop, 4=open-domain, 5=adversarial
+- `.env.local` contains OPENAI_API_KEY — in .gitignore, loaded by `dotenvy::from_filename(".env.local")`
+- `conductor/` contains product planning docs — not runtime code
+- Model files (~134 MB) auto-download on first use; `~/.mag/models/` preferred, `~/.romega-memory/models/` legacy
+- `GRAPH_NEIGHBOR_FACTOR=0.0` — graph enrichment Phase 5 is disabled; guarded by `if > 0.0`
+- Git hooks do NOT fire under jj — run `prek run` explicitly before pushing
+
+## Tool-Specific Notes
+
+### Claude Code
+
+- The `/jj` skill handles commit/push/PR workflows — use it instead of raw jj commands when available
+- Use `/simplify` after completing implementation work to review for quality
+- `isolation: "worktree"` on Agent tool creates git worktrees for parallel work; JJ workspaces preferred when available
+- Session-start hooks can inject orchestrator mode — see chief-of-staff plugin
+
+### Codex (OpenAI)
+
+<!-- Add Codex-specific guidance here as needed -->
