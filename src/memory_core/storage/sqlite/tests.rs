@@ -4076,6 +4076,30 @@ async fn test_welcome_surfaces_user_context() {
     assert_eq!(user_ctx[1]["event_type"], "user_fact");
 }
 
+#[tokio::test]
+async fn test_welcome_first_run_greeting() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let result = <SqliteStorage as WelcomeProvider>::welcome(&storage, None, None)
+        .await
+        .unwrap();
+    assert_eq!(result["memory_count"], 0);
+    assert!(
+        result["greeting"]
+            .as_str()
+            .unwrap()
+            .contains("Welcome to MAG"),
+        "first-run greeting should say 'Welcome to MAG'"
+    );
+    assert!(
+        result["greeting"]
+            .as_str()
+            .unwrap()
+            .contains("first memory"),
+        "first-run greeting should mention storing first memory"
+    );
+}
+
 // ── StatsProvider tests ───────────────────────────────────────
 
 #[tokio::test]

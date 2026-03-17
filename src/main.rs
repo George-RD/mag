@@ -80,6 +80,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if let Commands::Doctor { verbose } = &cli.command {
+        return run_doctor(*verbose).await;
+    }
+
     if matches!(cli.command, Commands::Paths) {
         let paths = app_paths::resolve_app_paths()?;
         println!(
@@ -865,6 +869,9 @@ async fn main() -> anyhow::Result<()> {
                 "invalid stats-extended action: {other} (expected types|sessions|digest|access-rate)"
             ),
         },
+        Commands::Doctor { .. } => {
+            unreachable!("doctor is handled before storage initialization")
+        }
         Commands::DownloadModel => {
             unreachable!("download-model is handled before storage initialization")
         }
@@ -1041,6 +1048,183 @@ fn parse_cli_time_filter(
 fn format_time_filter(dt: DateTime<FixedOffset>) -> String {
     dt.with_timezone(&Utc)
         .to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+async fn run_doctor(verbose: bool) -> anyhow::Result<()> {
+    println!("Checking MAG setup...\n");
+
+    let mut passed = 0u32;
+    let mut total = 0u32;
+
+    // 1. Paths check
+    total += 1;
+    let paths = match app_paths::resolve_app_paths() {
+        Ok(p) => {
+            let writable = is_dir_writable(&p.data_root);
+            if writable {
+                println!("[ok] Paths: {} (writable)", p.data_root.display());
+                passed += 1;
+            } else if p.data_root.exists() {
+                println!("[FAIL] Paths: {} (not writable)", p.data_root.display());
+                println!("       Ensure the directory has write permissions.");
+            } else {
+                println!(
+                    "[ok] Paths: {} (will be created on first use)",
+                    p.data_root.display()
+                );
+                passed += 1;
+            }
+            if verbose && p.using_legacy_root {
+                println!(
+                    "       Using legacy root (preferred: {})",
+                    p.preferred_data_root.display()
+                );
+            }
+            Some(p)
+        }
+        Err(e) => {
+            println!("[FAIL] Paths: {e}");
+            println!("       Ensure HOME or USERPROFILE is set.");
+            None
+        }
+    };
+
+    // 2. Database check
+    total += 1;
+    if let Some(ref paths) = paths {
+        if paths.database_path.exists() {
+            match check_db_integrity(&paths.database_path) {
+                Ok((ok, count)) => {
+                    if ok {
+                        println!(
+                            "[ok] Database: {} (valid, {count} memories)",
+                            paths.database_path.display()
+                        );
+                        passed += 1;
+                    } else {
+                        println!(
+                            "[FAIL] Database: {} (integrity check failed)",
+                            paths.database_path.display()
+                        );
+                        println!("       Run: mag maintain --action health");
+                    }
+                }
+                Err(e) => {
+                    println!("[FAIL] Database: {} ({e})", paths.database_path.display());
+                    println!("       Run: mag maintain --action health");
+                }
+            }
+        } else {
+            println!(
+                "[!!] Database: not found at {}",
+                paths.database_path.display()
+            );
+            println!("       Database will be created on first use.");
+            passed += 1; // warning, not failure
+        }
+    } else {
+        println!("[FAIL] Database: cannot check (paths unavailable)");
+    }
+
+    // 3. Models check
+    total += 1;
+    if let Some(ref paths) = paths {
+        let model_onnx = paths.model_root.join("model.onnx");
+        let tokenizer = paths.model_root.join("tokenizer.json");
+        if model_onnx.exists() && tokenizer.exists() {
+            let model_size = std::fs::metadata(&model_onnx).map(|m| m.len()).unwrap_or(0);
+            #[allow(clippy::cast_precision_loss)]
+            let size_mb = model_size as f64 / (1024.0 * 1024.0);
+            println!("[ok] Models: model.onnx ({size_mb:.0} MB), tokenizer.json");
+            passed += 1;
+        } else {
+            let mut missing = Vec::new();
+            if !model_onnx.exists() {
+                missing.push("model.onnx");
+            }
+            if !tokenizer.exists() {
+                missing.push("tokenizer.json");
+            }
+            println!(
+                "[FAIL] Models: missing {} in {}",
+                missing.join(", "),
+                paths.model_root.display()
+            );
+            println!("       Run: mag download-model");
+        }
+    } else {
+        println!("[FAIL] Models: cannot check (paths unavailable)");
+    }
+
+    // 4. Embedder warmup check (only if models present)
+    total += 1;
+    #[cfg(feature = "real-embeddings")]
+    {
+        let start = std::time::Instant::now();
+        match memory_core::OnnxEmbedder::new() {
+            Ok(embedder) => {
+                let embedder = std::sync::Arc::new(embedder);
+                match embedder.warmup().await {
+                    Ok(()) => {
+                        let elapsed = start.elapsed();
+                        println!("[ok] Embedder: warmup OK ({elapsed:.0?})");
+                        passed += 1;
+                    }
+                    Err(e) => {
+                        println!("[FAIL] Embedder: warmup failed ({e})");
+                        println!("       Run: mag download-model");
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[FAIL] Embedder: initialization failed ({e})");
+                println!("       Run: mag download-model");
+            }
+        }
+    }
+    #[cfg(not(feature = "real-embeddings"))]
+    {
+        println!("[!!] Embedder: real-embeddings feature not enabled (using placeholder)");
+        passed += 1; // warning, not failure
+    }
+
+    println!(
+        "\n{passed}/{total} checks passed.{}",
+        if passed == total {
+            " MAG is ready."
+        } else {
+            ""
+        }
+    );
+    Ok(())
+}
+
+fn is_dir_writable(path: &std::path::Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    let probe = path.join(".mag_doctor_probe");
+    match std::fs::write(&probe, b"ok") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn check_db_integrity(db_path: &std::path::Path) -> anyhow::Result<(bool, i64)> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let integrity: String = conn
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .unwrap_or_else(|_| "error".to_string());
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+        .unwrap_or(0);
+    Ok((integrity == "ok", count))
 }
 
 #[cfg(test)]

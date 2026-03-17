@@ -335,6 +335,12 @@ pub enum Commands {
         #[arg(long, default_value_t = 7)]
         days: i64,
     },
+    /// Check MAG setup and report diagnostics.
+    Doctor {
+        /// Show verbose output.
+        #[arg(long)]
+        verbose: bool,
+    },
     /// Downloads the ONNX model and tokenizer used for embeddings.
     DownloadModel,
     /// Downloads the cross-encoder model for reranking.
@@ -998,6 +1004,30 @@ mod tests {
                 assert_eq!(limit, 7);
             }
             _ => panic!("Expected Lessons command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_doctor_command() {
+        let args = vec!["mag", "doctor"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Doctor { verbose } => {
+                assert!(!verbose);
+            }
+            _ => panic!("Expected Doctor command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_doctor_verbose_command() {
+        let args = vec!["mag", "doctor", "--verbose"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Doctor { verbose } => {
+                assert!(verbose);
+            }
+            _ => panic!("Expected Doctor command"),
         }
     }
 

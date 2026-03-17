@@ -1354,7 +1354,11 @@ impl ServerHandler for McpMemoryServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "MAG MCP server exposes tools for storing and retrieving memories".to_string(),
+                "MAG -- local memory server for AI agents.\n\n\
+                 STARTUP: Call memory_session_info(mode=\"welcome\") first to get session context.\n\
+                 REFERENCE: Call memory_session_info(mode=\"protocol\") for tool inventory.\n\
+                 DIAGNOSTICS: If issues occur, run CLI: mag doctor"
+                    .to_string(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
