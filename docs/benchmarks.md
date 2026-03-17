@@ -141,6 +141,34 @@ AutoMem numbers are from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Ta
 
 This is a retrieval-oriented benchmark, not a full generative evaluation. The README describes it that way intentionally.
 
+### E2E LLM Evaluation Mode
+
+The E2E (end-to-end) word-overlap mode combines LLM answer generation with word-overlap recall scoring. This mirrors AutoMem's evaluation pipeline: retrieve context, generate an LLM answer, then score the generated answer against the expected answer using word-overlap recall.
+
+This gives a more realistic evaluation than retrieval-only word-overlap (which scores raw retrieved text) or LLM F1 (which uses token-level F1). Adversarial questions are scored via phrase-based detection (same as `llm-f1` mode).
+
+Command:
+
+```bash
+# E2E word-overlap with OpenAI (requires OPENAI_API_KEY)
+cargo run --release --bin locomo_bench -- --e2e --llm-judge --samples 2
+# E2E word-overlap with local LM Studio
+cargo run --release --bin locomo_bench -- --e2e --local --samples 2
+# Equivalent explicit form
+cargo run --release --bin locomo_bench -- --scoring-mode e2e-word-overlap --llm-judge --samples 2
+```
+
+Results will be populated after the first benchmark run with this mode.
+
+| Category | MAG (E2E) | AutoMem |
+| --- | ---: | ---: |
+| Single-Hop QA | _TBD_ | `79.8%` |
+| Temporal Reasoning | _TBD_ | `85.1%` |
+| Multi-Hop QA | _TBD_ | `50.0%` |
+| Open-Domain | _TBD_ | `95.8%` |
+| Adversarial | _TBD_ | `100.0%` |
+| **Overall** | _TBD_ | **`90.5%`** |
+
 ## Scale Benchmark
 
 Command:

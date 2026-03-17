@@ -25,6 +25,8 @@ enum ScoringMode {
     WordOverlap,
     /// LLM-generated answer scored via token F1 (requires --llm-judge or --local).
     LlmF1,
+    /// E2E: LLM-generated answer scored via word-overlap recall (requires --llm-judge or --local).
+    E2eWordOverlap,
 }
 
 #[path = "../bench_utils/mod.rs"]
@@ -88,10 +90,13 @@ struct Args {
     /// Requires OPENAI_API_KEY in environment or .env.local file.
     #[arg(long)]
     openai_embeddings: bool,
-    /// Scoring mode: substring, word-overlap, or llm-f1.
+    /// Scoring mode: substring, word-overlap, llm-f1, or e2e-word-overlap.
     /// If omitted, defaults to substring unless --llm-judge/--local implies llm-f1.
     #[arg(long, value_enum)]
     scoring_mode: Option<ScoringMode>,
+    /// Shorthand for --scoring-mode e2e-word-overlap (requires --llm-judge or --local).
+    #[arg(long)]
+    e2e: bool,
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -105,16 +110,20 @@ fn main() -> Result<()> {
         bail!("--dataset-path cannot be combined with --force-refresh or --temp-dataset");
     }
 
-    // Resolve effective scoring mode: explicit --scoring-mode wins.
-    // Otherwise, --llm-judge/--local implies llm-f1; fallback default is substring.
+    // Resolve effective scoring mode: --e2e shorthand wins over implicit default,
+    // explicit --scoring-mode always wins.
     let scoring_mode = match args.scoring_mode {
         Some(mode) => mode,
+        None if args.e2e => ScoringMode::E2eWordOverlap,
         None if args.llm_judge || args.local => ScoringMode::LlmF1,
         None => ScoringMode::Substring,
     };
 
     if scoring_mode == ScoringMode::LlmF1 && !(args.llm_judge || args.local) {
         bail!("--scoring-mode llm-f1 requires --llm-judge or --local");
+    }
+    if scoring_mode == ScoringMode::E2eWordOverlap && !(args.llm_judge || args.local) {
+        bail!("--e2e / --scoring-mode e2e-word-overlap requires --llm-judge or --local");
     }
     if scoring_mode == ScoringMode::WordOverlap && (args.llm_judge || args.local) {
         bail!("--scoring-mode word-overlap is incompatible with --llm-judge / --local");
@@ -144,7 +153,10 @@ fn main() -> Result<()> {
     let metadata = benchmarking::benchmark_metadata("locomo", &dataset);
 
     // Initialize LLM if needed.
-    let use_llm = scoring_mode == ScoringMode::LlmF1;
+    let use_llm = matches!(
+        scoring_mode,
+        ScoringMode::LlmF1 | ScoringMode::E2eWordOverlap
+    );
     if use_llm {
         let model = args.llm_model.as_deref().unwrap_or(if args.local {
             DEFAULT_LOCAL_MODEL
@@ -256,6 +268,32 @@ fn main() -> Result<()> {
                     };
                     (score, String::new())
                 }
+                ScoringMode::E2eWordOverlap if !expected_answer.is_empty() => {
+                    // E2E: generate LLM answer, then score with word-overlap recall.
+                    match runtime.block_on(llm::generate_answer(&qa.question, &hits)) {
+                        Ok(generated) => {
+                            if is_adversarial {
+                                let score = if scoring::adversarial_check(&generated) {
+                                    1.0
+                                } else {
+                                    0.0
+                                };
+                                (score, generated)
+                            } else {
+                                let score =
+                                    scoring::word_overlap_on_text(&generated, expected_answer);
+                                (score, generated)
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "warning: LLM generation failed, falling back to retrieval word-overlap: {err}"
+                            );
+                            let score = scoring::word_overlap_score(&hits, expected_answer);
+                            (score, String::new())
+                        }
+                    }
+                }
                 ScoringMode::LlmF1 if !expected_answer.is_empty() => {
                     match runtime.block_on(llm::generate_answer(&qa.question, &hits)) {
                         Ok(generated) => {
@@ -285,8 +323,8 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-                ScoringMode::Substring | ScoringMode::LlmF1 => {
-                    // Substring mode, or LlmF1 fallback when expected is empty.
+                ScoringMode::Substring | ScoringMode::LlmF1 | ScoringMode::E2eWordOverlap => {
+                    // Substring mode, or LlmF1/E2eWordOverlap fallback when expected is empty.
                     let concat = hits
                         .iter()
                         .map(|h| h.content.as_str())
@@ -373,6 +411,7 @@ fn main() -> Result<()> {
         ScoringMode::Substring => "substring",
         ScoringMode::WordOverlap => "word-overlap",
         ScoringMode::LlmF1 => "llm-f1",
+        ScoringMode::E2eWordOverlap => "e2e-word-overlap",
     };
 
     let summary = types::LoCoMoSummary {
