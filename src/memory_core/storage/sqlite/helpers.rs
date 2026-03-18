@@ -173,6 +173,8 @@ pub(super) struct IntentProfile {
     pub fts_weight_mult: f64,
     pub word_overlap_mult: f64,
     pub top_k_mult: f64,
+    #[allow(dead_code)] // Planned for future use; currently tested for intent profiling.
+    pub suggested_limit_mult: f64,
 }
 
 impl IntentProfile {
@@ -184,24 +186,28 @@ impl IntentProfile {
                 fts_weight_mult: 1.0,
                 word_overlap_mult: 1.3,
                 top_k_mult: 1.0,
+                suggested_limit_mult: 1.0,
             },
             QueryIntent::Factual => Self {
                 vec_weight_mult: 1.0,
                 fts_weight_mult: 1.1,
                 word_overlap_mult: 1.15,
                 top_k_mult: 1.0,
+                suggested_limit_mult: 1.0,
             },
             QueryIntent::Conceptual => Self {
                 vec_weight_mult: 1.5,
                 fts_weight_mult: 0.85,
                 word_overlap_mult: 0.7,
                 top_k_mult: 1.3,
+                suggested_limit_mult: 1.3,
             },
             QueryIntent::General => Self {
                 vec_weight_mult: 1.0,
                 fts_weight_mult: 1.0,
                 word_overlap_mult: 1.0,
                 top_k_mult: 1.0,
+                suggested_limit_mult: 1.0,
             },
         }
     }
@@ -267,6 +273,51 @@ pub(super) fn classify_query_intent(query: &str) -> QueryIntent {
     }
 
     QueryIntent::General
+}
+
+/// Detects whether a query warrants additional retrieval candidates.
+///
+/// Returns a multiplier for the candidate limit:
+/// - 2.0x for multi-hop indicators ("and" combined with relationship/connect/between/both)
+/// - 1.5x for broad temporal queries ("last month/year", "this month", "over the past")
+/// - 1.0x otherwise (no adjustment)
+pub(super) fn detect_dynamic_limit_mult(query: &str) -> f64 {
+    let lower = query.trim().to_lowercase();
+
+    // Multi-hop: "and" + relationship words
+    let has_and = lower.contains(" and ");
+    let multi_hop_indicators = [
+        "relationship",
+        "connect",
+        "between",
+        "both",
+        "related",
+        "sister",
+        "brother",
+        "friend",
+    ];
+    if has_and && multi_hop_indicators.iter().any(|w| lower.contains(w)) {
+        return 2.0;
+    }
+
+    // Broad temporal patterns
+    let temporal_patterns = [
+        "last month",
+        "last year",
+        "this month",
+        "this year",
+        "over the past",
+        "in the past",
+        "recent months",
+        "past year",
+        "past month",
+        "few months",
+    ];
+    if temporal_patterns.iter().any(|p| lower.contains(p)) {
+        return 1.5;
+    }
+
+    1.0
 }
 
 /// Default number of reader connections in the pool for file-backed databases.
@@ -2216,5 +2267,40 @@ mod tests {
         assert!(q.contains("\"movie\""));
         assert!(q.contains("\"film\""));
         assert!(!q.contains("\"the\""));
+    }
+
+    #[test]
+    fn test_dynamic_limit_mult_multi_hop() {
+        assert!(
+            (detect_dynamic_limit_mult("What is Amanda's sister and how are they related") - 2.0)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (detect_dynamic_limit_mult("Tell me about the relationship between Alice and Bob")
+                - 2.0)
+                .abs()
+                < 1e-9
+        );
+    }
+
+    #[test]
+    fn test_dynamic_limit_mult_temporal() {
+        assert!((detect_dynamic_limit_mult("What happened last month") - 1.5).abs() < 1e-9);
+        assert!((detect_dynamic_limit_mult("Events over the past year") - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_dynamic_limit_mult_simple() {
+        assert!((detect_dynamic_limit_mult("What is Alice's job?") - 1.0).abs() < 1e-9);
+        assert!((detect_dynamic_limit_mult("Tell me about the weather") - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_intent_profile_suggested_limit_mult() {
+        let p = IntentProfile::for_intent(QueryIntent::Conceptual);
+        assert!((p.suggested_limit_mult - 1.3).abs() < 1e-9);
+        let p = IntentProfile::for_intent(QueryIntent::General);
+        assert!((p.suggested_limit_mult - 1.0).abs() < 1e-9);
     }
 }
