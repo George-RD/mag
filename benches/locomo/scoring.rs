@@ -77,7 +77,11 @@ fn stem(word: &str) -> String {
 pub(crate) fn normalize_tokens(text: &str) -> HashSet<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| !word.is_empty() && word.len() > 1 && !is_stopword(word))
+        .filter(|word| {
+            !word.is_empty()
+                && (word.len() > 1 || word.chars().all(|c| c.is_ascii_digit()))
+                && !is_stopword(word)
+        })
         .map(stem)
         .collect()
 }
@@ -145,6 +149,60 @@ pub(crate) fn substring_match(hits: &[RetrievalHit], expected: &str) -> bool {
         .any(|hit| hit.content.to_lowercase().contains(expected.as_str()))
 }
 
+// ── Date expansion ───────────────────────────────────────────────────────
+
+/// Expand ISO date strings (e.g. "2023-05-07") into natural language tokens
+/// so word-overlap can match expected answers like "May 2023" or "7 May".
+fn expand_date_tokens(text: &str) -> String {
+    const MONTHS: [&str; 13] = [
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let mut extra = String::new();
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i + 10 <= len {
+        // Look for YYYY-MM-DD pattern
+        if bytes[i].is_ascii_digit()
+            && bytes[i + 1].is_ascii_digit()
+            && bytes[i + 2].is_ascii_digit()
+            && bytes[i + 3].is_ascii_digit()
+            && bytes[i + 4] == b'-'
+            && bytes[i + 5].is_ascii_digit()
+            && bytes[i + 6].is_ascii_digit()
+            && bytes[i + 7] == b'-'
+            && bytes[i + 8].is_ascii_digit()
+            && bytes[i + 9].is_ascii_digit()
+        {
+            let year = &text[i..i + 4];
+            let month_num: usize = text[i + 5..i + 7].parse().unwrap_or(0);
+            let day: usize = text[i + 8..i + 10].parse().unwrap_or(0);
+            if (1..=12).contains(&month_num) && (1..=31).contains(&day) {
+                let month_name = MONTHS[month_num];
+                // Add expanded forms: "May 2023", "7 May 2023", "May", "2023"
+                extra.push(' ');
+                extra.push_str(&format!("{month_name} {year} {day} {month_name} {year}"));
+            }
+            i += 10;
+        } else {
+            i += 1;
+        }
+    }
+    extra
+}
+
 // ── Word-overlap score (AutoMem-compatible) ─────────────────────────────
 
 /// Compute recall-oriented word overlap between retrieved hits and the expected
@@ -167,6 +225,12 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
             combined.push(' ');
             combined.push_str(date);
         }
+    }
+
+    // Expand ISO dates to natural language for better token matching.
+    let date_expansion = expand_date_tokens(&combined);
+    if !date_expansion.is_empty() {
+        combined.push_str(&date_expansion);
     }
 
     let expected_tokens = normalize_tokens(expected);
@@ -588,5 +652,57 @@ mod tests {
         // "the a an" are all stopwords, so expected_tokens is empty → returns 0.0
         let score = word_overlap_on_text("the a an is are", "the a an");
         assert!(score.abs() < 1e-9);
+    }
+
+    // ── single-char digit token tests ─────────────────────────────────
+
+    #[test]
+    fn test_normalize_tokens_keeps_single_digit() {
+        let tokens = normalize_tokens("the answer is 2");
+        assert!(tokens.contains("2"), "single digit '2' should be kept");
+    }
+
+    #[test]
+    fn test_normalize_tokens_drops_single_letter() {
+        let tokens = normalize_tokens("x marks the spot");
+        // "x" is single-char alphabetic, should be dropped
+        assert!(!tokens.contains("x"), "single letter 'x' should be dropped");
+    }
+
+    // ── expand_date_tokens tests ──────────────────────────────────────
+
+    #[test]
+    fn test_expand_date_tokens_basic() {
+        let result = expand_date_tokens("2023-05-07");
+        assert!(result.contains("May"), "should contain month name");
+        assert!(result.contains("2023"), "should contain year");
+        assert!(result.contains("7"), "should contain day");
+    }
+
+    #[test]
+    fn test_expand_date_tokens_no_dates() {
+        let result = expand_date_tokens("no dates here");
+        assert!(result.is_empty(), "expected empty, got: {result}");
+    }
+
+    #[test]
+    fn test_expand_date_tokens_embedded() {
+        let result = expand_date_tokens("meeting on 2024-01-15 at noon");
+        assert!(result.contains("January"), "should contain January");
+        assert!(result.contains("2024"), "should contain 2024");
+    }
+
+    #[test]
+    fn test_word_overlap_date_expansion() {
+        let hits = vec![RetrievalHit {
+            content: "Alice traveled on 2023-05-07".to_string(),
+            score: 0.9,
+            metadata: serde_json::json!({}),
+        }];
+        let score = word_overlap_score(&hits, "May 2023");
+        assert!(
+            score > 0.5,
+            "date expansion should match 'May 2023', got {score}"
+        );
     }
 }

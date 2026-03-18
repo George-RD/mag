@@ -5,6 +5,72 @@ use mag::memory_core::*;
 
 use crate::types::{DialogueTurn, LoCoMoSample, RetrievalHit};
 
+/// Common words that should not be extracted as person/entity names.
+/// Used by both entity tag extraction during seeding and speaker extraction from questions.
+fn is_common_word(word: &str) -> bool {
+    matches!(
+        word,
+        "the"
+            | "and"
+            | "for"
+            | "with"
+            | "this"
+            | "that"
+            | "from"
+            | "are"
+            | "was"
+            | "were"
+            | "has"
+            | "have"
+            | "had"
+            | "not"
+            | "but"
+            | "all"
+            | "can"
+            | "will"
+            | "just"
+            | "also"
+            | "been"
+            | "would"
+            | "could"
+            | "should"
+            | "there"
+            | "then"
+            | "than"
+            | "when"
+            | "where"
+            | "what"
+            | "which"
+            | "who"
+            | "how"
+            | "why"
+            | "does"
+            | "did"
+            | "his"
+            | "her"
+            | "its"
+            | "our"
+            | "your"
+            | "she"
+            | "yes"
+            | "yeah"
+            | "well"
+            | "okay"
+            | "sure"
+            | "really"
+            | "actually"
+            | "maybe"
+            | "probably"
+            | "definitely"
+            | "certainly"
+    )
+}
+
+/// Format a name as a `speaker:{slug}` tag.
+fn speaker_tag(name: &str) -> String {
+    format!("speaker:{}", name.to_lowercase().replace(' ', "-"))
+}
+
 /// Seed all conversation turns from a LoCoMo sample as memories.
 ///
 /// Each turn is stored with `dia_id` in metadata for evidence recall tracking,
@@ -76,70 +142,31 @@ pub(crate) async fn seed_sample(
                 format!("{}: {}", turn.speaker, turn.text)
             };
 
+            // Structural metadata tags (always added regardless of entity_tags).
+            let conversation_tag = format!("conversation:{}", sample.sample_id);
+            let session_tag = format!("session:{key}");
+
+            let mut tags: Vec<String> =
+                vec![speaker_tag(&turn.speaker), conversation_tag, session_tag];
+
             // Extract entity tags from turn text (capitalized words as entity:people:slug)
-            let tags: Vec<String> = if entity_tags {
-                let mut t: Vec<String> = Vec::new();
+            if entity_tags {
                 for word in turn.text.split_whitespace() {
                     let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
                     if clean.len() >= 2
                         && clean.chars().next().is_some_and(|c| c.is_uppercase())
                         && clean.chars().skip(1).all(|c| c.is_lowercase())
                     {
-                        // Simple heuristic: skip very common words
                         let lower = clean.to_lowercase();
-                        if !matches!(
-                            lower.as_str(),
-                            "the"
-                                | "and"
-                                | "for"
-                                | "with"
-                                | "this"
-                                | "that"
-                                | "from"
-                                | "are"
-                                | "was"
-                                | "were"
-                                | "has"
-                                | "have"
-                                | "had"
-                                | "not"
-                                | "but"
-                                | "all"
-                                | "can"
-                                | "will"
-                                | "just"
-                                | "also"
-                                | "been"
-                                | "would"
-                                | "could"
-                                | "should"
-                                | "there"
-                                | "then"
-                                | "than"
-                                | "yes"
-                                | "yeah"
-                                | "well"
-                                | "okay"
-                                | "sure"
-                                | "really"
-                                | "actually"
-                                | "maybe"
-                                | "probably"
-                                | "definitely"
-                                | "certainly"
-                        ) {
-                            let slug = lower.replace(' ', "-");
-                            let tag = format!("entity:people:{slug}");
-                            if !t.contains(&tag) {
-                                t.push(tag);
+                        if !is_common_word(&lower) {
+                            let tag = format!("entity:people:{lower}");
+                            if !tags.contains(&tag) {
+                                tags.push(tag);
                             }
                         }
                     }
                 }
-                t
-            } else {
-                Vec::new()
-            };
+            }
 
             let input = MemoryInput {
                 content: String::new(),
@@ -197,4 +224,106 @@ pub(crate) async fn query_with_metadata(
             metadata: item.metadata,
         })
         .collect())
+}
+
+/// Query with semantic search + speaker-tag secondary recall (AutoMem-compatible).
+///
+/// 1. Run semantic `query_with_metadata()` (limit = `top_k`)
+/// 2. Extract speaker name from question (first capitalized proper noun)
+/// 3. If speaker found: tag-search `get_by_tags([speaker:{name}, conversation:{id}], 50)`
+/// 4. Merge results, dedup by dia_id, semantic results take precedence
+pub(crate) async fn query_with_speaker_recall(
+    storage: &SqliteStorage,
+    question: &str,
+    sample_id: &str,
+    top_k: usize,
+) -> Result<Vec<RetrievalHit>> {
+    // Step 1: Semantic search
+    let mut hits = query_with_metadata(storage, question, top_k).await?;
+
+    // Step 2: Extract speaker name from question
+    let speaker = extract_speaker_from_question(question);
+
+    // Step 3: Speaker-tag recall
+    if let Some(speaker_name) = speaker {
+        let spk_tag = speaker_tag(&speaker_name);
+        let conversation_tag = format!("conversation:{sample_id}");
+        let tags = vec![spk_tag, conversation_tag];
+
+        let tag_results =
+            <SqliteStorage as Tagger>::get_by_tags(storage, &tags, 50, &SearchOptions::default())
+                .await
+                .unwrap_or_default();
+
+        // Step 4: Merge, dedup by dia_id
+        let mut seen_dia_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for hit in &hits {
+            if let Some(dia_id) = hit.dia_id() {
+                seen_dia_ids.insert(dia_id.to_string());
+            }
+        }
+
+        for result in tag_results {
+            let dia_id = result
+                .metadata
+                .get("dia_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !dia_id.is_empty() && !seen_dia_ids.contains(&dia_id) {
+                seen_dia_ids.insert(dia_id);
+                hits.push(RetrievalHit {
+                    content: result.content,
+                    #[allow(clippy::cast_possible_truncation)]
+                    score: result.importance as f32,
+                    metadata: result.metadata,
+                });
+            }
+        }
+    }
+
+    Ok(hits)
+}
+
+/// Extract the first capitalized proper noun from a question as the speaker name.
+fn extract_speaker_from_question(question: &str) -> Option<String> {
+    let words: Vec<&str> = question.split_whitespace().collect();
+    for (i, word) in words.iter().enumerate() {
+        // Strip possessives and punctuation
+        let clean: String = word
+            .replace("'s", "")
+            .replace("\u{2019}s", "")
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+        if clean.len() < 2 {
+            continue;
+        }
+
+        let first_char = clean.chars().next()?;
+        if !first_char.is_uppercase() {
+            continue;
+        }
+        if !clean.chars().skip(1).all(|c| c.is_lowercase()) {
+            continue;
+        }
+
+        // Skip sentence-initial words (index 0, or after sentence-ending punctuation)
+        if i == 0 {
+            continue;
+        }
+        // Also skip after "?" at the previous word
+        if words[i - 1].ends_with('?') {
+            continue;
+        }
+
+        // Skip common non-name words
+        let lower = clean.to_lowercase();
+        if is_common_word(&lower) {
+            continue;
+        }
+
+        return Some(clean);
+    }
+    None
 }
