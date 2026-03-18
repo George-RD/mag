@@ -1,4 +1,6 @@
-use super::helpers::{IntentProfile, QueryIntent, classify_query_intent};
+use super::helpers::{
+    IntentProfile, QueryIntent, classify_query_intent, detect_dynamic_limit_mult,
+};
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;
 
@@ -1022,12 +1024,14 @@ impl AdvancedSearcher for SqliteStorage {
         let explain_enabled = opts.explain.unwrap_or(false);
 
         // Apply top_k_mult: scale candidate oversampling while keeping final limit intact.
+        let dynamic_mult = detect_dynamic_limit_mult(&query);
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             clippy::cast_precision_loss
         )]
-        let candidate_limit = ((limit as f64 * intent_profile.top_k_mult).ceil() as usize).max(1);
+        let candidate_limit =
+            ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
 
         // Phases 1+2: Vector search and FTS5 search.
         // Keyword queries skip vector search entirely (FTS5 only).
