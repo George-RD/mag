@@ -51,8 +51,15 @@ fn extract_person_names(content: &str, tags: &mut BTreeSet<String>) {
         }
 
         // Pattern 3: Possessive "'s" — "Caroline's" → entity:person:caroline
+        // Strips the trailing "'s" suffix rather than splitting on apostrophe,
+        // so names like "O'Connor's" correctly extract "O'Connor" not "O".
         if word.ends_with("'s") || word.ends_with("\u{2019}s") {
-            let name_part = word.split(['\'', '\u{2019}']).next().unwrap_or("");
+            let name_part = if word.ends_with("'s") {
+                &word[..word.len() - 2]
+            } else {
+                // '\u{2019}' is 3 bytes in UTF-8
+                &word[..word.len() - 4]
+            };
             let name_clean = name_part.trim_matches(|c: char| !c.is_alphanumeric());
             if name_clean.len() >= 2
                 && name_clean.chars().next().is_some_and(|c| c.is_uppercase())
@@ -83,7 +90,7 @@ fn is_common_non_name(word: &str) -> bool {
         "it" | "he" | "she" | "they" | "we" | "you"
         // Days and months
         | "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday"
-        | "january" | "february" | "march" | "april" | "june"
+        | "january" | "february" | "march" | "april" | "may" | "june"
         | "july" | "august" | "september" | "october" | "november" | "december"
         // Interjections and fillers
         | "oh" | "ah" | "hmm" | "huh" | "wow" | "ooh"
@@ -126,6 +133,17 @@ mod tests {
         let tags = extract_entity_tags("I visited Caroline's house yesterday");
         assert!(
             tags.iter().any(|t| t == "entity:person:caroline"),
+            "tags: {:?}",
+            tags
+        );
+    }
+
+    #[test]
+    fn test_extract_possessive_oconnor() {
+        // O'Connor's should extract "O'Connor", not just "O"
+        let tags = extract_entity_tags("I went to O'Connor's pub last night");
+        assert!(
+            tags.iter().any(|t| t == "entity:person:o'connor"),
             "tags: {:?}",
             tags
         );
