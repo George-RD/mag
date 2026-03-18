@@ -980,33 +980,35 @@ fn fuse_refine_and_output(
                             None
                         };
 
-                        ranked.insert(
-                            id.clone(),
-                            RankedSemanticCandidate {
-                                result: SemanticResult {
-                                    id,
-                                    content,
-                                    tags,
-                                    importance,
-                                    metadata,
-                                    event_type: et,
-                                    session_id,
-                                    project,
-                                    entity_id: entity_id.clone(),
-                                    agent_type: agent_type.clone(),
-                                    score: 0.0,
-                                },
-                                created_at,
-                                event_at,
-                                score: final_score,
-                                priority_value,
-                                vec_sim: None,
-                                text_overlap: overlap,
-                                entity_id,
-                                agent_type,
-                                explain: explain_data,
+                        let candidate = RankedSemanticCandidate {
+                            result: SemanticResult {
+                                id: id.clone(),
+                                content,
+                                tags,
+                                importance,
+                                metadata,
+                                event_type: et,
+                                session_id,
+                                project,
+                                entity_id: entity_id.clone(),
+                                agent_type: agent_type.clone(),
+                                score: 0.0,
                             },
-                        );
+                            created_at,
+                            event_at,
+                            score: final_score,
+                            priority_value,
+                            vec_sim: None,
+                            text_overlap: overlap,
+                            entity_id,
+                            agent_type,
+                            explain: explain_data,
+                        };
+                        // Skip candidates that don't match original search filters
+                        if !matches_search_options(&candidate, opts) {
+                            continue;
+                        }
+                        ranked.insert(id, candidate);
                         expanded_count += 1;
                     }
                 }
@@ -1465,6 +1467,8 @@ impl AdvancedSearcher for SqliteStorage {
         let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
         let cache_project_filter = opts.project.clone();
         let cache_session_id_filter = opts.session_id.clone();
+        // Clone opts before it moves into the fuse closure so sub-queries can reuse it.
+        let opts_for_decomp = opts.clone();
 
         // Phases 3-6: RRF fusion, score refinement, graph enrichment,
         // abstention + dedup. Needs one reader for graph queries.
@@ -1518,7 +1522,7 @@ impl AdvancedSearcher for SqliteStorage {
                 let decomp_pool = Arc::clone(&self.pool);
                 let decomp_embedder = Arc::clone(&self.embedder);
                 let decomp_sp = self.scoring_params.clone();
-                let decomp_opts = SearchOptions::default();
+                let decomp_opts = opts_for_decomp.clone();
                 for sub_query in sub_queries.iter().skip(1) {
                     let sub_results = run_single_query_pipeline(
                         &decomp_pool,

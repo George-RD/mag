@@ -21,7 +21,7 @@ Forensic comparison of AutoMem's `test_locomo.py` vs MAG's `benches/locomo/` rev
 | Temporal | 75 | 20 |
 | Multi-hop | 100 | 20 |
 
-Word-overlap scoring = `|expected_tokens ∩ retrieved_tokens| / |expected_tokens|`. More memories → more tokens → higher recall. AutoMem retrieves **50-150 memories** per question vs MAG's **20**.
+Word-overlap scoring = `|expected_tokens ∩ retrieved_tokens| / |expected_tokens|`. More memories → more tokens → higher recall. AutoMem retrieves **50-100 memories** per question vs MAG's **20**.
 
 **Estimated impact:** ~10pp
 

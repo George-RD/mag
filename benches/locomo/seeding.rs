@@ -231,7 +231,7 @@ pub(crate) async fn query_with_metadata(
 /// 1. Run semantic `query_with_metadata()` (limit = `top_k`)
 /// 2. Extract speaker name from question (first capitalized proper noun)
 /// 3. If speaker found: tag-search `get_by_tags([speaker:{name}, conversation:{id}], 50)`
-/// 4. Merge results, dedup by dia_id, keep higher score on collision
+/// 4. Merge results, dedup by dia_id, semantic results take precedence
 pub(crate) async fn query_with_speaker_recall(
     storage: &SqliteStorage,
     question: &str,
