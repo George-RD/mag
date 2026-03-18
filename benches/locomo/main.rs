@@ -15,6 +15,16 @@ use mag::memory_core::OnnxEmbedder;
 use mag::memory_core::embedder::Embedder;
 use mag::memory_core::storage::sqlite::SqliteStorage;
 
+/// Limit mode: static (flat top_k) or dynamic (50/75/100 per question type).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+enum LimitMode {
+    /// Flat top_k for all question types.
+    Static,
+    /// Dynamic: 50 standard, 75 temporal, 100 multi-hop (based on evidence count and temporal detection).
+    #[default]
+    Dynamic,
+}
+
 /// How to score each question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
 enum ScoringMode {
@@ -71,7 +81,7 @@ struct Args {
     /// Limit the total number of questions to evaluate.
     #[arg(long)]
     questions: Option<usize>,
-    /// Retrieve top-k results per question (default: 20).
+    /// Retrieve top-k results per question (default: 50).
     #[arg(long)]
     top_k: Option<usize>,
     /// Use LLM generation + token F1 scoring instead of substring matching.
@@ -97,6 +107,15 @@ struct Args {
     /// Shorthand for --scoring-mode e2e-word-overlap (requires --llm-judge or --local).
     #[arg(long)]
     e2e: bool,
+    /// Disable entity tag extraction during seeding (baseline comparison).
+    #[arg(long)]
+    no_entity_tags: bool,
+    /// Override graph_neighbor_factor (default: from ScoringParams).
+    #[arg(long)]
+    graph_factor: Option<f64>,
+    /// Limit mode: static (flat top_k) or dynamic (50/75/100 per question type).
+    #[arg(long, value_enum, default_value_t = LimitMode::Dynamic)]
+    limit_mode: LimitMode,
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -199,7 +218,7 @@ fn main() -> Result<()> {
         }
         std::sync::Arc::new(OnnxEmbedder::new()?)
     };
-    let top_k = args.top_k.unwrap_or(20);
+    let top_k = args.top_k.unwrap_or(50);
     let start = Instant::now();
     let mut rss = PeakRss::default();
     rss.sample();
@@ -225,8 +244,17 @@ fn main() -> Result<()> {
         }
 
         // Fresh database per sample -- isolates conversations.
-        let storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
-        let seeded = runtime.block_on(seeding::seed_sample(&storage, sample))?;
+        let mut storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
+
+        // Apply CLI overrides to scoring params.
+        if let Some(gf) = args.graph_factor {
+            let mut params = storage.scoring_params().clone();
+            params.graph_neighbor_factor = gf;
+            storage.set_scoring_params(params);
+        }
+
+        let seeded =
+            runtime.block_on(seeding::seed_sample(&storage, sample, !args.no_entity_tags))?;
         total_memories += seeded;
         samples_evaluated += 1;
         rss.sample();
@@ -239,8 +267,33 @@ fn main() -> Result<()> {
             }
 
             let query_start = Instant::now();
-            let hits =
-                runtime.block_on(seeding::query_with_metadata(&storage, &qa.question, top_k))?;
+            let effective_limit = if args.limit_mode == LimitMode::Dynamic {
+                let is_multihop = qa.evidence.len() > 1;
+                let is_temporal = is_temporal_question(&qa.question);
+                if is_multihop {
+                    100
+                } else if is_temporal {
+                    75
+                } else {
+                    top_k
+                }
+            } else {
+                top_k
+            };
+            let hits = if matches!(scoring_mode, ScoringMode::WordOverlap) {
+                runtime.block_on(seeding::query_with_speaker_recall(
+                    &storage,
+                    &qa.question,
+                    &sample.sample_id,
+                    effective_limit,
+                ))?
+            } else {
+                runtime.block_on(seeding::query_with_metadata(
+                    &storage,
+                    &qa.question,
+                    effective_limit,
+                ))?
+            };
             let query_ms = query_start.elapsed().as_millis();
             total_query_ms += query_ms;
             total_queries += 1;
@@ -438,4 +491,16 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn is_temporal_question(question: &str) -> bool {
+    let lower = question.to_lowercase();
+    lower.starts_with("when ")
+        || lower.starts_with("what time ")
+        || lower.starts_with("what date ")
+        || lower.contains(" when did ")
+        || lower.contains(" when was ")
+        || lower.contains(" what year ")
+        || lower.contains(" what month ")
+        || lower.contains(" how long ago ")
 }

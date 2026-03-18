@@ -40,6 +40,12 @@ pub struct ScoringParams {
     /// Blend weight: `alpha * rrf_score + (1 - alpha) * cross_encoder_score`.
     /// Default 0.5 (equal weight).
     pub rerank_blend_alpha: f64,
+    /// Multiplicative boost for PRECEDED_BY graph edges (temporal adjacency).
+    /// Default 1.5 — adjacent conversation turns get 50% more weight.
+    pub preceded_by_boost: f64,
+    /// Multiplicative boost for entity-related graph edges (RELATES_TO, SIMILAR_TO, etc.).
+    /// Default 1.3 — entity-connected memories get 30% more weight.
+    pub entity_relation_boost: f64,
 }
 
 impl Default for ScoringParams {
@@ -73,6 +79,8 @@ impl Default for ScoringParams {
             dual_match_boost: 1.2,
             rerank_top_n: 30,
             rerank_blend_alpha: 0.5,
+            preceded_by_boost: 1.5,
+            entity_relation_boost: 1.3,
         }
     }
 }
@@ -182,6 +190,12 @@ pub const ABSTENTION_MIN_TEXT: f64 = 0.15;
 /// surface related memories in production without dominating rankings.
 pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.1;
 pub const GRAPH_MIN_EDGE_WEIGHT: f64 = 0.3;
+
+/// Multiplicative boost for memories found via entity tag expansion.
+/// Applied on top of the standard scoring pipeline. AutoMem uses +0.15 additive;
+/// we use a multiplicative 1.15 to integrate with the existing RRF-based scoring.
+pub const ENTITY_EXPANSION_BOOST: f64 = 1.15;
+
 /// Weighted RRF fusion — equal weight for vector and FTS (grid search optimal).
 /// Previous bias (1.5 vec / 1.0 fts) was suboptimal on LongMemEval.
 pub const RRF_WEIGHT_VEC: f64 = 1.0;
@@ -1163,6 +1177,11 @@ mod tests {
     // ── abstention threshold tests ────────────────────────────────────
 
     #[test]
+    fn test_entity_expansion_boost_value() {
+        assert!((ENTITY_EXPANSION_BOOST - 1.15).abs() < 1e-9);
+    }
+
+    #[test]
     fn test_abstention_threshold_lowered() {
         assert!(
             (ABSTENTION_MIN_TEXT - 0.15).abs() < 1e-9,
@@ -1179,5 +1198,17 @@ mod tests {
             "default abstention_min_text should be 0.15, got {}",
             params.abstention_min_text
         );
+    }
+
+    #[test]
+    fn test_preceded_by_boost_default() {
+        let params = ScoringParams::default();
+        assert!((params.preceded_by_boost - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_entity_relation_boost_default() {
+        let params = ScoringParams::default();
+        assert!((params.entity_relation_boost - 1.3).abs() < 1e-9);
     }
 }

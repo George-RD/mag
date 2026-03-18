@@ -1,4 +1,8 @@
-use super::helpers::{IntentProfile, QueryIntent, classify_query_intent};
+use super::helpers::{
+    IntentProfile, QueryIntent, classify_query_intent, content_fingerprint,
+    detect_dynamic_limit_mult, extract_entities_from_tags, extract_query_entities,
+    extract_topic_keywords, generate_sub_queries,
+};
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;
 
@@ -595,7 +599,7 @@ fn fuse_refine_and_output(
             "\
             SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                    m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at \
+                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at, r.rel_type \
             FROM relationships r \
             JOIN memories m ON m.id = CASE \
                 WHEN r.source_id = ?1 THEN r.target_id \
@@ -607,7 +611,7 @@ fn fuse_refine_and_output(
             "\
             SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                    m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at \
+                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at, r.rel_type \
             FROM relationships r \
             JOIN memories m ON m.id = CASE \
                 WHEN r.source_id = ?1 THEN r.target_id \
@@ -643,6 +647,7 @@ fn fuse_refine_and_output(
                             row.get::<_, Option<String>>(13).ok().flatten(),
                             row.get::<_, String>(14)
                                 .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                            row.get::<_, String>(15).unwrap_or_else(|_| String::new()),
                         ))
                     },
                 ) {
@@ -670,10 +675,22 @@ fn fuse_refine_and_output(
                             entity_id,
                             agent_type,
                             event_at,
+                            rel_type,
                         ) = row;
 
                         let mut neighbor_score =
                             scoring_params.graph_neighbor_factor * seed_score * edge_weight;
+
+                        // Relation-type scoring: different edge types get different boosts.
+                        match rel_type.as_str() {
+                            "PRECEDED_BY" => {
+                                neighbor_score *= scoring_params.preceded_by_boost;
+                            }
+                            "RELATES_TO" | "SIMILAR_TO" | "SHARES_THEME" | "PARALLEL_CONTEXT" => {
+                                neighbor_score *= scoring_params.entity_relation_boost;
+                            }
+                            _ => {}
+                        }
 
                         let tags = parse_tags_from_db(&raw_tags);
                         let metadata = parse_metadata_from_db(&raw_metadata);
@@ -799,6 +816,204 @@ fn fuse_refine_and_output(
             }
         }
     }
+    // ── Phase 5b: Entity expansion — find memories tagged with entities from seed results ──
+    {
+        use crate::memory_core::scoring::ENTITY_EXPANSION_BOOST;
+
+        // Collect entity tags from the top-k seed results
+        let mut seed_list_for_expansion: Vec<(String, f64, Vec<String>)> = ranked
+            .iter()
+            .map(|(id, c)| (id.clone(), c.score, c.result.tags.clone()))
+            .collect();
+        seed_list_for_expansion.sort_by(|a, b| b.1.total_cmp(&a.1));
+        seed_list_for_expansion.truncate(limit.min(20));
+
+        let mut entity_tags_to_search: Vec<String> = Vec::new();
+        let mut seen_entity_tags = HashSet::new();
+        for (_id, _score, tags) in &seed_list_for_expansion {
+            for tag in extract_entities_from_tags(tags) {
+                if seen_entity_tags.insert(tag.clone()) {
+                    entity_tags_to_search.push(tag);
+                }
+            }
+        }
+        entity_tags_to_search.truncate(5);
+
+        if !entity_tags_to_search.is_empty() {
+            let expansion_limit = 25usize;
+            let mut expanded_count = 0usize;
+            let existing_ids: HashSet<String> = ranked.keys().cloned().collect();
+
+            // For each entity tag, find memories with that tag
+            for entity_tag in &entity_tags_to_search {
+                if expanded_count >= expansion_limit {
+                    break;
+                }
+
+                // Query for memories with this entity tag using json_each
+                let tag_sql = if include_superseded {
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, \
+                     project, priority, created_at, entity_id, agent_type, event_at \
+                     FROM memories \
+                     WHERE json_valid(tags) AND EXISTS ( \
+                         SELECT 1 FROM json_each(tags) WHERE value = ?1 \
+                     ) \
+                     ORDER BY created_at DESC LIMIT ?2"
+                } else {
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, \
+                     project, priority, created_at, entity_id, agent_type, event_at \
+                     FROM memories \
+                     WHERE json_valid(tags) AND EXISTS ( \
+                         SELECT 1 FROM json_each(tags) WHERE value = ?1 \
+                     ) \
+                     AND superseded_by_id IS NULL \
+                     ORDER BY created_at DESC LIMIT ?2"
+                };
+
+                let per_entity_limit = 5i64;
+                if let Ok(mut stmt) = conn.prepare(tag_sql)
+                    && let Ok(rows) = stmt.query_map(params![entity_tag, per_entity_limit], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, f64>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, Option<String>>(5).ok().flatten(),
+                            row.get::<_, Option<String>>(6).ok().flatten(),
+                            row.get::<_, Option<String>>(7).ok().flatten(),
+                            row.get::<_, Option<i64>>(8).ok().flatten(),
+                            row.get::<_, String>(9)
+                                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                            row.get::<_, Option<String>>(10).ok().flatten(),
+                            row.get::<_, Option<String>>(11).ok().flatten(),
+                            row.get::<_, String>(12)
+                                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                        ))
+                    })
+                {
+                    for row_res in rows {
+                        if expanded_count >= expansion_limit {
+                            break;
+                        }
+                        let row = match row_res {
+                            Ok(r) => r,
+                            Err(e) => {
+                                tracing::warn!("failed to decode entity expansion row: {e}");
+                                continue;
+                            }
+                        };
+                        let (
+                            id,
+                            content,
+                            raw_tags,
+                            importance,
+                            raw_metadata,
+                            event_type_str,
+                            session_id,
+                            project,
+                            priority,
+                            created_at,
+                            entity_id,
+                            agent_type,
+                            event_at,
+                        ) = row;
+
+                        if existing_ids.contains(&id) {
+                            continue; // Already in results
+                        }
+
+                        let tags = parse_tags_from_db(&raw_tags);
+                        let metadata = parse_metadata_from_db(&raw_metadata);
+                        let et = event_type_from_sql(event_type_str);
+                        let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
+                        let priority_value = if let Some(p) = priority
+                            && (1..=5).contains(&p)
+                        {
+                            u8::try_from(p).unwrap_or(3)
+                        } else {
+                            let dp = et_ref.default_priority();
+                            if dp == 0 {
+                                3
+                            } else {
+                                u8::try_from(dp).unwrap_or(3)
+                            }
+                        };
+
+                        // Score: type_weight x priority x importance x ENTITY_EXPANSION_BOOST
+                        let base_score = type_weight_et(et_ref)
+                            * priority_factor(priority_value, scoring_params);
+                        let importance_factor_val = scoring_params.importance_floor
+                            + importance * scoring_params.importance_scale;
+                        let with_tags_text = if tags.is_empty() {
+                            content.clone()
+                        } else {
+                            format!("{} {}", content, tags.join(" "))
+                        };
+                        let overlap =
+                            word_overlap_pre(&query_tokens, &token_set(&with_tags_text, 3));
+                        let td = time_decay_et(&created_at, et_ref, scoring_params);
+
+                        let expanded_score = base_score
+                            * importance_factor_val
+                            * (1.0 + overlap * scoring_params.word_overlap_weight)
+                            * td
+                            * ENTITY_EXPANSION_BOOST;
+
+                        // Use a fraction of the max seed score as a baseline
+                        let max_seed_score = seed_list_for_expansion
+                            .first()
+                            .map(|(_, s, _)| *s)
+                            .unwrap_or(1.0);
+                        let final_score = expanded_score.min(max_seed_score * 0.8);
+
+                        let explain_data = if explain_enabled {
+                            Some(serde_json::json!({
+                                "entity_expansion": true,
+                                "expanded_from_tag": entity_tag,
+                                "entity_boost": ENTITY_EXPANSION_BOOST,
+                                "word_overlap": overlap,
+                                "importance_factor": importance_factor_val,
+                                "time_decay": td,
+                            }))
+                        } else {
+                            None
+                        };
+
+                        ranked.insert(
+                            id.clone(),
+                            RankedSemanticCandidate {
+                                result: SemanticResult {
+                                    id,
+                                    content,
+                                    tags,
+                                    importance,
+                                    metadata,
+                                    event_type: et,
+                                    session_id,
+                                    project,
+                                    entity_id: entity_id.clone(),
+                                    agent_type: agent_type.clone(),
+                                    score: 0.0,
+                                },
+                                created_at,
+                                event_at,
+                                score: final_score,
+                                priority_value,
+                                vec_sim: None,
+                                text_overlap: overlap,
+                                entity_id,
+                                agent_type,
+                                explain: explain_data,
+                            },
+                        );
+                        expanded_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
     // ── Phase 6: Collection-level abstention + dedup ─────────────
     let mut deduped = Vec::new();
     let mut seen = HashSet::new();
@@ -937,6 +1152,129 @@ fn merge_semantic_metadata(existing: &mut serde_json::Value, incoming: serde_jso
     }
 }
 
+/// Run the core search pipeline for a single query: embed -> vector+FTS -> fuse -> refine.
+///
+/// Used by query decomposition to run each sub-query through the full pipeline.
+#[allow(clippy::too_many_arguments)]
+async fn run_single_query_pipeline(
+    pool: &Arc<ConnPool>,
+    embedder: &Arc<dyn Embedder>,
+    query: &str,
+    candidate_limit: usize,
+    limit: usize,
+    opts: &SearchOptions,
+    scoring_params: &ScoringParams,
+    include_superseded: bool,
+    explain_enabled: bool,
+) -> Result<Vec<SemanticResult>> {
+    let intent = classify_query_intent(query);
+    let keyword_only = intent == QueryIntent::Keyword;
+
+    let query_embedding = if keyword_only || query.is_empty() {
+        Vec::new()
+    } else {
+        let embedder = Arc::clone(embedder);
+        let q = query.to_string();
+        tokio::task::spawn_blocking(move || embedder.embed(&q))
+            .await
+            .context("spawn_blocking join error")??
+    };
+
+    let (vector_candidates, fts_candidates) = if keyword_only {
+        let pool = Arc::clone(pool);
+        let q = query.to_string();
+        let o = opts.clone();
+        let sp = scoring_params.clone();
+        let fts_result = tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
+        })
+        .await
+        .context("spawn_blocking join error")??;
+        (Vec::new(), fts_result)
+    } else if pool.has_readers() {
+        let (vec_result, fts_result) = tokio::try_join!(
+            tokio::task::spawn_blocking({
+                let pool = Arc::clone(pool);
+                let emb = query_embedding.clone();
+                let o = opts.clone();
+                let sp = scoring_params.clone();
+                move || {
+                    let conn = pool.reader()?;
+                    collect_vector_candidates(
+                        &conn,
+                        &emb,
+                        candidate_limit,
+                        include_superseded,
+                        &o,
+                        &sp,
+                    )
+                }
+            }),
+            tokio::task::spawn_blocking({
+                let pool = Arc::clone(pool);
+                let q = query.to_string();
+                let o = opts.clone();
+                let sp = scoring_params.clone();
+                move || {
+                    let conn = pool.reader()?;
+                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
+                }
+            }),
+        )
+        .context("parallel search join error")?;
+        (vec_result?, fts_result?)
+    } else {
+        let pool = Arc::clone(pool);
+        let emb = query_embedding.clone();
+        let q = query.to_string();
+        let o = opts.clone();
+        let sp = scoring_params.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            let vec_c = collect_vector_candidates(
+                &conn,
+                &emb,
+                candidate_limit,
+                include_superseded,
+                &o,
+                &sp,
+            )?;
+            let fts_c =
+                collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)?;
+            Ok::<_, anyhow::Error>((vec_c, fts_c))
+        })
+        .await
+        .context("spawn_blocking join error")??
+    };
+
+    let ce_scores: Option<HashMap<String, f32>> = None;
+
+    let pool_for_fuse = Arc::clone(pool);
+    let q = query.to_string();
+    let emb = query_embedding;
+    let o = opts.clone();
+    let sp = scoring_params.clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = pool_for_fuse.reader()?;
+        fuse_refine_and_output(
+            &conn,
+            vector_candidates,
+            fts_candidates,
+            &q,
+            &emb,
+            &o,
+            limit,
+            include_superseded,
+            explain_enabled,
+            &sp,
+            ce_scores.as_ref(),
+        )
+    })
+    .await
+    .context("spawn_blocking join error")?
+}
+
 #[async_trait]
 impl AdvancedSearcher for SqliteStorage {
     async fn advanced_search(
@@ -952,6 +1290,7 @@ impl AdvancedSearcher for SqliteStorage {
         let today = chrono::Local::now().date_naive();
         let temporal = expand_temporal_query(query, &today);
         let query = temporal.cleaned_query;
+        let query_for_decomp = query.clone();
         let mut opts = opts.clone();
         if opts.event_after.is_none()
             && let Some(after) = temporal.event_after
@@ -1022,12 +1361,14 @@ impl AdvancedSearcher for SqliteStorage {
         let explain_enabled = opts.explain.unwrap_or(false);
 
         // Apply top_k_mult: scale candidate oversampling while keeping final limit intact.
+        let dynamic_mult = detect_dynamic_limit_mult(&query);
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             clippy::cast_precision_loss
         )]
-        let candidate_limit = ((limit as f64 * intent_profile.top_k_mult).ceil() as usize).max(1);
+        let candidate_limit =
+            ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
 
         // Phases 1+2: Vector search and FTS5 search.
         // Keyword queries skip vector search entirely (FTS5 only).
@@ -1162,6 +1503,65 @@ impl AdvancedSearcher for SqliteStorage {
         })
         .await
         .context("spawn_blocking join error")??;
+
+        // ── Query decomposition: enrich results for multi-entity queries ──
+        let decomp_entities = extract_query_entities(&query_for_decomp);
+        let results = if decomp_entities.len() >= 2 {
+            let topics = extract_topic_keywords(&query_for_decomp, &decomp_entities);
+            let sub_queries = generate_sub_queries(&query_for_decomp, &decomp_entities, &topics);
+
+            if !topics.is_empty() && sub_queries.len() > 1 {
+                let mut all_results = results;
+                let mut seen_ids: HashSet<String> =
+                    all_results.iter().map(|r| r.id.clone()).collect();
+
+                let decomp_pool = Arc::clone(&self.pool);
+                let decomp_embedder = Arc::clone(&self.embedder);
+                let decomp_sp = self.scoring_params.clone();
+                let decomp_opts = SearchOptions::default();
+                for sub_query in sub_queries.iter().skip(1) {
+                    let sub_results = run_single_query_pipeline(
+                        &decomp_pool,
+                        &decomp_embedder,
+                        sub_query,
+                        candidate_limit,
+                        limit,
+                        &decomp_opts,
+                        &decomp_sp,
+                        include_superseded,
+                        explain_enabled,
+                    )
+                    .await?;
+
+                    for result in sub_results {
+                        if seen_ids.insert(result.id.clone()) {
+                            all_results.push(result);
+                        } else if let Some(existing) =
+                            all_results.iter_mut().find(|r| r.id == result.id)
+                            && result.score > existing.score
+                        {
+                            existing.score = result.score;
+                        }
+                    }
+                }
+
+                let mut deduped: Vec<SemanticResult> = Vec::new();
+                let mut fingerprints: HashSet<String> = HashSet::new();
+                all_results.sort_by(|a, b| b.score.total_cmp(&a.score));
+                for result in all_results {
+                    let fp = content_fingerprint(&result.content);
+                    if fingerprints.insert(fp) {
+                        deduped.push(result);
+                    }
+                }
+                deduped.truncate(limit);
+                deduped
+            } else {
+                results
+            }
+        } else {
+            results
+        };
 
         let results = if hot_has_confident_match {
             merge_hot_cache_results(hot_results, results, limit)
