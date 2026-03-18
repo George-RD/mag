@@ -201,6 +201,12 @@ impl SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
+    /// Returns a reference to the current scoring parameters.
+    #[allow(dead_code)]
+    pub fn scoring_params(&self) -> &ScoringParams {
+        &self.scoring_params
+    }
+
     #[allow(dead_code)]
     pub fn with_scoring_params(mut self, params: ScoringParams) -> Self {
         self.set_scoring_params(params);

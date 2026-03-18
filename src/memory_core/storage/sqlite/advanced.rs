@@ -599,7 +599,7 @@ fn fuse_refine_and_output(
             "\
             SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                    m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at \
+                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at, r.rel_type \
             FROM relationships r \
             JOIN memories m ON m.id = CASE \
                 WHEN r.source_id = ?1 THEN r.target_id \
@@ -611,7 +611,7 @@ fn fuse_refine_and_output(
             "\
             SELECT m.id, m.content, m.tags, m.importance, m.metadata, \
                    m.event_type, m.session_id, m.project, m.priority, m.created_at, \
-                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at \
+                   m.embedding, r.weight, m.entity_id, m.agent_type, m.event_at, r.rel_type \
             FROM relationships r \
             JOIN memories m ON m.id = CASE \
                 WHEN r.source_id = ?1 THEN r.target_id \
@@ -647,6 +647,7 @@ fn fuse_refine_and_output(
                             row.get::<_, Option<String>>(13).ok().flatten(),
                             row.get::<_, String>(14)
                                 .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                            row.get::<_, String>(15).unwrap_or_else(|_| String::new()),
                         ))
                     },
                 ) {
@@ -674,10 +675,22 @@ fn fuse_refine_and_output(
                             entity_id,
                             agent_type,
                             event_at,
+                            rel_type,
                         ) = row;
 
                         let mut neighbor_score =
                             scoring_params.graph_neighbor_factor * seed_score * edge_weight;
+
+                        // Relation-type scoring: different edge types get different boosts.
+                        match rel_type.as_str() {
+                            "PRECEDED_BY" => {
+                                neighbor_score *= scoring_params.preceded_by_boost;
+                            }
+                            "RELATES_TO" | "SIMILAR_TO" | "SHARES_THEME" | "PARALLEL_CONTEXT" => {
+                                neighbor_score *= scoring_params.entity_relation_boost;
+                            }
+                            _ => {}
+                        }
 
                         let tags = parse_tags_from_db(&raw_tags);
                         let metadata = parse_metadata_from_db(&raw_metadata);

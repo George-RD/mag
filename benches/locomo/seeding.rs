@@ -10,7 +10,14 @@ use crate::types::{DialogueTurn, LoCoMoSample, RetrievalHit};
 /// Each turn is stored with `dia_id` in metadata for evidence recall tracking,
 /// `session_id` from the conversation session key, and `referenced_date` from
 /// the session's date_time field if available.
-pub(crate) async fn seed_sample(storage: &SqliteStorage, sample: &LoCoMoSample) -> Result<usize> {
+///
+/// When `entity_tags` is true, capitalized words in each turn are extracted as
+/// `entity:people:<slug>` tags to enable entity-based graph enrichment.
+pub(crate) async fn seed_sample(
+    storage: &SqliteStorage,
+    sample: &LoCoMoSample,
+    entity_tags: bool,
+) -> Result<usize> {
     let mut count = 0usize;
 
     // Collect session keys, filtering out metadata keys.
@@ -68,12 +75,79 @@ pub(crate) async fn seed_sample(storage: &SqliteStorage, sample: &LoCoMoSample) 
             } else {
                 format!("{}: {}", turn.speaker, turn.text)
             };
+
+            // Extract entity tags from turn text (capitalized words as entity:people:slug)
+            let tags: Vec<String> = if entity_tags {
+                let mut t: Vec<String> = Vec::new();
+                for word in turn.text.split_whitespace() {
+                    let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
+                    if clean.len() >= 2
+                        && clean.chars().next().is_some_and(|c| c.is_uppercase())
+                        && clean.chars().skip(1).all(|c| c.is_lowercase())
+                    {
+                        // Simple heuristic: skip very common words
+                        let lower = clean.to_lowercase();
+                        if !matches!(
+                            lower.as_str(),
+                            "the"
+                                | "and"
+                                | "for"
+                                | "with"
+                                | "this"
+                                | "that"
+                                | "from"
+                                | "are"
+                                | "was"
+                                | "were"
+                                | "has"
+                                | "have"
+                                | "had"
+                                | "not"
+                                | "but"
+                                | "all"
+                                | "can"
+                                | "will"
+                                | "just"
+                                | "also"
+                                | "been"
+                                | "would"
+                                | "could"
+                                | "should"
+                                | "there"
+                                | "then"
+                                | "than"
+                                | "yes"
+                                | "yeah"
+                                | "well"
+                                | "okay"
+                                | "sure"
+                                | "really"
+                                | "actually"
+                                | "maybe"
+                                | "probably"
+                                | "definitely"
+                                | "certainly"
+                        ) {
+                            let slug = lower.replace(' ', "-");
+                            let tag = format!("entity:people:{slug}");
+                            if !t.contains(&tag) {
+                                t.push(tag);
+                            }
+                        }
+                    }
+                }
+                t
+            } else {
+                Vec::new()
+            };
+
             let input = MemoryInput {
                 content: String::new(),
                 metadata: meta,
                 session_id: Some(key.clone()),
                 agent_type: Some(turn.speaker.clone()),
                 referenced_date: referenced_date.clone(),
+                tags,
                 ..MemoryInput::default()
             };
             storage.store(&memory_id, &content, &input).await?;
