@@ -97,6 +97,12 @@ struct Args {
     /// Shorthand for --scoring-mode e2e-word-overlap (requires --llm-judge or --local).
     #[arg(long)]
     e2e: bool,
+    /// Disable entity tag extraction during seeding (baseline comparison).
+    #[arg(long)]
+    no_entity_tags: bool,
+    /// Override graph_neighbor_factor (default: from ScoringParams).
+    #[arg(long)]
+    graph_factor: Option<f64>,
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -225,8 +231,17 @@ fn main() -> Result<()> {
         }
 
         // Fresh database per sample -- isolates conversations.
-        let storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
-        let seeded = runtime.block_on(seeding::seed_sample(&storage, sample))?;
+        let mut storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
+
+        // Apply CLI overrides to scoring params.
+        if let Some(gf) = args.graph_factor {
+            let mut params = storage.scoring_params().clone();
+            params.graph_neighbor_factor = gf;
+            storage.set_scoring_params(params);
+        }
+
+        let seeded =
+            runtime.block_on(seeding::seed_sample(&storage, sample, !args.no_entity_tags))?;
         total_memories += seeded;
         samples_evaluated += 1;
         rss.sample();
