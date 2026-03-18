@@ -1,12 +1,12 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 /// Extracts entity tags from memory content using lightweight regex patterns.
-/// Returns tags in the format `entity:person:name`.
+/// Returns tags in the format `entity:person:name`, sorted for deterministic output.
 ///
 /// This is additive-only — if extraction produces no results, the caller's
 /// tags remain unchanged.
 pub fn extract_entity_tags(content: &str) -> Vec<String> {
-    let mut tags = HashSet::new();
+    let mut tags = BTreeSet::new();
 
     // Extract person names: capitalized words that appear after speaker patterns
     // like "Speaker:", "with Name", "from Name", "'s" possessives
@@ -15,13 +15,13 @@ pub fn extract_entity_tags(content: &str) -> Vec<String> {
     tags.into_iter().collect()
 }
 
-fn extract_person_names(content: &str, tags: &mut HashSet<String>) {
+fn extract_person_names(content: &str, tags: &mut BTreeSet<String>) {
     let words: Vec<&str> = content.split_whitespace().collect();
 
     for (i, word) in words.iter().enumerate() {
         // Skip very short words and common non-name capitalized words
         let clean = word.trim_matches(|c: char| !c.is_alphanumeric());
-        if clean.len() < 2 || !clean.chars().next().map_or(false, |c| c.is_uppercase()) {
+        if clean.len() < 2 || !clean.chars().next().is_some_and(|c| c.is_uppercase()) {
             continue;
         }
         if is_common_non_name(clean) {
@@ -29,11 +29,10 @@ fn extract_person_names(content: &str, tags: &mut HashSet<String>) {
         }
 
         // Pattern 1: "Speaker: text" — word before colon is likely a person name
-        if word.ends_with(':') && clean.len() >= 2 {
+        // (is_common_non_name already checked above, no need to re-check)
+        if word.ends_with(':') {
             let name = clean.to_lowercase();
-            if !is_common_non_name(clean) {
-                tags.insert(format!("entity:person:{name}"));
-            }
+            tags.insert(format!("entity:person:{name}"));
             continue;
         }
 
@@ -53,164 +52,58 @@ fn extract_person_names(content: &str, tags: &mut HashSet<String>) {
 
         // Pattern 3: Possessive "'s" — "Caroline's" → entity:person:caroline
         if word.ends_with("'s") || word.ends_with("\u{2019}s") {
-            let name_part = word
-                .split(|c| c == '\'' || c == '\u{2019}')
-                .next()
-                .unwrap_or("");
+            let name_part = word.split(['\'', '\u{2019}']).next().unwrap_or("");
             let name_clean = name_part.trim_matches(|c: char| !c.is_alphanumeric());
             if name_clean.len() >= 2
-                && name_clean
-                    .chars()
-                    .next()
-                    .map_or(false, |c| c.is_uppercase())
+                && name_clean.chars().next().is_some_and(|c| c.is_uppercase())
                 && !is_common_non_name(name_clean)
             {
                 tags.insert(format!("entity:person:{}", name_clean.to_lowercase()));
             }
         }
-
     }
 }
 
 /// Common words that are capitalized but are NOT person names.
+///
+/// Delegates to the canonical `is_stopword()` in `scoring.rs` for the base set,
+/// then adds entity-extraction-specific extras (interjections, greetings, pronouns,
+/// days/months, filler words) that aren't needed for BM25 scoring but cause false
+/// positives in name extraction.
 fn is_common_non_name(word: &str) -> bool {
     let lower = word.to_lowercase();
+    // Base stopwords shared with BM25/token_set
+    if crate::memory_core::scoring::is_stopword(&lower) {
+        return true;
+    }
+    // Entity-extraction-specific extras
     matches!(
         lower.as_str(),
-        "the"
-            | "this"
-            | "that"
-            | "these"
-            | "those"
-            | "what"
-            | "when"
-            | "where"
-            | "which"
-            | "who"
-            | "how"
-            | "why"
-            | "and"
-            | "but"
-            | "for"
-            | "not"
-            | "with"
-            | "from"
-            | "into"
-            | "have"
-            | "has"
-            | "had"
-            | "will"
-            | "would"
-            | "could"
-            | "should"
-            | "was"
-            | "were"
-            | "been"
-            | "being"
-            | "are"
-            | "can"
-            | "may"
-            | "might"
-            | "must"
-            | "shall"
-            | "also"
-            | "just"
-            | "even"
-            | "still"
-            | "already"
-            | "very"
-            | "really"
-            | "quite"
-            | "rather"
-            | "much"
-            | "some"
-            | "any"
-            | "all"
-            | "each"
-            | "every"
-            | "both"
-            | "about"
-            | "after"
-            | "before"
-            | "between"
-            | "during"
-            | "until"
-            | "here"
-            | "there"
-            | "then"
-            | "now"
-            | "today"
-            | "yesterday"
-            | "tomorrow"
-            | "monday"
-            | "tuesday"
-            | "wednesday"
-            | "thursday"
-            | "friday"
-            | "saturday"
-            | "sunday"
-            | "january"
-            | "february"
-            | "march"
-            | "april"
-            | "june"
-            | "july"
-            | "august"
-            | "september"
-            | "october"
-            | "november"
-            | "december"
-            | "new"
-            | "old"
-            | "first"
-            | "last"
-            | "next"
-            | "other"
-            | "yes"
-            | "yeah"
-            | "yep"
-            | "sure"
-            | "okay"
-            | "well"
-            | "right"
-            | "hey"
-            | "hello"
-            | "bye"
-            | "thanks"
-            | "thank"
-            | "please"
-            | "sorry"
-            | "great"
-            | "good"
-            | "nice"
-            | "cool"
-            | "awesome"
-            | "actually"
-            | "basically"
-            | "literally"
-            | "definitely"
-            | "absolutely"
-            | "maybe"
-            | "probably"
-            | "perhaps"
-            | "certainly"
-            | "honestly"
-            | "it"
-            | "he"
-            | "she"
-            | "they"
-            | "we"
-            | "you"
-            | "speaker"
-            | "user"
-            | "assistant"
-            | "system"
-            | "oh"
-            | "ah"
-            | "hmm"
-            | "huh"
-            | "wow"
-            | "ooh"
+        // Pronouns (short, caught by is_stopword len filter but capitalized in text)
+        "it" | "he" | "she" | "they" | "we" | "you"
+        // Days and months
+        | "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday"
+        | "january" | "february" | "march" | "april" | "june"
+        | "july" | "august" | "september" | "october" | "november" | "december"
+        // Interjections and fillers
+        | "oh" | "ah" | "hmm" | "huh" | "wow" | "ooh"
+        | "yes" | "yeah" | "yep" | "sure" | "okay" | "well" | "right"
+        | "hey" | "hello" | "bye" | "thanks" | "thank" | "please" | "sorry"
+        | "great" | "good" | "nice" | "cool" | "awesome"
+        // Adverbs/hedges
+        | "actually" | "basically" | "literally" | "definitely" | "absolutely"
+        | "maybe" | "probably" | "perhaps" | "certainly" | "honestly"
+        | "really" | "quite" | "rather" | "very" | "much"
+        // Adjectives/determiners
+        | "new" | "old" | "first" | "last" | "next" | "other"
+        | "some" | "any" | "each" | "every" | "both"
+        // Misc common words
+        | "being" | "been" | "shall" | "must" | "might" | "could" | "should" | "would"
+        | "also" | "just" | "even" | "still" | "already"
+        | "about" | "after" | "before" | "between" | "during" | "until"
+        | "here" | "there" | "then" | "now" | "today" | "yesterday" | "tomorrow"
+        // Domain terms
+        | "speaker" | "user" | "assistant" | "system"
     )
 }
 

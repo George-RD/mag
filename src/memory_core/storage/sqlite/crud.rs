@@ -3,11 +3,14 @@ use super::*;
 #[async_trait]
 impl Storage for SqliteStorage {
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
-        let mut tags = input.tags.clone();
         let entity_tags = crate::memory_core::entity::extract_entity_tags(data);
-        tags.extend(entity_tags);
-        let tags_json =
-            serde_json::to_string(&tags).context("failed to serialize tags to JSON")?;
+        let tags_json = if entity_tags.is_empty() {
+            serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?
+        } else {
+            let mut tags = input.tags.clone();
+            tags.extend(entity_tags);
+            serde_json::to_string(&tags).context("failed to serialize tags to JSON")?
+        };
         let metadata_json = serde_json::to_string(&input.metadata)
             .context("failed to serialize metadata to JSON")?;
 
