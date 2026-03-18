@@ -441,14 +441,14 @@ fn fuse_refine_and_output(
         candidate.score *= rrf_score;
         ranked.insert(id, candidate);
     }
-    let mut dual_match_ids: HashSet<String> = HashSet::new();
+    let mut dual_match_ids: HashMap<String, usize> = HashMap::new();
     for (rank, (id, bm25_raw, candidate)) in fts_candidates.into_iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let rrf_score = scoring_params.rrf_weight_fts / (scoring_params.rrf_k + rank as f64 + 1.0);
         if let Some(existing) = ranked.get_mut(&id) {
             // Present in both -- add the FTS RRF contribution
             existing.score += candidate.score * rrf_score;
-            dual_match_ids.insert(id);
+            dual_match_ids.insert(id, rank);
             if explain_enabled && let Some(ref mut exp) = existing.explain {
                 exp["fts_rank"] = serde_json::json!(rank);
                 exp["fts_bm25"] = serde_json::json!(bm25_raw);
@@ -486,13 +486,22 @@ fn fuse_refine_and_output(
             ranked.insert(id, merged);
         }
     }
-    // Apply dual-match boost: candidates in both vector and FTS lists
-    // get a multiplicative boost on their fused RRF score (before
-    // score refinement).
-    if scoring_params.dual_match_boost != 1.0 {
-        for id in &dual_match_ids {
+    // Apply adaptive dual-match boost: candidates in both vector and FTS
+    // lists get a multiplicative boost scaled by their FTS rank position.
+    // text_rel uses inverse-rank decay: 1/(1+rank), giving a soft falloff
+    // (rank 0 → 1.0, rank 1 → 0.5, rank 5 → 0.17, …).  The adaptive
+    // boost ranges from 1.3x (low text relevance) to 1.8x (top FTS match).
+    if !dual_match_ids.is_empty() {
+        for (id, fts_rank) in &dual_match_ids {
             if let Some(candidate) = ranked.get_mut(id) {
-                candidate.score *= scoring_params.dual_match_boost;
+                #[allow(clippy::cast_precision_loss)]
+                let text_rel = 1.0 / (1.0 + *fts_rank as f64);
+                let adaptive_boost = 1.3 + text_rel * 0.5;
+                candidate.score *= adaptive_boost;
+                if explain_enabled && let Some(ref mut exp) = candidate.explain {
+                    exp["adaptive_dual_boost"] = serde_json::json!(adaptive_boost);
+                    exp["fts_text_rel"] = serde_json::json!(text_rel);
+                }
             }
         }
     }

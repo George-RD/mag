@@ -31,9 +31,11 @@ pub struct ScoringParams {
     pub neighbor_importance_scale: f64,
     pub graph_seed_min: usize,
     pub graph_seed_max: usize,
-    /// Multiplicative boost for candidates appearing in both vector and FTS
-    /// result lists during RRF fusion.  Applied after the combined RRF score
-    /// is computed but before score refinement.  Default 1.2 (20 % boost).
+    /// Fallback multiplier for candidates appearing in both vector and FTS
+    /// result lists during RRF fusion.  The pipeline now uses an adaptive
+    /// boost (1.3x – 1.8x) scaled by FTS rank, so this value is only used
+    /// as a fallback when the adaptive path cannot determine rank.
+    /// Default 1.5 (midpoint of the adaptive range).
     pub dual_match_boost: f64,
     /// Number of top candidates to rerank with the cross-encoder (default 30).
     pub rerank_top_n: usize,
@@ -76,7 +78,7 @@ impl Default for ScoringParams {
             neighbor_importance_scale: 0.5,
             graph_seed_min: 5,
             graph_seed_max: 8,
-            dual_match_boost: 1.2,
+            dual_match_boost: 1.5,
             rerank_top_n: 30,
             rerank_blend_alpha: 0.5,
             preceded_by_boost: 1.5,
@@ -1083,7 +1085,7 @@ mod tests {
     #[test]
     fn test_dual_match_boost_default() {
         let params = ScoringParams::default();
-        assert!((params.dual_match_boost - 1.2).abs() < 1e-9);
+        assert!((params.dual_match_boost - 1.5).abs() < 1e-9);
     }
 
     #[test]

@@ -4253,7 +4253,7 @@ async fn test_access_rate_stats() {
 async fn test_dual_match_boost_default() {
     // Verify the default value for dual_match_boost
     let params = ScoringParams::default();
-    assert!((params.dual_match_boost - 1.2).abs() < 1e-9);
+    assert!((params.dual_match_boost - 1.5).abs() < 1e-9);
 }
 
 #[tokio::test]
