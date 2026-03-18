@@ -1,7 +1,7 @@
 use super::helpers::{
     IntentProfile, QueryIntent, classify_query_intent, content_fingerprint,
-    detect_dynamic_limit_mult, extract_query_entities, extract_topic_keywords,
-    generate_sub_queries,
+    detect_dynamic_limit_mult, extract_entities_from_tags, extract_query_entities,
+    extract_topic_keywords, generate_sub_queries,
 };
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;
@@ -803,6 +803,204 @@ fn fuse_refine_and_output(
             }
         }
     }
+    // ── Phase 5b: Entity expansion — find memories tagged with entities from seed results ──
+    {
+        use crate::memory_core::scoring::ENTITY_EXPANSION_BOOST;
+
+        // Collect entity tags from the top-k seed results
+        let mut seed_list_for_expansion: Vec<(String, f64, Vec<String>)> = ranked
+            .iter()
+            .map(|(id, c)| (id.clone(), c.score, c.result.tags.clone()))
+            .collect();
+        seed_list_for_expansion.sort_by(|a, b| b.1.total_cmp(&a.1));
+        seed_list_for_expansion.truncate(limit.min(20));
+
+        let mut entity_tags_to_search: Vec<String> = Vec::new();
+        let mut seen_entity_tags = HashSet::new();
+        for (_id, _score, tags) in &seed_list_for_expansion {
+            for tag in extract_entities_from_tags(tags) {
+                if seen_entity_tags.insert(tag.clone()) {
+                    entity_tags_to_search.push(tag);
+                }
+            }
+        }
+        entity_tags_to_search.truncate(5);
+
+        if !entity_tags_to_search.is_empty() {
+            let expansion_limit = 25usize;
+            let mut expanded_count = 0usize;
+            let existing_ids: HashSet<String> = ranked.keys().cloned().collect();
+
+            // For each entity tag, find memories with that tag
+            for entity_tag in &entity_tags_to_search {
+                if expanded_count >= expansion_limit {
+                    break;
+                }
+
+                // Query for memories with this entity tag using json_each
+                let tag_sql = if include_superseded {
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, \
+                     project, priority, created_at, entity_id, agent_type, event_at \
+                     FROM memories \
+                     WHERE json_valid(tags) AND EXISTS ( \
+                         SELECT 1 FROM json_each(tags) WHERE value = ?1 \
+                     ) \
+                     ORDER BY created_at DESC LIMIT ?2"
+                } else {
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, \
+                     project, priority, created_at, entity_id, agent_type, event_at \
+                     FROM memories \
+                     WHERE json_valid(tags) AND EXISTS ( \
+                         SELECT 1 FROM json_each(tags) WHERE value = ?1 \
+                     ) \
+                     AND superseded_by_id IS NULL \
+                     ORDER BY created_at DESC LIMIT ?2"
+                };
+
+                let per_entity_limit = 5i64;
+                if let Ok(mut stmt) = conn.prepare(tag_sql)
+                    && let Ok(rows) = stmt.query_map(params![entity_tag, per_entity_limit], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, f64>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, Option<String>>(5).ok().flatten(),
+                            row.get::<_, Option<String>>(6).ok().flatten(),
+                            row.get::<_, Option<String>>(7).ok().flatten(),
+                            row.get::<_, Option<i64>>(8).ok().flatten(),
+                            row.get::<_, String>(9)
+                                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                            row.get::<_, Option<String>>(10).ok().flatten(),
+                            row.get::<_, Option<String>>(11).ok().flatten(),
+                            row.get::<_, String>(12)
+                                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
+                        ))
+                    })
+                {
+                    for row_res in rows {
+                        if expanded_count >= expansion_limit {
+                            break;
+                        }
+                        let row = match row_res {
+                            Ok(r) => r,
+                            Err(e) => {
+                                tracing::warn!("failed to decode entity expansion row: {e}");
+                                continue;
+                            }
+                        };
+                        let (
+                            id,
+                            content,
+                            raw_tags,
+                            importance,
+                            raw_metadata,
+                            event_type_str,
+                            session_id,
+                            project,
+                            priority,
+                            created_at,
+                            entity_id,
+                            agent_type,
+                            event_at,
+                        ) = row;
+
+                        if existing_ids.contains(&id) {
+                            continue; // Already in results
+                        }
+
+                        let tags = parse_tags_from_db(&raw_tags);
+                        let metadata = parse_metadata_from_db(&raw_metadata);
+                        let et = event_type_from_sql(event_type_str);
+                        let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
+                        let priority_value = if let Some(p) = priority
+                            && (1..=5).contains(&p)
+                        {
+                            u8::try_from(p).unwrap_or(3)
+                        } else {
+                            let dp = et_ref.default_priority();
+                            if dp == 0 {
+                                3
+                            } else {
+                                u8::try_from(dp).unwrap_or(3)
+                            }
+                        };
+
+                        // Score: type_weight x priority x importance x ENTITY_EXPANSION_BOOST
+                        let base_score = type_weight_et(et_ref)
+                            * priority_factor(priority_value, scoring_params);
+                        let importance_factor_val = scoring_params.importance_floor
+                            + importance * scoring_params.importance_scale;
+                        let with_tags_text = if tags.is_empty() {
+                            content.clone()
+                        } else {
+                            format!("{} {}", content, tags.join(" "))
+                        };
+                        let overlap =
+                            word_overlap_pre(&query_tokens, &token_set(&with_tags_text, 3));
+                        let td = time_decay_et(&created_at, et_ref, scoring_params);
+
+                        let expanded_score = base_score
+                            * importance_factor_val
+                            * (1.0 + overlap * scoring_params.word_overlap_weight)
+                            * td
+                            * ENTITY_EXPANSION_BOOST;
+
+                        // Use a fraction of the max seed score as a baseline
+                        let max_seed_score = seed_list_for_expansion
+                            .first()
+                            .map(|(_, s, _)| *s)
+                            .unwrap_or(1.0);
+                        let final_score = expanded_score.min(max_seed_score * 0.8);
+
+                        let explain_data = if explain_enabled {
+                            Some(serde_json::json!({
+                                "entity_expansion": true,
+                                "expanded_from_tag": entity_tag,
+                                "entity_boost": ENTITY_EXPANSION_BOOST,
+                                "word_overlap": overlap,
+                                "importance_factor": importance_factor_val,
+                                "time_decay": td,
+                            }))
+                        } else {
+                            None
+                        };
+
+                        ranked.insert(
+                            id.clone(),
+                            RankedSemanticCandidate {
+                                result: SemanticResult {
+                                    id,
+                                    content,
+                                    tags,
+                                    importance,
+                                    metadata,
+                                    event_type: et,
+                                    session_id,
+                                    project,
+                                    entity_id: entity_id.clone(),
+                                    agent_type: agent_type.clone(),
+                                    score: 0.0,
+                                },
+                                created_at,
+                                event_at,
+                                score: final_score,
+                                priority_value,
+                                vec_sim: None,
+                                text_overlap: overlap,
+                                entity_id,
+                                agent_type,
+                                explain: explain_data,
+                            },
+                        );
+                        expanded_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
     // ── Phase 6: Collection-level abstention + dedup ─────────────
     let mut deduped = Vec::new();
     let mut seen = HashSet::new();

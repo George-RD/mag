@@ -182,6 +182,12 @@ pub const ABSTENTION_MIN_TEXT: f64 = 0.15;
 /// surface related memories in production without dominating rankings.
 pub const GRAPH_NEIGHBOR_FACTOR: f64 = 0.1;
 pub const GRAPH_MIN_EDGE_WEIGHT: f64 = 0.3;
+
+/// Multiplicative boost for memories found via entity tag expansion.
+/// Applied on top of the standard scoring pipeline. AutoMem uses +0.15 additive;
+/// we use a multiplicative 1.15 to integrate with the existing RRF-based scoring.
+pub const ENTITY_EXPANSION_BOOST: f64 = 1.15;
+
 /// Weighted RRF fusion — equal weight for vector and FTS (grid search optimal).
 /// Previous bias (1.5 vec / 1.0 fts) was suboptimal on LongMemEval.
 pub const RRF_WEIGHT_VEC: f64 = 1.0;
@@ -1161,6 +1167,11 @@ mod tests {
     }
 
     // ── abstention threshold tests ────────────────────────────────────
+
+    #[test]
+    fn test_entity_expansion_boost_value() {
+        assert!((ENTITY_EXPANSION_BOOST - 1.15).abs() < 1e-9);
+    }
 
     #[test]
     fn test_abstention_threshold_lowered() {
