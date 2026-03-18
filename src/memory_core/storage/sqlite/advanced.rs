@@ -1,5 +1,7 @@
 use super::helpers::{
-    IntentProfile, QueryIntent, classify_query_intent, detect_dynamic_limit_mult,
+    IntentProfile, QueryIntent, classify_query_intent, content_fingerprint,
+    detect_dynamic_limit_mult, extract_query_entities, extract_topic_keywords,
+    generate_sub_queries,
 };
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;
@@ -939,6 +941,129 @@ fn merge_semantic_metadata(existing: &mut serde_json::Value, incoming: serde_jso
     }
 }
 
+/// Run the core search pipeline for a single query: embed -> vector+FTS -> fuse -> refine.
+///
+/// Used by query decomposition to run each sub-query through the full pipeline.
+#[allow(clippy::too_many_arguments)]
+async fn run_single_query_pipeline(
+    pool: &Arc<ConnPool>,
+    embedder: &Arc<dyn Embedder>,
+    query: &str,
+    candidate_limit: usize,
+    limit: usize,
+    opts: &SearchOptions,
+    scoring_params: &ScoringParams,
+    include_superseded: bool,
+    explain_enabled: bool,
+) -> Result<Vec<SemanticResult>> {
+    let intent = classify_query_intent(query);
+    let keyword_only = intent == QueryIntent::Keyword;
+
+    let query_embedding = if keyword_only || query.is_empty() {
+        Vec::new()
+    } else {
+        let embedder = Arc::clone(embedder);
+        let q = query.to_string();
+        tokio::task::spawn_blocking(move || embedder.embed(&q))
+            .await
+            .context("spawn_blocking join error")??
+    };
+
+    let (vector_candidates, fts_candidates) = if keyword_only {
+        let pool = Arc::clone(pool);
+        let q = query.to_string();
+        let o = opts.clone();
+        let sp = scoring_params.clone();
+        let fts_result = tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
+        })
+        .await
+        .context("spawn_blocking join error")??;
+        (Vec::new(), fts_result)
+    } else if pool.has_readers() {
+        let (vec_result, fts_result) = tokio::try_join!(
+            tokio::task::spawn_blocking({
+                let pool = Arc::clone(pool);
+                let emb = query_embedding.clone();
+                let o = opts.clone();
+                let sp = scoring_params.clone();
+                move || {
+                    let conn = pool.reader()?;
+                    collect_vector_candidates(
+                        &conn,
+                        &emb,
+                        candidate_limit,
+                        include_superseded,
+                        &o,
+                        &sp,
+                    )
+                }
+            }),
+            tokio::task::spawn_blocking({
+                let pool = Arc::clone(pool);
+                let q = query.to_string();
+                let o = opts.clone();
+                let sp = scoring_params.clone();
+                move || {
+                    let conn = pool.reader()?;
+                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
+                }
+            }),
+        )
+        .context("parallel search join error")?;
+        (vec_result?, fts_result?)
+    } else {
+        let pool = Arc::clone(pool);
+        let emb = query_embedding.clone();
+        let q = query.to_string();
+        let o = opts.clone();
+        let sp = scoring_params.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            let vec_c = collect_vector_candidates(
+                &conn,
+                &emb,
+                candidate_limit,
+                include_superseded,
+                &o,
+                &sp,
+            )?;
+            let fts_c =
+                collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)?;
+            Ok::<_, anyhow::Error>((vec_c, fts_c))
+        })
+        .await
+        .context("spawn_blocking join error")??
+    };
+
+    let ce_scores: Option<HashMap<String, f32>> = None;
+
+    let pool_for_fuse = Arc::clone(pool);
+    let q = query.to_string();
+    let emb = query_embedding;
+    let o = opts.clone();
+    let sp = scoring_params.clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = pool_for_fuse.reader()?;
+        fuse_refine_and_output(
+            &conn,
+            vector_candidates,
+            fts_candidates,
+            &q,
+            &emb,
+            &o,
+            limit,
+            include_superseded,
+            explain_enabled,
+            &sp,
+            ce_scores.as_ref(),
+        )
+    })
+    .await
+    .context("spawn_blocking join error")?
+}
+
 #[async_trait]
 impl AdvancedSearcher for SqliteStorage {
     async fn advanced_search(
@@ -954,6 +1079,7 @@ impl AdvancedSearcher for SqliteStorage {
         let today = chrono::Local::now().date_naive();
         let temporal = expand_temporal_query(query, &today);
         let query = temporal.cleaned_query;
+        let query_for_decomp = query.clone();
         let mut opts = opts.clone();
         if opts.event_after.is_none()
             && let Some(after) = temporal.event_after
@@ -1166,6 +1292,65 @@ impl AdvancedSearcher for SqliteStorage {
         })
         .await
         .context("spawn_blocking join error")??;
+
+        // ── Query decomposition: enrich results for multi-entity queries ──
+        let decomp_entities = extract_query_entities(&query_for_decomp);
+        let results = if decomp_entities.len() >= 2 {
+            let topics = extract_topic_keywords(&query_for_decomp, &decomp_entities);
+            let sub_queries = generate_sub_queries(&query_for_decomp, &decomp_entities, &topics);
+
+            if !topics.is_empty() && sub_queries.len() > 1 {
+                let mut all_results = results;
+                let mut seen_ids: HashSet<String> =
+                    all_results.iter().map(|r| r.id.clone()).collect();
+
+                let decomp_pool = Arc::clone(&self.pool);
+                let decomp_embedder = Arc::clone(&self.embedder);
+                let decomp_sp = self.scoring_params.clone();
+                let decomp_opts = SearchOptions::default();
+                for sub_query in sub_queries.iter().skip(1) {
+                    let sub_results = run_single_query_pipeline(
+                        &decomp_pool,
+                        &decomp_embedder,
+                        sub_query,
+                        candidate_limit,
+                        limit,
+                        &decomp_opts,
+                        &decomp_sp,
+                        include_superseded,
+                        explain_enabled,
+                    )
+                    .await?;
+
+                    for result in sub_results {
+                        if seen_ids.insert(result.id.clone()) {
+                            all_results.push(result);
+                        } else if let Some(existing) =
+                            all_results.iter_mut().find(|r| r.id == result.id)
+                            && result.score > existing.score
+                        {
+                            existing.score = result.score;
+                        }
+                    }
+                }
+
+                let mut deduped: Vec<SemanticResult> = Vec::new();
+                let mut fingerprints: HashSet<String> = HashSet::new();
+                all_results.sort_by(|a, b| b.score.total_cmp(&a.score));
+                for result in all_results {
+                    let fp = content_fingerprint(&result.content);
+                    if fingerprints.insert(fp) {
+                        deduped.push(result);
+                    }
+                }
+                deduped.truncate(limit);
+                deduped
+            } else {
+                results
+            }
+        } else {
+            results
+        };
 
         let results = if hot_has_confident_match {
             merge_hot_cache_results(hot_results, results, limit)
