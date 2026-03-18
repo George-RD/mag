@@ -238,9 +238,16 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
         return 0.0;
     }
     let combined_tokens = normalize_tokens(&combined);
+    let combined_lower = combined.to_lowercase();
 
+    // Hybrid matching: exact stemmed-token set membership OR substring in raw text.
+    // Substring matching catches partial matches (e.g., "deploy" inside "undeployable")
+    // that exact token matching misses — mirrors AutoMem's _word_overlap() approach.
     #[allow(clippy::cast_precision_loss)]
-    let overlap = expected_tokens.intersection(&combined_tokens).count() as f64;
+    let overlap = expected_tokens
+        .iter()
+        .filter(|token| combined_tokens.contains(*token) || combined_lower.contains(token.as_str()))
+        .count() as f64;
     #[allow(clippy::cast_precision_loss)]
     {
         overlap / expected_tokens.len() as f64
@@ -260,8 +267,14 @@ pub(crate) fn word_overlap_on_text(generated: &str, expected: &str) -> f64 {
         return 0.0;
     }
     let generated_tokens = normalize_tokens(generated);
+    let generated_lower = generated.to_lowercase();
     #[allow(clippy::cast_precision_loss)]
-    let overlap = expected_tokens.intersection(&generated_tokens).count() as f64;
+    let overlap = expected_tokens
+        .iter()
+        .filter(|token| {
+            generated_tokens.contains(*token) || generated_lower.contains(token.as_str())
+        })
+        .count() as f64;
     #[allow(clippy::cast_precision_loss)]
     {
         overlap / expected_tokens.len() as f64

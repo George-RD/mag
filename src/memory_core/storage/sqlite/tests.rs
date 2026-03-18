@@ -4253,7 +4253,7 @@ async fn test_access_rate_stats() {
 async fn test_dual_match_boost_default() {
     // Verify the default value for dual_match_boost
     let params = ScoringParams::default();
-    assert!((params.dual_match_boost - 1.2).abs() < 1e-9);
+    assert!((params.dual_match_boost - 1.5).abs() < 1e-9);
 }
 
 #[tokio::test]
@@ -5164,7 +5164,9 @@ async fn test_cross_project_isolation_advanced_search() {
 
     // Content must share key query words so FTS5 BM25 matches, but differ
     // enough per row to avoid canonical-hash and Jaccard dedup at store time.
-    // Use event_type "reminder" which has no Jaccard dedup threshold.
+    // Use event_type "memory" (not a supersession type) to prevent the second
+    // insert from superseding the first — Reminder/Decision/etc. trigger
+    // cross-project supersession for near-duplicate content.
     for (id, content, project) in [
         (
             "adv_a1",
@@ -5183,7 +5185,7 @@ async fn test_cross_project_isolation_advanced_search() {
             content,
             &MemoryInput {
                 project: Some(project.to_string()),
-                event_type: Some(EventType::Reminder),
+                event_type: Some(EventType::Memory),
                 metadata: serde_json::json!({}),
                 ..Default::default()
             },
