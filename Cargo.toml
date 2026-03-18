@@ -35,6 +35,7 @@ ndarray = { version = "0.16", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 dotenvy = { version = "0.15", optional = true }
 num_cpus = "1.16"
+regex = "1"
 lru = "0.12"
 mimalloc = { version = "0.1", optional = true }
 sqlite-vec = { version = "0.1.6", optional = true }

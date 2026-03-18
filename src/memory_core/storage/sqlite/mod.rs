@@ -1119,6 +1119,7 @@ struct RankedSemanticCandidate {
 mod admin;
 mod advanced;
 mod crud;
+mod entities;
 mod graph;
 mod helpers;
 mod hot_cache;
