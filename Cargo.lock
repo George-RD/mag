@@ -1172,6 +1172,7 @@ dependencies = [
  "ndarray 0.16.1",
  "num_cpus",
  "ort",
+ "regex",
  "reqwest",
  "rmcp",
  "rusqlite",

@@ -314,6 +314,26 @@ impl Storage for SqliteStorage {
             )
             .context("failed to insert FTS row during store")?;
 
+            // ── Phase 4b: Entity extraction — auto-tag with detected entities ──
+            let entity_tags = super::entities::extract_entities(&data);
+            if !entity_tags.is_empty() {
+                // Parse existing tags, merge entity tags, re-serialize
+                let mut current_tags: Vec<String> =
+                    serde_json::from_str(&tags_json).unwrap_or_default();
+                for etag in &entity_tags {
+                    if !current_tags.contains(etag) {
+                        current_tags.push(etag.clone());
+                    }
+                }
+                let merged_json = serde_json::to_string(&current_tags)
+                    .unwrap_or_else(|_| tags_json.clone());
+                tx.execute(
+                    "UPDATE memories SET tags = ?1 WHERE id = ?2",
+                    params![merged_json, id_for_store],
+                )
+                .context("failed to update memory with entity tags")?;
+            }
+
             #[cfg(feature = "sqlite-vec")]
             vec_upsert(&tx, &id_for_store, &embedding)?;
 
