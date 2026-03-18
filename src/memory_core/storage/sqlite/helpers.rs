@@ -507,6 +507,17 @@ pub(super) fn content_hash(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Extract entity slugs from tags matching the `entity:*` prefix pattern.
+///
+/// Given tags like `["entity:people:alice", "entity:tools:react", "locomo-test"]`,
+/// returns `["entity:people:alice", "entity:tools:react"]`.
+pub(super) fn extract_entities_from_tags(tags: &[String]) -> Vec<String> {
+    tags.iter()
+        .filter(|tag| tag.starts_with("entity:"))
+        .cloned()
+        .collect()
+}
+
 pub(super) fn parse_tags_from_db(raw: &str) -> Vec<String> {
     serde_json::from_str(raw).unwrap_or_default()
 }
@@ -2726,6 +2737,27 @@ mod tests {
             q.contains("\"automobile\""),
             "missing synonym 'automobile': {q}"
         );
+    }
+
+    #[test]
+    fn test_extract_entities_from_tags() {
+        let tags = vec![
+            "entity:people:alice".to_string(),
+            "entity:tools:react".to_string(),
+            "locomo-test".to_string(),
+            "session:1".to_string(),
+        ];
+        let entities = extract_entities_from_tags(&tags);
+        assert_eq!(entities.len(), 2);
+        assert!(entities.contains(&"entity:people:alice".to_string()));
+        assert!(entities.contains(&"entity:tools:react".to_string()));
+    }
+
+    #[test]
+    fn test_extract_entities_from_tags_empty() {
+        let tags: Vec<String> = vec!["locomo-test".to_string()];
+        let entities = extract_entities_from_tags(&tags);
+        assert!(entities.is_empty());
     }
 
     #[test]
