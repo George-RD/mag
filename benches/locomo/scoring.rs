@@ -55,6 +55,15 @@ fn stem(word: &str) -> String {
             return base.to_string();
         }
     }
+    // Handle -ies → -y (e.g., "trophies" → "trophy", "berries" → "berry")
+    // Must come before the -es rule which would produce "trophi".
+    if let Some(base) = w.strip_suffix("ies")
+        && base.len() >= 2
+    {
+        let mut result = base.to_string();
+        result.push('y');
+        return result;
+    }
     for suffix in &["ly", "ed", "er", "es", "al"] {
         if let Some(base) = w.strip_suffix(suffix)
             && base.len() >= 3
