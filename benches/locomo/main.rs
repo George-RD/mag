@@ -293,7 +293,11 @@ fn main() -> Result<()> {
             "fp32" => ("onnx/model.onnx", "onnx/model.onnx_data", "FP32"),
             "fp16" => ("onnx/model_fp16.onnx", "onnx/model_fp16.onnx_data", "FP16"),
             "q4" => ("onnx/model_q4.onnx", "onnx/model_q4.onnx_data", "Q4"),
-            _ => ("onnx/model_quantized.onnx", "onnx/model_quantized.onnx_data", "INT8"), // default
+            _ => (
+                "onnx/model_quantized.onnx",
+                "onnx/model_quantized.onnx_data",
+                "INT8",
+            ), // default
         };
         let base = "https://huggingface.co/onnx-community/voyage-4-nano-ONNX/resolve/main";
         let model_url = format!("{base}/{model_file}");
@@ -418,8 +422,12 @@ fn main() -> Result<()> {
     } else if args.nomic {
         if !args.json {
             eprintln!("Embedder: nomic-embed-text-v1.5 int8 ONNX (768-dim)");
-            eprintln!("Note: nomic optimal retrieval requires search_document:/search_query: prefixes.");
-            eprintln!("      Benchmark harness does NOT add prefixes — scores will be slightly below MTEB.");
+            eprintln!(
+                "Note: nomic optimal retrieval requires search_document:/search_query: prefixes."
+            );
+            eprintln!(
+                "      Benchmark harness does NOT add prefixes — scores will be slightly below MTEB."
+            );
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(

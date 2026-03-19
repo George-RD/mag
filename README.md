@@ -107,7 +107,7 @@ ONNX models use int8 quantization unless marked ¹ (no pre-built int8 available)
 | snowflake-arctic-embed-xs int8 | 22M | 384 | 90.2% | 88.7% | 87.0% | 76.9% | 92.7% | 89.5% | 3.9 ms | 22 MB | 137 MB |
 | e5-small-v2 int8 | 33M | 384 | 90.8% | 88.6% | 88.4% | 73.1% | 93.0% | 91.1% | 4.8 ms | 32 MB | 152 MB |
 | all-MiniLM-L6-v2 int8 | 22M | 384 | 91.3% | 89.2% | 88.5% | 76.9% | 93.1% | 92.3% | 7.4 ms | 22 MB | 95 MB |
-| **bge-small-en-v1.5** *(default)* ¹ | 33M | 384 | 91.1% | 90.2% | 87.6% | 75.6% | 94.0% | 90.9% | 7.5 ms | 127 MB | 277 MB |
+| **bge-small-en-v1.5** *(default)* | 33M | 384 | 91.1% | 90.2% | 87.6% | 75.6% | 94.0% | 90.9% | 7.0 ms | 32 MB | 180 MB |
 | snowflake-arctic-embed-s int8 | 33M | 384 | 90.8% | 87.8% | 89.5% | 73.1% | 93.0% | 90.8% | 7.8 ms | 32 MB | 178 MB |
 | bge-base-en-v1.5 int8 | 109M | 768 | 91.8% | 90.4% | 87.1% | 76.9% | 94.9% | 92.7% | 10.5 ms | 105 MB | 265 MB |
 | gte-small int8 | 33M | 384 | 90.9% | 89.5% | 86.2% | 73.1% | 94.0% | 91.7% | 11.7 ms | 32 MB | 162 MB |
@@ -119,9 +119,9 @@ ONNX models use int8 quantization unless marked ¹ (no pre-built int8 available)
 | voyage-4 (API) | — | 1024 | 92.0% | 92.7% | 92.3% | 75.6% | 94.8% | 90.6% | 297 ms | — | — |
 | text-embedding-3-large (API) | — | 3072 | 93.0% | 93.4% | 94.6% | 74.4% | 95.3% | 93.1% | 444 ms | — | — |
 
-¹ FP32 (no pre-built int8 ONNX). bge-small int8 exists at Xenova but switching the production default would invalidate existing embedding databases.
+¹ FP32 (no pre-built int8 ONNX available).
 
-bge-small-en-v1.5 is the default (Apache 2.0). It loads FP32 (127 MB, 277 MB RSS); switching to its Xenova int8 variant would drop that to ~32 MB / ~150 MB RSS with no quality loss — tracked for a future migration. MiniLM-L6 int8 is the lightest option at 22 MB / 95 MB RSS with equivalent quality. bge-base int8 is the best local ONNX at +0.7 pp for only 1.4× the latency. Multi-hop is stuck at 73–77% across all models — architectural issue tracked in [issue #84](https://github.com/George-RD/mag/issues/84).
+bge-small-en-v1.5 is the default (Apache 2.0, Xenova int8). It uses 32 MB on disk and 180 MB peak RSS — a 35% reduction vs the previous FP32 default (277 MB) with identical quality. MiniLM-L6 int8 is the lightest option at 22 MB / 95 MB RSS with equivalent quality. bge-base int8 is the best local ONNX at +0.7 pp for only 1.4× the latency. Switching embedding models requires re-embedding stored data — see [issue #89](https://github.com/George-RD/mag/issues/89). Multi-hop is stuck at 73–77% across all models — architectural issue tracked in [issue #84](https://github.com/George-RD/mag/issues/84).
 
 ### Other Benchmarks (earlier snapshot, 2026-03-12)
 

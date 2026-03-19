@@ -45,76 +45,62 @@ done
 # ── Model → default dim + cargo flags ────────────────────────────────────────
 case "$MODEL" in
     bge-small)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="onnx-bge-small"
         CARGO_FLAGS=(--release --bin locomo_bench -- --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-int8)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-int8"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant int8 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-fp16)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-fp16"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp16 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-fp32)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-fp32"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp32 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-q4)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-q4"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant q4 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     granite)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="granite-embedding-30m-english"
         CARGO_FLAGS=(--release --bin locomo_bench -- --granite --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     minilm-l6)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="all-MiniLM-L6-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l6 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     minilm-l12)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="all-MiniLM-L12-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l12 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     e5-small)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="e5-small-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --e5-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     bge-base)
-        DEFAULT_DIM=768
         EMBEDDING_MODEL="bge-base-en-v1.5-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --bge-base --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     nomic)
-        DEFAULT_DIM=768
         EMBEDDING_MODEL="nomic-embed-text-v1.5-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --nomic --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     arctic-xs)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="snowflake-arctic-embed-xs-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-xs --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     arctic-s)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="snowflake-arctic-embed-s-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-s --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     gte-small)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="gte-small-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --gte-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
