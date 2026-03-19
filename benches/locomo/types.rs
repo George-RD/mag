@@ -150,4 +150,8 @@ pub(crate) struct LoCoMoSummary {
     pub mean_f1: f64,
     pub mean_evidence_recall: f64,
     pub categories: BTreeMap<String, CategoryResult>,
+    pub embedder_name: String,
+    pub total_seed_ms: u64,
+    pub total_embed_calls: u64,
+    pub avg_embed_ms: f64,
 }

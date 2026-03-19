@@ -73,6 +73,10 @@ const IDLE_TIMEOUT_SECS: u64 = 600; // 10 minutes
 #[derive(Debug)]
 pub struct OnnxEmbedder {
     model_dir: PathBuf,
+    model_url: String,
+    tokenizer_url: String,
+    dimension: usize,
+    output_tensor_name: String,
     runtime: std::sync::Mutex<Option<OnnxRuntime>>,
     last_used: std::sync::atomic::AtomicU64,
     cache: std::sync::Mutex<lru::LruCache<[u8; 32], Vec<f32>>>,
@@ -96,8 +100,29 @@ struct ModelFiles {
 #[cfg(feature = "real-embeddings")]
 impl OnnxEmbedder {
     pub fn new() -> Result<Self> {
+        Self::with_model(
+            "bge-small-en-v1.5",
+            MODEL_URL,
+            TOKENIZER_URL,
+            384,
+            "last_hidden_state",
+        )
+    }
+
+    pub fn with_model(
+        name: &str,
+        model_url: &str,
+        tokenizer_url: &str,
+        dimension: usize,
+        output_tensor_name: &str,
+    ) -> Result<Self> {
+        let model_dir = app_paths::resolve_app_paths()?.model_root.join(name);
         Ok(Self {
-            model_dir: default_model_dir()?,
+            model_dir,
+            model_url: model_url.to_string(),
+            tokenizer_url: tokenizer_url.to_string(),
+            dimension,
+            output_tensor_name: output_tensor_name.to_string(),
             runtime: std::sync::Mutex::new(None),
             last_used: std::sync::atomic::AtomicU64::new(0),
             cache: std::sync::Mutex::new(lru::LruCache::new(EMBEDDING_CACHE_CAPACITY)),
@@ -177,7 +202,11 @@ impl OnnxEmbedder {
     }
 
     fn init_runtime(&self) -> Result<OnnxRuntime> {
-        let files = ensure_model_files_blocking(self.model_dir.clone())?;
+        let files = ensure_model_files_blocking(
+            self.model_dir.clone(),
+            &self.model_url,
+            &self.tokenizer_url,
+        )?;
         // Force CPU-only execution (skip CoreML/Metal which leak memory on
         // long-running macOS processes) and disable the CPU memory arena to
         // reduce RSS by ~50 MB.
@@ -213,7 +242,7 @@ impl OnnxEmbedder {
 #[cfg(feature = "real-embeddings")]
 impl Embedder for OnnxEmbedder {
     fn dimension(&self) -> usize {
-        384
+        self.dimension
     }
 
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
@@ -284,52 +313,75 @@ impl Embedder for OnnxEmbedder {
                 ])
                 .context("ONNX inference failed")?;
             let first_output = outputs
-                .get("last_hidden_state")
-                .ok_or_else(|| anyhow!("missing ONNX output tensor 'last_hidden_state'"))?;
+                .get(self.output_tensor_name.as_str())
+                .ok_or_else(|| {
+                    anyhow!("missing ONNX output tensor '{}'", self.output_tensor_name)
+                })?;
             let (shape, output) = first_output
                 .try_extract_tensor::<f32>()
                 .context("failed to extract ONNX output tensor")?;
 
-            if shape.len() != 3 || shape[0] != 1 {
+            // Support both 2D pre-pooled tensors (shape [1, hidden]) and
+            // 3D token-level tensors (shape [1, seq_len, hidden]) that need mean-pooling.
+            let mut pooled = if shape.len() == 2 {
+                // Pre-pooled output (e.g. onnx-community/voyage-4-nano-ONNX `pooler_output`).
+                // Shape: [1, hidden_size] — already mean-pooled and L2-normalised by the model.
+                if shape[0] != 1 {
+                    return Err(anyhow!("unexpected ONNX output shape: {shape:?}"));
+                }
+                let hidden_size =
+                    usize::try_from(shape[1]).context("invalid output hidden size")?;
+                if hidden_size < self.dimension {
+                    return Err(anyhow!(
+                        "ONNX output dim {hidden_size} is smaller than requested dim {}",
+                        self.dimension
+                    ));
+                }
+                // Matryoshka truncation: slice to requested dimension then re-normalise.
+                output[..self.dimension].to_vec()
+            } else if shape.len() == 3 {
+                // Token-level output — apply mean pooling with attention mask.
+                if shape[0] != 1 {
+                    return Err(anyhow!("unexpected ONNX output shape: {shape:?}"));
+                }
+                let output_seq_len =
+                    usize::try_from(shape[1]).context("invalid output sequence length")?;
+                let hidden_size =
+                    usize::try_from(shape[2]).context("invalid output hidden size")?;
+                if hidden_size < self.dimension {
+                    return Err(anyhow!(
+                        "ONNX output dim {hidden_size} smaller than requested dim {}",
+                        self.dimension
+                    ));
+                }
+                if output_seq_len == 0 {
+                    return Err(anyhow!("ONNX output sequence length is zero"));
+                }
+                let effective_len = output_seq_len.min(seq_len);
+                let mut pooled = vec![0.0f32; self.dimension];
+                let mut mask_sum = 0.0f32;
+                for token_idx in 0..effective_len {
+                    #[allow(clippy::cast_precision_loss)]
+                    let mask_value = encoding.get_attention_mask()[token_idx] as f32;
+                    if mask_value <= 0.0 {
+                        continue;
+                    }
+                    mask_sum += mask_value;
+                    for (d, pooled_value) in pooled.iter_mut().enumerate() {
+                        let flat_index = token_idx * hidden_size + d;
+                        *pooled_value += output[flat_index] * mask_value;
+                    }
+                }
+                if mask_sum <= 0.0 {
+                    return Err(anyhow!("attention mask sum is zero during mean pooling"));
+                }
+                for value in &mut pooled {
+                    *value /= mask_sum;
+                }
+                pooled
+            } else {
                 return Err(anyhow!("unexpected ONNX output shape: {shape:?}"));
-            }
-            let output_seq_len =
-                usize::try_from(shape[1]).context("invalid output sequence length")?;
-            let hidden_size = usize::try_from(shape[2]).context("invalid output hidden size")?;
-            if hidden_size != self.dimension() {
-                return Err(anyhow!(
-                    "unexpected embedding dimension: got {hidden_size}, expected {}",
-                    self.dimension()
-                ));
-            }
-            if output_seq_len == 0 {
-                return Err(anyhow!("ONNX output sequence length is zero"));
-            }
-
-            let effective_len = output_seq_len.min(seq_len);
-            let mut pooled = vec![0.0f32; hidden_size];
-            let mut mask_sum = 0.0f32;
-
-            for token_idx in 0..effective_len {
-                // Attention mask values are 0 or 1, so cast to f32 is lossless.
-                #[allow(clippy::cast_precision_loss)]
-                let mask_value = encoding.get_attention_mask()[token_idx] as f32;
-                if mask_value <= 0.0 {
-                    continue;
-                }
-                mask_sum += mask_value;
-                for (dim, pooled_value) in pooled.iter_mut().enumerate() {
-                    let flat_index = token_idx * hidden_size + dim;
-                    *pooled_value += output[flat_index] * mask_value;
-                }
-            }
-
-            if mask_sum <= 0.0 {
-                return Err(anyhow!("attention mask sum is zero during mean pooling"));
-            }
-            for value in &mut pooled {
-                *value /= mask_sum;
-            }
+            };
             normalize_embedding(&mut pooled);
             pooled
         };
@@ -475,66 +527,96 @@ impl Embedder for OnnxEmbedder {
                 ])
                 .context("batched ONNX inference failed")?;
             let first_output = outputs
-                .get("last_hidden_state")
-                .ok_or_else(|| anyhow!("missing ONNX output tensor 'last_hidden_state'"))?;
+                .get(self.output_tensor_name.as_str())
+                .ok_or_else(|| {
+                    anyhow!("missing ONNX output tensor '{}'", self.output_tensor_name)
+                })?;
             let (shape, output) = first_output
                 .try_extract_tensor::<f32>()
                 .context("failed to extract batched ONNX output tensor")?;
 
-            if shape.len() != 3 {
-                return Err(anyhow!("unexpected batched ONNX output shape: {shape:?}"));
-            }
-            let out_batch = usize::try_from(shape[0]).context("invalid output batch dimension")?;
-            let out_seq_len =
-                usize::try_from(shape[1]).context("invalid output sequence length")?;
-            let hidden_size = usize::try_from(shape[2]).context("invalid output hidden size")?;
-            if out_batch != batch_size {
-                return Err(anyhow!(
-                    "output batch size mismatch: got {out_batch}, expected {batch_size}"
-                ));
-            }
-            if hidden_size != self.dimension() {
-                return Err(anyhow!(
-                    "unexpected embedding dimension: got {hidden_size}, expected {}",
-                    self.dimension()
-                ));
-            }
-            if out_seq_len == 0 {
-                return Err(anyhow!("ONNX output sequence length is zero"));
-            }
-
-            // Mean-pool each item in the batch using its own attention mask.
+            // Support both 2D pre-pooled tensors (shape [batch, hidden]) and
+            // 3D token-level tensors (shape [batch, seq_len, hidden]).
             let mut batch_embeddings: Vec<Vec<f32>> = Vec::with_capacity(batch_size);
-            for (b, enc) in encodings.iter().enumerate() {
-                let seq_len = enc.get_ids().len();
-                let effective_len = out_seq_len.min(seq_len);
-                let mut pooled = vec![0.0f32; hidden_size];
-                let mut mask_sum = 0.0f32;
-
-                for token_idx in 0..effective_len {
-                    // Attention mask values are 0 or 1, so cast to f32 is lossless.
-                    #[allow(clippy::cast_precision_loss)]
-                    let mask_value = enc.get_attention_mask()[token_idx] as f32;
-                    if mask_value <= 0.0 {
-                        continue;
-                    }
-                    mask_sum += mask_value;
-                    let row_offset = b * out_seq_len * hidden_size + token_idx * hidden_size;
-                    for (dim, pooled_value) in pooled.iter_mut().enumerate() {
-                        *pooled_value += output[row_offset + dim] * mask_value;
-                    }
-                }
-
-                if mask_sum <= 0.0 {
+            if shape.len() == 2 {
+                // Pre-pooled output — shape [batch, hidden_size].
+                let out_batch =
+                    usize::try_from(shape[0]).context("invalid output batch dimension")?;
+                let hidden_size =
+                    usize::try_from(shape[1]).context("invalid output hidden size")?;
+                if out_batch != batch_size {
                     return Err(anyhow!(
-                        "attention mask sum is zero during mean pooling for batch item {b}"
+                        "output batch size mismatch: got {out_batch}, expected {batch_size}"
                     ));
                 }
-                for value in &mut pooled {
-                    *value /= mask_sum;
+                if hidden_size < self.dimension {
+                    return Err(anyhow!(
+                        "ONNX output dim {hidden_size} is smaller than requested dim {}",
+                        self.dimension
+                    ));
                 }
-                normalize_embedding(&mut pooled);
-                batch_embeddings.push(pooled);
+                for b in 0..batch_size {
+                    let row_start = b * hidden_size;
+                    // Matryoshka truncation + re-normalise.
+                    let mut pooled = output[row_start..row_start + self.dimension].to_vec();
+                    normalize_embedding(&mut pooled);
+                    batch_embeddings.push(pooled);
+                }
+            } else if shape.len() == 3 {
+                let out_batch =
+                    usize::try_from(shape[0]).context("invalid output batch dimension")?;
+                let out_seq_len =
+                    usize::try_from(shape[1]).context("invalid output sequence length")?;
+                let hidden_size =
+                    usize::try_from(shape[2]).context("invalid output hidden size")?;
+                if out_batch != batch_size {
+                    return Err(anyhow!(
+                        "output batch size mismatch: got {out_batch}, expected {batch_size}"
+                    ));
+                }
+                if hidden_size < self.dimension {
+                    return Err(anyhow!(
+                        "unexpected embedding dimension: got {hidden_size}, expected >= {}",
+                        self.dimension
+                    ));
+                }
+                if out_seq_len == 0 {
+                    return Err(anyhow!("ONNX output sequence length is zero"));
+                }
+                // Mean-pool each item in the batch using its own attention mask.
+                for (b, enc) in encodings.iter().enumerate() {
+                    let seq_len = enc.get_ids().len();
+                    let effective_len = out_seq_len.min(seq_len);
+                    let mut pooled = vec![0.0f32; self.dimension];
+                    let mut mask_sum = 0.0f32;
+
+                    for token_idx in 0..effective_len {
+                        // Attention mask values are 0 or 1, so cast to f32 is lossless.
+                        #[allow(clippy::cast_precision_loss)]
+                        let mask_value = enc.get_attention_mask()[token_idx] as f32;
+                        if mask_value <= 0.0 {
+                            continue;
+                        }
+                        mask_sum += mask_value;
+                        let row_offset = b * out_seq_len * hidden_size + token_idx * hidden_size;
+                        for (d, pooled_value) in pooled.iter_mut().enumerate() {
+                            *pooled_value += output[row_offset + d] * mask_value;
+                        }
+                    }
+
+                    if mask_sum <= 0.0 {
+                        return Err(anyhow!(
+                            "attention mask sum is zero during mean pooling for batch item {b}"
+                        ));
+                    }
+                    for value in &mut pooled {
+                        *value /= mask_sum;
+                    }
+                    normalize_embedding(&mut pooled);
+                    batch_embeddings.push(pooled);
+                }
+            } else {
+                return Err(anyhow!("unexpected batched ONNX output shape: {shape:?}"));
             }
             batch_embeddings
         };
@@ -566,7 +648,7 @@ impl Embedder for OnnxEmbedder {
 #[cfg(feature = "real-embeddings")]
 pub async fn download_bge_small_model() -> Result<PathBuf> {
     let model_dir = default_model_dir()?;
-    let files = ensure_model_files_async(model_dir).await?;
+    let files = ensure_model_files_async(model_dir, MODEL_URL, TOKENIZER_URL).await?;
     Ok(files.directory)
 }
 
@@ -576,7 +658,11 @@ fn default_model_dir() -> Result<PathBuf> {
 }
 
 #[cfg(feature = "real-embeddings")]
-fn ensure_model_files_blocking(model_dir: PathBuf) -> Result<ModelFiles> {
+fn ensure_model_files_blocking(
+    model_dir: PathBuf,
+    model_url: &str,
+    tokenizer_url: &str,
+) -> Result<ModelFiles> {
     if model_files_exist(&model_dir) {
         return Ok(model_files_for_dir(model_dir));
     }
@@ -589,11 +675,19 @@ fn ensure_model_files_blocking(model_dir: PathBuf) -> Result<ModelFiles> {
         .enable_all()
         .build()
         .context("failed to create temporary tokio runtime for model download")?;
-    runtime.block_on(ensure_model_files_async(model_dir))
+    runtime.block_on(ensure_model_files_async(
+        model_dir,
+        model_url,
+        tokenizer_url,
+    ))
 }
 
 #[cfg(feature = "real-embeddings")]
-async fn ensure_model_files_async(model_dir: PathBuf) -> Result<ModelFiles> {
+async fn ensure_model_files_async(
+    model_dir: PathBuf,
+    model_url: &str,
+    tokenizer_url: &str,
+) -> Result<ModelFiles> {
     let files = model_files_for_dir(model_dir);
     if model_files_exist(&files.directory) {
         return Ok(files);
@@ -612,13 +706,13 @@ async fn ensure_model_files_async(model_dir: PathBuf) -> Result<ModelFiles> {
         .await
         .context("failed to check model.onnx path")?
     {
-        download_file(MODEL_URL, &files.model_path).await?;
+        download_file(model_url, &files.model_path).await?;
     }
     if !tokio::fs::try_exists(&files.tokenizer_path)
         .await
         .context("failed to check tokenizer.json path")?
     {
-        download_file(TOKENIZER_URL, &files.tokenizer_path).await?;
+        download_file(tokenizer_url, &files.tokenizer_path).await?;
     }
 
     Ok(files)

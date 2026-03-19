@@ -62,6 +62,15 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
         summary.total_memories_ingested, summary.total_duration_seconds, summary.avg_query_ms
     );
     println!("  Peak RSS: {} KB", summary.peak_rss_kb);
+    println!("  Embedder: {}", summary.embedder_name);
+    {
+        #[allow(clippy::cast_precision_loss)]
+        let seed_time_s = summary.total_seed_ms as f64 / 1000.0;
+        println!(
+            "  Embed calls: {}  Avg embed: {:.1}ms  Seed time: {:.1}s",
+            summary.total_embed_calls, summary.avg_embed_ms, seed_time_s
+        );
+    }
     println!();
 
     // Header.
