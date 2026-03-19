@@ -5,6 +5,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Result, bail};
@@ -48,6 +49,7 @@ mod openai_embedder;
 mod scoring;
 mod seeding;
 mod types;
+mod voyage_embedder;
 
 use bench_utils::formatting::{pct, truncate};
 use bench_utils::metrics::PeakRss;
@@ -100,6 +102,21 @@ struct Args {
     /// Requires OPENAI_API_KEY in environment or .env.local file.
     #[arg(long)]
     openai_embeddings: bool,
+    /// Use voyage-4-nano ONNX (onnx-community, 2048-dim native, use --voyage-quant for variant).
+    #[arg(long)]
+    voyage_onnx: bool,
+    /// Use Voyage AI API embeddings (requires VOYAGE_API_KEY env var or .env.local).
+    #[arg(long)]
+    voyage_api: bool,
+    /// Voyage AI model name (default: voyage-4-lite).
+    #[arg(long)]
+    voyage_model: Option<String>,
+    /// Embedding dimension override for Matryoshka variants (256/512/1024/2048).
+    #[arg(long)]
+    embedder_dim: Option<usize>,
+    /// Voyage ONNX quantization variant: fp32, fp16, q4, int8 (default: int8).
+    #[arg(long, default_value = "int8")]
+    voyage_quant: String,
     /// Scoring mode: substring, word-overlap, llm-f1, or e2e-word-overlap.
     /// If omitted, defaults to substring unless --llm-judge/--local implies llm-f1.
     #[arg(long, value_enum)]
@@ -127,6 +144,13 @@ fn main() -> Result<()> {
     }
     if args.dataset_path.is_some() && (args.force_refresh || args.temp_dataset) {
         bail!("--dataset-path cannot be combined with --force-refresh or --temp-dataset");
+    }
+    let embedder_flags = [args.openai_embeddings, args.voyage_onnx, args.voyage_api]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+    if embedder_flags > 1 {
+        bail!("only one of --openai-embeddings, --voyage-onnx, --voyage-api may be specified");
     }
 
     // Resolve effective scoring mode: --e2e shorthand wins over implicit default,
@@ -201,7 +225,7 @@ fn main() -> Result<()> {
         eprintln!("Scoring mode: {scoring_mode:?}");
     }
 
-    let embedder: std::sync::Arc<dyn Embedder> = if args.openai_embeddings {
+    let (inner_embedder, embedder_name): (Arc<dyn Embedder>, String) = if args.openai_embeddings {
         llm::load_api_key_from_dotenv();
         let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
             anyhow::anyhow!(
@@ -211,13 +235,70 @@ fn main() -> Result<()> {
         if !args.json {
             eprintln!("Embedder: OpenAI text-embedding-3-large (3072-dim)");
         }
-        std::sync::Arc::new(openai_embedder::OpenAiEmbedder::new(api_key)?)
+        (
+            Arc::new(openai_embedder::OpenAiEmbedder::new(api_key)?),
+            "text-embedding-3-large (openai api, 3072-dim)".to_string(),
+        )
+    } else if args.voyage_onnx {
+        let dim = args.embedder_dim.unwrap_or(2048);
+        let quant = args.voyage_quant.as_str();
+        let (model_file, model_label) = match quant {
+            "fp32" => ("onnx/model.onnx", "FP32"),
+            "fp16" => ("onnx/model_fp16.onnx", "FP16"),
+            "q4" => ("onnx/model_q4.onnx", "Q4"),
+            _ => ("onnx/model_quantized.onnx", "INT8"), // default
+        };
+        let base = "https://huggingface.co/onnx-community/voyage-4-nano-ONNX/resolve/main";
+        let model_url = format!("{base}/{model_file}");
+        let tokenizer_url = format!("{base}/tokenizer.json");
+        if !args.json {
+            eprintln!("Embedder: voyage-4-nano {model_label} ONNX ({dim}-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model(
+                "voyage-4-nano-onnx-community",
+                &model_url,
+                &tokenizer_url,
+                dim,
+                "pooler_output",
+            )?),
+            format!("voyage-4-nano {model_label} onnx ({dim}-dim)"),
+        )
+    } else if args.voyage_api {
+        llm::load_api_key_from_dotenv();
+        let api_key = std::env::var("VOYAGE_API_KEY").map_err(|_| {
+            anyhow::anyhow!("--voyage-api requires VOYAGE_API_KEY (env var or .env.local file)")
+        })?;
+        let model = args
+            .voyage_model
+            .clone()
+            .unwrap_or_else(|| "voyage-4-lite".to_string());
+        let dim = args.embedder_dim.unwrap_or(1024);
+        if !args.json {
+            eprintln!("Embedder: Voyage API {model} ({dim}-dim)");
+        }
+        (
+            Arc::new(voyage_embedder::VoyageApiEmbedder::new(
+                api_key,
+                model.clone(),
+                dim,
+            )?),
+            format!("{model} (voyage api, {dim}-dim)"),
+        )
     } else {
         if !args.json {
             eprintln!("Embedder: ONNX bge-small-en-v1.5 (384-dim)");
         }
-        std::sync::Arc::new(OnnxEmbedder::new()?)
+        (
+            Arc::new(OnnxEmbedder::new()?),
+            "bge-small-en-v1.5 (onnx, 384-dim)".to_string(),
+        )
     };
+
+    let timing = Arc::new(bench_utils::timing_embedder::TimingEmbedder::new(
+        inner_embedder,
+    ));
+    let embedder: Arc<dyn Embedder> = timing.clone();
     let top_k = args.top_k.unwrap_or(50);
     let start = Instant::now();
     let mut rss = PeakRss::default();
@@ -226,6 +307,7 @@ fn main() -> Result<()> {
     let mut total_memories = 0usize;
     let mut total_queries = 0usize;
     let mut total_query_ms = 0u128;
+    let mut total_seed_ms = 0u128;
     let mut total_correct = 0usize;
     let mut total_f1_sum = 0.0f64;
     let mut total_evidence_recall_sum = 0.0f64;
@@ -253,8 +335,10 @@ fn main() -> Result<()> {
             storage.set_scoring_params(params);
         }
 
+        let seed_start = Instant::now();
         let seeded =
             runtime.block_on(seeding::seed_sample(&storage, sample, !args.no_entity_tags))?;
+        total_seed_ms += seed_start.elapsed().as_millis();
         total_memories += seeded;
         samples_evaluated += 1;
         rss.sample();
@@ -483,6 +567,11 @@ fn main() -> Result<()> {
         ScoringMode::E2eWordOverlap => "e2e-word-overlap",
     };
 
+    let total_embed_calls = timing.total_calls();
+    let avg_embed_ms = timing.avg_embed_ms();
+    #[allow(clippy::cast_possible_truncation)]
+    let total_seed_ms_u64 = total_seed_ms as u64;
+
     let summary = types::LoCoMoSummary {
         metadata,
         dataset: "LoCoMo10".to_string(),
@@ -498,6 +587,10 @@ fn main() -> Result<()> {
         mean_f1,
         mean_evidence_recall,
         categories,
+        embedder_name,
+        total_seed_ms: total_seed_ms_u64,
+        total_embed_calls,
+        avg_embed_ms,
     };
 
     if args.json {
