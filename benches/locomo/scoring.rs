@@ -413,10 +413,7 @@ pub(crate) fn adversarial_check(answer: &str) -> bool {
 /// determined" style adversarial answer.  Used in word-overlap scoring to
 /// avoid matching "not" against retrieved content.
 pub(crate) fn is_adversarial_expected(expected: &str) -> bool {
-    let lower = expected.to_lowercase();
-    ADVERSARIAL_PHRASES
-        .iter()
-        .any(|phrase| lower.contains(phrase))
+    adversarial_check(expected)
 }
 
 /// Score a retrieval result for an adversarial question in word-overlap mode.
@@ -475,7 +472,7 @@ mod tests {
 
     #[test]
     fn test_stem_basic() {
-        assert_eq!(stem("running"), "runn");
+        assert_eq!(stem("running"), "run");
         assert_eq!(stem("played"), "play");
         assert_eq!(stem("cats"), "cat");
         assert_eq!(stem("quickly"), "quick");
