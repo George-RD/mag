@@ -128,6 +128,15 @@ struct Args {
     /// The benchmark harness does NOT add these prefixes — scores will be slightly below MTEB reported.
     #[arg(long)]
     nomic: bool,
+    /// Use Snowflake/snowflake-arctic-embed-xs ONNX (22M, 384-dim, MiniLM-based).
+    #[arg(long)]
+    arctic_xs: bool,
+    /// Use Snowflake/snowflake-arctic-embed-s ONNX (33M, 384-dim, e5-small-unsupervised based).
+    #[arg(long)]
+    arctic_s: bool,
+    /// Use thenlper/gte-small ONNX (33M, 384-dim, pure BERT).
+    #[arg(long)]
+    gte_small: bool,
     /// Voyage AI model name (default: voyage-4-lite).
     #[arg(long)]
     voyage_model: Option<String>,
@@ -175,6 +184,9 @@ fn main() -> Result<()> {
         args.e5_small,
         args.bge_base,
         args.nomic,
+        args.arctic_xs,
+        args.arctic_s,
+        args.gte_small,
     ]
     .iter()
     .filter(|&&b| b)
@@ -183,7 +195,8 @@ fn main() -> Result<()> {
         bail!(
             "only one embedder flag may be specified at a time \
              (--openai-embeddings, --voyage-onnx, --voyage-api, --granite, \
-             --minilm-l6, --minilm-l12, --e5-small, --bge-base, --nomic)"
+             --minilm-l6, --minilm-l12, --e5-small, --bge-base, --nomic, \
+             --arctic-xs, --arctic-s, --gte-small)"
         );
     }
 
@@ -419,6 +432,54 @@ fn main() -> Result<()> {
                 true, // NomicBERT: uses token_type_ids
             )?),
             "nomic-embed-text-v1.5-int8".to_string(),
+        )
+    } else if args.arctic_xs {
+        if !args.json {
+            eprintln!("Embedder: snowflake-arctic-embed-xs ONNX (22M, 384-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "snowflake-arctic-embed-xs",
+                "https://huggingface.co/Snowflake/snowflake-arctic-embed-xs/resolve/main/onnx/model.onnx",
+                None,
+                "https://huggingface.co/Snowflake/snowflake-arctic-embed-xs/resolve/main/tokenizer.json",
+                384,
+                "last_hidden_state",
+                true, // arctic-xs ONNX export includes token_type_ids
+            )?),
+            "snowflake-arctic-embed-xs".to_string(),
+        )
+    } else if args.arctic_s {
+        if !args.json {
+            eprintln!("Embedder: snowflake-arctic-embed-s ONNX (33M, 384-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "snowflake-arctic-embed-s",
+                "https://huggingface.co/Snowflake/snowflake-arctic-embed-s/resolve/main/onnx/model.onnx",
+                None,
+                "https://huggingface.co/Snowflake/snowflake-arctic-embed-s/resolve/main/tokenizer.json",
+                384,
+                "last_hidden_state",
+                true, // arctic-s ONNX export includes token_type_ids
+            )?),
+            "snowflake-arctic-embed-s".to_string(),
+        )
+    } else if args.gte_small {
+        if !args.json {
+            eprintln!("Embedder: gte-small ONNX (33M, 384-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "gte-small",
+                "https://huggingface.co/thenlper/gte-small/resolve/main/onnx/model.onnx",
+                None,
+                "https://huggingface.co/thenlper/gte-small/resolve/main/tokenizer.json",
+                384,
+                "last_hidden_state",
+                true, // pure BERT: uses token_type_ids
+            )?),
+            "gte-small".to_string(),
         )
     } else {
         if !args.json {
