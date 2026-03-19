@@ -273,7 +273,7 @@ fn main() -> Result<()> {
                 // Scale base limit with conversation size: larger conversations
                 // need more results to maintain the same coverage ratio.
                 // Floor at top_k, ceiling at 15% of conversation or 200.
-                let scaled_base = (seeded / 7).max(top_k).min(200);
+                let scaled_base = (seeded / 5).max(top_k).min(200);
                 if is_multihop {
                     // Multi-hop needs the most coverage
                     (scaled_base * 2).min(250)
