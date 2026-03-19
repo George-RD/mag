@@ -62,22 +62,14 @@ fn stem(word: &str) -> String {
             return base.to_string();
         }
     }
-    // Handle -ied → -y (e.g., "married" → "marry", "studied" → "study")
-    if let Some(base) = w.strip_suffix("ied")
-        && base.len() >= 2
-    {
-        let mut result = base.to_string();
-        result.push('y');
-        return result;
-    }
-    // Handle -ies → -y (e.g., "trophies" → "trophy", "berries" → "berry")
-    // Must come before the -es rule which would produce "trophi".
-    if let Some(base) = w.strip_suffix("ies")
-        && base.len() >= 2
-    {
-        let mut result = base.to_string();
-        result.push('y');
-        return result;
+    // Handle -ied/-ies → -y (e.g., "married" → "marry", "trophies" → "trophy").
+    // Must come before the -ed/-es rules which would produce "marri"/"trophi".
+    for suffix in &["ied", "ies"] {
+        if let Some(base) = w.strip_suffix(suffix)
+            && base.len() >= 2
+        {
+            return format!("{base}y");
+        }
     }
     // Handle -ed with double-consonant reduction:
     //   "planned" → "plan" (not "plann")
@@ -328,25 +320,7 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
         combined.push_str(&date_expansion);
     }
 
-    let expected_tokens = normalize_tokens(expected);
-    if expected_tokens.is_empty() {
-        return 0.0;
-    }
-    let combined_tokens = normalize_tokens(&combined);
-    let combined_lower = combined.to_lowercase();
-
-    // Hybrid matching: exact stemmed-token set membership OR substring in raw text.
-    // Substring matching catches partial matches (e.g., "deploy" inside "undeployable")
-    // that exact token matching misses — mirrors AutoMem's _word_overlap() approach.
-    #[allow(clippy::cast_precision_loss)]
-    let overlap = expected_tokens
-        .iter()
-        .filter(|token| combined_tokens.contains(*token) || combined_lower.contains(token.as_str()))
-        .count() as f64;
-    #[allow(clippy::cast_precision_loss)]
-    {
-        overlap / expected_tokens.len() as f64
-    }
+    hybrid_overlap(&combined, expected)
 }
 
 // ── Word-overlap on text (for E2E scoring) ───────────────────────────────
@@ -354,6 +328,12 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
 /// Compute word-overlap recall between LLM-generated text and expected answer.
 /// Reuses `normalize_tokens()` for consistency with retrieval word-overlap.
 pub(crate) fn word_overlap_on_text(generated: &str, expected: &str) -> f64 {
+    hybrid_overlap(generated, expected)
+}
+
+/// Shared hybrid overlap: stemmed-token set membership OR substring match.
+/// Returns `matched_expected_tokens / total_expected_tokens`.
+fn hybrid_overlap(source: &str, expected: &str) -> f64 {
     if expected.is_empty() {
         return 0.0;
     }
@@ -361,14 +341,12 @@ pub(crate) fn word_overlap_on_text(generated: &str, expected: &str) -> f64 {
     if expected_tokens.is_empty() {
         return 0.0;
     }
-    let generated_tokens = normalize_tokens(generated);
-    let generated_lower = generated.to_lowercase();
+    let source_tokens = normalize_tokens(source);
+    let source_lower = source.to_lowercase();
     #[allow(clippy::cast_precision_loss)]
     let overlap = expected_tokens
         .iter()
-        .filter(|token| {
-            generated_tokens.contains(*token) || generated_lower.contains(token.as_str())
-        })
+        .filter(|token| source_tokens.contains(*token) || source_lower.contains(token.as_str()))
         .count() as f64;
     #[allow(clippy::cast_precision_loss)]
     {
