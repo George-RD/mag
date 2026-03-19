@@ -25,3 +25,4 @@ date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_scor
 2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,bge-base-en-v1.5-int8,91.8,87.1,91.5,76.9,94.9,92.7,90.4,10.5,Xenova int8; 4x speedup over FP32 (was 42ms); 110MB vs 438MB
 2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,snowflake-arctic-embed-xs-int8,90.2,87.0,91.5,76.9,92.7,89.5,88.7,3.9,Snowflake official int8; 8x speedup over FP32 (was 30ms)
 2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,gte-small-int8,90.9,86.2,91.5,73.1,94.0,91.7,89.5,11.7,Xenova int8; 6x speedup over FP32 (was 65ms)
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,snowflake-arctic-embed-s-int8,90.8,89.5,91.5,73.1,93.0,90.8,87.8,7.8,Snowflake official int8; 4.6x speedup over FP32 (was 36ms)
