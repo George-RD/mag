@@ -61,6 +61,7 @@ Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-s
   - `search.rs` — FTS5 BM25 + vector similarity
   - `advanced.rs` — 6-phase RRF pipeline (vector + FTS5 + rerank + refinement + graph + abstention)
   - `graph.rs` — relationship traversal (BFS, max_hops)
+  - `entities.rs` — entity extraction (people, tools, projects) with auto-tagging on store
   - `lifecycle.rs` — TTL, sweep, feedback
   - `session.rs` — checkpoint, profile, session_info
   - `admin.rs` — health/export/import/stats, backup/restore
@@ -110,7 +111,7 @@ Run `prek run` for gates 1-3.
 ## Post-Implementation Checklist
 
 - [ ] Quality gates pass (`prek run`)
-- [ ] Benchmark shows no regression (if applicable)
+- [ ] Benchmark shows no regression (if applicable); if changed, append row to `docs/benchmark_log.csv`
 - [ ] New public APIs have tests
 - [ ] Run code simplification review — check for unnecessary complexity, duplication, missed reuse
 - [ ] Update AGENTS.md if architecture or conventions changed
@@ -151,6 +152,8 @@ This repo uses jj (Jujutsu) in colocated mode.
 - Model files (~134 MB) auto-download on first use; `~/.mag/models/` preferred, `~/.romega-memory/models/` legacy
 - `GRAPH_NEIGHBOR_FACTOR=0.1` — graph enrichment Phase 5 re-enabled at conservative factor; guarded by `if > 0.0`
 - Git hooks do NOT fire under jj — run `prek run` explicitly before pushing
+- Benchmark history: `docs/benchmark_log.csv` (16 cols); methodology at `docs/benchmarks.md`
+- voyage-4-nano ONNX: 2048-dim native; use `--embedder-dim` for Matryoshka truncation (512/1024/2048); quant: int8, fp16, fp32, q4
 
 ## Tool-Specific Notes
 
