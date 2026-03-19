@@ -71,14 +71,7 @@ fn stem(word: &str) -> String {
             return format!("{base}y");
         }
     }
-    // Handle -ed with double-consonant reduction:
-    //   "planned" → "plan" (not "plann")
-    if let Some(base) = w.strip_suffix("ed")
-        && base.len() >= 3
-    {
-        return dedup_trailing_consonant(base);
-    }
-    for suffix in &["ly", "er", "es", "al"] {
+    for suffix in &["ed", "ly", "er", "es", "al"] {
         if let Some(base) = w.strip_suffix(suffix)
             && base.len() >= 3
         {

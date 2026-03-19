@@ -1708,7 +1708,7 @@ const ENTITY_STOPWORDS: &[&str] = &[
     "February",
     "March",
     "April",
-    "May",
+    // "May" already listed above (line 1686)
     "June",
     "July",
     "August",

@@ -496,7 +496,8 @@ fn fuse_refine_and_output(
             if let Some(candidate) = ranked.get_mut(id) {
                 #[allow(clippy::cast_precision_loss)]
                 let text_rel = 1.0 / (1.0 + *fts_rank as f64);
-                let adaptive_boost = 1.3 + text_rel * 0.5;
+                let base = scoring_params.dual_match_boost.max(1.0);
+                let adaptive_boost = base + text_rel * 0.5;
                 candidate.score *= adaptive_boost;
                 if explain_enabled && let Some(ref mut exp) = candidate.explain {
                     exp["adaptive_dual_boost"] = serde_json::json!(adaptive_boost);

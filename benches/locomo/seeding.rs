@@ -250,6 +250,9 @@ pub(crate) async fn query_with_speaker_recall(
         let conversation_tag = format!("conversation:{sample_id}");
         let tags = vec![spk_tag.clone(), conversation_tag.clone()];
 
+        // Note: intentionally allows exceeding top_k — speaker recall adds
+        // supplementary evidence that improves word-overlap coverage without
+        // degrading precision (word-overlap is recall-oriented).
         let mut tag_results =
             <SqliteStorage as Tagger>::get_by_tags(storage, &tags, 50, &SearchOptions::default())
                 .await
@@ -349,8 +352,9 @@ fn extract_speaker_from_question(question: &str) -> Option<String> {
         if i == 0 {
             continue;
         }
-        // Also skip after "?" at the previous word
-        if words[i - 1].ends_with('?') {
+        // Also skip after sentence-ending punctuation at the previous word
+        let prev = words[i - 1];
+        if prev.ends_with('?') || prev.ends_with('.') || prev.ends_with('!') {
             continue;
         }
 

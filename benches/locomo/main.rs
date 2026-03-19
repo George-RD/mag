@@ -20,7 +20,7 @@ use mag::memory_core::storage::sqlite::SqliteStorage;
 enum LimitMode {
     /// Flat top_k for all question types.
     Static,
-    /// Dynamic: 50 standard, 75 temporal, 100 multi-hop (based on evidence count and temporal detection).
+    /// Dynamic: scales with conversation size (turns/5, cap 200), 1.5x temporal, 2x multi-hop (cap 250).
     #[default]
     Dynamic,
 }
