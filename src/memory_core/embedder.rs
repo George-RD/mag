@@ -74,9 +74,11 @@ const IDLE_TIMEOUT_SECS: u64 = 600; // 10 minutes
 pub struct OnnxEmbedder {
     model_dir: PathBuf,
     model_url: String,
+    model_data_url: Option<String>,
     tokenizer_url: String,
     dimension: usize,
     output_tensor_name: String,
+    use_token_type_ids: bool,
     runtime: std::sync::Mutex<Option<OnnxRuntime>>,
     last_used: std::sync::atomic::AtomicU64,
     cache: std::sync::Mutex<lru::LruCache<[u8; 32], Vec<f32>>>,
@@ -94,6 +96,7 @@ struct OnnxRuntime {
 struct ModelFiles {
     directory: PathBuf,
     model_path: PathBuf,
+    model_data_path: Option<PathBuf>,
     tokenizer_path: PathBuf,
 }
 
@@ -116,13 +119,27 @@ impl OnnxEmbedder {
         dimension: usize,
         output_tensor_name: &str,
     ) -> Result<Self> {
+        Self::with_model_and_data(name, model_url, None, tokenizer_url, dimension, output_tensor_name, true)
+    }
+
+    pub fn with_model_and_data(
+        name: &str,
+        model_url: &str,
+        model_data_url: Option<&str>,
+        tokenizer_url: &str,
+        dimension: usize,
+        output_tensor_name: &str,
+        use_token_type_ids: bool,
+    ) -> Result<Self> {
         let model_dir = app_paths::resolve_app_paths()?.model_root.join(name);
         Ok(Self {
             model_dir,
             model_url: model_url.to_string(),
+            model_data_url: model_data_url.map(str::to_string),
             tokenizer_url: tokenizer_url.to_string(),
             dimension,
             output_tensor_name: output_tensor_name.to_string(),
+            use_token_type_ids,
             runtime: std::sync::Mutex::new(None),
             last_used: std::sync::atomic::AtomicU64::new(0),
             cache: std::sync::Mutex::new(lru::LruCache::new(EMBEDDING_CACHE_CAPACITY)),
@@ -205,6 +222,7 @@ impl OnnxEmbedder {
         let files = ensure_model_files_blocking(
             self.model_dir.clone(),
             &self.model_url,
+            self.model_data_url.as_deref(),
             &self.tokenizer_url,
         )?;
         // Force CPU-only execution (skip CoreML/Metal which leak memory on
@@ -291,12 +309,8 @@ impl Embedder for OnnxEmbedder {
             }
 
             let seq_len = input_ids.len();
-            let token_type_ids = vec![0_i64; seq_len];
             let input_ids_value = ort::value::Value::from_array(([1_usize, seq_len], input_ids))
                 .context("failed to create ONNX input_ids value")?;
-            let token_type_ids_value =
-                ort::value::Value::from_array(([1_usize, seq_len], token_type_ids))
-                    .context("failed to create ONNX token_type_ids value")?;
             let attention_mask_value =
                 ort::value::Value::from_array(([1_usize, seq_len], attention_mask))
                     .context("failed to create ONNX attention_mask value")?;
@@ -305,13 +319,22 @@ impl Embedder for OnnxEmbedder {
                 .session
                 .lock()
                 .map_err(|_| anyhow!("onnx session mutex poisoned"))?;
-            let outputs = session
-                .run(ort::inputs![
-                    input_ids_value,
-                    attention_mask_value,
-                    token_type_ids_value
-                ])
-                .context("ONNX inference failed")?;
+            let outputs = if self.use_token_type_ids {
+                let token_type_ids_value =
+                    ort::value::Value::from_array(([1_usize, seq_len], vec![0_i64; seq_len]))
+                        .context("failed to create ONNX token_type_ids value")?;
+                session
+                    .run(ort::inputs![
+                        input_ids_value,
+                        attention_mask_value,
+                        token_type_ids_value
+                    ])
+                    .context("ONNX inference failed")?
+            } else {
+                session
+                    .run(ort::inputs![input_ids_value, attention_mask_value])
+                    .context("ONNX inference failed")?
+            };
             let first_output = outputs
                 .get(self.output_tensor_name.as_str())
                 .ok_or_else(|| {
@@ -486,7 +509,6 @@ impl Embedder for OnnxEmbedder {
             // Build padded flat tensors: [batch_size * max_len].
             let mut flat_input_ids = vec![0_i64; batch_size * max_len];
             let mut flat_attention_mask = vec![0_i64; batch_size * max_len];
-            let flat_token_type_ids = vec![0_i64; batch_size * max_len];
 
             for (b, enc) in encodings.iter().enumerate() {
                 let ids = enc.get_ids();
@@ -511,21 +533,27 @@ impl Embedder for OnnxEmbedder {
             let attention_mask_value =
                 ort::value::Value::from_array(([batch_size, max_len], flat_attention_mask))
                     .context("failed to create batched ONNX attention_mask value")?;
-            let token_type_ids_value =
-                ort::value::Value::from_array(([batch_size, max_len], flat_token_type_ids))
-                    .context("failed to create batched ONNX token_type_ids value")?;
 
             let mut session = runtime
                 .session
                 .lock()
                 .map_err(|_| anyhow!("onnx session mutex poisoned"))?;
-            let outputs = session
-                .run(ort::inputs![
-                    input_ids_value,
-                    attention_mask_value,
-                    token_type_ids_value
-                ])
-                .context("batched ONNX inference failed")?;
+            let outputs = if self.use_token_type_ids {
+                let token_type_ids_value =
+                    ort::value::Value::from_array(([batch_size, max_len], vec![0_i64; batch_size * max_len]))
+                        .context("failed to create batched ONNX token_type_ids value")?;
+                session
+                    .run(ort::inputs![
+                        input_ids_value,
+                        attention_mask_value,
+                        token_type_ids_value
+                    ])
+                    .context("batched ONNX inference failed")?
+            } else {
+                session
+                    .run(ort::inputs![input_ids_value, attention_mask_value])
+                    .context("batched ONNX inference failed")?
+            };
             let first_output = outputs
                 .get(self.output_tensor_name.as_str())
                 .ok_or_else(|| {
@@ -648,7 +676,7 @@ impl Embedder for OnnxEmbedder {
 #[cfg(feature = "real-embeddings")]
 pub async fn download_bge_small_model() -> Result<PathBuf> {
     let model_dir = default_model_dir()?;
-    let files = ensure_model_files_async(model_dir, MODEL_URL, TOKENIZER_URL).await?;
+    let files = ensure_model_files_async(model_dir, MODEL_URL, None, TOKENIZER_URL).await?;
     Ok(files.directory)
 }
 
@@ -661,10 +689,11 @@ fn default_model_dir() -> Result<PathBuf> {
 fn ensure_model_files_blocking(
     model_dir: PathBuf,
     model_url: &str,
+    model_data_url: Option<&str>,
     tokenizer_url: &str,
 ) -> Result<ModelFiles> {
-    if model_files_exist(&model_dir) {
-        return Ok(model_files_for_dir(model_dir));
+    if model_files_exist(&model_dir, model_data_url.is_some()) {
+        return Ok(model_files_for_dir(model_dir, model_data_url));
     }
 
     // Create a dedicated single-threaded runtime for model download.
@@ -675,9 +704,11 @@ fn ensure_model_files_blocking(
         .enable_all()
         .build()
         .context("failed to create temporary tokio runtime for model download")?;
+    let model_data_url_owned = model_data_url.map(str::to_string);
     runtime.block_on(ensure_model_files_async(
         model_dir,
         model_url,
+        model_data_url_owned.as_deref(),
         tokenizer_url,
     ))
 }
@@ -686,10 +717,11 @@ fn ensure_model_files_blocking(
 async fn ensure_model_files_async(
     model_dir: PathBuf,
     model_url: &str,
+    model_data_url: Option<&str>,
     tokenizer_url: &str,
 ) -> Result<ModelFiles> {
-    let files = model_files_for_dir(model_dir);
-    if model_files_exist(&files.directory) {
+    let files = model_files_for_dir(model_dir, model_data_url);
+    if model_files_exist(&files.directory, model_data_url.is_some()) {
         return Ok(files);
     }
 
@@ -708,6 +740,14 @@ async fn ensure_model_files_async(
     {
         download_file(model_url, &files.model_path).await?;
     }
+    if let (Some(data_url), Some(data_path)) = (model_data_url, &files.model_data_path) {
+        if !tokio::fs::try_exists(data_path)
+            .await
+            .context("failed to check model data path")?
+        {
+            download_file(data_url, data_path).await?;
+        }
+    }
     if !tokio::fs::try_exists(&files.tokenizer_path)
         .await
         .context("failed to check tokenizer.json path")?
@@ -719,15 +759,25 @@ async fn ensure_model_files_async(
 }
 
 #[cfg(feature = "real-embeddings")]
-fn model_files_exist(model_dir: &Path) -> bool {
-    let files = model_files_for_dir(model_dir.to_path_buf());
-    files.model_path.exists() && files.tokenizer_path.exists()
+fn model_files_exist(model_dir: &Path, has_data_file: bool) -> bool {
+    let files = model_files_for_dir(model_dir.to_path_buf(), if has_data_file { Some("") } else { None });
+    let base = files.model_path.exists() && files.tokenizer_path.exists();
+    if has_data_file {
+        base && files.model_data_path.as_ref().is_some_and(|p| p.exists())
+    } else {
+        base
+    }
 }
 
 #[cfg(feature = "real-embeddings")]
-fn model_files_for_dir(model_dir: PathBuf) -> ModelFiles {
+fn model_files_for_dir(model_dir: PathBuf, model_data_url: Option<&str>) -> ModelFiles {
+    let model_data_path = model_data_url.and_then(|url| {
+        let filename = url.split('/').next_back()?;
+        if filename.is_empty() { None } else { Some(model_dir.join(filename)) }
+    });
     ModelFiles {
         model_path: model_dir.join("model.onnx"),
+        model_data_path,
         tokenizer_path: model_dir.join("tokenizer.json"),
         directory: model_dir,
     }
