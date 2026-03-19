@@ -3,7 +3,8 @@
     "allow": [
       "Skill(code-review:code-review)",
       "Bash(for pr:lint)",
-      "Bash(for pr:test)"
+      "Bash(for pr:test)",
+      "WebFetch(domain:api.voyageai.com)"
     ]
   },
   "hooks": {

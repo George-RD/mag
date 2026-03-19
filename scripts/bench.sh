@@ -73,9 +73,40 @@ case "$MODEL" in
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant q4 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
+    granite)
+        DEFAULT_DIM=384
+        EMBEDDING_MODEL="granite-embedding-30m-english"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --granite --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
+    minilm-l6)
+        DEFAULT_DIM=384
+        EMBEDDING_MODEL="all-MiniLM-L6-v2"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l6 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
+    minilm-l12)
+        DEFAULT_DIM=384
+        EMBEDDING_MODEL="all-MiniLM-L12-v2"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l12 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
+    e5-small)
+        DEFAULT_DIM=384
+        EMBEDDING_MODEL="e5-small-v2"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --e5-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
+    bge-base)
+        DEFAULT_DIM=768
+        EMBEDDING_MODEL="bge-base-en-v1.5"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --bge-base --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
+    nomic)
+        DEFAULT_DIM=768
+        EMBEDDING_MODEL="nomic-embed-text-v1.5-int8"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --nomic --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
     *)
         echo "Unknown model: ${MODEL}" >&2
-        echo "Valid models: bge-small, voyage-nano-int8, voyage-nano-fp16, voyage-nano-fp32, voyage-nano-q4" >&2
+        echo "Valid models: bge-small, voyage-nano-int8, voyage-nano-fp16, voyage-nano-fp32, voyage-nano-q4," >&2
+        echo "              granite, minilm-l6, minilm-l12, e5-small, bge-base, nomic" >&2
         exit 1
         ;;
 esac
