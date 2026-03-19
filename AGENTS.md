@@ -32,6 +32,16 @@ cargo run --release --bin longmemeval_bench -- --grid-search  # parameter optimi
 cargo run --release --bin locomo_bench -- --samples 2                                # substring baseline
 cargo run --release --bin locomo_bench -- --samples 2 --scoring-mode word-overlap    # AutoMem-comparable
 cargo run --release --bin locomo_bench -- --llm-judge --samples 2                    # LLM judge (needs OPENAI_API_KEY)
+
+# Standardized benchmark runner (logs to docs/benchmark_log.csv, prints comparison table)
+./scripts/bench.sh                                 # bge-small, 2 samples, word-overlap
+./scripts/bench.sh --model voyage-nano-int8        # voyage-4-nano INT8 @ 1024-dim
+./scripts/bench.sh --model bge-small --samples 10  # full validation run
+./scripts/bench.sh --model voyage-nano-fp32 --notes "after scoring tweak"  # with notes
+
+# README update checker (suggests edits, does not modify files)
+./scripts/check-readme.sh                          # analyze last 3 commits vs README
+./scripts/check-readme.sh "new model, score improved to 91%"  # with context hint
 ```
 
 ## Architecture
