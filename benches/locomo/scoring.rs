@@ -10,14 +10,14 @@ use crate::types::RetrievalHit;
 static STOPWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
-        "do", "does", "did", "will", "would", "could", "should", "may", "might", "shall", "can",
-        "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
-        "during", "before", "after", "above", "below", "between", "out", "off", "over", "under",
-        "again", "further", "then", "once", "and", "but", "or", "nor", "so", "yet", "both",
-        "either", "neither", "each", "every", "all", "any", "few", "more", "most", "other", "some",
-        "such", "only", "own", "same", "than", "too", "very", "just", "about", "up", "down", "it",
-        "its", "this", "that", "these", "those", "i", "me", "my", "we", "our", "you", "your", "he",
-        "him", "his", "she", "her", "they", "them", "their", "what", "which", "who", "whom",
+        "do", "does", "did", "will", "would", "could", "should", "might", "shall", "can", "to",
+        "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through", "during",
+        "before", "after", "above", "below", "between", "out", "off", "over", "under", "again",
+        "further", "then", "once", "and", "but", "or", "nor", "so", "yet", "both", "either",
+        "neither", "each", "every", "all", "any", "few", "more", "most", "other", "some", "such",
+        "only", "own", "same", "than", "too", "very", "just", "about", "up", "down", "it", "its",
+        "this", "that", "these", "those", "i", "me", "my", "we", "our", "you", "your", "he", "him",
+        "his", "she", "her", "they", "them", "their", "what", "which", "who", "whom",
     ]
     .into_iter()
     .collect()
@@ -46,14 +46,29 @@ fn stem(word: &str) -> String {
             return base.to_string();
         }
     }
-    for suffix in &[
-        "ing", "ous", "ful", "ive", "ize", "ise", "ity", "ary", "ory",
-    ] {
+    // Handle -ing with double-consonant reduction:
+    //   "running" → "run" (not "runn")
+    //   "swimming" → "swim" (not "swimm")
+    //   "planning" → "plan" (not "plann")
+    if let Some(base) = w.strip_suffix("ing")
+        && base.len() >= 3
+    {
+        return dedup_trailing_consonant(base);
+    }
+    for suffix in &["ous", "ful", "ive", "ize", "ise", "ity", "ary", "ory"] {
         if let Some(base) = w.strip_suffix(suffix)
             && base.len() >= 3
         {
             return base.to_string();
         }
+    }
+    // Handle -ied → -y (e.g., "married" → "marry", "studied" → "study")
+    if let Some(base) = w.strip_suffix("ied")
+        && base.len() >= 2
+    {
+        let mut result = base.to_string();
+        result.push('y');
+        return result;
     }
     // Handle -ies → -y (e.g., "trophies" → "trophy", "berries" → "berry")
     // Must come before the -es rule which would produce "trophi".
@@ -64,7 +79,14 @@ fn stem(word: &str) -> String {
         result.push('y');
         return result;
     }
-    for suffix in &["ly", "ed", "er", "es", "al"] {
+    // Handle -ed with double-consonant reduction:
+    //   "planned" → "plan" (not "plann")
+    if let Some(base) = w.strip_suffix("ed")
+        && base.len() >= 3
+    {
+        return dedup_trailing_consonant(base);
+    }
+    for suffix in &["ly", "er", "es", "al"] {
         if let Some(base) = w.strip_suffix(suffix)
             && base.len() >= 3
         {
@@ -78,6 +100,22 @@ fn stem(word: &str) -> String {
         return base.to_string();
     }
     w.to_string()
+}
+
+/// Check if byte is a consonant (not a vowel).
+fn is_consonant(b: u8) -> bool {
+    !matches!(b, b'a' | b'e' | b'i' | b'o' | b'u')
+}
+
+/// Remove doubled trailing consonant: "runn" → "run", "plann" → "plan".
+fn dedup_trailing_consonant(base: &str) -> String {
+    let bytes = base.as_bytes();
+    let len = bytes.len();
+    if len >= 2 && bytes[len - 1] == bytes[len - 2] && is_consonant(bytes[len - 1]) {
+        base[..len - 1].to_string()
+    } else {
+        base.to_string()
+    }
 }
 
 // ── Tokenization ────────────────────────────────────────────────────────
