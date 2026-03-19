@@ -242,25 +242,28 @@ fn main() -> Result<()> {
     } else if args.voyage_onnx {
         let dim = args.embedder_dim.unwrap_or(2048);
         let quant = args.voyage_quant.as_str();
-        let (model_file, model_label) = match quant {
-            "fp32" => ("onnx/model.onnx", "FP32"),
-            "fp16" => ("onnx/model_fp16.onnx", "FP16"),
-            "q4" => ("onnx/model_q4.onnx", "Q4"),
-            _ => ("onnx/model_quantized.onnx", "INT8"), // default
+        let (model_file, data_file, model_label) = match quant {
+            "fp32" => ("onnx/model.onnx", "onnx/model.onnx_data", "FP32"),
+            "fp16" => ("onnx/model_fp16.onnx", "onnx/model_fp16.onnx_data", "FP16"),
+            "q4" => ("onnx/model_q4.onnx", "onnx/model_q4.onnx_data", "Q4"),
+            _ => ("onnx/model_quantized.onnx", "onnx/model_quantized.onnx_data", "INT8"), // default
         };
         let base = "https://huggingface.co/onnx-community/voyage-4-nano-ONNX/resolve/main";
         let model_url = format!("{base}/{model_file}");
+        let model_data_url = format!("{base}/{data_file}");
         let tokenizer_url = format!("{base}/tokenizer.json");
         if !args.json {
             eprintln!("Embedder: voyage-4-nano {model_label} ONNX ({dim}-dim)");
         }
         (
-            Arc::new(OnnxEmbedder::with_model(
+            Arc::new(OnnxEmbedder::with_model_and_data(
                 "voyage-4-nano-onnx-community",
                 &model_url,
+                Some(&model_data_url),
                 &tokenizer_url,
                 dim,
                 "pooler_output",
+                false, // voyage model uses only input_ids + attention_mask
             )?),
             format!("voyage-4-nano {model_label} onnx ({dim}-dim)"),
         )
