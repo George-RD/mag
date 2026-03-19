@@ -103,10 +103,26 @@ case "$MODEL" in
         EMBEDDING_MODEL="nomic-embed-text-v1.5-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --nomic --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
+    arctic-xs)
+        DEFAULT_DIM=384
+        EMBEDDING_MODEL="snowflake-arctic-embed-xs"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-xs --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
+    arctic-s)
+        DEFAULT_DIM=384
+        EMBEDDING_MODEL="snowflake-arctic-embed-s"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-s --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
+    gte-small)
+        DEFAULT_DIM=384
+        EMBEDDING_MODEL="gte-small"
+        CARGO_FLAGS=(--release --bin locomo_bench -- --gte-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        ;;
     *)
         echo "Unknown model: ${MODEL}" >&2
         echo "Valid models: bge-small, voyage-nano-int8, voyage-nano-fp16, voyage-nano-fp32, voyage-nano-q4," >&2
-        echo "              granite, minilm-l6, minilm-l12, e5-small, bge-base, nomic" >&2
+        echo "              granite, minilm-l6, minilm-l12, e5-small, bge-base, nomic," >&2
+        echo "              arctic-xs, arctic-s, gte-small" >&2
         exit 1
         ;;
 esac
