@@ -322,6 +322,10 @@ fn main() -> Result<()> {
                         // correctly abstained rather than token-matching "not"
                         // against retrieved content.
                         scoring::adversarial_retrieval_score(&hits)
+                    } else if category == "multi-hop" {
+                        // LoCoMo official: split multi-hop answers by comma,
+                        // extract before semicolon, compute per-part F1, average.
+                        scoring::multi_hop_word_overlap_score(&hits, expected_answer)
                     } else {
                         scoring::word_overlap_score(&hits, expected_answer)
                     };

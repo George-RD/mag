@@ -236,6 +236,30 @@ fn expand_date_tokens(text: &str) -> String {
     extra
 }
 
+// ── Multi-hop answer preprocessing (LoCoMo official methodology) ─────────
+
+/// Extract the answer portion before a semicolon.  LoCoMo multi-hop answers
+/// often have "answer; explanation" format — only the answer part should be
+/// scored (e.g., "National park; she likes the outdoors" → "National park").
+fn extract_before_semicolon(answer: &str) -> &str {
+    answer.split(';').next().unwrap_or(answer).trim()
+}
+
+/// Score a multi-hop answer: extract before semicolon, then compute
+/// word-overlap on the cleaned answer.  LoCoMo multi-hop answers often
+/// have "answer; explanation" format — scoring the explanation inflates
+/// token count and hurts F1 when explanation tokens don't match.
+pub(crate) fn multi_hop_word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
+    if expected.is_empty() {
+        return 0.0;
+    }
+    let answer_part = extract_before_semicolon(expected);
+    if answer_part.is_empty() {
+        return 0.0;
+    }
+    word_overlap_score(hits, answer_part)
+}
+
 // ── Word-overlap score (AutoMem-compatible) ─────────────────────────────
 
 /// Compute recall-oriented word overlap between retrieved hits and the expected
