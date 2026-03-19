@@ -99,14 +99,23 @@ Current benchmark snapshots were captured on `2026-03-19` at commit `26e51cf3` o
 
 ### Embedding Model Comparison (LoCoMo word-overlap, 2 samples)
 
-| Model | Dim | WO% | EvRec% | 1-Hop | Temporal | Multi-Hop | Open | Adv | AvgEmb | SeedTime |
+| Model | Type | Dim | WO% | EvRec% | 1-Hop | Temporal | Multi-Hop | Open | Adv | AvgEmb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **bge-small-en-v1.5** *(default)* | 384 | 91.1% | 90.2% | 87.6% | 91.5% | 75.6% | 94.0% | 90.9% | 7.5 ms | 9.7 s |
-| voyage-4-nano INT8 | 1024 | 91.8% | 91.3% | 93.5% | 91.5% | 75.6% | 93.3% | 91.6% | 172 ms | 192 s |
-| voyage-4-nano INT8 | 512 | 91.3% | 91.6% | 88.8% | 91.5% | 75.6% | 93.7% | 91.6% | 58 ms | 62 s |
-| voyage-4-nano FP32 | 1024 | 91.8% | 91.3% | 93.5% | 91.5% | 75.6% | 93.3% | 91.6% | 82 ms | 105 s |
+| granite-embedding-30m-english | ONNX | 384 | 90.5% | 87.5% | 88.9% | 91.5% | 76.9% | 91.7% | 91.1% | 3.8 ms |
+| nomic-embed-text-v1.5 int8 | ONNX | 768 | 90.0% | 86.6% | 88.4% | 91.5% | 74.4% | 90.8% | 91.0% | 42 ms |
+| all-MiniLM-L12-v2 | ONNX | 384 | 90.9% | 90.4% | 86.8% | 91.5% | 75.6% | 92.6% | 93.1% | 27 ms |
+| **bge-small-en-v1.5** *(default)* | ONNX | 384 | 91.1% | 90.2% | 87.6% | 91.5% | 75.6% | 94.0% | 90.9% | 7.5 ms |
+| all-MiniLM-L6-v2 | ONNX | 384 | 91.2% | 90.2% | 88.1% | 91.5% | 76.9% | 92.9% | 92.7% | 39 ms |
+| e5-small-v2 | ONNX | 384 | 91.3% | 89.1% | 90.7% | 91.5% | 76.9% | 92.9% | 91.5% | 41 ms |
+| voyage-4-nano INT8 | ONNX | 512 | 91.3% | 91.6% | 88.8% | 91.5% | 75.6% | 93.7% | 91.6% | 58 ms |
+| voyage-4-lite | API | 1024 | 91.1% | 91.0% | 91.1% | 91.5% | 73.1% | 93.4% | 90.2% | 304 ms |
+| voyage-4-nano FP32 | ONNX | 1024 | 91.8% | 91.3% | 93.5% | 91.5% | 75.6% | 93.3% | 91.6% | 82 ms |
+| voyage-4-nano INT8 | ONNX | 1024 | 91.8% | 91.3% | 93.5% | 91.5% | 75.6% | 93.3% | 91.6% | 172 ms |
+| voyage-4 | API | 1024 | 92.0% | 92.7% | 92.3% | 91.5% | 75.6% | 94.8% | 90.6% | 297 ms |
+| bge-base-en-v1.5 | ONNX | 768 | 92.2% | 91.6% | 89.4% | 91.5% | 76.9% | 94.8% | 93.1% | 42 ms |
+| text-embedding-3-large | API | 3072 | 93.0% | 93.4% | 94.6% | 91.5% | 74.4% | 95.3% | 93.1% | 444 ms |
 
-bge-small-en-v1.5 is the default production embedder. voyage-4-nano adds +0.7 pp word-overlap at 23× slower embedding speed.
+bge-small-en-v1.5 is the default production embedder (Apache 2.0, fastest ONNX, 7.5 ms/embed). bge-base-en-v1.5 is the best local ONNX at 92.2% WO (+1.1 pp, 6× slower). OpenAI text-embedding-3-large leads overall at 93.0% WO but requires an API call. Multi-hop is stuck at 74–77% WO across all 13 models tested — this is an architectural retrieval issue, not an embedding quality issue (see [issue #84](https://github.com/rockerritesh/romega-memory/issues/84)).
 
 ### Other Benchmarks (earlier snapshot, 2026-03-12)
 

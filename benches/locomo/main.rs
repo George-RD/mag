@@ -333,7 +333,7 @@ fn main() -> Result<()> {
                 None,
                 "https://huggingface.co/ibm-granite/granite-embedding-30m-english/resolve/main/tokenizer.json",
                 384,
-                "last_hidden_state",
+                "logits",
                 false, // RoBERTa: no token_type_ids
             )?),
             "granite-embedding-30m-english".to_string(),
