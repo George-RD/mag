@@ -135,10 +135,10 @@ fi
 
 # ── Run benchmark, capture output ────────────────────────────────────────────
 cd "${REPO_DIR}"
-echo "Running: cargo ${CARGO_FLAGS[*]}"
+echo "Running: cargo run ${CARGO_FLAGS[*]}"
 echo "──────────────────────────────────────────────────────────────────────────"
 
-RAW_OUTPUT="$(cargo "${CARGO_FLAGS[@]}" 2>&1)"
+RAW_OUTPUT="$(cargo run "${CARGO_FLAGS[@]}" 2>&1)"
 EXIT_CODE=$?
 echo "${RAW_OUTPUT}"
 echo "──────────────────────────────────────────────────────────────────────────"
@@ -175,8 +175,9 @@ open_domain="${open_domain:-}"
 adversarial=$(echo "${RAW_OUTPUT}" | grep "Adversarial" | grep -oE '[0-9]+\.[0-9]+%' | sed -n '2p' | tr -d '%')
 adversarial="${adversarial:-}"
 
-# Timing
-avg_query_ms=$(echo "${RAW_OUTPUT}" | grep "Avg query:" | grep -oE '[0-9]+ms' | tr -d 'ms' | head -1)
+# Timing — log avg embed latency (ms) for the embedding step only.
+# CSV column is named avg_query_ms for historical reasons; value is embed time.
+avg_query_ms=$(echo "${RAW_OUTPUT}" | grep "Avg embed:" | grep -oE '[0-9]+(\.[0-9]+)?ms' | tr -d 'ms' | head -1)
 avg_query_ms="${avg_query_ms:-}"
 
 # Git metadata
