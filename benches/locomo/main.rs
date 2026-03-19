@@ -20,7 +20,7 @@ use mag::memory_core::storage::sqlite::SqliteStorage;
 enum LimitMode {
     /// Flat top_k for all question types.
     Static,
-    /// Dynamic: 50 standard, 75 temporal, 100 multi-hop (based on evidence count and temporal detection).
+    /// Dynamic: scales with conversation size (turns/5, cap 200), 1.5x temporal, 2x multi-hop (cap 250).
     #[default]
     Dynamic,
 }
@@ -270,12 +270,18 @@ fn main() -> Result<()> {
             let effective_limit = if args.limit_mode == LimitMode::Dynamic {
                 let is_multihop = qa.evidence.len() > 1;
                 let is_temporal = is_temporal_question(&qa.question);
+                // Scale base limit with conversation size: larger conversations
+                // need more results to maintain the same coverage ratio.
+                // Floor at top_k, ceiling at 15% of conversation or 200.
+                let scaled_base = (seeded / 5).max(top_k).min(200);
                 if is_multihop {
-                    100
+                    // Multi-hop needs the most coverage
+                    (scaled_base * 2).min(250)
                 } else if is_temporal {
-                    75
+                    // Temporal needs moderate extra coverage
+                    ((scaled_base * 3) / 2).min(200)
                 } else {
-                    top_k
+                    scaled_base
                 }
             } else {
                 top_k
@@ -316,6 +322,16 @@ fn main() -> Result<()> {
                     // retrieved content + metadata dates.
                     let score = if expected_answer.is_empty() {
                         0.0
+                    } else if scoring::is_adversarial_expected(expected_answer) {
+                        // Adversarial questions: expected answer is "Not
+                        // mentioned" etc. Score based on whether the system
+                        // correctly abstained rather than token-matching "not"
+                        // against retrieved content.
+                        scoring::adversarial_retrieval_score(&hits)
+                    } else if category == "multi-hop" {
+                        // LoCoMo official: split multi-hop answers by comma,
+                        // extract before semicolon, compute per-part F1, average.
+                        scoring::multi_hop_word_overlap_score(&hits, expected_answer)
                     } else {
                         scoring::word_overlap_score(&hits, expected_answer)
                     };

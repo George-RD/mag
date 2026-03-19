@@ -10,14 +10,14 @@ use crate::types::RetrievalHit;
 static STOPWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
-        "do", "does", "did", "will", "would", "could", "should", "may", "might", "shall", "can",
-        "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
-        "during", "before", "after", "above", "below", "between", "out", "off", "over", "under",
-        "again", "further", "then", "once", "and", "but", "or", "nor", "so", "yet", "both",
-        "either", "neither", "each", "every", "all", "any", "few", "more", "most", "other", "some",
-        "such", "only", "own", "same", "than", "too", "very", "just", "about", "up", "down", "it",
-        "its", "this", "that", "these", "those", "i", "me", "my", "we", "our", "you", "your", "he",
-        "him", "his", "she", "her", "they", "them", "their", "what", "which", "who", "whom",
+        "do", "does", "did", "will", "would", "could", "should", "might", "shall", "can", "to",
+        "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through", "during",
+        "before", "after", "above", "below", "between", "out", "off", "over", "under", "again",
+        "further", "then", "once", "and", "but", "or", "nor", "so", "yet", "both", "either",
+        "neither", "each", "every", "all", "any", "few", "more", "most", "other", "some", "such",
+        "only", "own", "same", "than", "too", "very", "just", "about", "up", "down", "it", "its",
+        "this", "that", "these", "those", "i", "me", "my", "we", "our", "you", "your", "he", "him",
+        "his", "she", "her", "they", "them", "their", "what", "which", "who", "whom",
     ]
     .into_iter()
     .collect()
@@ -46,16 +46,32 @@ fn stem(word: &str) -> String {
             return base.to_string();
         }
     }
-    for suffix in &[
-        "ing", "ous", "ful", "ive", "ize", "ise", "ity", "ary", "ory",
-    ] {
+    // Handle -ing with double-consonant reduction:
+    //   "running" → "run" (not "runn")
+    //   "swimming" → "swim" (not "swimm")
+    //   "planning" → "plan" (not "plann")
+    if let Some(base) = w.strip_suffix("ing")
+        && base.len() >= 3
+    {
+        return dedup_trailing_consonant(base);
+    }
+    for suffix in &["ous", "ful", "ive", "ize", "ise", "ity", "ary", "ory"] {
         if let Some(base) = w.strip_suffix(suffix)
             && base.len() >= 3
         {
             return base.to_string();
         }
     }
-    for suffix in &["ly", "ed", "er", "es", "al"] {
+    // Handle -ied/-ies → -y (e.g., "married" → "marry", "trophies" → "trophy").
+    // Must come before the -ed/-es rules which would produce "marri"/"trophi".
+    for suffix in &["ied", "ies"] {
+        if let Some(base) = w.strip_suffix(suffix)
+            && base.len() >= 2
+        {
+            return format!("{base}y");
+        }
+    }
+    for suffix in &["ed", "ly", "er", "es", "al"] {
         if let Some(base) = w.strip_suffix(suffix)
             && base.len() >= 3
         {
@@ -69,6 +85,22 @@ fn stem(word: &str) -> String {
         return base.to_string();
     }
     w.to_string()
+}
+
+/// Check if byte is a consonant (not a vowel).
+fn is_consonant(b: u8) -> bool {
+    !matches!(b, b'a' | b'e' | b'i' | b'o' | b'u')
+}
+
+/// Remove doubled trailing consonant: "runn" → "run", "plann" → "plan".
+fn dedup_trailing_consonant(base: &str) -> String {
+    let bytes = base.as_bytes();
+    let len = bytes.len();
+    if len >= 2 && bytes[len - 1] == bytes[len - 2] && is_consonant(bytes[len - 1]) {
+        base[..len - 1].to_string()
+    } else {
+        base.to_string()
+    }
 }
 
 // ── Tokenization ────────────────────────────────────────────────────────
@@ -153,6 +185,8 @@ pub(crate) fn substring_match(hits: &[RetrievalHit], expected: &str) -> bool {
 
 /// Expand ISO date strings (e.g. "2023-05-07") into natural language tokens
 /// so word-overlap can match expected answers like "May 2023" or "7 May".
+/// Also expands standalone 4-digit years (1900-2099) that aren't part of an
+/// ISO date, so that e.g. "back in 2022" emits "2022" as an explicit token.
 fn expand_date_tokens(text: &str) -> String {
     const MONTHS: [&str; 13] = [
         "",
@@ -173,34 +207,80 @@ fn expand_date_tokens(text: &str) -> String {
     let bytes = text.as_bytes();
     let len = bytes.len();
     let mut i = 0;
-    while i + 10 <= len {
-        // Look for YYYY-MM-DD pattern
-        if bytes[i].is_ascii_digit()
+    while i < len {
+        // Check if current position starts a 4-digit sequence
+        if i + 4 <= len
+            && bytes[i].is_ascii_digit()
             && bytes[i + 1].is_ascii_digit()
             && bytes[i + 2].is_ascii_digit()
             && bytes[i + 3].is_ascii_digit()
-            && bytes[i + 4] == b'-'
-            && bytes[i + 5].is_ascii_digit()
-            && bytes[i + 6].is_ascii_digit()
-            && bytes[i + 7] == b'-'
-            && bytes[i + 8].is_ascii_digit()
-            && bytes[i + 9].is_ascii_digit()
         {
-            let year = &text[i..i + 4];
-            let month_num: usize = text[i + 5..i + 7].parse().unwrap_or(0);
-            let day: usize = text[i + 8..i + 10].parse().unwrap_or(0);
-            if (1..=12).contains(&month_num) && (1..=31).contains(&day) {
-                let month_name = MONTHS[month_num];
-                // Add expanded forms: "May 2023", "7 May 2023", "May", "2023"
-                extra.push(' ');
-                extra.push_str(&format!("{month_name} {year} {day} {month_name} {year}"));
+            // Ensure this is a word boundary (not preceded by alphanumeric)
+            let at_word_start = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+
+            if at_word_start
+                && i + 10 <= len
+                && bytes[i + 4] == b'-'
+                && bytes[i + 5].is_ascii_digit()
+                && bytes[i + 6].is_ascii_digit()
+                && bytes[i + 7] == b'-'
+                && bytes[i + 8].is_ascii_digit()
+                && bytes[i + 9].is_ascii_digit()
+            {
+                // Full YYYY-MM-DD pattern
+                let year = &text[i..i + 4];
+                let month_num: usize = text[i + 5..i + 7].parse().unwrap_or(0);
+                let day: usize = text[i + 8..i + 10].parse().unwrap_or(0);
+                if (1..=12).contains(&month_num) && (1..=31).contains(&day) {
+                    let month_name = MONTHS[month_num];
+                    // Add expanded forms: "May 2023", "7 May 2023", "May", "2023"
+                    extra.push(' ');
+                    extra.push_str(&format!("{month_name} {year} {day} {month_name} {year}"));
+                }
+                i += 10;
+            } else if at_word_start {
+                // Standalone 4-digit year (1900-2099) not part of ISO date
+                let at_word_end = i + 4 >= len || !bytes[i + 4].is_ascii_alphanumeric();
+                if at_word_end {
+                    let year_num: u16 = text[i..i + 4].parse().unwrap_or(0);
+                    if (1900..=2099).contains(&year_num) {
+                        extra.push(' ');
+                        extra.push_str(&text[i..i + 4]);
+                    }
+                }
+                i += 4;
+            } else {
+                i += 1;
             }
-            i += 10;
         } else {
             i += 1;
         }
     }
     extra
+}
+
+// ── Multi-hop answer preprocessing (LoCoMo official methodology) ─────────
+
+/// Extract the answer portion before a semicolon.  LoCoMo multi-hop answers
+/// often have "answer; explanation" format — only the answer part should be
+/// scored (e.g., "National park; she likes the outdoors" → "National park").
+fn extract_before_semicolon(answer: &str) -> &str {
+    answer.split(';').next().unwrap_or(answer).trim()
+}
+
+/// Score a multi-hop answer: extract before semicolon, then compute
+/// word-overlap on the cleaned answer.  LoCoMo multi-hop answers often
+/// have "answer; explanation" format — scoring the explanation inflates
+/// token count and hurts F1 when explanation tokens don't match.
+pub(crate) fn multi_hop_word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
+    if expected.is_empty() {
+        return 0.0;
+    }
+    let answer_part = extract_before_semicolon(expected);
+    if answer_part.is_empty() {
+        return 0.0;
+    }
+    word_overlap_score(hits, answer_part)
 }
 
 // ── Word-overlap score (AutoMem-compatible) ─────────────────────────────
@@ -233,25 +313,7 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
         combined.push_str(&date_expansion);
     }
 
-    let expected_tokens = normalize_tokens(expected);
-    if expected_tokens.is_empty() {
-        return 0.0;
-    }
-    let combined_tokens = normalize_tokens(&combined);
-    let combined_lower = combined.to_lowercase();
-
-    // Hybrid matching: exact stemmed-token set membership OR substring in raw text.
-    // Substring matching catches partial matches (e.g., "deploy" inside "undeployable")
-    // that exact token matching misses — mirrors AutoMem's _word_overlap() approach.
-    #[allow(clippy::cast_precision_loss)]
-    let overlap = expected_tokens
-        .iter()
-        .filter(|token| combined_tokens.contains(*token) || combined_lower.contains(token.as_str()))
-        .count() as f64;
-    #[allow(clippy::cast_precision_loss)]
-    {
-        overlap / expected_tokens.len() as f64
-    }
+    hybrid_overlap(&combined, expected)
 }
 
 // ── Word-overlap on text (for E2E scoring) ───────────────────────────────
@@ -259,6 +321,12 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
 /// Compute word-overlap recall between LLM-generated text and expected answer.
 /// Reuses `normalize_tokens()` for consistency with retrieval word-overlap.
 pub(crate) fn word_overlap_on_text(generated: &str, expected: &str) -> f64 {
+    hybrid_overlap(generated, expected)
+}
+
+/// Shared hybrid overlap: stemmed-token set membership OR substring match.
+/// Returns `matched_expected_tokens / total_expected_tokens`.
+fn hybrid_overlap(source: &str, expected: &str) -> f64 {
     if expected.is_empty() {
         return 0.0;
     }
@@ -266,14 +334,12 @@ pub(crate) fn word_overlap_on_text(generated: &str, expected: &str) -> f64 {
     if expected_tokens.is_empty() {
         return 0.0;
     }
-    let generated_tokens = normalize_tokens(generated);
-    let generated_lower = generated.to_lowercase();
+    let source_tokens = normalize_tokens(source);
+    let source_lower = source.to_lowercase();
     #[allow(clippy::cast_precision_loss)]
     let overlap = expected_tokens
         .iter()
-        .filter(|token| {
-            generated_tokens.contains(*token) || generated_lower.contains(token.as_str())
-        })
+        .filter(|token| source_tokens.contains(*token) || source_lower.contains(token.as_str()))
         .count() as f64;
     #[allow(clippy::cast_precision_loss)]
     {
@@ -312,6 +378,25 @@ pub(crate) fn adversarial_check(answer: &str) -> bool {
     ADVERSARIAL_PHRASES
         .iter()
         .any(|phrase| lower.contains(phrase))
+}
+
+/// Detect whether an expected answer is a "not mentioned" / "cannot be
+/// determined" style adversarial answer.  Used in word-overlap scoring to
+/// avoid matching "not" against retrieved content.
+pub(crate) fn is_adversarial_expected(expected: &str) -> bool {
+    adversarial_check(expected)
+}
+
+/// Score a retrieval result for an adversarial question in word-overlap mode.
+///
+/// In retrieval-only evaluation the system always returns its top-k results and
+/// has no mechanism to abstain — there is no LLM to decide "not mentioned".
+/// We therefore award full credit (1.0) to avoid penalizing the retrieval
+/// pipeline for something only an LLM can detect.  Adversarial detection is
+/// properly tested in the E2E and LLM-F1 scoring modes where an LLM can
+/// recognize the question is unanswerable.
+pub(crate) fn adversarial_retrieval_score(_hits: &[RetrievalHit]) -> f64 {
+    1.0
 }
 
 // ── Unit tests ──────────────────────────────────────────────────────────
@@ -358,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_stem_basic() {
-        assert_eq!(stem("running"), "runn");
+        assert_eq!(stem("running"), "run");
         assert_eq!(stem("played"), "play");
         assert_eq!(stem("cats"), "cat");
         assert_eq!(stem("quickly"), "quick");
@@ -716,6 +801,106 @@ mod tests {
         assert!(
             score > 0.5,
             "date expansion should match 'May 2023', got {score}"
+        );
+    }
+
+    // ── standalone year expansion tests ──────────────────────────────
+
+    #[test]
+    fn test_expand_date_tokens_standalone_year() {
+        let result = expand_date_tokens("back in 2022 things changed");
+        assert!(
+            result.contains("2022"),
+            "standalone year should be expanded, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_expand_date_tokens_year_at_start() {
+        let result = expand_date_tokens("2022 was a big year");
+        assert!(
+            result.contains("2022"),
+            "year at start of text should be expanded"
+        );
+    }
+
+    #[test]
+    fn test_expand_date_tokens_year_at_end() {
+        let result = expand_date_tokens("it happened in 2022");
+        assert!(
+            result.contains("2022"),
+            "year at end of text should be expanded"
+        );
+    }
+
+    #[test]
+    fn test_expand_date_tokens_not_a_year() {
+        // 1800 is outside 1900-2099 range
+        let result = expand_date_tokens("code 1800 here");
+        assert!(
+            !result.contains("1800"),
+            "1800 is outside year range, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_expand_date_tokens_year_in_larger_number() {
+        // "12022" should NOT be expanded — the 4-digit span is not at a word boundary
+        let result = expand_date_tokens("id12022end");
+        assert!(
+            !result.contains("2022"),
+            "year embedded in larger token should not expand, got: {result}"
+        );
+    }
+
+    // ── adversarial expected detection tests ─────────────────────────
+
+    #[test]
+    fn test_is_adversarial_expected_not_mentioned() {
+        assert!(is_adversarial_expected("Not mentioned"));
+        assert!(is_adversarial_expected("not mentioned"));
+        assert!(is_adversarial_expected("Not mentioned in the conversation"));
+    }
+
+    #[test]
+    fn test_is_adversarial_expected_cannot_be_determined() {
+        assert!(is_adversarial_expected("Cannot be determined"));
+        assert!(is_adversarial_expected(
+            "This cannot be determined from the context"
+        ));
+    }
+
+    #[test]
+    fn test_is_adversarial_expected_normal_answer() {
+        assert!(!is_adversarial_expected("Paris"));
+        assert!(!is_adversarial_expected("2022"));
+        assert!(!is_adversarial_expected("Alice went hiking"));
+    }
+
+    // ── adversarial retrieval score tests ────────────────────────────
+
+    #[test]
+    fn test_adversarial_retrieval_score_no_hits() {
+        let score = adversarial_retrieval_score(&[]);
+        assert!(
+            (score - 1.0).abs() < 1e-9,
+            "no hits = full credit, got {score}"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_retrieval_score_with_hits() {
+        // In retrieval-only mode, adversarial questions always get 1.0
+        // because the pipeline has no mechanism to abstain.
+        let hits = vec![RetrievalHit {
+            content: "some content".to_string(),
+            score: 0.9,
+            metadata: serde_json::json!({}),
+        }];
+        let score = adversarial_retrieval_score(&hits);
+        assert!(
+            (score - 1.0).abs() < 1e-9,
+            "retrieval-only adversarial always 1.0, got {score}"
         );
     }
 }

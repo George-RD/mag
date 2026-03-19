@@ -248,12 +248,52 @@ pub(crate) async fn query_with_speaker_recall(
     if let Some(speaker_name) = speaker {
         let spk_tag = speaker_tag(&speaker_name);
         let conversation_tag = format!("conversation:{sample_id}");
-        let tags = vec![spk_tag, conversation_tag];
+        let tags = vec![spk_tag.clone(), conversation_tag.clone()];
 
-        let tag_results =
+        // Note: intentionally allows exceeding top_k — speaker recall adds
+        // supplementary evidence that improves word-overlap coverage without
+        // degrading precision (word-overlap is recall-oriented).
+        let mut tag_results =
             <SqliteStorage as Tagger>::get_by_tags(storage, &tags, 50, &SearchOptions::default())
                 .await
                 .unwrap_or_default();
+
+        // If no results with exact speaker tag, try expanding nicknames.
+        // LoCoMo questions use short forms ("Mel") while memories are tagged
+        // with full names ("speaker:melanie").  Search conversation-scoped
+        // tags for any that start with the extracted name.
+        if tag_results.is_empty() {
+            let conv_tags = vec![conversation_tag];
+            let conv_results = <SqliteStorage as Tagger>::get_by_tags(
+                storage,
+                &conv_tags,
+                500,
+                &SearchOptions::default(),
+            )
+            .await
+            .unwrap_or_default();
+            // Find the full speaker tag that matches as a prefix
+            let prefix = spk_tag.clone();
+            let mut full_speaker_tag: Option<String> = None;
+            for result in &conv_results {
+                for tag in &result.tags {
+                    if tag.starts_with(&prefix) && tag.len() > prefix.len() {
+                        full_speaker_tag = Some(tag.clone());
+                        break;
+                    }
+                }
+                if full_speaker_tag.is_some() {
+                    break;
+                }
+            }
+            if let Some(full_tag) = full_speaker_tag {
+                // Re-filter conversation results by the discovered full tag
+                tag_results = conv_results
+                    .into_iter()
+                    .filter(|r| r.tags.iter().any(|t| t == &full_tag))
+                    .collect();
+            }
+        }
 
         // Step 4: Merge, dedup by dia_id
         let mut seen_dia_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -312,8 +352,9 @@ fn extract_speaker_from_question(question: &str) -> Option<String> {
         if i == 0 {
             continue;
         }
-        // Also skip after "?" at the previous word
-        if words[i - 1].ends_with('?') {
+        // Also skip after sentence-ending punctuation at the previous word
+        let prev = words[i - 1];
+        if prev.ends_with('?') || prev.ends_with('.') || prev.ends_with('!') {
             continue;
         }
 
