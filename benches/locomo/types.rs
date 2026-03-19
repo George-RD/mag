@@ -29,6 +29,7 @@ pub(crate) struct LoCoMoQuestion {
     pub answer: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_answer")]
     pub adversarial_answer: Option<String>,
+    #[serde(deserialize_with = "deserialize_evidence")]
     pub evidence: Vec<String>,
     pub category: i64,
 }
@@ -69,6 +70,39 @@ where
         serde_json::Value::Number(number) => Ok(Some(number.to_string())),
         other => Ok(Some(other.to_string())),
     }
+}
+
+/// Deserialize evidence IDs, splitting entries that contain spaces or
+/// semicolons (dataset has malformed entries like "D9:1 D4:4 D4:6").
+/// Also normalizes "D:11:26" → "D11:26" and "D30:05" → "D30:5".
+fn deserialize_evidence<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: Vec<String> = Vec::deserialize(deserializer)?;
+    let mut result = Vec::new();
+    for entry in raw {
+        // Split on spaces and semicolons
+        for part in entry.split([' ', ';']) {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Fix "D:11:26" → "D11:26"
+            let fixed = trimmed
+                .strip_prefix("D:")
+                .map_or_else(|| trimmed.to_string(), |rest| format!("D{rest}"));
+            // Normalize leading zeros: "D30:05" → "D30:5"
+            if let Some((prefix, num)) = fixed.rsplit_once(':')
+                && let Ok(n) = num.parse::<u32>()
+            {
+                result.push(format!("{prefix}:{n}"));
+                continue;
+            }
+            result.push(fixed);
+        }
+    }
+    Ok(result)
 }
 
 // ── Retrieval hit with metadata ─────────────────────────────────────────

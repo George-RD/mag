@@ -270,12 +270,18 @@ fn main() -> Result<()> {
             let effective_limit = if args.limit_mode == LimitMode::Dynamic {
                 let is_multihop = qa.evidence.len() > 1;
                 let is_temporal = is_temporal_question(&qa.question);
+                // Scale base limit with conversation size: larger conversations
+                // need more results to maintain the same coverage ratio.
+                // Floor at top_k, ceiling at 15% of conversation or 200.
+                let scaled_base = (seeded / 7).max(top_k).min(200);
                 if is_multihop {
-                    100
+                    // Multi-hop needs the most coverage
+                    (scaled_base * 2).min(250)
                 } else if is_temporal {
-                    75
+                    // Temporal needs moderate extra coverage
+                    ((scaled_base * 3) / 2).min(200)
                 } else {
-                    top_k
+                    scaled_base
                 }
             } else {
                 top_k

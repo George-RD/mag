@@ -1,3 +1,4 @@
 date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_query_ms,notes
 2026-03-18,d285236,main,,word-overlap,10,onnx-bge-small,70.6,,,,,,,,baseline before gap-closing changes
 2026-03-19,d285236,worktree-agent-a830499b,,word-overlap,10,onnx-bge-small,83.9,76.0,82.3,45.6,90.3,86.4,85.0,47.7,speaker/conversation/session tags + top_k 50 + speaker-tag recall + dynamic limits (50/75/100)
+2026-03-19,ea1ac85,worktree-agent-a830499b,,word-overlap,10,onnx-bge-small,86.87,81.7,82.9,51.6,92.9,89.2,85.4,45.1,+adaptive dual-match boost +substring overlap +year expansion +adversarial scoring +-ies stemmer +speaker nickname prefix
