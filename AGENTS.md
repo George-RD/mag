@@ -42,6 +42,14 @@ cargo run --release --bin locomo_bench -- --llm-judge --samples 2               
 # README update checker (suggests edits, does not modify files)
 ./scripts/check-readme.sh                          # analyze last 3 commits vs README
 ./scripts/check-readme.sh "new model, score improved to 91%"  # with context hint
+
+# Additional ONNX embedder variants (for model comparison)
+./scripts/bench.sh --model granite       # granite-embedding-30m-english
+./scripts/bench.sh --model minilm-l6    # all-MiniLM-L6-v2 (fastest)
+./scripts/bench.sh --model minilm-l12   # all-MiniLM-L12-v2
+./scripts/bench.sh --model e5-small     # e5-small-v2
+./scripts/bench.sh --model bge-base     # bge-base-en-v1.5 (768-dim)
+./scripts/bench.sh --model nomic        # nomic-embed-text-v1.5 int8
 ```
 
 ## Architecture

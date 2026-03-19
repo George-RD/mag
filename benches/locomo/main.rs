@@ -108,6 +108,26 @@ struct Args {
     /// Use Voyage AI API embeddings (requires VOYAGE_API_KEY env var or .env.local).
     #[arg(long)]
     voyage_api: bool,
+    /// Use ibm-granite/granite-embedding-30m-english ONNX (384-dim, RoBERTa).
+    #[arg(long)]
+    granite: bool,
+    /// Use sentence-transformers/all-MiniLM-L6-v2 ONNX (384-dim, BERT).
+    #[arg(long)]
+    minilm_l6: bool,
+    /// Use sentence-transformers/all-MiniLM-L12-v2 ONNX (384-dim, BERT).
+    #[arg(long)]
+    minilm_l12: bool,
+    /// Use Xenova/e5-small-v2 ONNX (384-dim, BERT).
+    #[arg(long)]
+    e5_small: bool,
+    /// Use BAAI/bge-base-en-v1.5 ONNX (768-dim, BERT).
+    #[arg(long)]
+    bge_base: bool,
+    /// Use nomic-ai/nomic-embed-text-v1.5 int8 ONNX (768-dim, NomicBERT).
+    /// Note: nomic requires "search_document:" / "search_query:" prefixes for optimal MTEB scores.
+    /// The benchmark harness does NOT add these prefixes — scores will be slightly below MTEB reported.
+    #[arg(long)]
+    nomic: bool,
     /// Voyage AI model name (default: voyage-4-lite).
     #[arg(long)]
     voyage_model: Option<String>,
@@ -145,12 +165,26 @@ fn main() -> Result<()> {
     if args.dataset_path.is_some() && (args.force_refresh || args.temp_dataset) {
         bail!("--dataset-path cannot be combined with --force-refresh or --temp-dataset");
     }
-    let embedder_flags = [args.openai_embeddings, args.voyage_onnx, args.voyage_api]
-        .iter()
-        .filter(|&&b| b)
-        .count();
+    let embedder_flags = [
+        args.openai_embeddings,
+        args.voyage_onnx,
+        args.voyage_api,
+        args.granite,
+        args.minilm_l6,
+        args.minilm_l12,
+        args.e5_small,
+        args.bge_base,
+        args.nomic,
+    ]
+    .iter()
+    .filter(|&&b| b)
+    .count();
     if embedder_flags > 1 {
-        bail!("only one of --openai-embeddings, --voyage-onnx, --voyage-api may be specified");
+        bail!(
+            "only one embedder flag may be specified at a time \
+             (--openai-embeddings, --voyage-onnx, --voyage-api, --granite, \
+             --minilm-l6, --minilm-l12, --e5-small, --bge-base, --nomic)"
+        );
     }
 
     // Resolve effective scoring mode: --e2e shorthand wins over implicit default,
@@ -287,6 +321,104 @@ fn main() -> Result<()> {
                 dim,
             )?),
             format!("{model} (voyage api, {dim}-dim)"),
+        )
+    } else if args.granite {
+        if !args.json {
+            eprintln!("Embedder: granite-embedding-30m-english ONNX (384-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "granite-embedding-30m-english",
+                "https://huggingface.co/ibm-granite/granite-embedding-30m-english/resolve/main/model.onnx",
+                None,
+                "https://huggingface.co/ibm-granite/granite-embedding-30m-english/resolve/main/tokenizer.json",
+                384,
+                "last_hidden_state",
+                false, // RoBERTa: no token_type_ids
+            )?),
+            "granite-embedding-30m-english".to_string(),
+        )
+    } else if args.minilm_l6 {
+        if !args.json {
+            eprintln!("Embedder: all-MiniLM-L6-v2 ONNX (384-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "all-MiniLM-L6-v2",
+                "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",
+                None,
+                "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
+                384,
+                "last_hidden_state",
+                true, // BERT: uses token_type_ids
+            )?),
+            "all-MiniLM-L6-v2".to_string(),
+        )
+    } else if args.minilm_l12 {
+        if !args.json {
+            eprintln!("Embedder: all-MiniLM-L12-v2 ONNX (384-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "all-MiniLM-L12-v2",
+                "https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2/resolve/main/onnx/model.onnx",
+                None,
+                "https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2/resolve/main/tokenizer.json",
+                384,
+                "last_hidden_state",
+                true, // BERT: uses token_type_ids
+            )?),
+            "all-MiniLM-L12-v2".to_string(),
+        )
+    } else if args.e5_small {
+        if !args.json {
+            eprintln!("Embedder: e5-small-v2 ONNX (384-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "e5-small-v2",
+                "https://huggingface.co/Xenova/e5-small-v2/resolve/main/onnx/model.onnx",
+                None,
+                "https://huggingface.co/Xenova/e5-small-v2/resolve/main/tokenizer.json",
+                384,
+                "last_hidden_state",
+                true, // BERT: uses token_type_ids
+            )?),
+            "e5-small-v2".to_string(),
+        )
+    } else if args.bge_base {
+        if !args.json {
+            eprintln!("Embedder: bge-base-en-v1.5 ONNX (768-dim)");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "bge-base-en-v1.5",
+                "https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/onnx/model.onnx",
+                None,
+                "https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/tokenizer.json",
+                768,
+                "last_hidden_state",
+                true, // BERT: uses token_type_ids
+            )?),
+            "bge-base-en-v1.5".to_string(),
+        )
+    } else if args.nomic {
+        if !args.json {
+            eprintln!("Embedder: nomic-embed-text-v1.5 int8 ONNX (768-dim)");
+            eprintln!("Note: nomic optimal retrieval requires search_document:/search_query: prefixes.");
+            eprintln!("      Benchmark harness does NOT add prefixes — scores will be slightly below MTEB.");
+        }
+        (
+            Arc::new(OnnxEmbedder::with_model_and_data(
+                "nomic-embed-text-v1.5-int8",
+                "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main/onnx/model_int8.onnx",
+                None,
+                "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main/tokenizer.json",
+                768,
+                "last_hidden_state",
+                true, // NomicBERT: uses token_type_ids
+            )?),
+            "nomic-embed-text-v1.5-int8".to_string(),
         )
     } else {
         if !args.json {
