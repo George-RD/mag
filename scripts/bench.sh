@@ -80,22 +80,22 @@ case "$MODEL" in
         ;;
     minilm-l6)
         DEFAULT_DIM=384
-        EMBEDDING_MODEL="all-MiniLM-L6-v2"
+        EMBEDDING_MODEL="all-MiniLM-L6-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l6 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     minilm-l12)
         DEFAULT_DIM=384
-        EMBEDDING_MODEL="all-MiniLM-L12-v2"
+        EMBEDDING_MODEL="all-MiniLM-L12-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l12 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     e5-small)
         DEFAULT_DIM=384
-        EMBEDDING_MODEL="e5-small-v2"
+        EMBEDDING_MODEL="e5-small-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --e5-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     bge-base)
         DEFAULT_DIM=768
-        EMBEDDING_MODEL="bge-base-en-v1.5"
+        EMBEDDING_MODEL="bge-base-en-v1.5-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --bge-base --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     nomic)
@@ -105,17 +105,17 @@ case "$MODEL" in
         ;;
     arctic-xs)
         DEFAULT_DIM=384
-        EMBEDDING_MODEL="snowflake-arctic-embed-xs"
+        EMBEDDING_MODEL="snowflake-arctic-embed-xs-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-xs --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     arctic-s)
         DEFAULT_DIM=384
-        EMBEDDING_MODEL="snowflake-arctic-embed-s"
+        EMBEDDING_MODEL="snowflake-arctic-embed-s-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-s --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     gte-small)
         DEFAULT_DIM=384
-        EMBEDDING_MODEL="gte-small"
+        EMBEDDING_MODEL="gte-small-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --gte-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     *)
