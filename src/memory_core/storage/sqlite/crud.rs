@@ -29,7 +29,7 @@ impl Storage for SqliteStorage {
         let referenced_date = input.referenced_date.clone();
         let id_for_store = id.clone();
 
-        let (outcome, superseded_ids) = tokio::task::spawn_blocking(move || {
+        let (outcome, superseded_ids, final_tags) = tokio::task::spawn_blocking(move || {
             let c_hash = content_hash(&data);
             let normalized_hash = canonical_hash(&data);
             let conn = pool.writer()?;
@@ -111,7 +111,7 @@ impl Storage for SqliteStorage {
                 )
                 .context("failed to update access_count for canonical dedup")?;
                 tx.commit().context("failed to commit canonical dedup")?;
-                return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new()));
+                return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new(), Vec::new()));
             }
 
             // Jaccard dedup check (Rust-side similarity on pre-fetched candidates)
@@ -135,7 +135,7 @@ impl Storage for SqliteStorage {
                     )
                     .context("failed to update access_count for Jaccard dedup")?;
                     tx.commit().context("failed to commit Jaccard dedup")?;
-                    return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new()));
+                    return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new(), Vec::new()));
                 }
             }
 
@@ -316,8 +316,7 @@ impl Storage for SqliteStorage {
 
             // ── Phase 4b: Entity extraction — auto-tag with detected entities ──
             let entity_tags = super::entities::extract_entities(&data);
-            if !entity_tags.is_empty() {
-                // Parse existing tags, merge entity tags, re-serialize
+            let final_tags: Vec<String> = if !entity_tags.is_empty() {
                 let mut current_tags: Vec<String> =
                     serde_json::from_str(&tags_json).unwrap_or_default();
                 for etag in &entity_tags {
@@ -332,7 +331,10 @@ impl Storage for SqliteStorage {
                     params![merged_json, id_for_store],
                 )
                 .context("failed to update memory with entity tags")?;
-            }
+                current_tags
+            } else {
+                serde_json::from_str(&tags_json).unwrap_or_default()
+            };
 
             #[cfg(feature = "sqlite-vec")]
             vec_upsert(&tx, &id_for_store, &embedding)?;
@@ -416,7 +418,7 @@ impl Storage for SqliteStorage {
             tx.commit().context("failed to commit sqlite transaction")?;
             drop(conn); // Release writer Mutex before note_write to avoid deadlock
             pool.note_write();
-            Ok::<_, anyhow::Error>((StoreOutcome::Inserted, superseded_ids))
+            Ok::<_, anyhow::Error>((StoreOutcome::Inserted, superseded_ids, final_tags))
         })
         .await
         .context("spawn_blocking join error")??;
@@ -428,10 +430,22 @@ impl Storage for SqliteStorage {
         );
         self.refresh_hot_cache_best_effort();
 
-        if matches!(outcome, StoreOutcome::Inserted)
-            && let Err(error) = self.try_auto_relate(&id).await
-        {
-            tracing::warn!(memory_id = %id, error = %error, "auto-relate failed");
+        if matches!(outcome, StoreOutcome::Inserted) {
+            if let Err(error) = self.try_auto_relate(&id).await {
+                tracing::warn!(memory_id = %id, error = %error, "auto-relate failed");
+            }
+
+            if let Some(ref sid) = input.session_id
+                && let Err(e) = self.try_create_temporal_edges(&id, sid).await
+            {
+                tracing::warn!(memory_id = %id, error = %e, "temporal edge creation failed");
+            }
+
+            if !final_tags.is_empty()
+                && let Err(e) = self.try_create_entity_edges(&id, &final_tags).await
+            {
+                tracing::warn!(memory_id = %id, error = %e, "entity edge creation failed");
+            }
         }
 
         for old_id in &superseded_ids {

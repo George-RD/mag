@@ -7245,3 +7245,205 @@ async fn test_entity_scoped_decision_supersession() {
         "Decision with different entity_id should NOT be superseded"
     );
 }
+
+#[tokio::test]
+async fn test_preceded_by_edges_created_for_same_session() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let session = "session-temporal-1";
+
+    // Store 3 memories in the same session
+    let input1 = MemoryInput {
+        session_id: Some(session.to_string()),
+        ..MemoryInput::default()
+    };
+    storage
+        .store("t1", "first message in session", &input1)
+        .await
+        .unwrap();
+
+    let input2 = MemoryInput {
+        session_id: Some(session.to_string()),
+        ..MemoryInput::default()
+    };
+    storage
+        .store("t2", "second message in session", &input2)
+        .await
+        .unwrap();
+
+    let input3 = MemoryInput {
+        session_id: Some(session.to_string()),
+        ..MemoryInput::default()
+    };
+    storage
+        .store("t3", "third message in session", &input3)
+        .await
+        .unwrap();
+
+    // Verify PRECEDED_BY edges: t1->t2 and t2->t3
+    // (The predecessor should point to the new memory)
+    assert!(
+        storage
+            .debug_has_relationship("t1", "t2", "PRECEDED_BY")
+            .unwrap(),
+        "expected PRECEDED_BY edge from t1 to t2"
+    );
+    assert!(
+        storage
+            .debug_has_relationship("t2", "t3", "PRECEDED_BY")
+            .unwrap(),
+        "expected PRECEDED_BY edge from t2 to t3"
+    );
+    // No edge from t1 directly to t3
+    assert!(
+        !storage
+            .debug_has_relationship("t1", "t3", "PRECEDED_BY")
+            .unwrap(),
+        "should not have direct PRECEDED_BY edge from t1 to t3"
+    );
+}
+
+#[tokio::test]
+async fn test_preceded_by_edges_not_created_across_sessions() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let input1 = MemoryInput {
+        session_id: Some("session-a".to_string()),
+        ..MemoryInput::default()
+    };
+    storage
+        .store("cross1", "memory in session a", &input1)
+        .await
+        .unwrap();
+
+    let input2 = MemoryInput {
+        session_id: Some("session-b".to_string()),
+        ..MemoryInput::default()
+    };
+    storage
+        .store("cross2", "memory in session b", &input2)
+        .await
+        .unwrap();
+
+    // No PRECEDED_BY edge across different sessions
+    assert!(
+        !storage
+            .debug_has_relationship("cross1", "cross2", "PRECEDED_BY")
+            .unwrap(),
+        "should not create PRECEDED_BY edge across different sessions"
+    );
+}
+
+#[tokio::test]
+async fn test_preceded_by_edges_not_created_without_session() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let input1 = MemoryInput::default(); // no session_id
+    storage
+        .store("nosess1", "first without session", &input1)
+        .await
+        .unwrap();
+
+    let input2 = MemoryInput::default(); // no session_id
+    storage
+        .store("nosess2", "second without session", &input2)
+        .await
+        .unwrap();
+
+    assert!(
+        !storage
+            .debug_has_relationship("nosess1", "nosess2", "PRECEDED_BY")
+            .unwrap(),
+        "should not create PRECEDED_BY edge when no session_id"
+    );
+}
+
+#[tokio::test]
+async fn test_entity_cooccurrence_edges_created() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store two memories that will get the same entity tag via entity extraction.
+    // Entity extraction detects "Alice" -> entity:people:alice
+    let input1 = MemoryInput {
+        tags: vec!["entity:people:alice".to_string()],
+        ..MemoryInput::default()
+    };
+    storage
+        .store("ent1", "Alice went to the store", &input1)
+        .await
+        .unwrap();
+
+    let input2 = MemoryInput {
+        tags: vec!["entity:people:alice".to_string()],
+        ..MemoryInput::default()
+    };
+    storage
+        .store("ent2", "Alice came back from the store", &input2)
+        .await
+        .unwrap();
+
+    // Verify RELATES_TO edge created between memories sharing entity tag
+    assert!(
+        storage
+            .debug_has_relationship("ent2", "ent1", "RELATES_TO")
+            .unwrap(),
+        "expected RELATES_TO edge between memories sharing entity:people:alice"
+    );
+}
+
+#[tokio::test]
+async fn test_entity_cooccurrence_edges_capped() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let entity_tag = "entity:people:bob";
+
+    // Store 10 memories with the same entity tag
+    for i in 0..10 {
+        let input = MemoryInput {
+            tags: vec![entity_tag.to_string()],
+            ..MemoryInput::default()
+        };
+        storage
+            .store(
+                &format!("cap{i}"),
+                &format!("Bob memory number {i}"),
+                &input,
+            )
+            .await
+            .unwrap();
+    }
+
+    // The last memory (cap9) should have at most 3 RELATES_TO edges per entity
+    let conn = storage.test_conn().unwrap();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relationships WHERE source_id = 'cap9' AND rel_type = 'RELATES_TO'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        count <= 3,
+        "expected at most 3 RELATES_TO edges per entity per memory, got {count}"
+    );
+}
+
+#[tokio::test]
+async fn test_entity_edges_no_self_loops() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    let input = MemoryInput {
+        tags: vec!["entity:people:charlie".to_string()],
+        ..MemoryInput::default()
+    };
+    storage
+        .store("self1", "Charlie did something", &input)
+        .await
+        .unwrap();
+
+    // Verify no self-referential RELATES_TO edge
+    assert!(
+        !storage
+            .debug_has_relationship("self1", "self1", "RELATES_TO")
+            .unwrap(),
+        "should not create self-referential RELATES_TO edge"
+    );
+}
