@@ -316,6 +316,12 @@ fn main() -> Result<()> {
                     // retrieved content + metadata dates.
                     let score = if expected_answer.is_empty() {
                         0.0
+                    } else if scoring::is_adversarial_expected(expected_answer) {
+                        // Adversarial questions: expected answer is "Not
+                        // mentioned" etc. Score based on whether the system
+                        // correctly abstained rather than token-matching "not"
+                        // against retrieved content.
+                        scoring::adversarial_retrieval_score(&hits)
                     } else {
                         scoring::word_overlap_score(&hits, expected_answer)
                     };

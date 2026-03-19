@@ -189,9 +189,9 @@ impl IntentProfile {
                 suggested_limit_mult: 1.0,
             },
             QueryIntent::Factual => Self {
-                vec_weight_mult: 0.5,
-                fts_weight_mult: 1.4,
-                word_overlap_mult: 1.5,
+                vec_weight_mult: 1.0,
+                fts_weight_mult: 1.1,
+                word_overlap_mult: 1.15,
                 top_k_mult: 1.0,
                 suggested_limit_mult: 1.0,
             },
