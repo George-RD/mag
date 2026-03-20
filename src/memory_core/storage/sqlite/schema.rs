@@ -115,6 +115,8 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         "CREATE INDEX IF NOT EXISTS idx_memories_superseded ON memories(superseded_by_id)",
         "CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id)",
         "CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id)",
+        "CREATE INDEX IF NOT EXISTS idx_relationships_source_type ON relationships(source_id, rel_type)",
+        "CREATE INDEX IF NOT EXISTS idx_relationships_target_type ON relationships(target_id, rel_type)",
     ];
     for idx in &indexes {
         let _ = conn.execute_batch(idx);

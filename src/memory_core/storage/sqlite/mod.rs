@@ -1044,6 +1044,153 @@ impl SqliteStorage {
 
         Ok(())
     }
+
+    /// Creates a PRECEDED_BY edge from the most recent memory in the same session
+    /// to the newly stored memory. This gives the graph traversal temporal adjacency
+    /// signals that vector similarity alone cannot provide.
+    async fn try_create_temporal_edges(&self, memory_id: &str, session_id: &str) -> Result<()> {
+        let pool = Arc::clone(&self.pool);
+        let memory_id = memory_id.to_string();
+        let session_id = session_id.to_string();
+        let memory_id_clone = memory_id.clone();
+
+        let predecessor_id = tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            let id: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM memories WHERE session_id = ?1 AND id != ?2 ORDER BY created_at DESC LIMIT 1",
+                    params![session_id, memory_id_clone],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query predecessor for temporal edge")?;
+            Ok::<_, anyhow::Error>(id)
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        if let Some(pred_id) = predecessor_id {
+            self.add_relationship(
+                &pred_id,
+                &memory_id,
+                "PRECEDED_BY",
+                1.0,
+                &serde_json::json!({"source": "temporal_adjacency"}),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Creates RELATES_TO edges between the new memory and other memories that share
+    /// entity tags (e.g., `entity:people:alice`). Caps at 3 target memories per entity
+    /// tag, max 5 entity tags processed, to keep edge creation bounded.
+    async fn try_create_entity_edges(&self, memory_id: &str, tags: &[String]) -> Result<()> {
+        let entity_tags: Vec<String> = tags
+            .iter()
+            .filter(|t| t.starts_with("entity:"))
+            .take(5)
+            .cloned()
+            .collect();
+
+        if entity_tags.is_empty() {
+            return Ok(());
+        }
+
+        let pool = Arc::clone(&self.pool);
+        let memory_id_owned = memory_id.to_string();
+
+        // Fetch candidate targets and filter out existing relationships in one
+        // spawn_blocking call, avoiding N separate relationship_exists round-trips.
+        let targets = tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            let mut targets: Vec<(String, String)> = Vec::new(); // (target_id, entity_tag)
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT m.id FROM memories m
+                     WHERE json_valid(m.tags)
+                       AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = ?1)
+                       AND m.id != ?2
+                       AND m.superseded_by_id IS NULL
+                       AND NOT EXISTS (
+                           SELECT 1 FROM relationships r
+                           WHERE r.source_id = ?2 AND r.target_id = m.id AND r.rel_type = 'RELATES_TO'
+                       )
+                     ORDER BY m.created_at DESC LIMIT 3",
+                )
+                .context("failed to prepare entity co-occurrence query")?;
+
+            for entity_tag in &entity_tags {
+                let rows = stmt
+                    .query_map(params![entity_tag, memory_id_owned], |row| {
+                        row.get::<_, String>(0)
+                    })
+                    .context("failed to execute entity co-occurrence query")?;
+
+                for row in rows {
+                    let target_id = row.context("failed to decode entity co-occurrence row")?;
+                    targets.push((target_id, entity_tag.clone()));
+                }
+            }
+
+            Ok::<_, anyhow::Error>(targets)
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        for (target_id, entity_tag) in targets {
+            if let Err(e) = self
+                .add_relationship(
+                    memory_id,
+                    &target_id,
+                    "RELATES_TO",
+                    0.7,
+                    &serde_json::json!({"source": "entity_cooccurrence", "entity": entity_tag}),
+                )
+                .await
+            {
+                tracing::warn!(
+                    memory_id = %memory_id,
+                    target_id = %target_id,
+                    error = %e,
+                    "entity co-occurrence edge creation failed"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks whether a relationship already exists between source and target with the given type.
+    #[allow(dead_code)]
+    async fn relationship_exists(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        rel_type: &str,
+    ) -> Result<bool> {
+        let pool = Arc::clone(&self.pool);
+        let source_id = source_id.to_string();
+        let target_id = target_id.to_string();
+        let rel_type = rel_type.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            let exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM relationships
+                     WHERE source_id = ?1 AND target_id = ?2 AND rel_type = ?3)",
+                    params![source_id, target_id, rel_type],
+                    |row| row.get(0),
+                )
+                .context("failed to check relationship existence")?;
+            Ok::<_, anyhow::Error>(exists)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
 }
 
 #[derive(Debug, Clone)]
