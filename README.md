@@ -1,25 +1,32 @@
-# MAG
+# MAG — Persistent memory for your AI tools
 
-Memory-Augmented Generation for local agents and MCP clients.
+One memory store. Works across every tool on your machine.
 
-MAG is a Rust-first memory system for coding agents and MCP-compatible tools. It stores structured memory in SQLite, supports lexical and semantic retrieval, exposes both a CLI and a stdio MCP server, and runs without a Python runtime or a separate vector database.
+MAG stores the context your AI tools lose when you close the session. It runs as a local binary, single SQLite file, no external services required. API embedding models are optional. Every tool that supports MCP reads from the same memory: Cursor, Claude Code, Windsurf, Cline, Claude Desktop. The retrieval pipeline is hybrid FTS5 + ONNX embeddings + graph traversal, built in Rust, benchmarked at 91.1% word-overlap on LoCoMo. AutoMem's published score is 90.5%.
 
 ## Why MAG
 
-- One local binary, one local database.
-- Hybrid retrieval with FTS5, ONNX embeddings, optional `sqlite-vec`, graph traversal, and multi-phase advanced search.
-- Agent-oriented workflows: checkpoints, reminders, lessons, profile state, lifecycle tools, and MCP integration.
-- Portable operations: additive migrations, JSON export/import, and no standing service dependency.
+- **One binary, one file.** No Python runtime, no external service required. All data stays local by default.
+- **Hybrid retrieval.** FTS5, ONNX embeddings, graph traversal, and multi-phase advanced search in a single pipeline.
+- **Works across tools.** Cursor, Claude Code, Windsurf, Cline, Claude Desktop — same memory, same file.
+- **Agent-oriented.** Checkpoints, reminders, lessons, profile state, lifecycle tools, and MCP integration.
+- **Portable.** Additive migrations, JSON export/import, no standing service dependency.
 
-## Compared With omega-memory
+## Compared With AutoMem / OpenMemory MCP
 
-MAG and `omega-memory` solve the same class of problem: durable memory for local agents. The difference is operating model.
+MAG and AutoMem solve the same class of problem: durable memory for local agents. The differences are in the operating model.
 
-- MAG is Rust-native and ships as a single local binary.
-- MAG uses SQLite directly for storage and retrieval.
-- MAG is benchmarked directly against `omega-memory` on the shared local workload in this repo.
+| | MAG | AutoMem / OpenMemory MCP |
+|---|---|---|
+| Runtime | Rust binary, no Python | Python + pip/uv |
+| Storage | SQLite (single file) | SQLite |
+| Retrieval | Hybrid FTS5 + ONNX semantic + graph traversal | Vector search |
+| Embedding | Local ONNX (bge-small, Apache 2.0) | Local or API |
+| Migrations | Additive (no breaking schema changes) | — |
+| License | MIT | Varies |
+| External services | None required | None required |
 
-On this shared local workload, MAG scored higher overall while `omega-memory` was faster on seeding and query latency. See the [Benchmarks](#benchmarks) section below for current numbers.
+On the shared LoCoMo benchmark (word-overlap scoring), MAG scores 91.1% vs AutoMem's published 90.5%. See [Benchmarks](#benchmarks) below.
 
 ## Quick Start
 
@@ -121,7 +128,7 @@ ONNX models use int8 quantization unless marked ¹ (no pre-built int8 available)
 
 ¹ FP32 (no pre-built int8 ONNX available).
 
-bge-small-en-v1.5 is the default (Apache 2.0, Xenova int8). It uses 32 MB on disk and 180 MB peak RSS — a 35% reduction vs the previous FP32 default (277 MB) with identical quality. MiniLM-L6 int8 is the lightest option at 22 MB / 95 MB RSS with equivalent quality. bge-base int8 is the best local ONNX at +0.7 pp for only 1.4× the latency. Switching embedding models requires re-embedding stored data — see [issue #89](https://github.com/George-RD/mag/issues/89). Multi-hop is stuck at 73–77% across all models — architectural issue tracked in [issue #84](https://github.com/George-RD/mag/issues/84).
+bge-small-en-v1.5 is the default (Apache 2.0, Xenova int8). It uses 32 MB on disk and 180 MB peak RSS — a 35% reduction vs the previous FP32 default (277 MB) with identical quality. MiniLM-L6 int8 is the lightest option at 22 MB / 95 MB RSS with equivalent quality. bge-base int8 is the best local ONNX model at +0.7 pp for only 1.4× the latency. Switching embedding models requires re-embedding stored data — see [issue #89](https://github.com/George-RD/mag/issues/89). Multi-hop is stuck at 73–77% across all models — architectural issue tracked in [issue #84](https://github.com/George-RD/mag/issues/84).
 
 ### Other Benchmarks (earlier snapshot, 2026-03-12)
 
@@ -137,6 +144,24 @@ Full methodology, commands, and result tables are in [docs/benchmarks.md](docs/b
 ### Benchmark Safety
 
 Benchmark runs do not touch the normal MAG production database. The official LongMemEval harness uses a fresh in-memory SQLite database per question, and the LoCoMo harness uses a fresh in-memory SQLite database per sample. The main persistent side effect is dataset/model caching under the active MAG root.
+
+## Compatibility
+
+| Tool | macOS | Linux | Windows | Status | Last Verified |
+|---|---|---|---|---|---|
+| Claude Desktop | ✅ | ✅ | — | Supported | 2026-03-20 |
+| Cursor | ✅ | ✅ | — | Supported | 2026-03-20 |
+| Claude Code | ✅ | ✅ | — | Supported | 2026-03-20 |
+| Windsurf | ✅ | ✅ | — | Community-reported | 2026-03-20 |
+| Cline | ✅ | ✅ | — | Community-reported | 2026-03-20 |
+
+Windows support is untested. If you verify MAG on a tool or platform not listed here, [open an issue](https://github.com/George-RD/mag/issues) to update the matrix.
+
+## Guarantee
+
+MAG has no servers to shut down. Your memories live in a single SQLite file. Open it with any SQLite browser. Export everything with one command. The binary keeps working whether we maintain this project or not. MIT licensed, no tiers.
+
+By default, the binary reads and writes a local SQLite file. API embedding models (optional) send query text to external services. See [SECURITY.md](SECURITY.md) for the full data flow audit.
 
 ## Retrieval Model
 
