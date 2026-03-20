@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::bench_utils::formatting::{grade, pct};
-use crate::types::{CategoryResult, LoCoMoSummary};
+use crate::types::{CategoryResult, LoCoMoSummary, SweepRow};
 
 fn avg_f1(cat: &CategoryResult) -> f64 {
     if cat.total == 0 {
@@ -71,6 +71,22 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
             summary.total_embed_calls, summary.avg_embed_ms, seed_time_s
         );
     }
+
+    // Graph edge stats.
+    if !summary.graph_edge_totals.is_empty() {
+        let total_edges: i64 = summary.graph_edge_totals.values().sum();
+        let breakdown: Vec<String> = summary
+            .graph_edge_totals
+            .iter()
+            .map(|(rel_type, count)| format!("{count} {rel_type}"))
+            .collect();
+        println!(
+            "  Graph edges: {} total ({})",
+            total_edges,
+            breakdown.join(", ")
+        );
+    }
+
     println!();
 
     // Header.
@@ -140,4 +156,83 @@ pub(crate) fn record_result(
     if let Some(line) = detail {
         entry.details.push(line);
     }
+}
+
+/// Print the graph factor sweep comparison table.
+///
+/// Each entry is `(factor, per-category (f1_sum, count))`.
+pub(crate) fn print_sweep_results(results: &[SweepRow]) {
+    let cats = locomo_categories();
+    // Short column labels for each category.
+    let cat_labels: Vec<&str> = cats.iter().map(|(_, label)| *label).collect();
+    let cat_short: Vec<&str> = cats
+        .iter()
+        .map(|(key, _)| match *key {
+            "single-hop" => "1-Hop",
+            "temporal" => "Temp",
+            "multi-hop" => "M-Hop",
+            "open-domain" => "Open",
+            "adversarial" => "Adv",
+            other => other,
+        })
+        .collect();
+
+    println!();
+    println!("========================================================================");
+    println!("  Graph Factor Sweep");
+    println!("========================================================================");
+
+    // Header.
+    print!("  {:>6}", "Factor");
+    print!("  {:>7}", "Overall");
+    for short in &cat_short {
+        print!("  {:>7}", short);
+    }
+    println!();
+    print!("  {:>6}", "------");
+    print!("  {:>7}", "-------");
+    for _ in &cat_short {
+        print!("  {:>7}", "-------");
+    }
+    println!();
+
+    for (factor, cat_scores) in results {
+        // Compute overall score.
+        let mut overall_f1_sum = 0.0f64;
+        let mut overall_count = 0usize;
+        for (f1_sum, count) in cat_scores.values() {
+            overall_f1_sum += f1_sum;
+            overall_count += count;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let overall_pct = if overall_count == 0 {
+            0.0
+        } else {
+            overall_f1_sum / overall_count as f64 * 100.0
+        };
+
+        print!("  {:>6.2}", factor);
+        print!("  {:>6.1}%", overall_pct);
+
+        for (key, _label) in &cats {
+            #[allow(clippy::cast_precision_loss)]
+            let cat_pct = cat_scores
+                .get(*key)
+                .map(|(f1_sum, count)| {
+                    if *count == 0 {
+                        0.0
+                    } else {
+                        f1_sum / *count as f64 * 100.0
+                    }
+                })
+                .unwrap_or(0.0);
+            print!("  {:>6.1}%", cat_pct);
+        }
+        println!();
+    }
+
+    println!("========================================================================");
+
+    // Suppress unused variable warnings from cat_labels.
+    let _ = cat_labels;
 }
