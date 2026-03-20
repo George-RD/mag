@@ -99,7 +99,7 @@ Current benchmark snapshots were captured on `2026-03-19` at commit `26e51cf3` o
 
 ### Embedding Model Comparison (LoCoMo word-overlap, 2 samples)
 
-ONNX models use int8 quantization unless marked ¹ (no pre-built int8 available). API models are unquantized. Temporal Reasoning is 91.5% for every model and excluded. Scores across models within ~1 pp are within benchmark variance (304 questions, ~1.5% SE).
+ONNX models use int8 quantization unless marked ¹ (no pre-built int8 available); the voyage-4-nano 1024-dim row uses mixed int8/fp32 quantization (int8 and fp32 runs averaged). API models are unquantized. Temporal Reasoning is 91.5% for every model and excluded. Scores across models within ~1 pp are within benchmark variance (304 questions, ~1.5% SE).
 
 | Model | Params | Dim | WO% | EvRec% | 1-Hop | Multi-Hop | Open | Adv | AvgEmb | File | RAM |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
