@@ -154,4 +154,12 @@ pub(crate) struct LoCoMoSummary {
     pub total_seed_ms: u64,
     pub total_embed_calls: u64,
     pub avg_embed_ms: f64,
+    /// Graph edge counts by relationship type (aggregated across all samples).
+    pub graph_edge_totals: BTreeMap<String, i64>,
 }
+
+/// Per-category F1 sums and counts for a single sweep factor.
+pub(crate) type SweepCategoryScores = BTreeMap<String, (f64, usize)>;
+
+/// A single row in the graph factor sweep: `(factor, per-category scores)`.
+pub(crate) type SweepRow = (f64, SweepCategoryScores);

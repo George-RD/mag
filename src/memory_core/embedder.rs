@@ -119,7 +119,15 @@ impl OnnxEmbedder {
         dimension: usize,
         output_tensor_name: &str,
     ) -> Result<Self> {
-        Self::with_model_and_data(name, model_url, None, tokenizer_url, dimension, output_tensor_name, true)
+        Self::with_model_and_data(
+            name,
+            model_url,
+            None,
+            tokenizer_url,
+            dimension,
+            output_tensor_name,
+            true,
+        )
     }
 
     pub fn with_model_and_data(
@@ -539,9 +547,11 @@ impl Embedder for OnnxEmbedder {
                 .lock()
                 .map_err(|_| anyhow!("onnx session mutex poisoned"))?;
             let outputs = if self.use_token_type_ids {
-                let token_type_ids_value =
-                    ort::value::Value::from_array(([batch_size, max_len], vec![0_i64; batch_size * max_len]))
-                        .context("failed to create batched ONNX token_type_ids value")?;
+                let token_type_ids_value = ort::value::Value::from_array((
+                    [batch_size, max_len],
+                    vec![0_i64; batch_size * max_len],
+                ))
+                .context("failed to create batched ONNX token_type_ids value")?;
                 session
                     .run(ort::inputs![
                         input_ids_value,
@@ -740,13 +750,12 @@ async fn ensure_model_files_async(
     {
         download_file(model_url, &files.model_path).await?;
     }
-    if let (Some(data_url), Some(data_path)) = (model_data_url, &files.model_data_path) {
-        if !tokio::fs::try_exists(data_path)
+    if let (Some(data_url), Some(data_path)) = (model_data_url, &files.model_data_path)
+        && !tokio::fs::try_exists(data_path)
             .await
             .context("failed to check model data path")?
-        {
-            download_file(data_url, data_path).await?;
-        }
+    {
+        download_file(data_url, data_path).await?;
     }
     if !tokio::fs::try_exists(&files.tokenizer_path)
         .await
@@ -760,7 +769,10 @@ async fn ensure_model_files_async(
 
 #[cfg(feature = "real-embeddings")]
 fn model_files_exist(model_dir: &Path, has_data_file: bool) -> bool {
-    let files = model_files_for_dir(model_dir.to_path_buf(), if has_data_file { Some("") } else { None });
+    let files = model_files_for_dir(
+        model_dir.to_path_buf(),
+        if has_data_file { Some("") } else { None },
+    );
     let base = files.model_path.exists() && files.tokenizer_path.exists();
     if has_data_file {
         base && files.model_data_path.as_ref().is_some_and(|p| p.exists())
@@ -773,7 +785,11 @@ fn model_files_exist(model_dir: &Path, has_data_file: bool) -> bool {
 fn model_files_for_dir(model_dir: PathBuf, model_data_url: Option<&str>) -> ModelFiles {
     let model_data_path = model_data_url.and_then(|url| {
         let filename = url.split('/').next_back()?;
-        if filename.is_empty() { None } else { Some(model_dir.join(filename)) }
+        if filename.is_empty() {
+            None
+        } else {
+            Some(model_dir.join(filename))
+        }
     });
     ModelFiles {
         model_path: model_dir.join("model.onnx"),

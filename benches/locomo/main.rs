@@ -162,6 +162,9 @@ struct Args {
     /// Limit mode: static (flat top_k) or dynamic (50/75/100 per question type).
     #[arg(long, value_enum, default_value_t = LimitMode::Dynamic)]
     limit_mode: LimitMode,
+    /// Run a graph_neighbor_factor sweep: seed once, then re-query at multiple factor values.
+    #[arg(long)]
+    graph_sweep: bool,
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -293,7 +296,11 @@ fn main() -> Result<()> {
             "fp32" => ("onnx/model.onnx", "onnx/model.onnx_data", "FP32"),
             "fp16" => ("onnx/model_fp16.onnx", "onnx/model_fp16.onnx_data", "FP16"),
             "q4" => ("onnx/model_q4.onnx", "onnx/model_q4.onnx_data", "Q4"),
-            _ => ("onnx/model_quantized.onnx", "onnx/model_quantized.onnx_data", "INT8"), // default
+            _ => (
+                "onnx/model_quantized.onnx",
+                "onnx/model_quantized.onnx_data",
+                "INT8",
+            ), // default
         };
         let base = "https://huggingface.co/onnx-community/voyage-4-nano-ONNX/resolve/main";
         let model_url = format!("{base}/{model_file}");
@@ -418,8 +425,12 @@ fn main() -> Result<()> {
     } else if args.nomic {
         if !args.json {
             eprintln!("Embedder: nomic-embed-text-v1.5 int8 ONNX (768-dim)");
-            eprintln!("Note: nomic optimal retrieval requires search_document:/search_query: prefixes.");
-            eprintln!("      Benchmark harness does NOT add prefixes — scores will be slightly below MTEB.");
+            eprintln!(
+                "Note: nomic optimal retrieval requires search_document:/search_query: prefixes."
+            );
+            eprintln!(
+                "      Benchmark harness does NOT add prefixes — scores will be slightly below MTEB."
+            );
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
@@ -514,6 +525,12 @@ fn main() -> Result<()> {
         .unwrap_or(usize::MAX)
         .min(samples.iter().map(|s| s.qa.len()).sum::<usize>());
 
+    // Aggregate graph edge stats across all samples.
+    let mut graph_edge_totals: BTreeMap<String, i64> = BTreeMap::new();
+
+    // Keep seeded storages for --graph-sweep (re-query without re-seeding).
+    let mut sweep_storages: Vec<(SqliteStorage, usize)> = Vec::new();
+
     'samples: for sample in &samples {
         if let Some(limit) = args.questions
             && total_queries >= limit
@@ -538,6 +555,13 @@ fn main() -> Result<()> {
         total_memories += seeded;
         samples_evaluated += 1;
         rss.sample();
+
+        // Collect graph edge stats after seeding.
+        if let Ok(edge_stats) = runtime.block_on(storage.graph_edge_stats()) {
+            for (rel_type, count) in &edge_stats {
+                *graph_edge_totals.entry(rel_type.clone()).or_insert(0) += count;
+            }
+        }
 
         for qa in &sample.qa {
             if let Some(limit) = args.questions
@@ -733,6 +757,11 @@ fn main() -> Result<()> {
             );
             let _ = std::io::stderr().flush();
         }
+
+        // Retain seeded storage for graph-sweep (avoids re-seeding).
+        if args.graph_sweep {
+            sweep_storages.push((storage, seeded));
+        }
     }
     eprintln!(); // Finish progress line.
 
@@ -787,12 +816,108 @@ fn main() -> Result<()> {
         total_seed_ms: total_seed_ms_u64,
         total_embed_calls,
         avg_embed_ms,
+        graph_edge_totals,
     };
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
         display::print_results(&summary);
+    }
+
+    // ── Graph factor sweep ──────────────────────────────────────────────
+    if args.graph_sweep && !sweep_storages.is_empty() {
+        let factors = [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0];
+        let use_word_overlap = matches!(scoring_mode, ScoringMode::WordOverlap);
+
+        eprintln!();
+        eprintln!("Running graph factor sweep ({} factors)...", factors.len());
+
+        // Collect (factor, per-category f1 sums, per-category totals, overall f1 sum, overall total).
+        let mut sweep_results: Vec<types::SweepRow> = Vec::new();
+
+        for &factor in &factors {
+            let mut cat_scores: types::SweepCategoryScores = BTreeMap::new();
+
+            for (idx, (storage, seeded)) in sweep_storages.iter_mut().enumerate() {
+                // Update scoring params for this factor.
+                let mut params = storage.scoring_params().clone();
+                params.graph_neighbor_factor = factor;
+                storage.set_scoring_params(params);
+
+                let sample = &samples[idx];
+                for qa in &sample.qa {
+                    let effective_limit = if args.limit_mode == LimitMode::Dynamic {
+                        let is_multihop = qa.evidence.len() > 1;
+                        let is_temporal = is_temporal_question(&qa.question);
+                        let scaled_base = (*seeded / 5).max(top_k).min(200);
+                        if is_multihop {
+                            (scaled_base * 2).min(250)
+                        } else if is_temporal {
+                            ((scaled_base * 3) / 2).min(200)
+                        } else {
+                            scaled_base
+                        }
+                    } else {
+                        top_k
+                    };
+
+                    let hits = if use_word_overlap {
+                        runtime.block_on(seeding::query_with_speaker_recall(
+                            storage,
+                            &qa.question,
+                            &sample.sample_id,
+                            effective_limit,
+                        ))?
+                    } else {
+                        runtime.block_on(seeding::query_with_metadata(
+                            storage,
+                            &qa.question,
+                            effective_limit,
+                        ))?
+                    };
+
+                    let expected_answer = qa.expected_answer();
+                    let category = qa.category_key();
+
+                    let f1 = if use_word_overlap {
+                        if expected_answer.is_empty() {
+                            0.0
+                        } else if scoring::is_adversarial_expected(expected_answer) {
+                            scoring::adversarial_retrieval_score(&hits)
+                        } else if category == "multi-hop" {
+                            scoring::multi_hop_word_overlap_score(&hits, expected_answer)
+                        } else {
+                            scoring::word_overlap_score(&hits, expected_answer)
+                        }
+                    } else {
+                        // Substring mode uses token F1 on concatenated text.
+                        let concat = hits
+                            .iter()
+                            .map(|h| h.content.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        if expected_answer.is_empty() {
+                            0.0
+                        } else {
+                            let (_, _, f) = scoring::token_f1(&concat, expected_answer);
+                            f
+                        }
+                    };
+
+                    let entry = cat_scores.entry(category.to_string()).or_insert((0.0, 0));
+                    entry.0 += f1;
+                    entry.1 += 1;
+                }
+            }
+
+            eprint!("\r  factor {factor:.2} done         ");
+            let _ = std::io::stderr().flush();
+            sweep_results.push((factor, cat_scores));
+        }
+        eprintln!();
+
+        display::print_sweep_results(&sweep_results);
     }
 
     Ok(())

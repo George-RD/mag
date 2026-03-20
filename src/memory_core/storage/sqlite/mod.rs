@@ -469,6 +469,30 @@ impl SqliteStorage {
         <Self as Updater>::update(self, id, input).await
     }
 
+    /// Returns a breakdown of relationship counts grouped by `rel_type`.
+    ///
+    /// Returns a `Vec<(rel_type, count)>` sorted by count descending.
+    #[allow(dead_code)]
+    pub async fn graph_edge_stats(&self) -> Result<Vec<(String, i64)>> {
+        let pool = Arc::clone(&self.pool);
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            let mut stmt = conn
+                .prepare("SELECT rel_type, COUNT(*) FROM relationships GROUP BY rel_type ORDER BY COUNT(*) DESC")
+                .context("failed to prepare graph edge stats query")?;
+            let rows = stmt
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+                .context("failed to query graph edge stats")?;
+            let mut result = Vec::new();
+            for row in rows {
+                result.push(row.context("failed to read graph edge stats row")?);
+            }
+            Ok(result)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+
     /// Returns storage statistics as a JSON Value.
     pub async fn stats(&self) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
