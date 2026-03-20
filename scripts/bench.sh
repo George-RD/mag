@@ -13,7 +13,7 @@
 # CSV format (16 columns):
 #   date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,
 #   overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,
-#   evidence_recall,avg_query_ms,notes
+#   evidence_recall,avg_embed_ms,notes
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_CSV="${REPO_DIR}/docs/benchmark_log.csv"
 LATEST_MD="${REPO_DIR}/benchmarks/LATEST.md"
 
-CSV_HEADER="date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_query_ms,notes"
+CSV_HEADER="date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_embed_ms,notes"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 MODEL="bge-small"
@@ -162,9 +162,8 @@ adversarial=$(echo "${RAW_OUTPUT}" | grep "Adversarial" | grep -oE '[0-9]+\.[0-9
 adversarial="${adversarial:-}"
 
 # Timing — log avg embed latency (ms) for the embedding step only.
-# CSV column is named avg_query_ms for historical reasons; value is embed time.
-avg_query_ms=$(echo "${RAW_OUTPUT}" | grep "Avg embed:" | grep -oE '[0-9]+(\.[0-9]+)?ms' | tr -d 'ms' | head -1)
-avg_query_ms="${avg_query_ms:-}"
+avg_embed_ms=$(echo "${RAW_OUTPUT}" | grep "Avg embed:" | grep -oE '[0-9]+(\.[0-9]+)?ms' | tr -d 'ms' | head -1)
+avg_embed_ms="${avg_embed_ms:-}"
 
 # Git metadata
 DATE_STR="$(date '+%Y-%m-%d')"
@@ -172,7 +171,7 @@ COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo '')"
 BRANCH="$(git -C "${REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
 
 # ── Append CSV row ────────────────────────────────────────────────────────────
-CSV_ROW="${DATE_STR},${COMMIT},${BRANCH},,${SCORING_MODE},${SAMPLES},${EMBEDDING_MODEL},${overall_score},${single_hop},${temporal},${multi_hop},${open_domain},${adversarial},${evidence_recall},${avg_query_ms},${NOTES}"
+CSV_ROW="${DATE_STR},${COMMIT},${BRANCH},,${SCORING_MODE},${SAMPLES},${EMBEDDING_MODEL},${overall_score},${single_hop},${temporal},${multi_hop},${open_domain},${adversarial},${evidence_recall},${avg_embed_ms},${NOTES}"
 echo "${CSV_ROW}" >> "${RESULTS_CSV}"
 echo "Appended result to ${RESULTS_CSV}"
 
@@ -180,7 +179,7 @@ echo "Appended result to ${RESULTS_CSV}"
 print_table() {
     local mode="$1"
     printf "\n## LoCoMo Benchmark — %s scoring\n\n" "${mode}"
-    printf "| Date | Model | Overall%% | 1-Hop | Temporal | Multi-Hop | Open | Adv | EvRec%% | Avg Q (ms) |\n"
+    printf "| Date | Model | Overall%% | 1-Hop | Temporal | Multi-Hop | Open | Adv | EvRec%% | Avg Emb (ms) |\n"
     printf "|------|-------|---------|-------|----------|-----------|------|-----|--------|------------|\n"
 
     # Skip header line, filter by scoring_mode (col 5)

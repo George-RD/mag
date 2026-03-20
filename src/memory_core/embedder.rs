@@ -702,7 +702,7 @@ fn ensure_model_files_blocking(
     model_data_url: Option<&str>,
     tokenizer_url: &str,
 ) -> Result<ModelFiles> {
-    if model_files_exist(&model_dir, model_data_url.is_some()) {
+    if model_files_exist(&model_dir, model_data_url) {
         return Ok(model_files_for_dir(model_dir, model_data_url));
     }
 
@@ -731,7 +731,7 @@ async fn ensure_model_files_async(
     tokenizer_url: &str,
 ) -> Result<ModelFiles> {
     let files = model_files_for_dir(model_dir, model_data_url);
-    if model_files_exist(&files.directory, model_data_url.is_some()) {
+    if model_files_exist(&files.directory, model_data_url) {
         return Ok(files);
     }
 
@@ -768,13 +768,10 @@ async fn ensure_model_files_async(
 }
 
 #[cfg(feature = "real-embeddings")]
-fn model_files_exist(model_dir: &Path, has_data_file: bool) -> bool {
-    let files = model_files_for_dir(
-        model_dir.to_path_buf(),
-        if has_data_file { Some("") } else { None },
-    );
+fn model_files_exist(model_dir: &Path, model_data_url: Option<&str>) -> bool {
+    let files = model_files_for_dir(model_dir.to_path_buf(), model_data_url);
     let base = files.model_path.exists() && files.tokenizer_path.exists();
-    if has_data_file {
+    if model_data_url.is_some() {
         base && files.model_data_path.as_ref().is_some_and(|p| p.exists())
     } else {
         base
