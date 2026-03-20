@@ -107,7 +107,7 @@ ONNX models use int8 quantization unless marked ¹ (no pre-built int8 available)
 | snowflake-arctic-embed-xs int8 | 22M | 384 | 90.2% | 88.7% | 87.0% | 76.9% | 92.7% | 89.5% | 3.9 ms | 22 MB | 137 MB |
 | e5-small-v2 int8 | 33M | 384 | 90.8% | 88.6% | 88.4% | 73.1% | 93.0% | 91.1% | 4.8 ms | 32 MB | 152 MB |
 | all-MiniLM-L6-v2 int8 | 22M | 384 | 91.3% | 89.2% | 88.5% | 76.9% | 93.1% | 92.3% | 7.4 ms | 22 MB | 95 MB |
-| **bge-small-en-v1.5** *(default)* | 33M | 384 | 91.1% | 90.2% | 87.6% | 75.6% | 94.0% | 90.9% | 7.0 ms | 32 MB | 180 MB |
+| **bge-small-en-v1.5 int8** *(default)* | 33M | 384 | 91.1% | 90.2% | 87.6% | 75.6% | 94.0% | 90.9% | 7.0 ms | 32 MB | 180 MB |
 | snowflake-arctic-embed-s int8 | 33M | 384 | 90.8% | 87.8% | 89.5% | 73.1% | 93.0% | 90.8% | 7.8 ms | 32 MB | 178 MB |
 | bge-base-en-v1.5 int8 | 109M | 768 | 91.8% | 90.4% | 87.1% | 76.9% | 94.9% | 92.7% | 10.5 ms | 105 MB | 265 MB |
 | gte-small int8 | 33M | 384 | 90.9% | 89.5% | 86.2% | 73.1% | 94.0% | 91.7% | 11.7 ms | 32 MB | 162 MB |
