@@ -111,16 +111,16 @@ struct Args {
     /// Use ibm-granite/granite-embedding-30m-english ONNX (384-dim, RoBERTa).
     #[arg(long)]
     granite: bool,
-    /// Use sentence-transformers/all-MiniLM-L6-v2 ONNX (384-dim, BERT).
+    /// Use Xenova/all-MiniLM-L6-v2 int8 ONNX (384-dim, BERT).
     #[arg(long)]
     minilm_l6: bool,
-    /// Use sentence-transformers/all-MiniLM-L12-v2 ONNX (384-dim, BERT).
+    /// Use Xenova/all-MiniLM-L12-v2 int8 ONNX (384-dim, BERT).
     #[arg(long)]
     minilm_l12: bool,
-    /// Use Xenova/e5-small-v2 ONNX (384-dim, BERT).
+    /// Use Xenova/e5-small-v2 int8 ONNX (384-dim, BERT).
     #[arg(long)]
     e5_small: bool,
-    /// Use BAAI/bge-base-en-v1.5 ONNX (768-dim, BERT).
+    /// Use Xenova/bge-base-en-v1.5 int8 ONNX (768-dim, BERT).
     #[arg(long)]
     bge_base: bool,
     /// Use nomic-ai/nomic-embed-text-v1.5 int8 ONNX (768-dim, NomicBERT).
@@ -128,13 +128,13 @@ struct Args {
     /// The benchmark harness does NOT add these prefixes — scores will be slightly below MTEB reported.
     #[arg(long)]
     nomic: bool,
-    /// Use Snowflake/snowflake-arctic-embed-xs ONNX (22M, 384-dim, MiniLM-based).
+    /// Use Snowflake/snowflake-arctic-embed-xs int8 ONNX (22M, 384-dim, MiniLM-based).
     #[arg(long)]
     arctic_xs: bool,
-    /// Use Snowflake/snowflake-arctic-embed-s ONNX (33M, 384-dim, e5-small-unsupervised based).
+    /// Use Snowflake/snowflake-arctic-embed-s int8 ONNX (33M, 384-dim, e5-small-unsupervised based).
     #[arg(long)]
     arctic_s: bool,
-    /// Use thenlper/gte-small ONNX (33M, 384-dim, pure BERT).
+    /// Use Xenova/gte-small int8 ONNX (33M, 384-dim, pure BERT).
     #[arg(long)]
     gte_small: bool,
     /// Voyage AI model name (default: voyage-4-lite).
@@ -293,7 +293,11 @@ fn main() -> Result<()> {
             "fp32" => ("onnx/model.onnx", "onnx/model.onnx_data", "FP32"),
             "fp16" => ("onnx/model_fp16.onnx", "onnx/model_fp16.onnx_data", "FP16"),
             "q4" => ("onnx/model_q4.onnx", "onnx/model_q4.onnx_data", "Q4"),
-            _ => ("onnx/model_quantized.onnx", "onnx/model_quantized.onnx_data", "INT8"), // default
+            _ => (
+                "onnx/model_quantized.onnx",
+                "onnx/model_quantized.onnx_data",
+                "INT8",
+            ), // default
         };
         let base = "https://huggingface.co/onnx-community/voyage-4-nano-ONNX/resolve/main";
         let model_url = format!("{base}/{model_file}");
@@ -353,73 +357,77 @@ fn main() -> Result<()> {
         )
     } else if args.minilm_l6 {
         if !args.json {
-            eprintln!("Embedder: all-MiniLM-L6-v2 ONNX (384-dim)");
+            eprintln!("Embedder: all-MiniLM-L6-v2 int8 ONNX (384-dim)");
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
-                "all-MiniLM-L6-v2",
-                "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",
+                "all-MiniLM-L6-v2-int8",
+                "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_int8.onnx",
                 None,
-                "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
+                "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
                 384,
                 "last_hidden_state",
                 true, // BERT: uses token_type_ids
             )?),
-            "all-MiniLM-L6-v2".to_string(),
+            "all-MiniLM-L6-v2-int8".to_string(),
         )
     } else if args.minilm_l12 {
         if !args.json {
-            eprintln!("Embedder: all-MiniLM-L12-v2 ONNX (384-dim)");
+            eprintln!("Embedder: all-MiniLM-L12-v2 int8 ONNX (384-dim)");
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
-                "all-MiniLM-L12-v2",
-                "https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2/resolve/main/onnx/model.onnx",
+                "all-MiniLM-L12-v2-int8",
+                "https://huggingface.co/Xenova/all-MiniLM-L12-v2/resolve/main/onnx/model_int8.onnx",
                 None,
-                "https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2/resolve/main/tokenizer.json",
+                "https://huggingface.co/Xenova/all-MiniLM-L12-v2/resolve/main/tokenizer.json",
                 384,
                 "last_hidden_state",
                 true, // BERT: uses token_type_ids
             )?),
-            "all-MiniLM-L12-v2".to_string(),
+            "all-MiniLM-L12-v2-int8".to_string(),
         )
     } else if args.e5_small {
         if !args.json {
-            eprintln!("Embedder: e5-small-v2 ONNX (384-dim)");
+            eprintln!("Embedder: e5-small-v2 int8 ONNX (384-dim)");
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
-                "e5-small-v2",
-                "https://huggingface.co/Xenova/e5-small-v2/resolve/main/onnx/model.onnx",
+                "e5-small-v2-int8",
+                "https://huggingface.co/Xenova/e5-small-v2/resolve/main/onnx/model_int8.onnx",
                 None,
                 "https://huggingface.co/Xenova/e5-small-v2/resolve/main/tokenizer.json",
                 384,
                 "last_hidden_state",
                 true, // BERT: uses token_type_ids
             )?),
-            "e5-small-v2".to_string(),
+            "e5-small-v2-int8".to_string(),
         )
     } else if args.bge_base {
         if !args.json {
-            eprintln!("Embedder: bge-base-en-v1.5 ONNX (768-dim)");
+            eprintln!("Embedder: bge-base-en-v1.5 int8 ONNX (768-dim)");
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
-                "bge-base-en-v1.5",
-                "https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/onnx/model.onnx",
+                "bge-base-en-v1.5-int8",
+                "https://huggingface.co/Xenova/bge-base-en-v1.5/resolve/main/onnx/model_int8.onnx",
                 None,
-                "https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/tokenizer.json",
+                "https://huggingface.co/Xenova/bge-base-en-v1.5/resolve/main/tokenizer.json",
                 768,
                 "last_hidden_state",
                 true, // BERT: uses token_type_ids
             )?),
-            "bge-base-en-v1.5".to_string(),
+            "bge-base-en-v1.5-int8".to_string(),
         )
     } else if args.nomic {
         if !args.json {
             eprintln!("Embedder: nomic-embed-text-v1.5 int8 ONNX (768-dim)");
-            eprintln!("Note: nomic optimal retrieval requires search_document:/search_query: prefixes.");
-            eprintln!("      Benchmark harness does NOT add prefixes — scores will be slightly below MTEB.");
+            eprintln!(
+                "Note: nomic optimal retrieval requires search_document:/search_query: prefixes."
+            );
+            eprintln!(
+                "      Benchmark harness does NOT add prefixes — scores will be slightly below MTEB."
+            );
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
@@ -435,51 +443,51 @@ fn main() -> Result<()> {
         )
     } else if args.arctic_xs {
         if !args.json {
-            eprintln!("Embedder: snowflake-arctic-embed-xs ONNX (22M, 384-dim)");
+            eprintln!("Embedder: snowflake-arctic-embed-xs int8 ONNX (22M, 384-dim)");
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
-                "snowflake-arctic-embed-xs",
-                "https://huggingface.co/Snowflake/snowflake-arctic-embed-xs/resolve/main/onnx/model.onnx",
+                "snowflake-arctic-embed-xs-int8",
+                "https://huggingface.co/Snowflake/snowflake-arctic-embed-xs/resolve/main/onnx/model_int8.onnx",
                 None,
                 "https://huggingface.co/Snowflake/snowflake-arctic-embed-xs/resolve/main/tokenizer.json",
                 384,
                 "last_hidden_state",
                 true, // arctic-xs ONNX export includes token_type_ids
             )?),
-            "snowflake-arctic-embed-xs".to_string(),
+            "snowflake-arctic-embed-xs-int8".to_string(),
         )
     } else if args.arctic_s {
         if !args.json {
-            eprintln!("Embedder: snowflake-arctic-embed-s ONNX (33M, 384-dim)");
+            eprintln!("Embedder: snowflake-arctic-embed-s int8 ONNX (33M, 384-dim)");
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
-                "snowflake-arctic-embed-s",
-                "https://huggingface.co/Snowflake/snowflake-arctic-embed-s/resolve/main/onnx/model.onnx",
+                "snowflake-arctic-embed-s-int8",
+                "https://huggingface.co/Snowflake/snowflake-arctic-embed-s/resolve/main/onnx/model_int8.onnx",
                 None,
                 "https://huggingface.co/Snowflake/snowflake-arctic-embed-s/resolve/main/tokenizer.json",
                 384,
                 "last_hidden_state",
                 true, // arctic-s ONNX export includes token_type_ids
             )?),
-            "snowflake-arctic-embed-s".to_string(),
+            "snowflake-arctic-embed-s-int8".to_string(),
         )
     } else if args.gte_small {
         if !args.json {
-            eprintln!("Embedder: gte-small ONNX (33M, 384-dim)");
+            eprintln!("Embedder: gte-small int8 ONNX (33M, 384-dim)");
         }
         (
             Arc::new(OnnxEmbedder::with_model_and_data(
-                "gte-small",
-                "https://huggingface.co/thenlper/gte-small/resolve/main/onnx/model.onnx",
+                "gte-small-int8",
+                "https://huggingface.co/Xenova/gte-small/resolve/main/onnx/model_int8.onnx",
                 None,
-                "https://huggingface.co/thenlper/gte-small/resolve/main/tokenizer.json",
+                "https://huggingface.co/Xenova/gte-small/resolve/main/tokenizer.json",
                 384,
                 "last_hidden_state",
                 true, // pure BERT: uses token_type_ids
             )?),
-            "gte-small".to_string(),
+            "gte-small-int8".to_string(),
         )
     } else {
         if !args.json {
