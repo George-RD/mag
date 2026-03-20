@@ -55,7 +55,7 @@ pub(crate) fn normalize_embedding(vec: &mut [f32]) {
 }
 
 #[cfg(feature = "real-embeddings")]
-const MODEL_NAME: &str = "bge-small-en-v1.5";
+const MODEL_NAME: &str = "bge-small-en-v1.5-int8";
 #[cfg(feature = "real-embeddings")]
 const MODEL_URL: &str =
     "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model_int8.onnx";
@@ -104,7 +104,7 @@ struct ModelFiles {
 impl OnnxEmbedder {
     pub fn new() -> Result<Self> {
         Self::with_model(
-            "bge-small-en-v1.5",
+            MODEL_NAME,
             MODEL_URL,
             TOKENIZER_URL,
             384,
