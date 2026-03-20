@@ -1,4 +1,4 @@
-date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_query_ms,notes
+date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_embed_ms,notes
 2026-03-18,d285236,main,,word-overlap,10,onnx-bge-small,70.6,,,,,,,,baseline before gap-closing changes
 2026-03-19,d285236,worktree-agent-a830499b,,word-overlap,10,onnx-bge-small,83.9,76.0,82.3,45.6,90.3,86.4,85.0,47.7,speaker/conversation/session tags + top_k 50 + speaker-tag recall + dynamic limits (50/75/100)
 2026-03-19,ea1ac85,worktree-agent-a830499b,,word-overlap,10,onnx-bge-small,86.87,81.7,82.9,51.6,92.9,89.2,85.4,45.1,+adaptive dual-match boost +substring overlap +year expansion +adversarial scoring +-ies stemmer +speaker nickname prefix
@@ -19,3 +19,11 @@ date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_scor
 2026-03-19,fbea68c,main,86,word-overlap,2,snowflake-arctic-embed-xs,90.78,88.1,91.5,76.9,93.5,90.2,88.72,30.4,22M params; ONNX includes token_type_ids despite MiniLM base
 2026-03-19,fbea68c,main,86,word-overlap,2,snowflake-arctic-embed-s,90.54,89.5,91.5,73.1,93.0,89.5,87.57,35.8,33M params; ONNX includes token_type_ids
 2026-03-19,fbea68c,main,86,word-overlap,2,gte-small,90.92,89.1,91.5,73.1,93.7,90.2,90.81,65.3,33M params pure BERT; 724MB peak RSS vs 241MB for arctic-xs
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,all-MiniLM-L6-v2-int8,91.3,88.5,91.5,76.9,93.1,92.3,89.2,7.4,Xenova int8; 5x speedup over FP32 (was 39ms)
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,all-MiniLM-L12-v2-int8,91.1,86.8,91.5,75.6,94.3,90.9,90.4,12.3,Xenova int8; 2x speedup over FP32 (was 27ms)
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,e5-small-v2-int8,90.8,88.4,91.5,73.1,93.0,91.1,88.6,4.8,Xenova int8; 8x speedup over FP32 (was 41ms)
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,bge-base-en-v1.5-int8,91.8,87.1,91.5,76.9,94.9,92.7,90.4,10.5,Xenova int8; 4x speedup over FP32 (was 42ms); 110MB vs 438MB
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,snowflake-arctic-embed-xs-int8,90.2,87.0,91.5,76.9,92.7,89.5,88.7,3.9,Snowflake official int8; 8x speedup over FP32 (was 30ms)
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,gte-small-int8,90.9,86.2,91.5,73.1,94.0,91.7,89.5,11.7,Xenova int8; 6x speedup over FP32 (was 65ms)
+2026-03-19,c7b160d,feat/onnx-int8-models,87,word-overlap,2,snowflake-arctic-embed-s-int8,90.8,89.5,91.5,73.1,93.0,90.8,87.8,7.8,Snowflake official int8; 4.6x speedup over FP32 (was 36ms)
+2026-03-19,c7b160d,feat/onnx-int8-models,89,word-overlap,2,bge-small-en-v1.5-xenova-int8,91.1,87.6,91.5,75.6,94.0,90.9,90.2,7.0,switch production default to Xenova int8; 180MB RAM vs 277MB FP32 (-35%); quality unchanged

@@ -13,7 +13,7 @@
 # CSV format (16 columns):
 #   date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,
 #   overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,
-#   evidence_recall,avg_query_ms,notes
+#   evidence_recall,avg_embed_ms,notes
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_CSV="${REPO_DIR}/docs/benchmark_log.csv"
 LATEST_MD="${REPO_DIR}/benchmarks/LATEST.md"
 
-CSV_HEADER="date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_query_ms,notes"
+CSV_HEADER="date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_embed_ms,notes"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 MODEL="bge-small"
@@ -45,77 +45,63 @@ done
 # ── Model → default dim + cargo flags ────────────────────────────────────────
 case "$MODEL" in
     bge-small)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="onnx-bge-small"
         CARGO_FLAGS=(--release --bin locomo_bench -- --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-int8)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-int8"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant int8 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-fp16)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-fp16"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp16 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-fp32)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-fp32"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp32 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     voyage-nano-q4)
-        DEFAULT_DIM=1024
         EMBEDDING_MODEL="voyage-nano-q4"
         DIM_ARG="${DIM:-1024}"
         CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant q4 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     granite)
-        DEFAULT_DIM=384
         EMBEDDING_MODEL="granite-embedding-30m-english"
         CARGO_FLAGS=(--release --bin locomo_bench -- --granite --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     minilm-l6)
-        DEFAULT_DIM=384
-        EMBEDDING_MODEL="all-MiniLM-L6-v2"
+        EMBEDDING_MODEL="all-MiniLM-L6-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l6 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     minilm-l12)
-        DEFAULT_DIM=384
-        EMBEDDING_MODEL="all-MiniLM-L12-v2"
+        EMBEDDING_MODEL="all-MiniLM-L12-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l12 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     e5-small)
-        DEFAULT_DIM=384
-        EMBEDDING_MODEL="e5-small-v2"
+        EMBEDDING_MODEL="e5-small-v2-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --e5-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     bge-base)
-        DEFAULT_DIM=768
-        EMBEDDING_MODEL="bge-base-en-v1.5"
+        EMBEDDING_MODEL="bge-base-en-v1.5-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --bge-base --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     nomic)
-        DEFAULT_DIM=768
         EMBEDDING_MODEL="nomic-embed-text-v1.5-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --nomic --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     arctic-xs)
-        DEFAULT_DIM=384
-        EMBEDDING_MODEL="snowflake-arctic-embed-xs"
+        EMBEDDING_MODEL="snowflake-arctic-embed-xs-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-xs --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     arctic-s)
-        DEFAULT_DIM=384
-        EMBEDDING_MODEL="snowflake-arctic-embed-s"
+        EMBEDDING_MODEL="snowflake-arctic-embed-s-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-s --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     gte-small)
-        DEFAULT_DIM=384
-        EMBEDDING_MODEL="gte-small"
+        EMBEDDING_MODEL="gte-small-int8"
         CARGO_FLAGS=(--release --bin locomo_bench -- --gte-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
         ;;
     *)
@@ -135,10 +121,10 @@ fi
 
 # ── Run benchmark, capture output ────────────────────────────────────────────
 cd "${REPO_DIR}"
-echo "Running: cargo ${CARGO_FLAGS[*]}"
+echo "Running: cargo run ${CARGO_FLAGS[*]}"
 echo "──────────────────────────────────────────────────────────────────────────"
 
-RAW_OUTPUT="$(cargo "${CARGO_FLAGS[@]}" 2>&1)"
+RAW_OUTPUT="$(cargo run "${CARGO_FLAGS[@]}" 2>&1)"
 EXIT_CODE=$?
 echo "${RAW_OUTPUT}"
 echo "──────────────────────────────────────────────────────────────────────────"
@@ -175,9 +161,9 @@ open_domain="${open_domain:-}"
 adversarial=$(echo "${RAW_OUTPUT}" | grep "Adversarial" | grep -oE '[0-9]+\.[0-9]+%' | sed -n '2p' | tr -d '%')
 adversarial="${adversarial:-}"
 
-# Timing
-avg_query_ms=$(echo "${RAW_OUTPUT}" | grep "Avg query:" | grep -oE '[0-9]+ms' | tr -d 'ms' | head -1)
-avg_query_ms="${avg_query_ms:-}"
+# Timing — log avg embed latency (ms) for the embedding step only.
+avg_embed_ms=$(echo "${RAW_OUTPUT}" | grep "Avg embed:" | grep -oE '[0-9]+(\.[0-9]+)?ms' | tr -d 'ms' | head -1)
+avg_embed_ms="${avg_embed_ms:-}"
 
 # Git metadata
 DATE_STR="$(date '+%Y-%m-%d')"
@@ -185,7 +171,7 @@ COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo '')"
 BRANCH="$(git -C "${REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
 
 # ── Append CSV row ────────────────────────────────────────────────────────────
-CSV_ROW="${DATE_STR},${COMMIT},${BRANCH},,${SCORING_MODE},${SAMPLES},${EMBEDDING_MODEL},${overall_score},${single_hop},${temporal},${multi_hop},${open_domain},${adversarial},${evidence_recall},${avg_query_ms},${NOTES}"
+CSV_ROW="${DATE_STR},${COMMIT},${BRANCH},,${SCORING_MODE},${SAMPLES},${EMBEDDING_MODEL},${overall_score},${single_hop},${temporal},${multi_hop},${open_domain},${adversarial},${evidence_recall},${avg_embed_ms},${NOTES}"
 echo "${CSV_ROW}" >> "${RESULTS_CSV}"
 echo "Appended result to ${RESULTS_CSV}"
 
@@ -193,7 +179,7 @@ echo "Appended result to ${RESULTS_CSV}"
 print_table() {
     local mode="$1"
     printf "\n## LoCoMo Benchmark — %s scoring\n\n" "${mode}"
-    printf "| Date | Model | Overall%% | 1-Hop | Temporal | Multi-Hop | Open | Adv | EvRec%% | Avg Q (ms) |\n"
+    printf "| Date | Model | Overall%% | 1-Hop | Temporal | Multi-Hop | Open | Adv | EvRec%% | Avg Emb (ms) |\n"
     printf "|------|-------|---------|-------|----------|-----------|------|-----|--------|------------|\n"
 
     # Skip header line, filter by scoring_mode (col 5)
