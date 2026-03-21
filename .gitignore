@@ -6,6 +6,9 @@
 # Local provenance / legal notes (not published)
 PROVENANCE.local.md
 
+# Claude Code worktrees (agent isolation)
+.claude/worktrees/
+
 # Local MCP config (machine-specific paths)
 .mcp.json
 

@@ -28,63 +28,116 @@ MAG and AutoMem solve the same class of problem: durable memory for local agents
 
 On the shared LoCoMo benchmark (word-overlap scoring), MAG scores 91.1% vs AutoMem's published 90.5%. See [Benchmarks](#benchmarks) below.
 
-## Quick Start
+## Install
 
-### Build
+### Shell (macOS / Linux)
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
+```
+
+### Homebrew
+
+```bash
+brew install George-RD/mag/mag
+```
+
+### npm
+
+```bash
+npm install -g mag-memory
+```
+
+### pip
+
+```bash
+pip install mag-memory
+```
+
+### Cargo
+
+```bash
+cargo install mag-memory
+```
+
+### From source
+
+```bash
+git clone https://github.com/George-RD/mag.git
+cd mag
 cargo build --release
+# Binary: ./target/release/mag
 ```
 
-The main binary is `./target/release/mag`.
+### GitHub Releases
 
-### Show Active Paths
+Download prebuilt binaries for macOS (x64, ARM), Linux (x64, ARM), and Windows (x64) from [Releases](https://github.com/George-RD/mag/releases).
+
+## Configure Your MCP Client
+
+MAG runs as an MCP server. Add it to your client's config to start using it.
+
+### Claude Desktop / Cursor / Windsurf
+
+Add to your MCP config file:
+
+```json
+{
+  "mcpServers": {
+    "mag": {
+      "command": "mag",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+If `mag` is not on your PATH, use the full path:
+
+```json
+{
+  "mcpServers": {
+    "mag": {
+      "command": "/Users/you/.mag/bin/mag",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+### Claude Code
 
 ```bash
-cargo run --release -- paths
+claude mcp add mag -- mag serve
 ```
 
-New installs use `~/.mag/`. For one release cycle, if `~/.mag/memory.db` is absent but `~/.romega-memory/memory.db` exists, MAG continues using the legacy root, even when `~/.mag/` already contains cache directories. The `paths` command shows the active data, database, model, and benchmark-cache locations explicitly.
+### npx (no install)
 
-### Download Models
+Use MAG without installing anything:
+
+```json
+{
+  "mcpServers": {
+    "mag": {
+      "command": "npx",
+      "args": ["-y", "mag-memory", "serve"]
+    }
+  }
+}
+```
+
+## CLI
 
 ```bash
-cargo run --release -- download-model
-cargo run --release -- download-cross-encoder
+mag ingest "The retry logic should use exponential backoff with jitter"
+mag search "retry logic"
+mag semantic-search "how should retries work?"
+mag advanced-search "deployment rollback process"
+mag recent --limit 5
+mag --help
 ```
 
-Model files are cached under the active MAG root, usually `~/.mag/models/`.
-
-### Warm Benchmark Datasets
-
-```bash
-cargo run --release --bin fetch_benchmark_data -- --dataset all
-```
-
-Benchmark datasets are fetched externally and cached under the active MAG root, usually:
-
-- `~/.mag/benchmarks/longmemeval/`
-- `~/.mag/benchmarks/locomo/`
-
-### Try the CLI
-
-```bash
-cargo run --release -- ingest "The retry logic should use exponential backoff with jitter"
-cargo run --release -- search "retry logic"
-cargo run --release -- semantic-search "how should retries work?"
-cargo run --release -- advanced-search "deployment rollback process"
-cargo run --release -- recent --limit 5
-cargo run --release -- --help
-```
-
-### Run the MCP Server
-
-```bash
-cargo run --release -- serve
-./target/release/mag serve
-```
-
-Copy `.mcp.json.example` to `.mcp.json` and point your MCP client at the local binary.
+Models download automatically on first use. Data is stored in `~/.mag/`. Run `mag paths` to see active locations.
 
 ## Benchmarks
 

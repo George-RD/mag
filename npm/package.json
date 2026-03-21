@@ -1,0 +1,41 @@
+{
+  "name": "mag-memory",
+  "version": "0.1.0",
+  "description": "MAG — Memory Augmented Generation. Local MCP memory server with ONNX embeddings.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/George-RD/mag"
+  },
+  "homepage": "https://github.com/George-RD/mag",
+  "bugs": {
+    "url": "https://github.com/George-RD/mag/issues"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "ai",
+    "embeddings",
+    "semantic-search"
+  ],
+  "bin": {
+    "mag": "bin/mag"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ]
+}

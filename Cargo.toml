@@ -1,11 +1,20 @@
 [package]
-name = "mag"
+name = "mag-memory"
 version = "0.1.0"
 edition = "2024"
 autobenches = false
 license = "MIT"
+description = "MAG — Local MCP memory server with ONNX embeddings and semantic search"
+repository = "https://github.com/George-RD/mag"
+homepage = "https://github.com/George-RD/mag"
+readme = "README.md"
+keywords = ["mcp", "memory", "ai", "embeddings", "semantic-search"]
+categories = ["command-line-utilities", "database"]
+exclude = [".claude/", ".github/", "benches/", "conductor/", "data/", "docs/", "npm/", "python/", "scripts/", "tests/", "install.sh"]
+default-run = "mag"
 
 [lib]
+name = "mag"
 doctest = false
 
 [features]
@@ -53,6 +62,10 @@ all = { level = "deny", priority = -1 }
 cast_possible_truncation = "deny"
 cast_sign_loss = "deny"
 cast_precision_loss = "deny"
+
+[[bin]]
+name = "mag"
+path = "src/main.rs"
 
 [[bin]]
 name = "longmemeval_bench"

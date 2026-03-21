@@ -5,7 +5,11 @@
       "Bash(for pr:lint)",
       "Bash(for pr:test)",
       "WebFetch(domain:api.voyageai.com)",
-      "WebFetch(domain:huggingface.co)"
+      "WebFetch(domain:huggingface.co)",
+      "WebFetch(domain:crates.io)",
+      "Skill(release)",
+      "WebFetch(domain:cas-bridge.xethub.hf.co)",
+      "WebFetch(domain:api.github.com)"
     ]
   },
   "hooks": {

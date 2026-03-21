@@ -59,7 +59,7 @@ pub struct SearchFilterArgs {
 
 /// The main CLI entry point for MAG.
 #[derive(Parser)]
-#[command(name = "mag")]
+#[command(name = "mag", version)]
 #[command(about = "Memory-Augmented Generation for local agents and MCP clients", long_about = None)]
 pub struct Cli {
     #[arg(long, value_enum, default_value_t = InitModeArg::Default, global = true)]
