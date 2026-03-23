@@ -11,10 +11,10 @@ import subprocess
 import sys
 
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 # Version of the Rust binary to download (kept in sync with __version__)
-_BINARY_VERSION = "0.1.1"
+_BINARY_VERSION = "0.1.2"
 
 
 def _binary_dir():
@@ -31,6 +31,19 @@ def _binary_name():
     return "mag"
 
 
+def _is_rust_binary(path):
+    # type: (str) -> bool
+    """Check if a file is a native binary (not a script wrapper)."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(4)
+            # Mach-O (macOS), ELF (Linux), MZ (Windows PE)
+            return header[:4] in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe",
+                                  b"\x7fELF", b"MZ\x90\x00", b"MZ\x00\x00")
+    except (IOError, OSError):
+        return False
+
+
 def _find_binary():
     # type: () -> str | None
     """Locate the mag binary: package dir first, then PATH."""
@@ -39,9 +52,12 @@ def _find_binary():
     if os.path.isfile(packaged) and os.access(packaged, os.X_OK):
         return packaged
 
-    # 2. Fall back to PATH
+    # 2. Fall back to PATH — but only accept real binaries, not script wrappers
+    #    (avoids infinite recursion when uv/pipx wrapper is on PATH)
     found = shutil.which("mag")
-    return found
+    if found and _is_rust_binary(found):
+        return found
+    return None
 
 
 def main():

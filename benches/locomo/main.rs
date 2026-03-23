@@ -165,6 +165,9 @@ struct Args {
     /// Run a graph_neighbor_factor sweep: seed once, then re-query at multiple factor values.
     #[arg(long)]
     graph_sweep: bool,
+    /// Enable cross-encoder reranking in advanced search.
+    #[arg(long)]
+    cross_encoder: bool,
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -528,6 +531,18 @@ fn main() -> Result<()> {
     // Aggregate graph edge stats across all samples.
     let mut graph_edge_totals: BTreeMap<String, i64> = BTreeMap::new();
 
+    // Optional cross-encoder reranker (initialized once, shared across samples).
+    #[cfg(feature = "real-embeddings")]
+    let reranker = if args.cross_encoder {
+        eprintln!("Initializing cross-encoder reranker...");
+        let r = Arc::new(mag::memory_core::reranker::CrossEncoderReranker::new()?);
+        runtime.block_on(r.warmup())?;
+        eprintln!("Cross-encoder ready.");
+        Some(r)
+    } else {
+        None
+    };
+
     // Keep seeded storages for --graph-sweep (re-query without re-seeding).
     let mut sweep_storages: Vec<(SqliteStorage, usize)> = Vec::new();
 
@@ -540,6 +555,12 @@ fn main() -> Result<()> {
 
         // Fresh database per sample -- isolates conversations.
         let mut storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
+
+        // Attach reranker if --cross-encoder was passed.
+        #[cfg(feature = "real-embeddings")]
+        if let Some(ref r) = reranker {
+            storage = storage.with_reranker(r.clone());
+        }
 
         // Apply CLI overrides to scoring params.
         if let Some(gf) = args.graph_factor {
