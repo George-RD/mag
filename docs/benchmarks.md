@@ -13,8 +13,7 @@ This document records the benchmark methodology and the latest measured outputs 
 ## Dataset Policy
 
 - Benchmark datasets are fetched externally and cached under the active MAG root.
-- Default cache root is the active MAG benchmark root, usually `~/.mag/benchmarks/`.
-- If `~/.mag/memory.db` is absent but `~/.romega-memory/memory.db` exists, MAG uses the legacy root, even when `~/.mag/` already contains cache directories.
+- Default cache root is `~/.mag/benchmarks/`.
 - `--dataset-path` overrides the cache entirely.
 - `--force-refresh` re-downloads the dataset.
 - `cargo run --release --bin fetch_benchmark_data -- --dataset all` warms the cache without running the benchmarks.
@@ -69,7 +68,7 @@ Result from the initial official sample rerun:
 | Metric | Value |
 | --- | --- |
 | Dataset source | `https://huggingface.co/datasets/LIXINYI33/longmemeval-s/resolve/main/longmemeval_s_cleaned.json` |
-| Cached path | `$HOME/.romega-memory/benchmarks/longmemeval/longmemeval_s_cleaned.json` |
+| Cached path | `$HOME/.mag/benchmarks/longmemeval/longmemeval_s_cleaned.json` |
 | Questions evaluated | `10 / 500` |
 | Correct | `8` |
 | Raw accuracy | `80.0%` |

@@ -90,12 +90,9 @@ async fn main() -> anyhow::Result<()> {
             "{}",
             serde_json::to_string_pretty(&json!({
                 "data_root": paths.data_root,
-                "preferred_data_root": paths.preferred_data_root,
                 "database_path": paths.database_path,
                 "model_root": paths.model_root,
                 "benchmark_root": paths.benchmark_root,
-                "legacy_data_root": paths.legacy_data_root,
-                "using_legacy_root": paths.using_legacy_root,
             }))?
         );
         return Ok(());
@@ -1086,7 +1083,7 @@ fn format_time_filter(dt: DateTime<FixedOffset>) -> String {
         .to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-async fn run_doctor(verbose: bool) -> anyhow::Result<()> {
+async fn run_doctor(_verbose: bool) -> anyhow::Result<()> {
     println!("Checking MAG setup...\n");
 
     let mut passed = 0u32;
@@ -1109,12 +1106,6 @@ async fn run_doctor(verbose: bool) -> anyhow::Result<()> {
                     p.data_root.display()
                 );
                 passed += 1;
-            }
-            if verbose && p.using_legacy_root {
-                println!(
-                    "       Using legacy root (preferred: {})",
-                    p.preferred_data_root.display()
-                );
             }
             Some(p)
         }

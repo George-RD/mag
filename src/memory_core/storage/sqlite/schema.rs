@@ -316,8 +316,7 @@ pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Resolves the default database path, preferring `$HOME/.mag/memory.db`
-/// and falling back to the legacy `$HOME/.romega-memory/memory.db`.
+/// Resolves the default database path: `$HOME/.mag/memory.db`.
 pub(super) fn default_db_path() -> Result<PathBuf> {
     app_paths::resolve_app_paths().map(|paths| paths.database_path)
 }

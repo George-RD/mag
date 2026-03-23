@@ -157,7 +157,7 @@ This repo uses jj (Jujutsu) in colocated mode.
 - LoCoMo categories: cat 1=single-hop, 2=temporal, 3=multi-hop, 4=open-domain, 5=adversarial
 - `.env.local` contains OPENAI_API_KEY — in .gitignore, loaded by `dotenvy::from_filename(".env.local")`
 - `conductor/` contains product planning docs — not runtime code
-- Model files (~134 MB) auto-download on first use; `~/.mag/models/` preferred, `~/.romega-memory/models/` legacy
+- Model files (~134 MB) auto-download on first use; cached under `~/.mag/models/`
 - `GRAPH_NEIGHBOR_FACTOR=0.1` — graph enrichment Phase 5 re-enabled at conservative factor; guarded by `if > 0.0`
 - Git hooks do NOT fire under jj — run `prek run` explicitly before pushing
 - Benchmark history: `docs/benchmark_log.csv` (16 cols); methodology at `docs/benchmarks.md`

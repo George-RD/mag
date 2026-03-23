@@ -9,6 +9,10 @@ PROVENANCE.local.md
 # Claude Code worktrees (agent isolation)
 .claude/worktrees/
 
+# Grand Slam Offer workshop (private strategy docs, not for public repo)
+mag-offer.md
+mag-research.md
+
 # Local MCP config (machine-specific paths)
 .mcp.json
 

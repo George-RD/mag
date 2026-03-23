@@ -1,85 +1,115 @@
-# MAG — Persistent memory for your AI tools
+<div align="center">
+  <h1>MAG</h1>
+  <p><em>Open any tool. Your context is already there.</em></p>
+  <p>
+    <a href="https://github.com/George-RD/mag/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/George-RD/mag/ci.yml?branch=main" alt="CI"></a>
+    <a href="https://crates.io/crates/mag-memory"><img src="https://img.shields.io/crates/v/mag-memory" alt="crates.io"></a>
+    <a href="https://www.npmjs.com/package/mag-memory"><img src="https://img.shields.io/npm/v/mag-memory" alt="npm"></a>
+    <a href="https://github.com/George-RD/mag/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
+    <a href="https://github.com/George-RD/mag"><img src="https://img.shields.io/github/stars/George-RD/mag" alt="GitHub Stars"></a>
+  </p>
+  <p>
+    <a href="https://github.com/George-RD/mag/tree/main/docs">Documentation</a> |
+    <a href="https://github.com/George-RD/mag/issues">Issues</a> |
+    <a href="https://github.com/George-RD/mag/blob/main/docs/benchmarks.md">Benchmarks</a> |
+    <a href="https://github.com/George-RD/mag/blob/main/SECURITY.md">Security</a>
+  </p>
+</div>
 
-One memory store. Works across every tool on your machine.
+---
 
-MAG stores the context your AI tools lose when you close the session. It runs as a local binary, single SQLite file, no external services required. API embedding models are optional. Every tool that supports MCP reads from the same memory: Cursor, Claude Code, Windsurf, Cline, Claude Desktop. The retrieval pipeline is hybrid FTS5 + ONNX embeddings + graph traversal, built in Rust, benchmarked at 91.1% word-overlap on LoCoMo. AutoMem's published score is 90.5%.
+Every new session, your AI starts from zero. The decisions you made yesterday, the patterns you taught it, the bugs you already solved together - gone. You re-explain. It re-discovers. You lose hours every week to an assistant with no long-term memory.
 
-## Why MAG
+MAG fixes this. It gives your AI tools persistent memory that survives across sessions, across projects, and across tools. Open Claude on Monday. It already knows what you decided on Friday.
 
-- **One binary, one file.** No Python runtime, no external service required. All data stays local by default.
-- **Hybrid retrieval.** FTS5, ONNX embeddings, graph traversal, and multi-phase advanced search in a single pipeline.
-- **Works across tools.** Cursor, Claude Code, Windsurf, Cline, Claude Desktop — same memory, same file.
-- **Agent-oriented.** Checkpoints, reminders, lessons, profile state, lifecycle tools, and MCP integration.
-- **Portable.** Additive migrations, JSON export/import, no standing service dependency.
+---
 
-## Compared With AutoMem / OpenMemory MCP
-
-MAG and AutoMem solve the same class of problem: durable memory for local agents. The differences are in the operating model.
-
-| | MAG | AutoMem / OpenMemory MCP |
-|---|---|---|
-| Runtime | Rust binary, no Python | Python + pip/uv |
-| Storage | SQLite (single file) | SQLite |
-| Retrieval | Hybrid FTS5 + ONNX semantic + graph traversal | Vector search |
-| Embedding | Local ONNX (bge-small, Apache 2.0) | Local or API |
-| Migrations | Additive (no breaking schema changes) | — |
-| License | MIT | Varies |
-| External services | None required | None required |
-
-On the shared LoCoMo benchmark (word-overlap scoring), MAG scores 91.1% vs AutoMem's published 90.5%. See [Benchmarks](#benchmarks) below.
-
-## Install
-
-### Shell (macOS / Linux)
+## Quick Start
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
 ```
 
-### Homebrew
-
 ```bash
-brew install George-RD/mag/mag
+mag ingest "The retry logic should use exponential backoff with jitter"
+mag search "how should retries work?"
+# → "The retry logic should use exponential backoff with jitter" (score: 0.94)
 ```
 
-### npm
+That's it. One command to install, one to store, one to recall. Add MAG to your MCP client and your AI tools remember automatically.
+
+---
+
+## Why Developers Choose MAG
+
+- **Switch from Claude to Cursor. Your context came with you.** One memory store works across every MCP-compatible tool on your machine.
+- **Finds what you stored, even when you search differently than how you saved it.** Hybrid retrieval fuses full-text, semantic, and graph search so you don't need exact wording.
+- **No servers. No accounts. No "free tier."** A single Rust binary, a single SQLite file. Install it, use it, own it.
+- **Your client signed an NDA with you. Not with Mem0's infrastructure.** Zero network calls by default. Everything runs on your machine.
+- **Your memory, not your vendor's.** Claude, Cursor, and ChatGPT are all building their own memory - but it stays inside their tool. MAG bridges all of them. One memory store, every tool, portable forever.
+
+---
+
+## Works With
+
+| Tool | macOS | Linux | Status |
+|---|---|---|---|
+| Claude Desktop | ✅ | ✅ | Supported |
+| Cursor | ✅ | ✅ | Supported |
+| Claude Code | ✅ | ✅ | Supported |
+| Windsurf | ✅ | ✅ | Community-reported |
+| Cline | ✅ | ✅ | Community-reported |
+
+Any tool that supports MCP can connect to MAG. Windows is untested - [report your results](https://github.com/George-RD/mag/issues).
+
+---
+
+## Benchmarks
+
+**91.1% retrieval accuracy on the LoCoMo memory benchmark.** Don't trust our number - [run it yourself](docs/benchmarks.md#running-the-benchmark):
 
 ```bash
-npm install -g mag-memory
+./scripts/bench.sh
 ```
 
-### pip
+AutoMem's published score on the same benchmark is 90.5%. Full methodology, model comparisons, and historical runs in [docs/benchmarks.md](docs/benchmarks.md).
 
-```bash
-pip install mag-memory
-```
+---
 
-### Cargo
+## Your Data, Your Machine
 
-```bash
-cargo install mag-memory
-```
+Client data stays on your machine. Not on Mem0's servers. Not anyone else's.
 
-### From source
+MAG has no servers to shut down. Your memories live in a single SQLite file. Open it with any SQLite browser. Export everything with one command. The binary keeps working whether we maintain this project or not.
 
-```bash
-git clone https://github.com/George-RD/mag.git
-cd mag
-cargo build --release
-# Binary: ./target/release/mag
-```
+- Zero network calls (API embedding models are optional, off by default)
+- Single SQLite file, portable and inspectable
+- MIT licensed, no tiers, no vendor lock-in
 
-### GitHub Releases
+See [SECURITY.md](SECURITY.md) for the full data-flow audit.
 
-Download prebuilt binaries for macOS (x64, ARM), Linux (x64, ARM), and Windows (x64) from [Releases](https://github.com/George-RD/mag/releases).
+---
+
+## Install
+
+| Method | Command |
+|---|---|
+| **Shell** (macOS / Linux) | `curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh \| sh` |
+| **Homebrew** | `brew install George-RD/mag/mag` |
+| **npm** | `npm install -g mag-memory` |
+| **pip** | `pip install mag-memory` |
+| **uv** | `uv tool install mag-memory` |
+| **Cargo** | `cargo install mag-memory` |
+
+**From source:** `git clone https://github.com/George-RD/mag.git && cd mag && cargo build --release`
+
+**Prebuilt binaries:** macOS (x64, ARM), Linux (x64, ARM), Windows (x64) on the [Releases page](https://github.com/George-RD/mag/releases).
+
+---
 
 ## Configure Your MCP Client
 
-MAG runs as an MCP server. Add it to your client's config to start using it.
-
-### Claude Desktop / Cursor / Windsurf
-
-Add to your MCP config file:
+MAG runs as an MCP server. Add it to your client config:
 
 ```json
 {
@@ -92,28 +122,13 @@ Add to your MCP config file:
 }
 ```
 
-If `mag` is not on your PATH, use the full path:
-
-```json
-{
-  "mcpServers": {
-    "mag": {
-      "command": "/Users/you/.mag/bin/mag",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-### Claude Code
+**Claude Code:**
 
 ```bash
 claude mcp add mag -- mag serve
 ```
 
-### npx (no install)
-
-Use MAG without installing anything:
+**npx (no install):**
 
 ```json
 {
@@ -126,157 +141,19 @@ Use MAG without installing anything:
 }
 ```
 
-## CLI
+Per-tool setup guides: [Claude Desktop](docs/setup/claude-desktop.md) | [Cursor](docs/setup/cursor.md) | [Claude Code](docs/setup/claude-code.md) | [Windsurf](docs/setup/windsurf.md) | [Cline](docs/setup/cline.md)
 
-```bash
-mag ingest "The retry logic should use exponential backoff with jitter"
-mag search "retry logic"
-mag semantic-search "how should retries work?"
-mag advanced-search "deployment rollback process"
-mag recent --limit 5
-mag --help
-```
+---
 
-Models download automatically on first use. Data is stored in `~/.mag/`. Run `mag paths` to see active locations.
+## Learn More
 
-## Benchmarks
+- [Benchmarks](docs/benchmarks.md) - full results, model comparisons, methodology
+- [Security](SECURITY.md) - data-flow audit, threat model
+- [What to Store](docs/what-to-store.md) - get the most out of persistent memory
+- [Setup Guides](docs/setup/) - per-tool configuration instructions
+- [AGENTS.md](AGENTS.md) - architecture, conventions, development commands
 
-Current benchmark snapshots were captured on `2026-03-19` at commit `26e51cf3` on `macOS aarch64`. Word-overlap is the primary LoCoMo metric (comparable to AutoMem's published 90.5%).
-
-### LoCoMo (word-overlap scoring, 2 samples, bge-small-en-v1.5)
-
-| Category | Word-Overlap |
-| --- | --- |
-| **Overall** | **91.1%** |
-| Evidence recall | 90.2% |
-| Single-hop | 87.6% |
-| Temporal | 91.5% |
-| Multi-hop | 75.6% |
-| Open-domain | 94.0% |
-| Adversarial | 90.9% |
-
-788 memories, 304 questions across 2 samples. Avg query: 34 ms, avg embed: 7.5 ms, seed time: 9.7 s.
-
-### Embedding Model Comparison (LoCoMo word-overlap, 2 samples)
-
-ONNX models use int8 quantization unless marked ¹ (no pre-built int8 available); the voyage-4-nano 1024-dim row uses mixed int8/fp32 quantization (int8 and fp32 runs averaged). API models are unquantized. Temporal Reasoning is 91.5% for every model and excluded. Scores across models within ~1 pp are within benchmark variance (304 questions, ~1.5% SE).
-
-| Model | Params | Dim | WO% | EvRec% | 1-Hop | Multi-Hop | Open | Adv | AvgEmb | File | RAM |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| granite-embedding-30m-english ¹ | 30M | 384 | 90.5% | 87.5% | 88.9% | 76.9% | 91.7% | 91.1% | 3.8 ms | 116 MB | 350 MB |
-| snowflake-arctic-embed-xs int8 | 22M | 384 | 90.2% | 88.7% | 87.0% | 76.9% | 92.7% | 89.5% | 3.9 ms | 22 MB | 137 MB |
-| e5-small-v2 int8 | 33M | 384 | 90.8% | 88.6% | 88.4% | 73.1% | 93.0% | 91.1% | 4.8 ms | 32 MB | 152 MB |
-| all-MiniLM-L6-v2 int8 | 22M | 384 | 91.3% | 89.2% | 88.5% | 76.9% | 93.1% | 92.3% | 7.4 ms | 22 MB | 95 MB |
-| **bge-small-en-v1.5 int8** *(default)* | 33M | 384 | 91.1% | 90.2% | 87.6% | 75.6% | 94.0% | 90.9% | 7.0 ms | 32 MB | 180 MB |
-| snowflake-arctic-embed-s int8 | 33M | 384 | 90.8% | 87.8% | 89.5% | 73.1% | 93.0% | 90.8% | 7.8 ms | 32 MB | 178 MB |
-| bge-base-en-v1.5 int8 | 109M | 768 | 91.8% | 90.4% | 87.1% | 76.9% | 94.9% | 92.7% | 10.5 ms | 105 MB | 265 MB |
-| gte-small int8 | 33M | 384 | 90.9% | 89.5% | 86.2% | 73.1% | 94.0% | 91.7% | 11.7 ms | 32 MB | 162 MB |
-| all-MiniLM-L12-v2 int8 | 33M | 384 | 91.1% | 90.4% | 86.8% | 75.6% | 94.3% | 90.9% | 12.3 ms | 32 MB | 158 MB |
-| nomic-embed-text-v1.5 int8 | 137M | 768 | 90.0% | 86.6% | 88.4% | 74.4% | 90.8% | 91.0% | 42 ms | 131 MB | 351 MB |
-| voyage-4-nano int8 512-dim | — | 512 | 91.3% | 91.6% | 88.8% | 75.6% | 93.7% | 91.6% | 58 ms | — | — |
-| voyage-4-nano int8/fp32 1024-dim | — | 1024 | 91.8% | 91.3% | 93.5% | 75.6% | 93.3% | 91.6% | 82–172 ms | — | — |
-| voyage-4-lite (API) | — | 1024 | 91.1% | 91.0% | 91.1% | 73.1% | 93.4% | 90.2% | 304 ms | — | — |
-| voyage-4 (API) | — | 1024 | 92.0% | 92.7% | 92.3% | 75.6% | 94.8% | 90.6% | 297 ms | — | — |
-| text-embedding-3-large (API) | — | 3072 | 93.0% | 93.4% | 94.6% | 74.4% | 95.3% | 93.1% | 444 ms | — | — |
-
-¹ FP32 (no pre-built int8 ONNX available).
-
-bge-small-en-v1.5 is the default (Apache 2.0, Xenova int8). It uses 32 MB on disk and 180 MB peak RSS — a 35% reduction vs the previous FP32 default (277 MB) with identical quality. MiniLM-L6 int8 is the lightest option at 22 MB / 95 MB RSS with equivalent quality. bge-base int8 is the best local ONNX model at +0.7 pp for only 1.4× the latency. Switching embedding models requires re-embedding stored data — see [issue #89](https://github.com/George-RD/mag/issues/89). Multi-hop is stuck at 73–77% across all models — architectural issue tracked in [issue #84](https://github.com/George-RD/mag/issues/84).
-
-### Other Benchmarks (earlier snapshot, 2026-03-12)
-
-| Benchmark | Result | Notes |
-| --- | --- | --- |
-| Local LongMemEval-style set | `98 / 100` | `1538 ms` seeding, `1013 ms` querying, `335568 KB` peak RSS |
-| Scale benchmark | `100% Recall@5` at `1K`, `5K`, `10K` | `19.61 ms` mean, `42.56 ms` p95, `51.94 ms` p99 at `10K` |
-| `omega-memory` comparison | MAG `98 / 100` vs omega `90 / 100` | omega seeded and queried faster on this local workload |
-| Official `LongMemEval_S` sample | `8 / 10` | external dataset fetch works; full `500`-question publication is still pending |
-
-Full methodology, commands, and result tables are in [docs/benchmarks.md](docs/benchmarks.md). Historical runs are tracked in [docs/benchmark_log.csv](docs/benchmark_log.csv).
-
-### Benchmark Safety
-
-Benchmark runs do not touch the normal MAG production database. The official LongMemEval harness uses a fresh in-memory SQLite database per question, and the LoCoMo harness uses a fresh in-memory SQLite database per sample. The main persistent side effect is dataset/model caching under the active MAG root.
-
-## Compatibility
-
-| Tool | macOS | Linux | Windows | Status | Last Verified |
-|---|---|---|---|---|---|
-| Claude Desktop | ✅ | ✅ | — | Supported | 2026-03-20 |
-| Cursor | ✅ | ✅ | — | Supported | 2026-03-20 |
-| Claude Code | ✅ | ✅ | — | Supported | 2026-03-20 |
-| Windsurf | ✅ | ✅ | — | Community-reported | 2026-03-20 |
-| Cline | ✅ | ✅ | — | Community-reported | 2026-03-20 |
-
-Windows support is untested. If you verify MAG on a tool or platform not listed here, [open an issue](https://github.com/George-RD/mag/issues) to update the matrix.
-
-## Guarantee
-
-MAG has no servers to shut down. Your memories live in a single SQLite file. Open it with any SQLite browser. Export everything with one command. The binary keeps working whether we maintain this project or not. MIT licensed, no tiers.
-
-By default, the binary reads and writes a local SQLite file. API embedding models (optional) send query text to external services. See [SECURITY.md](SECURITY.md) for the full data flow audit.
-
-## Retrieval Model
-
-MAG currently supports:
-
-- text search over FTS5
-- semantic search over ONNX embeddings
-- similar-memory lookup from a stored memory ID
-- graph traversal and version-chain lookup
-- advanced retrieval that fuses vector and lexical candidates
-
-The advanced path combines vector similarity and FTS hits with reciprocal-rank fusion, then refines ranking with event type, time decay, word overlap, importance, priority, and feedback signals. Queries are classified by intent (Keyword / Factual / Conceptual / General) to weight retrieval modes appropriately. Entity extraction runs at ingest time for auto-tagging and graph-edge creation.
-
-## Architecture
-
-```text
-mag
-├── src/
-│   ├── main.rs
-│   ├── cli.rs
-│   ├── mcp_server.rs
-│   ├── app_paths.rs
-│   ├── benchmarking.rs
-│   └── memory_core/
-│       └── storage/sqlite/
-│           └── entities.rs
-├── benches/
-│   ├── longmemeval/
-│   ├── locomo/
-│   ├── onnx_profile.rs
-│   └── scale_bench.rs
-└── tests/
-```
-
-## Development
-
-### Local Quality Gate
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
-```
-
-### Benchmark Commands
-
-The recommended way to run the standard LoCoMo benchmark:
-
-```bash
-./scripts/bench.sh
-```
-
-For individual benchmarks or the omega-memory comparison, clone `omega-memory` locally first. The comparison script accepts either `--omega-repo` or the `OMEGA_REPO` environment variable.
-
-```bash
-cargo run --release --bin fetch_benchmark_data -- --dataset all
-cargo run --release --bin longmemeval_bench -- --json
-cargo run --release --bin longmemeval_bench -- --official --questions 10 --json
-cargo run --release --bin locomo_bench -- --json
-cargo run --release --bin scale_bench -- --max-scale 10000 --search-queries 50
-OMEGA_REPO=/path/to/omega-memory uv run --project "$OMEGA_REPO" python benches/python_comparison.py
-```
+---
 
 ## License
 

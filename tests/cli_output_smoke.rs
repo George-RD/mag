@@ -153,7 +153,7 @@ fn cli_commands_emit_json_payloads() -> anyhow::Result<()> {
         paths_json["data_root"].as_str(),
         Some(expected_data_root.as_str())
     );
-    assert_eq!(paths_json["using_legacy_root"].as_bool(), Some(false));
+    assert!(paths_json.get("using_legacy_root").is_none());
 
     let (stats_stdout, _stats_stderr) = run_cli(&test_home, &["stats"])?;
     let stats_json: serde_json::Value = serde_json::from_str(stats_stdout.trim())?;

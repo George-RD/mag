@@ -61,9 +61,7 @@ async fn test_stats_include_instance_paths_for_custom_storage() {
             .map(|path| path.display().to_string())
             .as_deref()
     );
-    assert!(stats["paths"].get("preferred_data_root").is_some());
-    assert!(stats["paths"].get("legacy_data_root").is_some());
-    assert!(stats["paths"].get("using_legacy_root").is_some());
+    assert!(stats["paths"].get("data_root").is_some());
 }
 
 #[test]
