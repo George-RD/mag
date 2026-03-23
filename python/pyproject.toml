@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mag-memory"
-version = "0.1.0"
+version = "0.1.1"
 description = "PyPI wrapper for the mag MCP memory server (Rust binary)"
 readme = "README.md"
 license = "MIT"

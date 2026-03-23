@@ -49,7 +49,7 @@ ${BOLD}Install MAG${RESET} — Local MCP memory server
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
-  ./install.sh [--version 0.1.0] [--help]
+  ./install.sh [--version 0.1.0] [--uninstall] [--help]
 
 Environment variables:
   VERSION          Install a specific version (default: latest release)
@@ -69,6 +69,10 @@ parse_args() {
                 VERSION="$2"
                 shift 2
                 ;;
+            --uninstall)
+                UNINSTALL=1
+                shift
+                ;;
             --help|-h)
                 usage
                 ;;
@@ -77,6 +81,39 @@ parse_args() {
                 ;;
         esac
     done
+}
+
+# ---------------------------------------------------------------------------
+# Uninstall
+# ---------------------------------------------------------------------------
+do_uninstall() {
+    INSTALL_DIR="${MAG_INSTALL_DIR:-${HOME}/.mag/bin}"
+
+    if [ -f "${INSTALL_DIR}/mag" ]; then
+        rm -f "${INSTALL_DIR}/mag"
+        ok "Removed ${INSTALL_DIR}/mag"
+    else
+        warn "mag binary not found at ${INSTALL_DIR}/mag"
+    fi
+
+    # Remove empty bin directory
+    if [ -d "$INSTALL_DIR" ] && [ -z "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+        rmdir "$INSTALL_DIR"
+    fi
+
+    # Clean PATH from shell profiles
+    for PROFILE in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.config/fish/config.fish"; do
+        if [ -f "$PROFILE" ] && grep -q "$INSTALL_DIR" "$PROFILE" 2>/dev/null; then
+            # Remove the MAG comment and PATH line
+            TMPFILE="$(mktemp)"
+            sed '/^# MAG$/d' "$PROFILE" | sed "\|${INSTALL_DIR}|d" > "$TMPFILE"
+            mv "$TMPFILE" "$PROFILE"
+            ok "Removed PATH entry from ${PROFILE}"
+        fi
+    done
+
+    info "MAG binary uninstalled. Data remains at ~/.mag/ (delete manually if desired)."
+    exit 0
 }
 
 # ---------------------------------------------------------------------------
@@ -256,31 +293,44 @@ post_install() {
             ;;
     esac
 
-    printf '\n'
-    info "Add mag to your PATH by adding this to your shell profile:"
-    printf '\n'
-
+    PATH_LINE="export PATH=\"${INSTALL_DIR}:\$PATH\""
     SHELL_NAME="$(basename "${SHELL:-/bin/sh}")"
+
     case "$SHELL_NAME" in
         zsh)
-            printf '  %s# Add to ~/.zshrc%s\n'  "${YELLOW}" "${RESET}"
-            printf '  export PATH="%s:$PATH"\n\n' "$INSTALL_DIR"
+            PROFILE="$HOME/.zshrc"
             ;;
         bash)
-            printf '  %s# Add to ~/.bashrc or ~/.bash_profile%s\n' "${YELLOW}" "${RESET}"
-            printf '  export PATH="%s:$PATH"\n\n' "$INSTALL_DIR"
+            if [ -f "$HOME/.bash_profile" ]; then
+                PROFILE="$HOME/.bash_profile"
+            else
+                PROFILE="$HOME/.bashrc"
+            fi
             ;;
         fish)
-            printf '  %s# Add to ~/.config/fish/config.fish%s\n' "${YELLOW}" "${RESET}"
-            printf '  fish_add_path %s\n\n' "$INSTALL_DIR"
+            PROFILE="$HOME/.config/fish/config.fish"
+            PATH_LINE="fish_add_path ${INSTALL_DIR}"
             ;;
         *)
-            printf '  export PATH="%s:$PATH"\n\n' "$INSTALL_DIR"
+            PROFILE=""
             ;;
     esac
 
-    info "Then restart your shell or run:"
-    printf '\n  %sexport PATH="%s:$PATH"%s\n\n' "${BOLD}" "$INSTALL_DIR" "${RESET}"
+    # Auto-add to shell profile if we can
+    if [ -n "$PROFILE" ]; then
+        if [ -f "$PROFILE" ] && grep -q "$INSTALL_DIR" "$PROFILE" 2>/dev/null; then
+            ok "PATH already configured in ${PROFILE}"
+        else
+            printf '%s\n' "" "# MAG" "$PATH_LINE" >> "$PROFILE"
+            ok "Added mag to PATH in ${BOLD}${PROFILE}${RESET}"
+        fi
+        info "Restart your shell or run:"
+        printf '\n  %s%s%s\n\n' "${BOLD}" "$PATH_LINE" "${RESET}"
+    else
+        printf '\n'
+        info "Add mag to your PATH:"
+        printf '\n  %s\n\n' "$PATH_LINE"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -289,6 +339,7 @@ post_install() {
 main() {
     setup_colours
     parse_args "$@"
+    [ "${UNINSTALL:-0}" = "1" ] && do_uninstall
     detect_platform
     resolve_version
     download_and_verify

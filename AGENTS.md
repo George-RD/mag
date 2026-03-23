@@ -33,7 +33,7 @@ cargo run --release --bin locomo_bench -- --samples 2                           
 cargo run --release --bin locomo_bench -- --samples 2 --scoring-mode word-overlap    # AutoMem-comparable
 cargo run --release --bin locomo_bench -- --llm-judge --samples 2                    # LLM judge (needs OPENAI_API_KEY)
 
-# Standardized benchmark runner (logs to docs/benchmark_log.csv, prints comparison table)
+# Standardized benchmark runner (logs to docs/benchmarks/benchmark_log.csv, prints comparison table)
 ./scripts/bench.sh                                 # bge-small, 2 samples, word-overlap
 ./scripts/bench.sh --model voyage-nano-int8        # voyage-4-nano INT8 @ 1024-dim
 ./scripts/bench.sh --model bge-small --samples 10  # full validation run
@@ -119,7 +119,7 @@ Run `prek run` for gates 1-3.
 ## Post-Implementation Checklist
 
 - [ ] Quality gates pass (`prek run`)
-- [ ] Benchmark shows no regression (if applicable); if changed, append row to `docs/benchmark_log.csv`
+- [ ] Benchmark shows no regression (if applicable); if changed, append row to `docs/benchmarks/benchmark_log.csv`
 - [ ] New public APIs have tests
 - [ ] Run code simplification review — check for unnecessary complexity, duplication, missed reuse
 - [ ] Update AGENTS.md if architecture or conventions changed
@@ -160,7 +160,7 @@ This repo uses jj (Jujutsu) in colocated mode.
 - Model files (~134 MB) auto-download on first use; cached under `~/.mag/models/`
 - `GRAPH_NEIGHBOR_FACTOR=0.1` — graph enrichment Phase 5 re-enabled at conservative factor; guarded by `if > 0.0`
 - Git hooks do NOT fire under jj — run `prek run` explicitly before pushing
-- Benchmark history: `docs/benchmark_log.csv` (16 cols); methodology at `docs/benchmarks.md`
+- Benchmark history: `docs/benchmarks/benchmark_log.csv` (16 cols); methodology at `docs/benchmarks/methodology.md`
 - voyage-4-nano ONNX: 2048-dim native; use `--embedder-dim` for Matryoshka truncation (512/1024/2048); quant: int8, fp16, fp32, q4
 
 ## Tool-Specific Notes

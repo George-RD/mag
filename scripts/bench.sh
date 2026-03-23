@@ -7,8 +7,8 @@
 #   ./scripts/bench.sh --model bge-small --samples 10
 #   ./scripts/bench.sh --model voyage-nano-fp32 --dim 512 --scoring-mode word-overlap
 #
-# Appends a row to docs/benchmark_log.csv and prints a comparison table of all
-# runs with the same scoring-mode.  Also writes benchmarks/LATEST.md.
+# Appends a row to docs/benchmarks/benchmark_log.csv and prints a comparison table of all
+# runs with the same scoring-mode.  Also writes docs/benchmarks/LATEST.md.
 #
 # CSV format (16 columns):
 #   date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,
@@ -18,8 +18,8 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RESULTS_CSV="${REPO_DIR}/docs/benchmark_log.csv"
-LATEST_MD="${REPO_DIR}/benchmarks/LATEST.md"
+RESULTS_CSV="${REPO_DIR}/docs/benchmarks/benchmark_log.csv"
+LATEST_MD="${REPO_DIR}/docs/benchmarks/LATEST.md"
 
 CSV_HEADER="date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_score,single_hop,temporal,multi_hop,open_domain,adversarial,evidence_recall,avg_embed_ms,notes"
 
@@ -195,12 +195,12 @@ print_table() {
 TABLE="$(print_table "${SCORING_MODE}")"
 echo "${TABLE}"
 
-# ── Write benchmarks/LATEST.md ────────────────────────────────────────────────
+# ── Write docs/benchmarks/LATEST.md ───────────────────────────────────────────
 mkdir -p "$(dirname "${LATEST_MD}")"
 {
     printf "# MAG Benchmark Results\n\n"
     printf "Latest benchmark runs. Updated automatically by \`./scripts/bench.sh\`.\n\n"
-    printf "See \`docs/benchmark_log.csv\` for full history.\n"
+    printf "See \`docs/benchmarks/benchmark_log.csv\` for full history.\n"
     printf "%s\n" "${TABLE}"
 } > "${LATEST_MD}"
 echo "Updated ${LATEST_MD}"

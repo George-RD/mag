@@ -11,10 +11,10 @@ import subprocess
 import sys
 
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # Version of the Rust binary to download (kept in sync with __version__)
-_BINARY_VERSION = "0.1.0"
+_BINARY_VERSION = "0.1.1"
 
 
 def _binary_dir():
@@ -50,17 +50,20 @@ def main():
     binary = _find_binary()
 
     if binary is None:
-        # Download on first run
-        sys.stderr.write("mag: binary not found, downloading for this platform...\n")
+        # Download on first run — print to stdout and flush so user sees progress
+        print("mag: binary not found, downloading for this platform...")
+        sys.stdout.flush()
         try:
             from mag_memory._download import download_binary
 
             binary = download_binary(_BINARY_VERSION)
+            print("mag: ready!")
+            sys.stdout.flush()
         except Exception as exc:
-            sys.stderr.write("mag: failed to download binary: {}\n".format(exc))
-            sys.stderr.write(
+            print("mag: failed to download binary: {}".format(exc))
+            print(
                 "mag: install manually from "
-                "https://github.com/George-RD/mag/releases\n"
+                "https://github.com/George-RD/mag/releases"
             )
             sys.exit(1)
 

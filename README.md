@@ -11,7 +11,7 @@
   <p>
     <a href="https://github.com/George-RD/mag/tree/main/docs">Documentation</a> |
     <a href="https://github.com/George-RD/mag/issues">Issues</a> |
-    <a href="https://github.com/George-RD/mag/blob/main/docs/benchmarks.md">Benchmarks</a> |
+    <a href="https://github.com/George-RD/mag/blob/main/docs/benchmarks/methodology.md">Benchmarks</a> |
     <a href="https://github.com/George-RD/mag/blob/main/SECURITY.md">Security</a>
   </p>
 </div>
@@ -44,8 +44,8 @@ That's it. One command to install, one to store, one to recall. Add MAG to your 
 
 - **Switch from Claude to Cursor. Your context came with you.** One memory store works across every MCP-compatible tool on your machine.
 - **Finds what you stored, even when you search differently than how you saved it.** Hybrid retrieval fuses full-text, semantic, and graph search so you don't need exact wording.
-- **No servers. No accounts. No "free tier."** A single Rust binary, a single SQLite file. Install it, use it, own it.
-- **Your client signed an NDA with you. Not with Mem0's infrastructure.** Zero network calls by default. Everything runs on your machine.
+- **No accounts. No intermediaries. No "free tier."** A single Rust binary, a single SQLite file. Install it, use it, own it.
+- **Your client signed an NDA with you. Not with Mem0's infrastructure.** Zero third-party data routing by default. Your memory data never touches servers you don't control.
 - **Your memory, not your vendor's.** Claude, Cursor, and ChatGPT are all building their own memory - but it stays inside their tool. MAG bridges all of them. One memory store, every tool, portable forever.
 
 ---
@@ -66,27 +66,39 @@ Any tool that supports MCP can connect to MAG. Windows is untested - [report you
 
 ## Benchmarks
 
-**91.1% retrieval accuracy on the LoCoMo memory benchmark.** Don't trust our number - [run it yourself](docs/benchmarks.md#running-the-benchmark):
+**91.1% retrieval accuracy on the LoCoMo memory benchmark.** Don't trust our number - [run it yourself](docs/benchmarks/methodology.md#running-the-benchmark):
 
 ```bash
 ./scripts/bench.sh
 ```
 
-AutoMem's published score on the same benchmark is 90.5%. Full methodology, model comparisons, and historical runs in [docs/benchmarks.md](docs/benchmarks.md).
+AutoMem's published score on the same benchmark is 90.5%. Full methodology, model comparisons, and historical runs in [docs/benchmarks/](docs/benchmarks/).
 
 ---
 
-## Your Data, Your Machine
+## Your Data, Your Control
 
-Client data stays on your machine. Not on Mem0's servers. Not anyone else's.
+Your memory data never touches third-party servers. Not ours, not anyone else's. Same guarantee whether you run MAG on your laptop or deploy it on your own infrastructure.
 
-MAG has no servers to shut down. Your memories live in a single SQLite file. Open it with any SQLite browser. Export everything with one command. The binary keeps working whether we maintain this project or not.
-
-- Zero network calls (API embedding models are optional, off by default)
+- Zero third-party data routing (API embedding models are optional, off by default)
 - Single SQLite file, portable and inspectable
+- Export everything with one command. Open it with any SQLite browser.
 - MIT licensed, no tiers, no vendor lock-in
+- The binary keeps working whether we maintain this project or not
 
 See [SECURITY.md](SECURITY.md) for the full data-flow audit.
+
+---
+
+## Deploy Your Way
+
+| Mode | Description |
+|---|---|
+| **Local** (default) | Single binary on your machine. Zero config. |
+| **Self-hosted** | Deploy on your own server or cloud. Same privacy guarantees at scale. |
+| **MAG Cloud** | Coming soon. We run the infrastructure. You own the data. Same guarantees. |
+
+Every mode: zero third-party data access, full data portability, MIT licensed.
 
 ---
 
@@ -97,8 +109,8 @@ See [SECURITY.md](SECURITY.md) for the full data-flow audit.
 | **Shell** (macOS / Linux) | `curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh \| sh` |
 | **Homebrew** | `brew install George-RD/mag/mag` |
 | **npm** | `npm install -g mag-memory` |
-| **pip** | `pip install mag-memory` |
 | **uv** | `uv tool install mag-memory` |
+| **pip** | `pip install mag-memory` |
 | **Cargo** | `cargo install mag-memory` |
 
 **From source:** `git clone https://github.com/George-RD/mag.git && cd mag && cargo build --release`
@@ -147,7 +159,7 @@ Per-tool setup guides: [Claude Desktop](docs/setup/claude-desktop.md) | [Cursor]
 
 ## Learn More
 
-- [Benchmarks](docs/benchmarks.md) - full results, model comparisons, methodology
+- [Benchmarks](docs/benchmarks/) - full results, model comparisons, methodology
 - [Security](SECURITY.md) - data-flow audit, threat model
 - [What to Store](docs/what-to-store.md) - get the most out of persistent memory
 - [Setup Guides](docs/setup/) - per-tool configuration instructions

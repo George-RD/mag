@@ -152,11 +152,11 @@ def download_binary(version):
     target, ext = _detect_target()
     url = _GITHUB_RELEASE_URL.format(version=version, target=target, ext=ext)
 
-    sys.stderr.write("mag: downloading {} ...\n".format(url))
+    print("mag: downloading {} ...".format(url))
+    sys.stdout.flush()
     data = _download_url(url)
-    sys.stderr.write(
-        "mag: downloaded {:.1f} MB\n".format(len(data) / (1024.0 * 1024.0))
-    )
+    print("mag: downloaded {:.1f} MB".format(len(data) / (1024.0 * 1024.0)))
+    sys.stdout.flush()
 
     # Ensure destination directory exists
     from mag_memory import _binary_dir
@@ -175,7 +175,8 @@ def download_binary(version):
         st = os.stat(binary_path)
         os.chmod(binary_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-    sys.stderr.write("mag: installed to {}\n".format(binary_path))
+    print("mag: installed to {}".format(binary_path))
+    sys.stdout.flush()
     return binary_path
 
 

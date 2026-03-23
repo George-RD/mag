@@ -2,4 +2,4 @@
 
 Latest benchmark runs. Updated automatically by `./scripts/bench.sh`.
 
-See `docs/benchmark_log.csv` for full history.
+See `docs/benchmarks/benchmark_log.csv` for full history.
