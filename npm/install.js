@@ -167,7 +167,7 @@ async function main() {
 
     fs.mkdirSync(binDir, { recursive: true });
 
-    var dest = path.join(binDir, process.platform === "win32" ? "mag.exe" : "mag");
+    var dest = path.join(binDir, process.platform === "win32" ? "mag.exe" : "mag-binary");
 
     // Remove existing file/link before creating a new one
     try {
@@ -205,33 +205,40 @@ async function main() {
       extractTarGz(archivePath, binDir);
     }
 
-    // The archive may contain the binary directly or inside a directory.
-    // Find the mag binary and move it to bin/ if needed.
-    var binaryName = isWindows ? "mag.exe" : "mag";
-    var expectedPath = path.join(binDir, binaryName);
+    // The archive contains a binary named "mag" (or "mag.exe" on Windows).
+    // We rename it to "mag-binary" (or "mag.exe") so it doesn't overwrite
+    // the Node.js wrapper script at bin/mag.
+    var archiveBinaryName = isWindows ? "mag.exe" : "mag";
+    var finalBinaryName = isWindows ? "mag.exe" : "mag-binary";
+    var extractedPath = path.join(binDir, archiveBinaryName);
+    var expectedPath = path.join(binDir, finalBinaryName);
 
-    if (!fs.existsSync(expectedPath)) {
-      // Check if extracted into a subdirectory
+    // Find the extracted binary (may be in a subdirectory)
+    if (!fs.existsSync(extractedPath)) {
       var entries = fs.readdirSync(binDir);
       for (var i = 0; i < entries.length; i++) {
         var candidateDir = path.join(binDir, entries[i]);
-        var candidateBin = path.join(candidateDir, binaryName);
+        var candidateBin = path.join(candidateDir, archiveBinaryName);
         if (
           fs.statSync(candidateDir).isDirectory() &&
           fs.existsSync(candidateBin)
         ) {
-          fs.renameSync(candidateBin, expectedPath);
-          // Clean up the extracted subdirectory
+          fs.renameSync(candidateBin, extractedPath);
           fs.rmSync(candidateDir, { recursive: true, force: true });
           break;
         }
       }
     }
 
-    if (!fs.existsSync(expectedPath)) {
+    if (!fs.existsSync(extractedPath)) {
       throw new Error(
-        "Binary not found after extraction. Expected: " + expectedPath
+        "Binary not found after extraction. Expected: " + extractedPath
       );
+    }
+
+    // Rename to final name (mag -> mag-binary on Unix to avoid overwriting wrapper)
+    if (extractedPath !== expectedPath) {
+      fs.renameSync(extractedPath, expectedPath);
     }
 
     // Make executable on Unix

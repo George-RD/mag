@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+"use strict";
+
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+const binDir = __dirname;
+const platform = process.platform;
+const binaryName = platform === "win32" ? "mag.exe" : "mag-binary";
+const binaryPath = path.join(binDir, binaryName);
+
+try {
+  execFileSync(binaryPath, process.argv.slice(2), { stdio: "inherit" });
+} catch (err) {
+  if (err.status !== undefined) {
+    process.exit(err.status);
+  }
+  console.error("mag: binary not found. Try reinstalling: npm install -g mag-memory");
+  process.exit(1);
+}
