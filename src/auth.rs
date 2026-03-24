@@ -86,9 +86,7 @@ where
                     .status(StatusCode::UNAUTHORIZED)
                     .body(Body::from("Unauthorized"))
                     // Status + body-from-string is infallible; unwrap_or provides a fallback
-                    .unwrap_or_else(|_| {
-                        Response::new(Body::from("Unauthorized"))
-                    }))
+                    .unwrap_or_else(|_| Response::new(Body::from("Unauthorized"))))
             })
         }
     }
@@ -132,7 +130,13 @@ mod tests {
             .body(Body::empty())
             .expect("building test request cannot fail");
 
-        let resp = svc.ready().await.expect("service ready").call(req).await.expect("call succeeds");
+        let resp = svc
+            .ready()
+            .await
+            .expect("service ready")
+            .call(req)
+            .await
+            .expect("call succeeds");
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
@@ -145,7 +149,13 @@ mod tests {
             .body(Body::empty())
             .expect("building test request cannot fail");
 
-        let resp = svc.ready().await.expect("service ready").call(req).await.expect("call succeeds");
+        let resp = svc
+            .ready()
+            .await
+            .expect("service ready")
+            .call(req)
+            .await
+            .expect("call succeeds");
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -157,7 +167,13 @@ mod tests {
             .body(Body::empty())
             .expect("building test request cannot fail");
 
-        let resp = svc.ready().await.expect("service ready").call(req).await.expect("call succeeds");
+        let resp = svc
+            .ready()
+            .await
+            .expect("service ready")
+            .call(req)
+            .await
+            .expect("call succeeds");
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -170,7 +186,13 @@ mod tests {
             .body(Body::empty())
             .expect("building test request cannot fail");
 
-        let resp = svc.ready().await.expect("service ready").call(req).await.expect("call succeeds");
+        let resp = svc
+            .ready()
+            .await
+            .expect("service ready")
+            .call(req)
+            .await
+            .expect("call succeeds");
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
@@ -183,7 +205,13 @@ mod tests {
             .body(Body::empty())
             .expect("building test request cannot fail");
 
-        let resp = svc.ready().await.expect("service ready").call(req).await.expect("call succeeds");
+        let resp = svc
+            .ready()
+            .await
+            .expect("service ready")
+            .call(req)
+            .await
+            .expect("call succeeds");
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
