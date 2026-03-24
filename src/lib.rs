@@ -1,5 +1,6 @@
 pub mod app_paths;
 pub mod benchmarking;
+pub mod daemon;
 pub mod memory_core;
 
 #[cfg(not(test))]
