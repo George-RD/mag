@@ -21,6 +21,7 @@ use tracing::info;
 use memory_core::PlaceholderEmbedder;
 
 mod app_paths;
+mod auth;
 mod cli;
 mod mcp_server;
 mod memory_core;
