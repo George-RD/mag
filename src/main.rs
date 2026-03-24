@@ -22,6 +22,7 @@ use memory_core::PlaceholderEmbedder;
 
 mod app_paths;
 mod cli;
+mod idle_timer;
 mod mcp_server;
 mod memory_core;
 

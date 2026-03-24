@@ -48,6 +48,9 @@ regex = "1"
 lru = "0.12"
 mimalloc = { version = "0.1", optional = true }
 sqlite-vec = { version = "0.1.6", optional = true }
+tokio-util = { version = "0.7", features = ["rt"] }
+tower = "0.5"
+axum = "0.8"
 
 [lints.rust]
 unused_must_use = "deny"
