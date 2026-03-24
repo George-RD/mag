@@ -1,6 +1,3 @@
-// Allow dead code: this module is built in parallel with its consumers (daemon HTTP server).
-#![allow(dead_code)]
-
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -10,15 +7,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio_util::sync::CancellationToken;
 
+/// Returns the current time as milliseconds since the Unix epoch.
+///
+/// Safe truncation: epoch millis won't exceed u64 until ~year 584 million.
 fn epoch_millis() -> u64 {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_millis();
-    // Current epoch millis fits comfortably in u64 (won't overflow until ~year 584 million).
     #[allow(clippy::cast_possible_truncation)]
-    let result = millis as u64;
-    result
+    {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_millis() as u64
+    }
 }
 
 #[derive(Clone)]
