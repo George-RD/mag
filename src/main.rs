@@ -21,6 +21,8 @@ use tracing::info;
 use memory_core::PlaceholderEmbedder;
 
 mod app_paths;
+#[allow(dead_code)] // Consumers come in a follow-up PR (http_server)
+mod auth;
 mod cli;
 #[allow(dead_code)] // Consumers (daemon HTTP server) land in a follow-up PR.
 mod idle_timer;
