@@ -57,6 +57,39 @@ pub struct SearchFilterArgs {
     pub event_before: Option<String>,
 }
 
+/// Events that can be sent to the MAG daemon via the hook client.
+///
+/// Each variant maps to a `/hook/*` HTTP endpoint on the daemon.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Consumers come in a follow-up PR (CLI hook subcommand)
+pub enum HookEvent {
+    SessionStart {
+        project: Option<String>,
+        budget_tokens: Option<u64>,
+    },
+    SessionEnd {
+        project: Option<String>,
+        session_id: String,
+        summary: Option<String>,
+    },
+    CompactRefresh {
+        project: Option<String>,
+        budget_tokens: Option<u64>,
+    },
+    Search {
+        query: String,
+        project: Option<String>,
+        limit: Option<u32>,
+    },
+    Store {
+        content: String,
+        tags: Vec<String>,
+        importance: f64,
+        event_type: Option<String>,
+        project: Option<String>,
+    },
+}
+
 /// The main CLI entry point for MAG.
 #[derive(Parser)]
 #[command(name = "mag", version)]
