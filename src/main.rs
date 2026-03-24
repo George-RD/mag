@@ -27,6 +27,8 @@ mod daemon;
 #[allow(dead_code)] // Consumers come in a follow-up PR (CLI hook subcommand)
 mod hook_client;
 #[allow(dead_code)] // Consumers (daemon HTTP server) land in a follow-up PR.
+mod hook_handlers;
+#[allow(dead_code)] // Consumers (daemon HTTP server) land in a follow-up PR.
 mod idle_timer;
 mod mcp_server;
 mod memory_core;
