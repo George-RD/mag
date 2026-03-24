@@ -22,6 +22,8 @@ use memory_core::PlaceholderEmbedder;
 
 mod app_paths;
 mod cli;
+#[allow(dead_code)] // Consumers (daemon HTTP server) land in a follow-up PR.
+mod idle_timer;
 mod mcp_server;
 mod memory_core;
 
