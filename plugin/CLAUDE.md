@@ -1,3 +1,4 @@
+<!-- This file is concatenated into a larger CLAUDE.md by the plugin system. h2 is intentional. -->
 ## Memory (MAG)
 
 You have persistent memory via MAG. Memories survive across sessions and are shared across all your AI tools.
