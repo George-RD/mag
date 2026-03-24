@@ -3,7 +3,7 @@
 # Outputs a hint only when the prompt suggests memory would help
 # Silence (empty stdout) is the default for ~95% of prompts
 
-read -r PROMPT
+read -r PROMPT || true
 
 # Check for memory-relevant signals
 case "$PROMPT" in
@@ -22,3 +22,4 @@ case "$PROMPT" in
 esac
 
 # Default: silence. No memory injection needed.
+exit 0
