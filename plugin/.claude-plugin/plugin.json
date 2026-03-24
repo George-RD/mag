@@ -1,0 +1,11 @@
+{
+  "name": "mag",
+  "version": "0.1.0",
+  "description": "Persistent local memory for AI coding assistants — store decisions, patterns, and context across sessions",
+  "author": {
+    "name": "MAG",
+    "url": "https://github.com/George-RD/mag"
+  },
+  "license": "MIT",
+  "keywords": ["memory", "mcp", "persistence", "local", "semantic-search"]
+}

@@ -15,6 +15,8 @@ mag-research.md
 
 # Local MCP config (machine-specific paths)
 .mcp.json
+# But track the plugin's MCP config (it's a fixed localhost endpoint)
+!plugin/.mcp.json
 
 # Benchmark datasets (large, downloaded separately)
 data/*
