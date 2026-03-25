@@ -21,19 +21,15 @@ use tracing::info;
 use memory_core::PlaceholderEmbedder;
 
 mod app_paths;
+mod auth;
 mod cli;
-#[allow(dead_code)] // Consumers come in a follow-up PR (http_server)
 mod daemon;
-#[allow(dead_code)] // Consumers come in a follow-up PR (CLI hook subcommand)
 mod hook_client;
-#[allow(dead_code)] // Consumers (daemon HTTP server) land in a follow-up PR.
 mod hook_handlers;
-#[allow(dead_code)] // Consumers (daemon HTTP server) land in a follow-up PR.
+mod http_server;
 mod idle_timer;
 mod mcp_server;
 mod memory_core;
-
-use mcp_server::McpMemoryServer;
 
 #[derive(Clone, Copy)]
 struct SearchTimeFilters<'a> {
@@ -103,6 +99,18 @@ async fn main() -> anyhow::Result<()> {
                 "benchmark_root": paths.benchmark_root,
             }))?
         );
+        return Ok(());
+    }
+
+    if let Commands::Hook { event } = &cli.command {
+        match hook_client::call_hook(event).await {
+            Ok(text) => {
+                print!("{text}");
+            }
+            Err(_) => {
+                // Daemon not reachable — silently exit so hooks don't block the caller.
+            }
+        }
         return Ok(());
     }
 
@@ -919,61 +927,97 @@ async fn main() -> anyhow::Result<()> {
         Commands::DownloadCrossEncoder => {
             unreachable!("download-cross-encoder is handled before storage initialization")
         }
-        Commands::Serve { cross_encoder } => {
-            info!("Starting MCP server over stdio");
+        Commands::Serve {
+            port,
+            idle_timeout,
+            cross_encoder,
+            stdio,
+        } => {
+            if *stdio {
+                // Legacy stdio transport mode.
+                info!("Starting MCP server over stdio");
 
-            #[cfg(feature = "real-embeddings")]
-            let mcp_storage = if *cross_encoder {
-                info!("Cross-encoder reranking enabled");
-                let reranker =
-                    std::sync::Arc::new(memory_core::reranker::CrossEncoderReranker::new()?);
-                reranker.warmup().await?;
-                let reranker_for_tick = reranker.clone();
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                    loop {
-                        interval.tick().await;
-                        reranker_for_tick.maintenance_tick().await;
-                    }
-                });
-                mcp_storage.with_reranker(reranker)
-            } else {
-                mcp_storage
-            };
-
-            #[cfg(not(feature = "real-embeddings"))]
-            if *cross_encoder {
-                anyhow::bail!(
-                    "--cross-encoder requires the `real-embeddings` feature to be enabled"
-                );
-            }
-
-            #[cfg(feature = "real-embeddings")]
-            {
-                let onnx_for_tick = onnx_embedder_ref.clone();
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                    loop {
-                        interval.tick().await;
-                        onnx_for_tick.maintenance_tick().await;
-                    }
-                });
-            }
-
-            {
-                let storage_for_optimize = mcp_storage.clone();
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
-                    loop {
-                        interval.tick().await;
-                        if let Err(e) = storage_for_optimize.optimize().await {
-                            tracing::warn!("PRAGMA optimize failed: {e}");
+                #[cfg(feature = "real-embeddings")]
+                let mcp_storage = if *cross_encoder {
+                    info!("Cross-encoder reranking enabled");
+                    let reranker =
+                        std::sync::Arc::new(memory_core::reranker::CrossEncoderReranker::new()?);
+                    reranker.warmup().await?;
+                    let reranker_for_tick = reranker.clone();
+                    tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(60));
+                        loop {
+                            interval.tick().await;
+                            reranker_for_tick.maintenance_tick().await;
                         }
-                    }
-                });
-            }
+                    });
+                    mcp_storage.with_reranker(reranker)
+                } else {
+                    mcp_storage
+                };
 
-            McpMemoryServer::new(mcp_storage).serve_stdio().await?;
+                #[cfg(not(feature = "real-embeddings"))]
+                if *cross_encoder {
+                    anyhow::bail!(
+                        "--cross-encoder requires the `real-embeddings` feature to be enabled"
+                    );
+                }
+
+                #[cfg(feature = "real-embeddings")]
+                {
+                    let onnx_for_tick = onnx_embedder_ref.clone();
+                    tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(60));
+                        loop {
+                            interval.tick().await;
+                            onnx_for_tick.maintenance_tick().await;
+                        }
+                    });
+                }
+
+                {
+                    let storage_for_optimize = mcp_storage.clone();
+                    tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(3600));
+                        loop {
+                            interval.tick().await;
+                            if let Err(e) = storage_for_optimize.optimize().await {
+                                tracing::warn!("PRAGMA optimize failed: {e}");
+                            }
+                        }
+                    });
+                }
+
+                mcp_server::McpMemoryServer::new(mcp_storage)
+                    .serve_stdio()
+                    .await?;
+            } else {
+                // HTTP daemon mode (default).
+                info!("Starting MAG HTTP daemon on port {port}");
+
+                let token = daemon::read_or_create_auth_token()?;
+
+                let server_config = http_server::ServerConfig {
+                    port: *port,
+                    auth_token: token,
+                    idle_timeout_secs: *idle_timeout,
+                    cross_encoder: *cross_encoder,
+                };
+
+                http_server::run_http_server(
+                    mcp_storage,
+                    #[cfg(feature = "real-embeddings")]
+                    Some(onnx_embedder_ref.clone()),
+                    server_config,
+                )
+                .await?;
+            }
+        }
+        Commands::Hook { .. } => {
+            unreachable!("hook is handled before storage initialization")
         }
     }
 

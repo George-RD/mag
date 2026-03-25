@@ -230,6 +230,7 @@ impl McpMemoryServer {
         }
     }
 
+    #[allow(dead_code)] // Retained for stdio transport mode; HTTP is the default now.
     pub async fn serve_stdio(self) -> Result<()> {
         let service = self.serve(stdio()).await?;
         service.waiting().await?;

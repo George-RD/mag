@@ -16,7 +16,7 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         .serve(TokioChildProcess::new(
             Command::new(env!("CARGO_BIN_EXE_mag")).configure(|cmd| {
                 cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
-                cmd.arg("serve");
+                cmd.args(["serve", "--stdio"]);
                 cmd.env("HOME", &test_home);
                 cmd.env("USERPROFILE", &test_home);
             }),

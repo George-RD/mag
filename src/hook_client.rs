@@ -127,13 +127,11 @@ fn event_to_request(event: &HookEvent) -> (&'static str, serde_json::Value) {
         HookEvent::SessionEnd {
             project,
             session_id,
-            summary,
         } => (
             "/hook/session-end",
             json!({
                 "project": project,
                 "session_id": session_id,
-                "summary": summary,
             }),
         ),
         HookEvent::CompactRefresh {
@@ -185,7 +183,7 @@ mod tests {
     fn event_to_request_session_start() {
         let event = HookEvent::SessionStart {
             project: Some("test-proj".into()),
-            budget_tokens: Some(1000),
+            budget_tokens: 1000,
         };
         let (path, body) = event_to_request(&event);
         assert_eq!(path, "/hook/session-start");
@@ -197,20 +195,18 @@ mod tests {
     fn event_to_request_session_end() {
         let event = HookEvent::SessionEnd {
             project: Some("proj".into()),
-            session_id: "sid-123".into(),
-            summary: Some("done".into()),
+            session_id: Some("sid-123".into()),
         };
         let (path, body) = event_to_request(&event);
         assert_eq!(path, "/hook/session-end");
         assert_eq!(body["session_id"], "sid-123");
-        assert_eq!(body["summary"], "done");
     }
 
     #[test]
     fn event_to_request_compact_refresh() {
         let event = HookEvent::CompactRefresh {
             project: Some("proj".into()),
-            budget_tokens: Some(500),
+            budget_tokens: 500,
         };
         let (path, body) = event_to_request(&event);
         assert_eq!(path, "/hook/compact-refresh");
@@ -222,7 +218,7 @@ mod tests {
         let event = HookEvent::Search {
             query: "find me".into(),
             project: Some("proj".into()),
-            limit: Some(5),
+            limit: 5,
         };
         let (path, body) = event_to_request(&event);
         assert_eq!(path, "/hook/search");
@@ -234,23 +230,23 @@ mod tests {
     fn event_to_request_store() {
         let event = HookEvent::Store {
             content: "important note".into(),
-            tags: vec!["a".into(), "b".into()],
-            importance: 0.8,
+            tags: Some("a,b".into()),
+            importance: Some(0.8),
             event_type: Some("decision".into()),
             project: Some("proj".into()),
         };
         let (path, body) = event_to_request(&event);
         assert_eq!(path, "/hook/store");
         assert_eq!(body["content"], "important note");
-        assert_eq!(body["tags"], json!(["a", "b"]));
+        assert_eq!(body["tags"], "a,b");
     }
 
     #[test]
     fn event_to_request_store_with_none_fields() {
         let event = HookEvent::Store {
             content: "note".into(),
-            tags: vec![],
-            importance: 0.5,
+            tags: None,
+            importance: None,
             event_type: None,
             project: None,
         };

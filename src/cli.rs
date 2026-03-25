@@ -57,39 +57,6 @@ pub struct SearchFilterArgs {
     pub event_before: Option<String>,
 }
 
-/// Events that can be sent to the MAG daemon via the hook client.
-///
-/// Each variant maps to a `/hook/*` HTTP endpoint on the daemon.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // Consumers come in a follow-up PR (CLI hook subcommand)
-pub enum HookEvent {
-    SessionStart {
-        project: Option<String>,
-        budget_tokens: Option<u64>,
-    },
-    SessionEnd {
-        project: Option<String>,
-        session_id: String,
-        summary: Option<String>,
-    },
-    CompactRefresh {
-        project: Option<String>,
-        budget_tokens: Option<u64>,
-    },
-    Search {
-        query: String,
-        project: Option<String>,
-        limit: Option<u32>,
-    },
-    Store {
-        content: String,
-        tags: Vec<String>,
-        importance: f64,
-        event_type: Option<String>,
-        project: Option<String>,
-    },
-}
-
 /// The main CLI entry point for MAG.
 #[derive(Parser)]
 #[command(name = "mag", version)]
@@ -381,11 +348,72 @@ pub enum Commands {
     DownloadModel,
     /// Downloads the cross-encoder model for reranking.
     DownloadCrossEncoder,
-    /// Starts the MCP server over stdio transport.
+    /// Starts the MAG daemon (MCP-over-HTTP + hook endpoints).
+    /// Pass --stdio to use the legacy stdio transport instead of HTTP.
     Serve {
+        /// TCP port to listen on (HTTP mode only).
+        #[arg(long, default_value_t = 19420, env = "MAG_PORT")]
+        port: u16,
+        /// Idle timeout in seconds before the daemon auto-shuts down (HTTP mode only).
+        #[arg(long, default_value_t = 1200)]
+        idle_timeout: u64,
         /// Enable cross-encoder reranking (disabled by default).
         #[arg(long)]
         cross_encoder: bool,
+        /// Use legacy stdio transport instead of HTTP daemon mode.
+        #[arg(long)]
+        stdio: bool,
+    },
+    /// Send a request to the MAG daemon's hook endpoint.
+    Hook {
+        #[command(subcommand)]
+        event: HookEvent,
+    },
+}
+
+/// Hook events that can be sent to the MAG daemon.
+#[derive(Subcommand, Debug)]
+pub enum HookEvent {
+    /// Notify session start — returns context injection.
+    SessionStart {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 2000)]
+        budget_tokens: usize,
+    },
+    /// Notify session end — stores summary.
+    SessionEnd {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+    },
+    /// Refresh context after compaction.
+    CompactRefresh {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 800)]
+        budget_tokens: usize,
+    },
+    /// Search memories.
+    Search {
+        query: String,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Store a memory.
+    Store {
+        content: String,
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        importance: Option<f64>,
+        #[arg(long)]
+        event_type: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
     },
 }
 
@@ -1096,8 +1124,16 @@ mod tests {
         let args = vec!["mag", "serve"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Serve { cross_encoder } => {
+            Commands::Serve {
+                port,
+                idle_timeout,
+                cross_encoder,
+                stdio,
+            } => {
+                assert_eq!(port, 19420);
+                assert_eq!(idle_timeout, 1200);
                 assert!(!cross_encoder);
+                assert!(!stdio);
             }
             _ => panic!("Expected Serve command"),
         }
