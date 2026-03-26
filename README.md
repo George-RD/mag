@@ -36,7 +36,7 @@ mag search "how should retries work?"
 # → "The retry logic should use exponential backoff with jitter" (score: 0.94)
 ```
 
-That's it. One command to install, one to store, one to recall. Add MAG to your MCP client and your AI tools remember automatically.
+That's it. One command to install, one to store, one to recall. The installer auto-detects your AI tools and configures them — no manual JSON editing needed.
 
 ---
 
@@ -52,13 +52,17 @@ That's it. One command to install, one to store, one to recall. Add MAG to your 
 
 ## Works With
 
-| Tool | macOS | Linux | Status |
+| Tool | macOS | Linux | Auto-configured |
 |---|---|---|---|
-| Claude Desktop | ✅ | ✅ | Supported |
-| Cursor | ✅ | ✅ | Supported |
-| Claude Code | ✅ | ✅ | Supported |
-| Windsurf | ✅ | ✅ | Community-reported |
-| Cline | ✅ | ✅ | Community-reported |
+| Claude Code | ✅ | ✅ | `mag setup` |
+| Claude Desktop | ✅ | ✅ | `mag setup` |
+| Cursor | ✅ | ✅ | `mag setup` |
+| VS Code + Copilot | ✅ | ✅ | `mag setup` |
+| Windsurf | ✅ | ✅ | `mag setup` |
+| Cline | ✅ | ✅ | `mag setup` |
+| Gemini CLI | ✅ | ✅ | `mag setup` |
+| Zed | ✅ | ✅ | Manual |
+| Codex (OpenAI) | ✅ | ✅ | Manual |
 
 Any tool that supports MCP can connect to MAG. Windows is untested - [report your results](https://github.com/George-RD/mag/issues).
 
@@ -119,9 +123,20 @@ Every mode: zero third-party data access, full data portability, MIT licensed.
 
 ---
 
-## Configure Your MCP Client
+## Configure Your AI Tools
 
-MAG runs as an MCP server. Add it to your client config:
+The installer runs `mag setup` automatically. To reconfigure at any time:
+
+```bash
+mag setup
+```
+
+This detects installed AI tools, shows their configuration status, and writes the correct MCP config for each one. Use `--non-interactive` for CI or scripted environments.
+
+<details>
+<summary>Manual configuration</summary>
+
+MAG runs as an MCP server. Add it to your client's config file:
 
 ```json
 {
@@ -134,11 +149,7 @@ MAG runs as an MCP server. Add it to your client config:
 }
 ```
 
-**Claude Code:**
-
-```bash
-claude mcp add mag -- mag serve
-```
+**Claude Code:** `claude mcp add mag -- mag serve`
 
 **npx (no install):**
 
@@ -154,6 +165,8 @@ claude mcp add mag -- mag serve
 ```
 
 Per-tool setup guides: [Claude Desktop](docs/setup/claude-desktop.md) | [Cursor](docs/setup/cursor.md) | [Claude Code](docs/setup/claude-code.md) | [Windsurf](docs/setup/windsurf.md) | [Cline](docs/setup/cline.md)
+
+</details>
 
 ---
 
