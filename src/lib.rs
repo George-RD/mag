@@ -2,6 +2,10 @@ pub mod app_paths;
 pub mod benchmarking;
 pub mod daemon;
 pub mod memory_core;
+pub mod tool_detection;
+
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
 #[cfg(not(test))]
 impl memory_core::storage::sqlite::SqliteStorage {
