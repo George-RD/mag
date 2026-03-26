@@ -93,6 +93,29 @@ async fn main() -> anyhow::Result<()> {
         return run_doctor(*verbose).await;
     }
 
+    if let Commands::Setup {
+        non_interactive,
+        tools,
+        transport,
+        port,
+        no_start,
+        uninstall,
+        force,
+    } = cli.command
+    {
+        let transport_mode = mag::setup::parse_transport(&transport, port)?;
+        return mag::setup::run_setup(mag::setup::SetupArgs {
+            non_interactive,
+            tools,
+            transport: transport_mode,
+            port,
+            no_start,
+            uninstall,
+            force,
+        })
+        .await;
+    }
+
     if matches!(cli.command, Commands::Paths) {
         let paths = app_paths::resolve_app_paths()?;
         println!(
@@ -913,6 +936,9 @@ async fn main() -> anyhow::Result<()> {
         },
         Commands::Doctor { .. } => {
             unreachable!("doctor is handled before storage initialization")
+        }
+        Commands::Setup { .. } => {
+            unreachable!("setup is handled before storage initialization")
         }
         Commands::DownloadModel => {
             unreachable!("download-model is handled before storage initialization")
