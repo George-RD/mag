@@ -354,6 +354,30 @@ pub enum Commands {
         #[arg(long)]
         cross_encoder: bool,
     },
+    /// Interactive wizard to detect and configure AI tools for MAG.
+    Setup {
+        /// Skip interactive prompts (auto-configure all unconfigured tools).
+        #[arg(long)]
+        non_interactive: bool,
+        /// Comma-separated list of tool names to configure (e.g., "cursor,vscode").
+        #[arg(long, value_delimiter = ',')]
+        tools: Option<Vec<String>>,
+        /// Transport mode: command (default), http, or stdio.
+        #[arg(long, default_value = "command")]
+        transport: String,
+        /// Port for HTTP transport mode.
+        #[arg(long, default_value_t = 4242)]
+        port: u16,
+        /// Do not attempt to start or check the MAG daemon.
+        #[arg(long)]
+        no_start: bool,
+        /// Remove MAG configuration from all detected tools.
+        #[arg(long)]
+        uninstall: bool,
+        /// Force reconfiguration even if already configured.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ pub mod benchmarking;
 pub mod config_writer;
 pub mod daemon;
 pub mod memory_core;
+pub mod setup;
 pub mod tool_detection;
 
 #[cfg(test)]
