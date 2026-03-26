@@ -1,5 +1,6 @@
 pub mod app_paths;
 pub mod benchmarking;
+pub mod config_writer;
 pub mod daemon;
 pub mod memory_core;
 pub mod tool_detection;

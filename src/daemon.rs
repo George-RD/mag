@@ -154,17 +154,15 @@ fn write_token_file(path: &std::path::Path, token: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    /// Mutex to serialize tests that mutate the `HOME` env var.
-    static HOME_MUTEX: Mutex<()> = Mutex::new(());
 
     /// Helper: set HOME to a temp dir so `DaemonInfo::path()` resolves there.
     ///
-    /// Holds `HOME_MUTEX` for the duration so parallel tests don't race on the
-    /// shared environment variable.
+    /// Uses the shared HOME_MUTEX from test_helpers to coordinate with all
+    /// tests across the crate that mutate HOME.
     fn with_temp_home(f: impl FnOnce(PathBuf)) {
-        let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::test_helpers::HOME_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("mag-daemon-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join(".mag")).unwrap();
         let prev = std::env::var_os("HOME");

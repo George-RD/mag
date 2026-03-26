@@ -159,10 +159,16 @@ fn collect_vector_candidates(
             let priority_value = if let Some(p) = priority
                 && (1..=5).contains(&p)
             {
-                p as u8
+                // SAFETY: range check above guarantees p is in 1..=5
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let v = p as u8;
+                v
             } else {
                 let dp = et_ref.default_priority();
-                if dp == 0 { 3 } else { dp as u8 }
+                // SAFETY: default_priority() returns small non-negative values (0-5)
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let v = if dp == 0 { 3 } else { dp as u8 };
+                v
             };
             let initial_score =
                 type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);

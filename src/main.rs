@@ -30,6 +30,9 @@ mod daemon;
 mod idle_timer;
 mod mcp_server;
 mod memory_core;
+#[cfg(test)]
+#[allow(dead_code)]
+mod test_helpers;
 
 use mcp_server::McpMemoryServer;
 
