@@ -7,6 +7,7 @@
 #
 # Flags:
 #   --version <VER>  — install a specific version
+#   --uninstall      — remove MAG binary, configs, and optionally data
 #   --help           — show usage
 #
 # Requirements: curl or wget, tar, and optionally sha256sum/shasum for verification.
@@ -89,6 +90,12 @@ parse_args() {
 do_uninstall() {
     INSTALL_DIR="${MAG_INSTALL_DIR:-${HOME}/.mag/bin}"
 
+    # Run mag setup --uninstall to clean up tool configurations first
+    if [ -f "${INSTALL_DIR}/mag" ]; then
+        info "Removing MAG configuration from AI tools..."
+        "${INSTALL_DIR}/mag" setup --uninstall --non-interactive 2>/dev/null || true
+    fi
+
     if [ -f "${INSTALL_DIR}/mag" ]; then
         rm -f "${INSTALL_DIR}/mag"
         ok "Removed ${INSTALL_DIR}/mag"
@@ -112,7 +119,28 @@ do_uninstall() {
         fi
     done
 
-    info "MAG binary uninstalled. Data remains at ~/.mag/ (delete manually if desired)."
+    # Prompt to remove data directory if interactive
+    MAG_DATA_DIR="${HOME}/.mag"
+    if [ -d "$MAG_DATA_DIR" ]; then
+        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+            printf '\n  Remove MAG data directory (%s)? [y/N] ' "$MAG_DATA_DIR"
+            REPLY=""
+            read -r REPLY || true
+            case "$REPLY" in
+                y|Y|yes|YES)
+                    rm -rf "$MAG_DATA_DIR"
+                    ok "Removed ${MAG_DATA_DIR}"
+                    ;;
+                *)
+                    info "Data directory preserved at ${MAG_DATA_DIR}"
+                    ;;
+            esac
+        else
+            info "Data directory preserved at ${MAG_DATA_DIR} (delete manually if desired)."
+        fi
+    fi
+
+    ok "MAG uninstalled."
     exit 0
 }
 
@@ -135,8 +163,19 @@ detect_platform() {
     esac
 
     case "$ARCH" in
-        x86_64|amd64)   PLATFORM_ARCH="x86_64" ;;
-        aarch64|arm64)  PLATFORM_ARCH="aarch64" ;;
+        x86_64|amd64)
+            PLATFORM_ARCH="x86_64"
+            # On macOS x86_64, check if this is Apple Silicon running under Rosetta
+            if [ "$OS" = "Darwin" ]; then
+                if /usr/bin/arch -arm64 /usr/bin/true 2>/dev/null; then
+                    info "Detected Apple Silicon running under Rosetta — using native arm64 binary"
+                    PLATFORM_ARCH="aarch64"
+                fi
+            fi
+            ;;
+        aarch64|arm64)
+            PLATFORM_ARCH="aarch64"
+            ;;
         *)
             die "Unsupported architecture: $ARCH"
             ;;
@@ -281,14 +320,13 @@ install_binary() {
 }
 
 # ---------------------------------------------------------------------------
-# Post-install guidance
+# Post-install guidance (PATH setup)
 # ---------------------------------------------------------------------------
-post_install() {
+post_install_path() {
     # Check if already on PATH
     case ":${PATH}:" in
         *":${INSTALL_DIR}:"*)
             ok "mag is already on your PATH"
-            printf '\n  %s$ mag --version%s\n\n' "${BOLD}" "${RESET}"
             return
             ;;
     esac
@@ -334,6 +372,48 @@ post_install() {
 }
 
 # ---------------------------------------------------------------------------
+# Post-install: run mag setup to configure AI tools
+# ---------------------------------------------------------------------------
+run_setup() {
+    info "Configuring AI coding tools..."
+
+    # Ensure the binary is accessible for this function
+    MAG_BIN="${INSTALL_DIR}/mag"
+
+    SETUP_EXIT=0
+    if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+        # Interactive: run setup wizard
+        "$MAG_BIN" setup || SETUP_EXIT=$?
+    else
+        # Non-interactive: configure all tools silently
+        "$MAG_BIN" setup --non-interactive || SETUP_EXIT=$?
+    fi
+
+    case "$SETUP_EXIT" in
+        0)
+            ok "AI tool configuration complete"
+            ;;
+        2)
+            # Exit code 2 = subcommand not recognized (older binary version)
+            warn "This version of mag does not support 'mag setup'."
+            info "Run 'mag setup' manually after upgrading."
+            ;;
+        *)
+            warn "mag setup exited with code ${SETUP_EXIT} — you can run 'mag setup' manually later."
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Post-install: download embedding model (first run)
+# ---------------------------------------------------------------------------
+run_download_model() {
+    info "Downloading embedding model (first run)..."
+    "${INSTALL_DIR}/mag" --help > /dev/null 2>&1 || true
+    ok "Model download initiated"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -344,9 +424,13 @@ main() {
     resolve_version
     download_and_verify
     install_binary
-    post_install
+    post_install_path
+    run_setup
+    run_download_model
 
+    printf '\n'
     ok "${BOLD}MAG v${VERSION}${RESET} installed successfully!"
+    info "Run 'mag setup' to reconfigure at any time."
 }
 
 main "$@"
