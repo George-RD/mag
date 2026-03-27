@@ -7,11 +7,8 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Deleter, Embedder,
-    EventType, ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister,
-    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
-    ProfileManager, RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder,
-    StatsProvider, Updater, VersionChainQuerier, WelcomeProvider, is_valid_event_type,
+    CheckpointInput, Embedder, EventType, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline,
+    SearchOptions, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -154,7 +151,7 @@ async fn main() -> anyhow::Result<()> {
     let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
 
     // Automatic startup backup (file-backed DBs only, max every 24h)
-    if let Err(e) = <SqliteStorage as BackupManager>::maybe_startup_backup(&sqlite_storage).await {
+    if let Err(e) = sqlite_storage.maybe_startup_backup().await {
         tracing::warn!("startup backup failed (non-fatal): {e}");
     }
 
@@ -307,7 +304,7 @@ async fn main() -> anyhow::Result<()> {
                 event_type: EventType::from_optional(event_type.as_deref()),
                 priority: *priority,
             };
-            <SqliteStorage as Updater>::update(&mcp_storage, id, &update).await?;
+            mcp_storage.update(id, &update).await?;
             info!(memory_id = %id, "Update completed");
             println!("{}", json!({ "id": id, "updated": true }));
         }
@@ -431,13 +428,7 @@ async fn main() -> anyhow::Result<()> {
             explain,
         } => {
             let opts = build_search_options(filters, *explain)?;
-            let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-                &mcp_storage,
-                query,
-                *limit,
-                &opts,
-            )
-            .await?;
+            let results = mcp_storage.advanced_search(query, *limit, &opts).await?;
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
@@ -490,8 +481,7 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", json!({ "chain": payload }));
         }
         Commands::Similar { id, limit } => {
-            let results =
-                <SqliteStorage as SimilarFinder>::find_similar(&mcp_storage, id, *limit).await?;
+            let results = mcp_storage.find_similar(id, *limit).await?;
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
@@ -517,14 +507,9 @@ async fn main() -> anyhow::Result<()> {
             max_hops,
             min_weight,
         } => {
-            let nodes = <SqliteStorage as GraphTraverser>::traverse(
-                &mcp_storage,
-                id,
-                *max_hops,
-                *min_weight,
-                None,
-            )
-            .await?;
+            let nodes = mcp_storage
+                .traverse(id, *max_hops, *min_weight, None)
+                .await?;
 
             let mut grouped = serde_json::Map::new();
             for node in nodes {
@@ -553,13 +538,7 @@ async fn main() -> anyhow::Result<()> {
             filters,
         } => {
             let opts = build_search_options(filters, false)?;
-            let results = <SqliteStorage as PhraseSearcher>::phrase_search(
-                &mcp_storage,
-                phrase,
-                *limit,
-                &opts,
-            )
-            .await?;
+            let results = mcp_storage.phrase_search(phrase, *limit, &opts).await?;
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
@@ -641,23 +620,18 @@ async fn main() -> anyhow::Result<()> {
             rating,
             reason,
         } => {
-            let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-                &mcp_storage,
-                memory_id,
-                rating.as_str(),
-                reason.as_deref(),
-            )
-            .await?;
+            let result = mcp_storage
+                .record_feedback(memory_id, rating.as_str(), reason.as_deref())
+                .await?;
             println!("{}", result);
         }
         Commands::Sweep => {
-            let swept_count =
-                <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;
+            let swept_count = mcp_storage.sweep_expired().await?;
             println!("{}", json!({ "swept_count": swept_count }));
         }
         Commands::Profile { action, data } => match action.as_str() {
             "read" => {
-                let profile = <SqliteStorage as ProfileManager>::get_profile(&mcp_storage).await?;
+                let profile = mcp_storage.get_profile().await?;
                 println!("{}", profile);
             }
             "update" => {
@@ -666,7 +640,7 @@ async fn main() -> anyhow::Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("profile update requires JSON data"))?;
                 let parsed: serde_json::Value = serde_json::from_str(raw)
                     .map_err(|e| anyhow::anyhow!("invalid profile JSON: {e}"))?;
-                <SqliteStorage as ProfileManager>::set_profile(&mcp_storage, &parsed).await?;
+                mcp_storage.set_profile(&parsed).await?;
                 println!("{}", json!({ "updated": true }));
             }
             other => anyhow::bail!("invalid profile action: {other} (expected read|update)"),
@@ -690,15 +664,10 @@ async fn main() -> anyhow::Result<()> {
                 session_id: session_id.clone(),
                 project: project.clone(),
             };
-            let memory_id =
-                <SqliteStorage as CheckpointManager>::save_checkpoint(&mcp_storage, input).await?;
-            let latest = <SqliteStorage as CheckpointManager>::resume_task(
-                &mcp_storage,
-                task_title,
-                project.as_deref(),
-                1,
-            )
-            .await?;
+            let memory_id = mcp_storage.save_checkpoint(input).await?;
+            let latest = mcp_storage
+                .resume_task(task_title, project.as_deref(), 1)
+                .await?;
             let checkpoint_number = latest
                 .first()
                 .and_then(|entry| entry.get("metadata"))
@@ -716,13 +685,9 @@ async fn main() -> anyhow::Result<()> {
             limit,
         } => {
             let query = task_title.clone().unwrap_or_default();
-            let results = <SqliteStorage as CheckpointManager>::resume_task(
-                &mcp_storage,
-                &query,
-                project.as_deref(),
-                *limit,
-            )
-            .await?;
+            let results = mcp_storage
+                .resume_task(&query, project.as_deref(), *limit)
+                .await?;
             let mut markdown = String::new();
             for (index, entry) in results.iter().enumerate() {
                 if index > 0 {
@@ -754,32 +719,26 @@ async fn main() -> anyhow::Result<()> {
                 let duration = duration
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("--duration is required for remind set"))?;
-                let result = <SqliteStorage as ReminderManager>::create_reminder(
-                    &mcp_storage,
-                    text,
-                    duration,
-                    context.as_deref(),
-                    session_id.as_deref(),
-                    project.as_deref(),
-                )
-                .await?;
+                let result = mcp_storage
+                    .create_reminder(
+                        text,
+                        duration,
+                        context.as_deref(),
+                        session_id.as_deref(),
+                        project.as_deref(),
+                    )
+                    .await?;
                 println!("{}", result);
             }
             "list" => {
-                let result = <SqliteStorage as ReminderManager>::list_reminders(
-                    &mcp_storage,
-                    status.as_deref(),
-                )
-                .await?;
+                let result = mcp_storage.list_reminders(status.as_deref()).await?;
                 println!("{}", json!({ "results": result }));
             }
             "dismiss" => {
                 let reminder_id = reminder_id.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("--reminder-id is required for remind dismiss")
                 })?;
-                let result =
-                    <SqliteStorage as ReminderManager>::dismiss_reminder(&mcp_storage, reminder_id)
-                        .await?;
+                let result = mcp_storage.dismiss_reminder(reminder_id).await?;
                 println!("{}", result);
             }
             other => anyhow::bail!("invalid remind action: {other} (expected set|list|dismiss)"),
@@ -789,15 +748,9 @@ async fn main() -> anyhow::Result<()> {
             project,
             limit,
         } => {
-            let results = <SqliteStorage as LessonQuerier>::query_lessons(
-                &mcp_storage,
-                task.as_deref(),
-                project.as_deref(),
-                None,
-                None,
-                *limit,
-            )
-            .await?;
+            let results = mcp_storage
+                .query_lessons(task.as_deref(), project.as_deref(), None, None, *limit)
+                .await?;
             println!("{}", json!({ "results": results }));
         }
         Commands::Maintain {
@@ -815,46 +768,42 @@ async fn main() -> anyhow::Result<()> {
             backup_path,
         } => match action.as_str() {
             "health" => {
-                let result = <SqliteStorage as MaintenanceManager>::check_health(
-                    &mcp_storage,
-                    warn_mb.unwrap_or(350.0),
-                    critical_mb.unwrap_or(800.0),
-                    max_nodes.unwrap_or(10000),
-                )
-                .await?;
+                let result = mcp_storage
+                    .check_health(
+                        warn_mb.unwrap_or(350.0),
+                        critical_mb.unwrap_or(800.0),
+                        max_nodes.unwrap_or(10000),
+                    )
+                    .await?;
                 println!("{result}");
             }
             "consolidate" => {
-                let result = <SqliteStorage as MaintenanceManager>::consolidate(
-                    &mcp_storage,
-                    prune_days.unwrap_or(30),
-                    max_summaries.unwrap_or(50),
-                )
-                .await?;
+                let result = mcp_storage
+                    .consolidate(prune_days.unwrap_or(30), max_summaries.unwrap_or(50))
+                    .await?;
                 println!("{result}");
             }
             "compact" => {
-                let result = <SqliteStorage as MaintenanceManager>::compact(
-                    &mcp_storage,
-                    event_type.as_deref().unwrap_or("lesson_learned"),
-                    similarity_threshold.unwrap_or(0.6),
-                    min_cluster_size.unwrap_or(3),
-                    *dry_run,
-                )
-                .await?;
+                let result = mcp_storage
+                    .compact(
+                        event_type.as_deref().unwrap_or("lesson_learned"),
+                        similarity_threshold.unwrap_or(0.6),
+                        min_cluster_size.unwrap_or(3),
+                        *dry_run,
+                    )
+                    .await?;
                 println!("{result}");
             }
             "clear_session" | "clear-session" => {
                 let sid = session_id
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("--session-id is required for clear-session"))?;
-                let removed =
-                    <SqliteStorage as MaintenanceManager>::clear_session(&mcp_storage, sid).await?;
+                let removed = mcp_storage.clear_session(sid).await?;
                 println!("{}", json!({"session_id": sid, "removed": removed}));
             }
             "backup" => {
-                let info = <SqliteStorage as BackupManager>::create_backup(&mcp_storage).await?;
-                <SqliteStorage as BackupManager>::rotate_backups(&mcp_storage, 5).await?;
+                let info = mcp_storage.create_backup().await?;
+                mcp_storage.rotate_backups(5).await?;
                 println!(
                     "{}",
                     json!({
@@ -865,7 +814,7 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             "backup-list" | "backup_list" => {
-                let backups = <SqliteStorage as BackupManager>::list_backups(&mcp_storage).await?;
+                let backups = mcp_storage.list_backups().await?;
                 let payload: Vec<_> = backups
                     .iter()
                     .map(|b| {
@@ -883,7 +832,7 @@ async fn main() -> anyhow::Result<()> {
                     anyhow::anyhow!("--backup-path is required for backup-restore")
                 })?;
                 let path = std::path::Path::new(path_str);
-                <SqliteStorage as BackupManager>::restore_backup(&mcp_storage, path).await?;
+                mcp_storage.restore_backup(path).await?;
                 println!(
                     "{}",
                     json!({
@@ -901,12 +850,9 @@ async fn main() -> anyhow::Result<()> {
             session_id,
             project,
         } => {
-            let result = <SqliteStorage as WelcomeProvider>::welcome(
-                &mcp_storage,
-                session_id.as_deref(),
-                project.as_deref(),
-            )
-            .await?;
+            let result = mcp_storage
+                .welcome(session_id.as_deref(), project.as_deref())
+                .await?;
             println!("{result}");
         }
         Commands::Protocol { section: _ } => {
@@ -915,21 +861,19 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::StatsExtended { action, days } => match action.as_str() {
             "types" => {
-                let result = <SqliteStorage as StatsProvider>::type_stats(&mcp_storage).await?;
+                let result = mcp_storage.type_stats().await?;
                 println!("{result}");
             }
             "sessions" => {
-                let result = <SqliteStorage as StatsProvider>::session_stats(&mcp_storage).await?;
+                let result = mcp_storage.session_stats().await?;
                 println!("{result}");
             }
             "digest" => {
-                let result =
-                    <SqliteStorage as StatsProvider>::weekly_digest(&mcp_storage, *days).await?;
+                let result = mcp_storage.weekly_digest(*days).await?;
                 println!("{result}");
             }
             "access_rate" | "access-rate" => {
-                let result =
-                    <SqliteStorage as StatsProvider>::access_rate_stats(&mcp_storage).await?;
+                let result = mcp_storage.access_rate_stats().await?;
                 println!("{result}");
             }
             other => anyhow::bail!(

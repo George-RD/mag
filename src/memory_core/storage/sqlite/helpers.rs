@@ -1,3 +1,4 @@
+use super::candidate_scorer::{is_stopword, simple_stem};
 use super::*;
 
 /// Fallback timestamp used when a row's `created_at` column is missing or unparseable.

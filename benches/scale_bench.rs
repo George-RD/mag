@@ -16,7 +16,7 @@ use anyhow::{Result, anyhow};
 use clap::Parser;
 
 use mag::memory_core::storage::sqlite::SqliteStorage;
-use mag::memory_core::{AdvancedSearcher, EventType, MemoryInput, OnnxEmbedder, SearchOptions};
+use mag::memory_core::{EventType, MemoryInput, OnnxEmbedder, SearchOptions};
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 

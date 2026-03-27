@@ -1,8 +1,7 @@
 use super::*;
 
-#[async_trait]
-impl ProfileManager for SqliteStorage {
-    async fn get_profile(&self) -> Result<serde_json::Value> {
+impl SqliteStorage {
+    pub async fn get_profile(&self) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
@@ -61,7 +60,7 @@ impl ProfileManager for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn set_profile(&self, updates: &serde_json::Value) -> Result<()> {
+    pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()> {
         let updates = updates.clone();
         let pool = Arc::clone(&self.pool);
 
@@ -91,9 +90,8 @@ impl ProfileManager for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl CheckpointManager for SqliteStorage {
-    async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+impl SqliteStorage {
+    pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
         let pool = Arc::clone(&self.pool);
         let task_title = input.task_title.clone();
         let task_marker = format!("## Checkpoint: {}", task_title);
@@ -179,7 +177,7 @@ impl CheckpointManager for SqliteStorage {
         Ok(id)
     }
 
-    async fn resume_task(
+    pub async fn resume_task(
         &self,
         query: &str,
         project: Option<&str>,
@@ -251,9 +249,8 @@ impl CheckpointManager for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl ReminderManager for SqliteStorage {
-    async fn create_reminder(
+impl SqliteStorage {
+    pub async fn create_reminder(
         &self,
         text: &str,
         duration_str: &str,
@@ -307,7 +304,7 @@ impl ReminderManager for SqliteStorage {
         }))
     }
 
-    async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>> {
         let pool = Arc::clone(&self.pool);
         let status = status.map(ToString::to_string);
 
@@ -396,7 +393,7 @@ impl ReminderManager for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
+    pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
         let reminder_id = reminder_id.to_string();
 
@@ -445,9 +442,8 @@ impl ReminderManager for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl LessonQuerier for SqliteStorage {
-    async fn query_lessons(
+impl SqliteStorage {
+    pub async fn query_lessons(
         &self,
         task: Option<&str>,
         project: Option<&str>,

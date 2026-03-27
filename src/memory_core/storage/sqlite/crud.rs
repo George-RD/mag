@@ -1,3 +1,4 @@
+use super::candidate_scorer::jaccard_similarity;
 use super::*;
 
 #[async_trait]
@@ -503,9 +504,8 @@ impl Retriever for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl Deleter for SqliteStorage {
-    async fn delete(&self, id: &str) -> Result<bool> {
+impl SqliteStorage {
+    pub async fn delete(&self, id: &str) -> Result<bool> {
         let pool = Arc::clone(&self.pool);
         let id = id.to_string();
 
@@ -536,9 +536,8 @@ impl Deleter for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl Updater for SqliteStorage {
-    async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
+impl SqliteStorage {
+    pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
         if input.content.is_none()
             && input.tags.is_none()
             && input.importance.is_none()
@@ -687,9 +686,8 @@ impl Updater for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl Tagger for SqliteStorage {
-    async fn get_by_tags(
+impl SqliteStorage {
+    pub async fn get_by_tags(
         &self,
         tags: &[String],
         limit: usize,

@@ -1,9 +1,8 @@
 use super::*;
 use crate::memory_core::storage::sqlite::helpers::append_context_tag_filters;
 
-#[async_trait]
-impl FeedbackRecorder for SqliteStorage {
-    async fn record_feedback(
+impl SqliteStorage {
+    pub async fn record_feedback(
         &self,
         memory_id: &str,
         rating: &str,
@@ -89,9 +88,8 @@ impl FeedbackRecorder for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl ExpirationSweeper for SqliteStorage {
-    async fn sweep_expired(&self) -> Result<usize> {
+impl SqliteStorage {
+    pub async fn sweep_expired(&self) -> Result<usize> {
         let pool = Arc::clone(&self.pool);
 
         let count = tokio::task::spawn_blocking(move || {
@@ -147,9 +145,13 @@ impl ExpirationSweeper for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl Lister for SqliteStorage {
-    async fn list(&self, offset: usize, limit: usize, opts: &SearchOptions) -> Result<ListResult> {
+impl SqliteStorage {
+    pub async fn list(
+        &self,
+        offset: usize,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<ListResult> {
         let opts = opts.clone();
         let include_superseded = opts.include_superseded.unwrap_or(false);
         if limit == 0 {

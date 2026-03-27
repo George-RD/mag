@@ -354,9 +354,8 @@ impl SemanticSearcher for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl PhraseSearcher for SqliteStorage {
-    async fn phrase_search(
+impl SqliteStorage {
+    pub async fn phrase_search(
         &self,
         phrase: &str,
         limit: usize,

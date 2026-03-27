@@ -316,8 +316,7 @@ pub(crate) async fn query_top3(
     top_k: usize,
     opts: &SearchOptions,
 ) -> Result<Vec<Hit>> {
-    let advanced =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(storage, query, top_k, opts).await;
+    let advanced = storage.advanced_search(query, top_k, opts).await;
     match advanced {
         Ok(items) if !items.is_empty() => Ok(items
             .into_iter()
@@ -327,7 +326,7 @@ pub(crate) async fn query_top3(
             })
             .collect()),
         Ok(_) => {
-            let items = <SqliteStorage as Searcher>::search(storage, query, top_k, opts).await?;
+            let items = storage.search(query, top_k, opts).await?;
             Ok(items
                 .into_iter()
                 .map(|item| Hit {
@@ -338,7 +337,7 @@ pub(crate) async fn query_top3(
         }
         Err(e) => {
             eprintln!("warning: advanced_search failed, falling back to basic search: {e}");
-            let items = <SqliteStorage as Searcher>::search(storage, query, top_k, opts).await?;
+            let items = storage.search(query, top_k, opts).await?;
             Ok(items
                 .into_iter()
                 .map(|item| Hit {
@@ -819,10 +818,7 @@ pub(crate) async fn run_concurrent_benchmark(storage: &SqliteStorage, json: bool
             let query = CONCURRENT_QUERIES[i % CONCURRENT_QUERIES.len()].to_string();
             handles.push(tokio::spawn(async move {
                 let t0 = Instant::now();
-                let _ = <SqliteStorage as AdvancedSearcher>::advanced_search(
-                    &storage, &query, 3, &opts,
-                )
-                .await;
+                let _ = storage.advanced_search(&query, 3, &opts).await;
                 t0.elapsed()
             }));
         }

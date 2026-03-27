@@ -193,9 +193,7 @@ pub(crate) async fn query_with_metadata(
 ) -> Result<Vec<RetrievalHit>> {
     let filters = SearchOptions::default();
 
-    let advanced =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(storage, question, top_k, &filters)
-            .await;
+    let advanced = storage.advanced_search(question, top_k, &filters).await;
 
     match advanced {
         Ok(items) if !items.is_empty() => {
@@ -253,10 +251,10 @@ pub(crate) async fn query_with_speaker_recall(
         // Note: intentionally allows exceeding top_k — speaker recall adds
         // supplementary evidence that improves word-overlap coverage without
         // degrading precision (word-overlap is recall-oriented).
-        let mut tag_results =
-            <SqliteStorage as Tagger>::get_by_tags(storage, &tags, 50, &SearchOptions::default())
-                .await
-                .unwrap_or_default();
+        let mut tag_results = storage
+            .get_by_tags(&tags, 50, &SearchOptions::default())
+            .await
+            .unwrap_or_default();
 
         // If no results with exact speaker tag, try expanding nicknames.
         // LoCoMo questions use short forms ("Mel") while memories are tagged
@@ -264,14 +262,10 @@ pub(crate) async fn query_with_speaker_recall(
         // tags for any that start with the extracted name.
         if tag_results.is_empty() {
             let conv_tags = vec![conversation_tag];
-            let conv_results = <SqliteStorage as Tagger>::get_by_tags(
-                storage,
-                &conv_tags,
-                500,
-                &SearchOptions::default(),
-            )
-            .await
-            .unwrap_or_default();
+            let conv_results = storage
+                .get_by_tags(&conv_tags, 500, &SearchOptions::default())
+                .await
+                .unwrap_or_default();
             // Find the full speaker tag that matches as a prefix
             let prefix = spk_tag.clone();
             let mut full_speaker_tag: Option<String> = None;

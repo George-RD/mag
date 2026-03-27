@@ -6,10 +6,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use super::candidate_scorer::{jaccard_pre, token_set, word_overlap_pre};
 use super::helpers::{event_type_from_sql, parse_metadata_from_db, parse_tags_from_db};
-use crate::memory_core::{
-    EventType, SearchOptions, SemanticResult, jaccard_pre, token_set, word_overlap_pre,
-};
+use crate::memory_core::{EventType, SearchOptions, SemanticResult};
 
 pub(super) const HOT_CACHE_CAPACITY: usize = 50;
 pub(super) const HOT_CACHE_REFRESH_SECS: u64 = 300;

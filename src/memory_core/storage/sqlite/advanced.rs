@@ -1,3 +1,4 @@
+use super::candidate_scorer;
 use super::helpers::{extract_entities_from_tags, resolve_priority};
 use super::nlp::{
     content_fingerprint, extract_query_entities, extract_topic_keywords, generate_sub_queries,
@@ -6,7 +7,9 @@ use super::query_classifier::{
     IntentProfile, QueryIntent, classify_query_intent, detect_dynamic_limit_mult,
 };
 use super::*;
-use crate::memory_core::scoring::query_coverage_boost;
+use candidate_scorer::{
+    refine_candidate_score, score_entity_candidate, score_graph_neighbor, score_initial_candidate,
+};
 
 const ADVANCED_FTS_CANDIDATE_MULTIPLIER: usize = 20;
 const ADVANCED_FTS_CANDIDATE_MIN: usize = 100;
@@ -52,8 +55,7 @@ fn collect_vector_candidates(
                 let et = row_data.event_type.clone();
                 let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
                 let priority_value = resolve_priority(et.as_ref(), row_data.priority);
-                let initial_score =
-                    type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
+                let initial_score = score_initial_candidate(et_ref, priority_value, scoring_params);
                 vector_candidates.push((
                     memory_id.clone(),
                     similarity,
@@ -148,8 +150,7 @@ fn collect_vector_candidates(
             let et = event_type_from_sql(event_type_str.clone());
             let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
             let priority_value = resolve_priority(et.as_ref(), priority);
-            let initial_score =
-                type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
+            let initial_score = score_initial_candidate(et_ref, priority_value, scoring_params);
             vector_candidates.push((
                 id.clone(),
                 similarity,
@@ -270,8 +271,7 @@ fn collect_fts_candidates(
                 let et = event_type_from_sql(event_type.clone());
                 let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
                 let priority_value = resolve_priority(et.as_ref(), priority);
-                let initial_score =
-                    type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
+                let initial_score = score_initial_candidate(et_ref, priority_value, scoring_params);
                 fts_candidates.push((
                     id.clone(),
                     bm25, // raw BM25: more negative = better match
@@ -497,44 +497,29 @@ fn fuse_refine_and_output(
 
     let query_tokens = token_set(query, 3);
     for candidate in ranked.values_mut() {
-        let with_tags = if candidate.result.tags.is_empty() {
-            candidate.result.content.clone()
-        } else {
-            format!(
-                "{} {}",
-                candidate.result.content,
-                candidate.result.tags.join(" ")
-            )
-        };
-        // Pre-tokenize once for this candidate
-        let candidate_tokens = token_set(&with_tags, 3);
-        let overlap = word_overlap_pre(&query_tokens, &candidate_tokens);
-        candidate.text_overlap = overlap;
         let fb_score = candidate
             .result
             .metadata
             .get("feedback_score")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
-        let coverage_boost =
-            1.0 + (query_coverage_boost(overlap, scoring_params) - 1.0) * fb_dampening;
-        candidate.score *= coverage_boost;
-        candidate.score *= 1.0 + overlap * scoring_params.word_overlap_weight * fb_dampening;
-        let jaccard = jaccard_pre(&query_tokens, &candidate_tokens);
-        candidate.score *= 1.0 + jaccard * scoring_params.jaccard_weight;
-        let fb_factor = feedback_factor(fb_score, scoring_params);
-        candidate.score *= fb_factor;
         let et_ref = candidate
             .result
             .event_type
             .as_ref()
             .unwrap_or(&EventType::Memory);
-        let td = time_decay_et(&candidate.created_at, et_ref, scoring_params);
-        candidate.score *= td;
-        let importance_factor_val = scoring_params.importance_floor
-            + candidate.result.importance * scoring_params.importance_scale;
-        candidate.score *= importance_factor_val;
+        let refinement = refine_candidate_score(
+            &query_tokens,
+            &candidate.result.content,
+            &candidate.result.tags,
+            candidate.result.importance,
+            fb_score,
+            &candidate.created_at,
+            et_ref,
+            scoring_params,
+        );
+        candidate.text_overlap = refinement.text_overlap;
+        candidate.score *= refinement.factor;
 
         if let Some(context_tags) = opts.context_tags.as_ref() {
             let candidate_tags: HashSet<String> = candidate
@@ -561,12 +546,12 @@ fn fuse_refine_and_output(
 
         // Record refinement factors for explain mode
         if explain_enabled && let Some(ref mut exp) = candidate.explain {
-            exp["word_overlap"] = serde_json::json!(overlap);
-            exp["query_coverage_boost"] = serde_json::json!(coverage_boost);
-            exp["text_overlap"] = serde_json::json!(overlap);
-            exp["importance_factor"] = serde_json::json!(importance_factor_val);
-            exp["feedback_factor"] = serde_json::json!(fb_factor);
-            exp["time_decay"] = serde_json::json!(td);
+            exp["word_overlap"] = serde_json::json!(refinement.text_overlap);
+            exp["query_coverage_boost"] = serde_json::json!(refinement.coverage_boost);
+            exp["text_overlap"] = serde_json::json!(refinement.text_overlap);
+            exp["importance_factor"] = serde_json::json!(refinement.importance_factor);
+            exp["feedback_factor"] = serde_json::json!(refinement.feedback_factor);
+            exp["time_decay"] = serde_json::json!(refinement.time_decay);
         }
     }
 
@@ -667,52 +652,35 @@ fn fuse_refine_and_output(
                             rel_type,
                         ) = row;
 
-                        let mut neighbor_score =
-                            scoring_params.graph_neighbor_factor * seed_score * edge_weight;
-
-                        // Relation-type scoring: different edge types get different boosts.
-                        match rel_type.as_str() {
-                            "PRECEDED_BY" => {
-                                neighbor_score *= scoring_params.preceded_by_boost;
-                            }
-                            "RELATES_TO" | "SIMILAR_TO" | "SHARES_THEME" | "PARALLEL_CONTEXT" => {
-                                neighbor_score *= scoring_params.entity_relation_boost;
-                            }
-                            _ => {}
-                        }
-
                         let tags = parse_tags_from_db(&raw_tags);
                         let metadata = parse_metadata_from_db(&raw_metadata);
-                        let with_tags = if tags.is_empty() {
-                            content.clone()
-                        } else {
-                            format!("{} {}", content, tags.join(" "))
-                        };
-                        let overlap = word_overlap_pre(&query_tokens, &token_set(&with_tags, 3));
                         let fb_score = metadata
                             .get("feedback_score")
                             .and_then(|v| v.as_i64())
                             .unwrap_or(0);
-                        let fb_dampening = if fb_score < 0 { 0.5 } else { 1.0 };
-                        // Note: query_coverage_boost is not applied here; graph enrichment (Phase 5)
-                        // is disabled (GRAPH_NEIGHBOR_FACTOR=0.0) and coverage boost is omitted
-                        // intentionally to keep neighbour scoring independent of the main query overlap.
-                        neighbor_score *= 1.0
-                            + overlap * scoring_params.neighbor_word_overlap_weight * fb_dampening;
                         let neighbor_et = event_type_from_sql(event_type);
                         let neighbor_et_ref = neighbor_et.as_ref().unwrap_or(&EventType::Memory);
                         let neighbor_pv = resolve_priority(neighbor_et.as_ref(), priority);
-                        neighbor_score *=
-                            time_decay_et(&created_at, neighbor_et_ref, scoring_params);
-                        neighbor_score *= scoring_params.neighbor_importance_floor
-                            + importance * scoring_params.neighbor_importance_scale;
+
+                        let (neighbor_score, overlap) = score_graph_neighbor(
+                            *seed_score,
+                            edge_weight,
+                            &rel_type,
+                            &query_tokens,
+                            &content,
+                            &tags,
+                            importance,
+                            fb_score,
+                            &created_at,
+                            neighbor_et_ref,
+                            scoring_params,
+                        );
 
                         let vec_sim = embedding_blob.and_then(|blob| {
                             decode_embedding(&blob)
                                 .ok()
                                 .map(|emb| dot_product(query_embedding, &emb) as f64)
                         });
-                        neighbor_score *= feedback_factor(fb_score, scoring_params);
 
                         let explain_data = if explain_enabled {
                             Some(serde_json::json!({
@@ -796,8 +764,6 @@ fn fuse_refine_and_output(
     }
     // ── Phase 5b: Entity expansion — find memories tagged with entities from seed results ──
     {
-        use crate::memory_core::scoring::ENTITY_EXPANSION_BOOST;
-
         // Collect entity tags from the top-k seed results
         let mut seed_list_for_expansion: Vec<(String, f64, Vec<String>)> = ranked
             .iter()
@@ -906,38 +872,28 @@ fn fuse_refine_and_output(
                             let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
                             let priority_value = resolve_priority(et.as_ref(), priority);
 
-                            // Score: type_weight x priority x importance x ENTITY_EXPANSION_BOOST
-                            let base_score = type_weight_et(et_ref)
-                                * priority_factor(priority_value, scoring_params);
-                            let importance_factor_val = scoring_params.importance_floor
-                                + importance * scoring_params.importance_scale;
-                            let with_tags_text = if tags.is_empty() {
-                                content.clone()
-                            } else {
-                                format!("{} {}", content, tags.join(" "))
-                            };
-                            let overlap =
-                                word_overlap_pre(&query_tokens, &token_set(&with_tags_text, 3));
-                            let td = time_decay_et(&created_at, et_ref, scoring_params);
-
-                            let expanded_score = base_score
-                                * importance_factor_val
-                                * (1.0 + overlap * scoring_params.word_overlap_weight)
-                                * td
-                                * ENTITY_EXPANSION_BOOST;
-
-                            // Use a fraction of the max seed score as a baseline
                             let max_seed_score = seed_list_for_expansion
                                 .first()
                                 .map(|(_, s, _)| *s)
                                 .unwrap_or(1.0);
-                            let final_score = expanded_score.min(max_seed_score * 0.8);
+                            let (final_score, overlap, importance_factor_val, td) =
+                                score_entity_candidate(
+                                    &query_tokens,
+                                    &content,
+                                    &tags,
+                                    importance,
+                                    &created_at,
+                                    et_ref,
+                                    priority_value,
+                                    scoring_params,
+                                    max_seed_score,
+                                );
 
                             let explain_data = if explain_enabled {
                                 Some(serde_json::json!({
                                     "entity_expansion": true,
                                     "expanded_from_tag": entity_tag,
-                                    "entity_boost": ENTITY_EXPANSION_BOOST,
+                                    "entity_boost": candidate_scorer::entity_expansion_boost(),
                                     "word_overlap": overlap,
                                     "importance_factor": importance_factor_val,
                                     "time_decay": td,
@@ -1244,9 +1200,8 @@ async fn run_single_query_pipeline(
     .context("spawn_blocking join error")?
 }
 
-#[async_trait]
-impl AdvancedSearcher for SqliteStorage {
-    async fn advanced_search(
+impl SqliteStorage {
+    pub async fn advanced_search(
         &self,
         query: &str,
         limit: usize,

@@ -15,12 +15,8 @@ use uuid::Uuid;
 
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Deleter, EventType,
-    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
-    MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents, RelationshipQuerier,
-    ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher, SimilarFinder,
-    StatsProvider, Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider,
-    is_valid_event_type,
+    CheckpointInput, EventType, MemoryInput, MemoryUpdate, Recents, Retriever, SearchOptions,
+    Searcher, SemanticSearcher, is_valid_event_type,
 };
 
 // ──────────────────────── Validation constants ────────────────────────
@@ -481,7 +477,8 @@ impl McpMemoryServer {
         params: Parameters<StoreRequest>,
     ) -> Result<CallToolResult, McpError> {
         let (id, input) = build_memory_input(&params.0)?;
-        <SqliteStorage as Storage>::store(&self.storage, &id, &params.0.content, &input)
+        self.storage
+            .store(&id, &params.0.content, &input)
             .await
             .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
 
@@ -563,15 +560,13 @@ impl McpMemoryServer {
             let memory_id = params.0.memory_id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("memory_id is required for mode=similar", None)
             })?;
-            let results =
-                <SqliteStorage as SimilarFinder>::find_similar(&self.storage, memory_id, limit)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("failed to find similar memories: {e}"),
-                            None,
-                        )
-                    })?;
+            let results = self
+                .storage
+                .find_similar(memory_id, limit)
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to find similar memories: {e}"), None)
+                })?;
             let payload = serialize_results(results)?;
             return Ok(CallToolResult::success(vec![Content::text(
                 json!({ "results": payload }).to_string(),
@@ -605,19 +600,16 @@ impl McpMemoryServer {
                     let query = params.0.query.as_deref().ok_or_else(|| {
                         McpError::invalid_params(format!("query is required for mode={mode}"), None)
                     })?;
-                    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-                        &self.storage,
-                        query,
-                        limit,
-                        &opts,
-                    )
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("failed to advanced-search memories: {e}"),
-                            None,
-                        )
-                    })?;
+                    let results = self
+                        .storage
+                        .advanced_search(query, limit, &opts)
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to advanced-search memories: {e}"),
+                                None,
+                            )
+                        })?;
 
                     let abstained = results.is_empty();
                     let result_count = results.len();
@@ -698,16 +690,16 @@ impl McpMemoryServer {
                 let query = params.0.query.as_deref().ok_or_else(|| {
                     McpError::invalid_params("query is required for mode=phrase", None)
                 })?;
-                let results = <SqliteStorage as PhraseSearcher>::phrase_search(
-                    &self.storage,
-                    query,
-                    limit,
-                    &opts,
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to phrase-search memories: {e}"), None)
-                })?;
+                let results = self
+                    .storage
+                    .phrase_search(query, limit, &opts)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("failed to phrase-search memories: {e}"),
+                            None,
+                        )
+                    })?;
                 let payload = serialize_results(results)?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": payload }).to_string(),
@@ -848,7 +840,8 @@ impl McpMemoryServer {
             event_type: EventType::from_optional(params.0.event_type.as_deref()),
             priority: params.0.priority,
         };
-        <SqliteStorage as Updater>::update(&self.storage, &params.0.id, &update)
+        self.storage
+            .update(&params.0.id, &update)
             .await
             .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
 
@@ -949,17 +942,13 @@ impl McpMemoryServer {
                         None,
                     ));
                 }
-                let nodes = <SqliteStorage as GraphTraverser>::traverse(
-                    &self.storage,
-                    id,
-                    max_hops,
-                    min_weight,
-                    None,
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to traverse graph: {e}"), None)
-                })?;
+                let nodes = self
+                    .storage
+                    .traverse(id, max_hops, min_weight, None)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to traverse graph: {e}"), None)
+                    })?;
                 let mut grouped = serde_json::Map::new();
                 for node in nodes {
                     let key = node.hop.to_string();
@@ -1017,14 +1006,13 @@ impl McpMemoryServer {
             return Err(McpError::invalid_params("invalid rating", None));
         }
 
-        let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-            &self.storage,
-            &params.0.memory_id,
-            rating,
-            params.0.reason.as_deref(),
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("failed to record feedback: {e}"), None))?;
+        let result = self
+            .storage
+            .record_feedback(&params.0.memory_id, rating, params.0.reason.as_deref())
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("failed to record feedback: {e}"), None)
+            })?;
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({"memory_id": params.0.memory_id, "feedback": result}).to_string(),
@@ -1044,12 +1032,9 @@ impl McpMemoryServer {
 
         match action {
             "sweep" => {
-                let swept_count =
-                    <SqliteStorage as ExpirationSweeper>::sweep_expired(&self.storage)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(format!("failed to sweep expired: {e}"), None)
-                        })?;
+                let swept_count = self.storage.sweep_expired().await.map_err(|e| {
+                    McpError::internal_error(format!("failed to sweep expired: {e}"), None)
+                })?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "swept_count": swept_count }).to_string(),
                 )]))
@@ -1151,10 +1136,11 @@ impl McpMemoryServer {
                 )]))
             }
             "backup" => {
-                let info = <SqliteStorage as BackupManager>::create_backup(&self.storage)
-                    .await
-                    .map_err(|e| McpError::internal_error(format!("backup failed: {e}"), None))?;
-                let _ = <SqliteStorage as BackupManager>::rotate_backups(&self.storage, 5).await;
+                let info =
+                    self.storage.create_backup().await.map_err(|e| {
+                        McpError::internal_error(format!("backup failed: {e}"), None)
+                    })?;
+                let _ = self.storage.rotate_backups(5).await;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({
                         "path": info.path.display().to_string(),
@@ -1165,11 +1151,9 @@ impl McpMemoryServer {
                 )]))
             }
             "backup_list" => {
-                let backups = <SqliteStorage as BackupManager>::list_backups(&self.storage)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("backup list failed: {e}"), None)
-                    })?;
+                let backups = self.storage.list_backups().await.map_err(|e| {
+                    McpError::internal_error(format!("backup list failed: {e}"), None)
+                })?;
                 let payload: Vec<_> = backups
                     .iter()
                     .map(|b| {
@@ -1222,29 +1206,20 @@ impl McpMemoryServer {
                     session_id: params.0.session_id.clone(),
                     project: params.0.project.clone(),
                 };
-                let memory_id =
-                    <SqliteStorage as CheckpointManager>::save_checkpoint(&self.storage, input)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(
-                                format!("failed to save checkpoint: {e}"),
-                                None,
-                            )
-                        })?;
-
-                let latest = <SqliteStorage as CheckpointManager>::resume_task(
-                    &self.storage,
-                    task_title,
-                    params.0.project.as_deref(),
-                    1,
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(
-                        format!("failed to resolve checkpoint number: {e}"),
-                        None,
-                    )
+                let memory_id = self.storage.save_checkpoint(input).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
                 })?;
+
+                let latest = self
+                    .storage
+                    .resume_task(task_title, params.0.project.as_deref(), 1)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("failed to resolve checkpoint number: {e}"),
+                            None,
+                        )
+                    })?;
                 let checkpoint_number = latest
                     .first()
                     .and_then(|entry| entry.get("metadata"))
@@ -1260,16 +1235,13 @@ impl McpMemoryServer {
             "resume" => {
                 let query = params.0.task_title.clone().unwrap_or_default();
                 let limit = params.0.limit.unwrap_or(1).min(MAX_RESULT_LIMIT);
-                let results = <SqliteStorage as CheckpointManager>::resume_task(
-                    &self.storage,
-                    &query,
-                    params.0.project.as_deref(),
-                    limit,
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to resume task: {e}"), None)
-                })?;
+                let results = self
+                    .storage
+                    .resume_task(&query, params.0.project.as_deref(), limit)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to resume task: {e}"), None)
+                    })?;
 
                 let mut markdown = String::new();
                 for (index, entry) in results.iter().enumerate() {
@@ -1310,31 +1282,31 @@ impl McpMemoryServer {
                 let duration = params.0.duration.as_deref().ok_or_else(|| {
                     McpError::invalid_params("duration is required for action=set", None)
                 })?;
-                let result = <SqliteStorage as ReminderManager>::create_reminder(
-                    &self.storage,
-                    text,
-                    duration,
-                    params.0.context.as_deref(),
-                    params.0.session_id.as_deref(),
-                    params.0.project.as_deref(),
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to create reminder: {e}"), None)
-                })?;
+                let result = self
+                    .storage
+                    .create_reminder(
+                        text,
+                        duration,
+                        params.0.context.as_deref(),
+                        params.0.session_id.as_deref(),
+                        params.0.project.as_deref(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to create reminder: {e}"), None)
+                    })?;
                 Ok(CallToolResult::success(vec![Content::text(
                     result.to_string(),
                 )]))
             }
             "list" => {
-                let result = <SqliteStorage as ReminderManager>::list_reminders(
-                    &self.storage,
-                    params.0.status.as_deref(),
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to list reminders: {e}"), None)
-                })?;
+                let result = self
+                    .storage
+                    .list_reminders(params.0.status.as_deref())
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to list reminders: {e}"), None)
+                    })?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "results": result }).to_string(),
                 )]))
@@ -1343,14 +1315,13 @@ impl McpMemoryServer {
                 let reminder_id = params.0.reminder_id.as_deref().ok_or_else(|| {
                     McpError::invalid_params("reminder_id is required for action=dismiss", None)
                 })?;
-                let result = <SqliteStorage as ReminderManager>::dismiss_reminder(
-                    &self.storage,
-                    reminder_id,
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to dismiss reminder: {e}"), None)
-                })?;
+                let result = self
+                    .storage
+                    .dismiss_reminder(reminder_id)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to dismiss reminder: {e}"), None)
+                    })?;
                 Ok(CallToolResult::success(vec![Content::text(
                     result.to_string(),
                 )]))
@@ -1371,16 +1342,17 @@ impl McpMemoryServer {
         params: Parameters<LessonsRequest>,
     ) -> Result<CallToolResult, McpError> {
         let limit = params.0.limit.unwrap_or(5).min(MAX_RESULT_LIMIT);
-        let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
-            &self.storage,
-            params.0.task.as_deref(),
-            params.0.project.as_deref(),
-            params.0.exclude_session.as_deref(),
-            params.0.agent_type.as_deref(),
-            limit,
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("failed to query lessons: {e}"), None))?;
+        let lessons = self
+            .storage
+            .query_lessons(
+                params.0.task.as_deref(),
+                params.0.project.as_deref(),
+                params.0.exclude_session.as_deref(),
+                params.0.agent_type.as_deref(),
+                limit,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(format!("failed to query lessons: {e}"), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             json!({ "results": lessons }).to_string(),
@@ -1499,11 +1471,9 @@ impl McpMemoryServer {
         let action = params.0.action.as_deref().unwrap_or("read");
         match action {
             "read" => {
-                let profile = <SqliteStorage as ProfileManager>::get_profile(&self.storage)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to read profile: {e}"), None)
-                    })?;
+                let profile = self.storage.get_profile().await.map_err(|e| {
+                    McpError::internal_error(format!("failed to read profile: {e}"), None)
+                })?;
                 Ok(CallToolResult::success(vec![Content::text(
                     profile.to_string(),
                 )]))
@@ -1512,11 +1482,9 @@ impl McpMemoryServer {
                 let updates = params.0.update.as_ref().ok_or_else(|| {
                     McpError::invalid_params("update payload is required for action=update", None)
                 })?;
-                <SqliteStorage as ProfileManager>::set_profile(&self.storage, updates)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to update profile: {e}"), None)
-                    })?;
+                self.storage.set_profile(updates).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to update profile: {e}"), None)
+                })?;
                 Ok(CallToolResult::success(vec![Content::text(
                     json!({ "updated": true }).to_string(),
                 )]))

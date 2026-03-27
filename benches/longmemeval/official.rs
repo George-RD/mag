@@ -145,13 +145,9 @@ pub(crate) async fn run_official_benchmark(
         // Query.
         let query_start = Instant::now();
         let hits = {
-            let advanced = <SqliteStorage as AdvancedSearcher>::advanced_search(
-                &storage,
-                &question.question,
-                top_k,
-                &no_filter,
-            )
-            .await;
+            let advanced = storage
+                .advanced_search(&question.question, top_k, &no_filter)
+                .await;
             match advanced {
                 Ok(items) if !items.is_empty() => items
                     .into_iter()
@@ -162,16 +158,12 @@ pub(crate) async fn run_official_benchmark(
                     .collect::<Vec<_>>(),
                 Ok(_) => {
                     // Empty advanced_search = abstention. Fall back to basic search.
-                    let items = <SqliteStorage as Searcher>::search(
-                        &storage,
-                        &question.question,
-                        top_k,
-                        &no_filter,
-                    )
-                    .await
-                    .map_err(|e| {
-                        anyhow!("basic search failed for Q{}: {e}", question.question_id)
-                    })?;
+                    let items = storage
+                        .search(&question.question, top_k, &no_filter)
+                        .await
+                        .map_err(|e| {
+                            anyhow!("basic search failed for Q{}: {e}", question.question_id)
+                        })?;
                     items
                         .into_iter()
                         .map(|item| Hit {
@@ -185,19 +177,15 @@ pub(crate) async fn run_official_benchmark(
                         "warning: advanced_search failed for Q{} ({err}); falling back to basic search",
                         question.question_id
                     );
-                    let items = <SqliteStorage as Searcher>::search(
-                        &storage,
-                        &question.question,
-                        top_k,
-                        &no_filter,
-                    )
-                    .await
-                    .map_err(|e| {
-                        anyhow!(
-                            "basic fallback search failed for Q{}: {e}",
-                            question.question_id
-                        )
-                    })?;
+                    let items = storage
+                        .search(&question.question, top_k, &no_filter)
+                        .await
+                        .map_err(|e| {
+                            anyhow!(
+                                "basic fallback search failed for Q{}: {e}",
+                                question.question_id
+                            )
+                        })?;
                     items
                         .into_iter()
                         .map(|item| Hit {

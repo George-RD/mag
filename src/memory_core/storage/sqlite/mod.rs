@@ -14,15 +14,15 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
-    FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
-    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
-    Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
-    SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
-    Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider, embedder::Embedder,
-    feedback_factor, is_stopword, jaccard_pre, jaccard_similarity, priority_factor, simple_stem,
-    time_decay_et, token_set, type_weight_et, word_overlap_pre,
+    CheckpointInput, EventType, GraphNode, ListResult, MemoryInput, MemoryUpdate, Recents,
+    Relationship, Retriever, SearchOptions, SearchResult, Searcher, SemanticResult,
+    SemanticSearcher, Storage, embedder::Embedder,
 };
+// Scoring primitives routed through candidate_scorer (the single gateway).
+// ScoringParams is used in struct fields/methods in this file.
+// type_weight_et, priority_factor, token_set are re-exported for
+// siblings (e.g. advanced.rs) that access them via `super::*`.
+use candidate_scorer::{ScoringParams, priority_factor, token_set, type_weight_et};
 
 /// Query result cache TTL in seconds.
 const QUERY_CACHE_TTL_SECS: u64 = 60;
@@ -452,11 +452,6 @@ impl SqliteStorage {
     #[allow(dead_code)]
     pub async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
         <Self as Storage>::store(self, id, data, input).await
-    }
-
-    #[allow(dead_code)]
-    pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
-        <Self as Updater>::update(self, id, input).await
     }
 
     /// Returns a breakdown of relationship counts grouped by `rel_type`.
@@ -1243,6 +1238,7 @@ struct RankedSemanticCandidate {
 
 mod admin;
 mod advanced;
+mod candidate_scorer;
 mod conn_pool;
 mod crud;
 mod embedding_codec;

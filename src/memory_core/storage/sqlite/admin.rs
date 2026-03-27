@@ -238,9 +238,8 @@ fn needs_backup(db_path: &Path) -> Result<bool> {
     Ok(age.as_secs() >= BACKUP_INTERVAL_SECS)
 }
 
-#[async_trait]
-impl crate::memory_core::BackupManager for SqliteStorage {
-    async fn create_backup(&self) -> Result<BackupInfo> {
+impl SqliteStorage {
+    pub async fn create_backup(&self) -> Result<BackupInfo> {
         let pool = Arc::clone(&self.pool);
         let db_path = self.db_path.clone();
 
@@ -252,7 +251,7 @@ impl crate::memory_core::BackupManager for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn rotate_backups(&self, max_count: usize) -> Result<usize> {
+    pub async fn rotate_backups(&self, max_count: usize) -> Result<usize> {
         let db_path = self.db_path.clone();
 
         tokio::task::spawn_blocking(move || rotate_backups_sync(&db_path, max_count))
@@ -260,7 +259,7 @@ impl crate::memory_core::BackupManager for SqliteStorage {
             .context("spawn_blocking join error")?
     }
 
-    async fn list_backups(&self) -> Result<Vec<BackupInfo>> {
+    pub async fn list_backups(&self) -> Result<Vec<BackupInfo>> {
         let db_path = self.db_path.clone();
 
         tokio::task::spawn_blocking(move || list_backups_sync(&db_path))
@@ -268,7 +267,7 @@ impl crate::memory_core::BackupManager for SqliteStorage {
             .context("spawn_blocking join error")?
     }
 
-    async fn restore_backup(&self, backup_path: &Path) -> Result<()> {
+    pub async fn restore_backup(&self, backup_path: &Path) -> Result<()> {
         let pool = Arc::clone(&self.pool);
         let db_path = self.db_path.clone();
         let backup_path = backup_path.to_path_buf();
@@ -281,7 +280,7 @@ impl crate::memory_core::BackupManager for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>> {
+    pub async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>> {
         let pool = Arc::clone(&self.pool);
         let db_path = self.db_path.clone();
 
@@ -310,9 +309,8 @@ impl crate::memory_core::BackupManager for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl MaintenanceManager for SqliteStorage {
-    async fn check_health(
+impl SqliteStorage {
+    pub async fn check_health(
         &self,
         warn_mb: f64,
         critical_mb: f64,
@@ -381,7 +379,11 @@ impl MaintenanceManager for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn consolidate(&self, prune_days: i64, max_summaries: i64) -> Result<serde_json::Value> {
+    pub async fn consolidate(
+        &self,
+        prune_days: i64,
+        max_summaries: i64,
+    ) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
         let result = tokio::task::spawn_blocking(move || {
@@ -486,7 +488,7 @@ impl MaintenanceManager for SqliteStorage {
         result
     }
 
-    async fn compact(
+    pub async fn compact(
         &self,
         event_type: &str,
         similarity_threshold: f64,
@@ -652,7 +654,7 @@ impl MaintenanceManager for SqliteStorage {
         result
     }
 
-    async fn auto_compact(
+    pub async fn auto_compact(
         &self,
         count_threshold: usize,
         dry_run: bool,
@@ -828,7 +830,7 @@ impl MaintenanceManager for SqliteStorage {
         result
     }
 
-    async fn clear_session(&self, session_id: &str) -> Result<usize> {
+    pub async fn clear_session(&self, session_id: &str) -> Result<usize> {
         let pool = Arc::clone(&self.pool);
         let session_id = session_id.to_string();
 
@@ -884,9 +886,8 @@ impl MaintenanceManager for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl WelcomeProvider for SqliteStorage {
-    async fn welcome(
+impl SqliteStorage {
+    pub async fn welcome(
         &self,
         _session_id: Option<&str>,
         project: Option<&str>,
@@ -963,11 +964,10 @@ impl WelcomeProvider for SqliteStorage {
 
         let (total, recent, user_context) = db_result;
 
-        // Get profile and pending reminders via existing trait impls
-        let profile = <Self as ProfileManager>::get_profile(self)
-            .await
-            .unwrap_or(serde_json::json!({}));
-        let reminders = <Self as ReminderManager>::list_reminders(self, Some("pending"))
+        // Get profile and pending reminders via inherent methods
+        let profile = self.get_profile().await.unwrap_or(serde_json::json!({}));
+        let reminders = self
+            .list_reminders(Some("pending"))
             .await
             .unwrap_or_default();
 
@@ -988,9 +988,8 @@ impl WelcomeProvider for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl StatsProvider for SqliteStorage {
-    async fn type_stats(&self) -> Result<serde_json::Value> {
+impl SqliteStorage {
+    pub async fn type_stats(&self) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
@@ -1021,7 +1020,7 @@ impl StatsProvider for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn session_stats(&self) -> Result<serde_json::Value> {
+    pub async fn session_stats(&self) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
@@ -1062,7 +1061,7 @@ impl StatsProvider for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value> {
+    pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {
@@ -1145,7 +1144,7 @@ impl StatsProvider for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn access_rate_stats(&self) -> Result<serde_json::Value> {
+    pub async fn access_rate_stats(&self) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
 
         tokio::task::spawn_blocking(move || {

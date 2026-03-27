@@ -1,10 +1,7 @@
 use super::*;
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, EventType, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, PhraseSearcher,
-    ProfileManager, Recents, ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher,
-    SimilarFinder, StatsProvider, Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater,
-    VersionChainQuerier, WelcomeProvider, is_valid_event_type, parse_duration,
+    CheckpointInput, EventType, Recents, Retriever, SearchOptions, Searcher, SemanticSearcher,
+    Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, is_valid_event_type, parse_duration,
 };
 
 #[derive(Debug, Clone)]
@@ -590,7 +587,7 @@ async fn test_fts5_sync_on_update() {
     .await
     .unwrap();
 
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "fts6",
         &MemoryUpdate {
@@ -993,7 +990,7 @@ async fn test_update_content_changes_value() {
     .await
     .unwrap();
 
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "up1",
         &MemoryUpdate {
@@ -1029,7 +1026,7 @@ async fn test_update_with_tags() {
     .unwrap();
 
     let new_tags = vec!["x".to_string()];
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "up2",
         &MemoryUpdate {
@@ -1072,7 +1069,7 @@ async fn test_update_without_tags_preserves_existing() {
     .await
     .unwrap();
 
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "up3",
         &MemoryUpdate {
@@ -1112,7 +1109,7 @@ async fn test_update_tags_only_preserves_content() {
     .unwrap();
 
     let new_tags = vec!["new-tag".to_string()];
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "up4",
         &MemoryUpdate {
@@ -1152,14 +1149,14 @@ async fn test_update_neither_content_nor_tags_errors() {
     )
     .await
     .unwrap();
-    let err = <SqliteStorage as Updater>::update(&storage, "up5", &MemoryUpdate::default()).await;
+    let err = SqliteStorage::update(&storage, "up5", &MemoryUpdate::default()).await;
     assert!(err.is_err());
 }
 
 #[tokio::test]
 async fn test_update_nonexistent_errors() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let err = <SqliteStorage as Updater>::update(
+    let err = SqliteStorage::update(
         &storage,
         "ghost",
         &MemoryUpdate {
@@ -1540,7 +1537,7 @@ async fn test_update_importance_only() {
     .await
     .unwrap();
 
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "im2",
         &MemoryUpdate {
@@ -1584,7 +1581,7 @@ async fn test_update_metadata_only() {
     .unwrap();
 
     let updated_metadata = serde_json::json!({"v":2, "extra":"ok"});
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "im3",
         &MemoryUpdate {
@@ -1990,7 +1987,7 @@ async fn test_update_event_type() {
     .await
     .unwrap();
 
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "ue1",
         &MemoryUpdate {
@@ -2030,7 +2027,7 @@ async fn test_update_priority() {
     .await
     .unwrap();
 
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
         &storage,
         "upprio",
         &MemoryUpdate {
@@ -2288,7 +2285,7 @@ async fn test_superseded_filtered_from_advanced_search() {
     .await
     .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "compact commit titles",
         10,
@@ -2339,7 +2336,7 @@ async fn test_superseded_filtered_from_find_similar() {
         .await
         .unwrap();
 
-    let results = <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim-source", 10)
+    let results = SqliteStorage::find_similar(&storage, "sim-source", 10)
         .await
         .unwrap();
     assert!(results.iter().all(|r| r.id != "sim-old"));
@@ -2392,10 +2389,9 @@ async fn test_find_similar_backfills_after_skipping_source_and_superseded() {
         .await
         .unwrap();
 
-    let results =
-        <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim-backfill-source", 2)
-            .await
-            .unwrap();
+    let results = SqliteStorage::find_similar(&storage, "sim-backfill-source", 2)
+        .await
+        .unwrap();
 
     assert_eq!(results.len(), 2);
     assert!(
@@ -2465,7 +2461,7 @@ async fn test_include_superseded_shows_all() {
     .await
     .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "concise commits",
         10,
@@ -2659,14 +2655,9 @@ async fn test_feedback_helpful() {
         .await
         .unwrap();
 
-    let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-        &storage,
-        "fb-1",
-        "helpful",
-        Some("useful"),
-    )
-    .await
-    .unwrap();
+    let result = SqliteStorage::record_feedback(&storage, "fb-1", "helpful", Some("useful"))
+        .await
+        .unwrap();
 
     assert_eq!(result["new_score"].as_i64(), Some(1));
     assert_eq!(result["total_signals"].as_u64(), Some(1));
@@ -2681,14 +2672,9 @@ async fn test_feedback_unhelpful_flagged() {
         .unwrap();
 
     for _ in 0..3 {
-        let _ = <SqliteStorage as FeedbackRecorder>::record_feedback(
-            &storage,
-            "fb-2",
-            "unhelpful",
-            None,
-        )
-        .await
-        .unwrap();
+        let _ = SqliteStorage::record_feedback(&storage, "fb-2", "unhelpful", None)
+            .await
+            .unwrap();
     }
 
     let conn = storage.test_conn().unwrap();
@@ -2728,9 +2714,7 @@ async fn test_sweep_expired() {
         .unwrap();
     }
 
-    let swept = <SqliteStorage as ExpirationSweeper>::sweep_expired(&storage)
-        .await
-        .unwrap();
+    let swept = SqliteStorage::sweep_expired(&storage).await.unwrap();
     assert_eq!(swept, 1);
     assert!(storage.retrieve("ttl-exp").await.is_err());
 }
@@ -2759,9 +2743,7 @@ async fn test_sweep_preserves_permanent() {
         .unwrap();
     }
 
-    let swept = <SqliteStorage as ExpirationSweeper>::sweep_expired(&storage)
-        .await
-        .unwrap();
+    let swept = SqliteStorage::sweep_expired(&storage).await.unwrap();
     assert_eq!(swept, 0);
     assert_eq!(storage.retrieve("ttl-perm").await.unwrap(), "permanent");
 }
@@ -2992,14 +2974,10 @@ async fn test_advanced_search_basic() {
         .unwrap();
     }
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "alpha context",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results =
+        SqliteStorage::advanced_search(&storage, "alpha context", 10, &SearchOptions::default())
+            .await
+            .unwrap();
     assert!(!results.is_empty());
     assert!(results.iter().all(|r| (0.0..=1.0).contains(&r.score)));
 }
@@ -3032,7 +3010,7 @@ async fn test_advanced_search_type_weight() {
     .await
     .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "same searchable text",
         10,
@@ -3062,7 +3040,7 @@ async fn test_advanced_search_dedup() {
         .unwrap();
     }
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "identical duplicate",
         10,
@@ -3111,7 +3089,7 @@ async fn test_advanced_search_filters() {
     .await
     .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "filter target",
         10,
@@ -3156,10 +3134,9 @@ async fn test_graph_traverse_basic() {
         .unwrap();
 
     let edge_types = vec!["links".to_string()];
-    let nodes =
-        <SqliteStorage as GraphTraverser>::traverse(&storage, "ga", 2, 0.0, Some(&edge_types))
-            .await
-            .unwrap();
+    let nodes = SqliteStorage::traverse(&storage, "ga", 2, 0.0, Some(&edge_types))
+        .await
+        .unwrap();
     assert_eq!(nodes.len(), 2);
     assert_eq!(nodes[0].id, "gb");
     assert_eq!(nodes[0].hop, 1);
@@ -3193,10 +3170,9 @@ async fn test_graph_traverse_min_weight() {
         .unwrap();
 
     let edge_types = vec!["links".to_string()];
-    let nodes =
-        <SqliteStorage as GraphTraverser>::traverse(&storage, "gwa", 2, 0.5, Some(&edge_types))
-            .await
-            .unwrap();
+    let nodes = SqliteStorage::traverse(&storage, "gwa", 2, 0.5, Some(&edge_types))
+        .await
+        .unwrap();
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].id, "gwb");
 }
@@ -3231,10 +3207,9 @@ async fn test_graph_traverse_max_hops() {
         .unwrap();
 
     let edge_types = vec!["links".to_string()];
-    let nodes =
-        <SqliteStorage as GraphTraverser>::traverse(&storage, "mh1", 2, 0.0, Some(&edge_types))
-            .await
-            .unwrap();
+    let nodes = SqliteStorage::traverse(&storage, "mh1", 2, 0.0, Some(&edge_types))
+        .await
+        .unwrap();
     assert_eq!(nodes.len(), 2);
     assert!(nodes.iter().all(|n| n.hop <= 2));
 }
@@ -3276,7 +3251,7 @@ async fn test_find_similar() {
     .await
     .unwrap();
 
-    let results = <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim1", 2)
+    let results = SqliteStorage::find_similar(&storage, "sim1", 2)
         .await
         .unwrap();
     assert_eq!(results.len(), 2);
@@ -3312,7 +3287,7 @@ async fn test_phrase_search() {
     .await
     .unwrap();
 
-    let results = <SqliteStorage as PhraseSearcher>::phrase_search(
+    let results = SqliteStorage::phrase_search(
         &storage,
         "exact phrase",
         10,
@@ -3353,16 +3328,14 @@ async fn test_search_empty_opts_returns_all() {
 #[tokio::test]
 async fn test_profile_set_and_get() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    <SqliteStorage as ProfileManager>::set_profile(
+    SqliteStorage::set_profile(
         &storage,
         &serde_json::json!({"name": "George", "timezone": "UTC"}),
     )
     .await
     .unwrap();
 
-    let profile = <SqliteStorage as ProfileManager>::get_profile(&storage)
-        .await
-        .unwrap();
+    let profile = SqliteStorage::get_profile(&storage).await.unwrap();
     assert_eq!(profile["name"], "George");
     assert_eq!(profile["timezone"], "UTC");
 }
@@ -3370,22 +3343,17 @@ async fn test_profile_set_and_get() {
 #[tokio::test]
 async fn test_profile_update_merge() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    <SqliteStorage as ProfileManager>::set_profile(
+    SqliteStorage::set_profile(
         &storage,
         &serde_json::json!({"name": "George", "timezone": "UTC"}),
     )
     .await
     .unwrap();
-    <SqliteStorage as ProfileManager>::set_profile(
-        &storage,
-        &serde_json::json!({"timezone": "PST"}),
-    )
-    .await
-    .unwrap();
-
-    let profile = <SqliteStorage as ProfileManager>::get_profile(&storage)
+    SqliteStorage::set_profile(&storage, &serde_json::json!({"timezone": "PST"}))
         .await
         .unwrap();
+
+    let profile = SqliteStorage::get_profile(&storage).await.unwrap();
     assert_eq!(profile["name"], "George");
     assert_eq!(profile["timezone"], "PST");
 }
@@ -3411,9 +3379,7 @@ async fn test_profile_preferences_augmentation() {
         .unwrap();
     }
 
-    let profile = <SqliteStorage as ProfileManager>::get_profile(&storage)
-        .await
-        .unwrap();
+    let profile = SqliteStorage::get_profile(&storage).await.unwrap();
     let prefs = profile["preferences_from_memory"].as_array().unwrap();
     assert!(prefs.len() >= 2);
 }
@@ -3421,7 +3387,7 @@ async fn test_profile_preferences_augmentation() {
 #[tokio::test]
 async fn test_checkpoint_save_and_resume() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let id = <SqliteStorage as CheckpointManager>::save_checkpoint(
+    let id = SqliteStorage::save_checkpoint(
         &storage,
         CheckpointInput {
             task_title: "Cross-session work".to_string(),
@@ -3439,10 +3405,9 @@ async fn test_checkpoint_save_and_resume() {
     .unwrap();
     assert!(!id.is_empty());
 
-    let resumed =
-        <SqliteStorage as CheckpointManager>::resume_task(&storage, "Cross-session", None, 1)
-            .await
-            .unwrap();
+    let resumed = SqliteStorage::resume_task(&storage, "Cross-session", None, 1)
+        .await
+        .unwrap();
     assert_eq!(resumed.len(), 1);
     assert!(
         resumed[0]["content"]
@@ -3456,7 +3421,7 @@ async fn test_checkpoint_save_and_resume() {
 async fn test_checkpoint_numbering() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     for idx in 1..=3 {
-        <SqliteStorage as CheckpointManager>::save_checkpoint(
+        SqliteStorage::save_checkpoint(
             &storage,
             CheckpointInput {
                 task_title: "Repeated task".to_string(),
@@ -3474,7 +3439,7 @@ async fn test_checkpoint_numbering() {
         .unwrap();
     }
 
-    let resumed = <SqliteStorage as CheckpointManager>::resume_task(&storage, "Repeated", None, 3)
+    let resumed = SqliteStorage::resume_task(&storage, "Repeated", None, 3)
         .await
         .unwrap();
     let mut numbers: Vec<i64> = resumed
@@ -3489,7 +3454,7 @@ async fn test_checkpoint_numbering() {
 async fn test_checkpoint_project_filter() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     for (project, progress) in [("proj-a", "A progress"), ("proj-b", "B progress")] {
-        <SqliteStorage as CheckpointManager>::save_checkpoint(
+        SqliteStorage::save_checkpoint(
             &storage,
             CheckpointInput {
                 task_title: "Shared task".to_string(),
@@ -3507,10 +3472,9 @@ async fn test_checkpoint_project_filter() {
         .unwrap();
     }
 
-    let resumed =
-        <SqliteStorage as CheckpointManager>::resume_task(&storage, "Shared", Some("proj-b"), 5)
-            .await
-            .unwrap();
+    let resumed = SqliteStorage::resume_task(&storage, "Shared", Some("proj-b"), 5)
+        .await
+        .unwrap();
     assert_eq!(resumed.len(), 1);
     assert!(
         resumed[0]["content"]
@@ -3523,7 +3487,7 @@ async fn test_checkpoint_project_filter() {
 #[tokio::test]
 async fn test_reminder_create_and_list() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let reminder = <SqliteStorage as ReminderManager>::create_reminder(
+    let reminder = SqliteStorage::create_reminder(
         &storage,
         "Review PR E",
         "1h",
@@ -3535,9 +3499,7 @@ async fn test_reminder_create_and_list() {
     .unwrap();
 
     let reminder_id = reminder["reminder_id"].as_str().unwrap();
-    let listed = <SqliteStorage as ReminderManager>::list_reminders(&storage, None)
-        .await
-        .unwrap();
+    let listed = SqliteStorage::list_reminders(&storage, None).await.unwrap();
     assert!(
         listed
             .iter()
@@ -3548,27 +3510,19 @@ async fn test_reminder_create_and_list() {
 #[tokio::test]
 async fn test_reminder_dismiss() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let reminder = <SqliteStorage as ReminderManager>::create_reminder(
-        &storage,
-        "Dismiss me",
-        "30m",
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let reminder = SqliteStorage::create_reminder(&storage, "Dismiss me", "30m", None, None, None)
+        .await
+        .unwrap();
     let reminder_id = reminder["reminder_id"].as_str().unwrap();
 
-    let dismissed = <SqliteStorage as ReminderManager>::dismiss_reminder(&storage, reminder_id)
+    let dismissed = SqliteStorage::dismiss_reminder(&storage, reminder_id)
         .await
         .unwrap();
     assert_eq!(dismissed["status"], "dismissed");
 
-    let dismissed_list =
-        <SqliteStorage as ReminderManager>::list_reminders(&storage, Some("dismissed"))
-            .await
-            .unwrap();
+    let dismissed_list = SqliteStorage::list_reminders(&storage, Some("dismissed"))
+        .await
+        .unwrap();
     assert_eq!(dismissed_list.len(), 1);
     assert_eq!(dismissed_list[0]["status"], "dismissed");
 }
@@ -3576,40 +3530,23 @@ async fn test_reminder_dismiss() {
 #[tokio::test]
 async fn test_reminder_status_filter() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let first = <SqliteStorage as ReminderManager>::create_reminder(
-        &storage,
-        "pending item",
-        "1h",
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
-    let second = <SqliteStorage as ReminderManager>::create_reminder(
-        &storage,
-        "to dismiss",
-        "2h",
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
-    <SqliteStorage as ReminderManager>::dismiss_reminder(
-        &storage,
-        second["reminder_id"].as_str().unwrap(),
-    )
-    .await
-    .unwrap();
+    let first = SqliteStorage::create_reminder(&storage, "pending item", "1h", None, None, None)
+        .await
+        .unwrap();
+    let second = SqliteStorage::create_reminder(&storage, "to dismiss", "2h", None, None, None)
+        .await
+        .unwrap();
+    SqliteStorage::dismiss_reminder(&storage, second["reminder_id"].as_str().unwrap())
+        .await
+        .unwrap();
 
-    let pending = <SqliteStorage as ReminderManager>::list_reminders(&storage, Some("pending"))
+    let pending = SqliteStorage::list_reminders(&storage, Some("pending"))
         .await
         .unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0]["reminder_id"], first["reminder_id"]);
 
-    let all = <SqliteStorage as ReminderManager>::list_reminders(&storage, Some("all"))
+    let all = SqliteStorage::list_reminders(&storage, Some("all"))
         .await
         .unwrap();
     assert_eq!(all.len(), 2);
@@ -3652,16 +3589,9 @@ async fn test_lessons_query_basic() {
         .unwrap();
     }
 
-    let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
-        &storage,
-        Some("checkpoints"),
-        None,
-        None,
-        None,
-        5,
-    )
-    .await
-    .unwrap();
+    let lessons = SqliteStorage::query_lessons(&storage, Some("checkpoints"), None, None, None, 5)
+        .await
+        .unwrap();
     assert_eq!(lessons.len(), 1);
     assert!(
         lessons[0]["content"]
@@ -3695,10 +3625,9 @@ async fn test_lessons_exclude_session() {
         .unwrap();
     }
 
-    let lessons =
-        <SqliteStorage as LessonQuerier>::query_lessons(&storage, None, None, Some("s2"), None, 5)
-            .await
-            .unwrap();
+    let lessons = SqliteStorage::query_lessons(&storage, None, None, Some("s2"), None, 5)
+        .await
+        .unwrap();
     assert_eq!(lessons.len(), 1);
     assert_eq!(lessons[0]["session_id"], "s1");
 }
@@ -3731,7 +3660,7 @@ async fn test_lessons_dedup() {
     .await
     .unwrap();
 
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
             &storage,
             "dup-1",
             &MemoryUpdate {
@@ -3745,7 +3674,7 @@ async fn test_lessons_dedup() {
         )
         .await
         .unwrap();
-    <SqliteStorage as Updater>::update(
+    SqliteStorage::update(
             &storage,
             "dup-2",
             &MemoryUpdate {
@@ -3760,10 +3689,9 @@ async fn test_lessons_dedup() {
         .await
         .unwrap();
 
-    let lessons =
-        <SqliteStorage as LessonQuerier>::query_lessons(&storage, None, None, None, None, 10)
-            .await
-            .unwrap();
+    let lessons = SqliteStorage::query_lessons(&storage, None, None, None, None, 10)
+        .await
+        .unwrap();
     assert_eq!(lessons.len(), 1);
 }
 
@@ -3819,7 +3747,7 @@ fn test_schema_contains_new_columns() {
 #[tokio::test]
 async fn test_health_check() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    let result = <SqliteStorage as MaintenanceManager>::check_health(&storage, 100.0, 200.0, 10000)
+    let result = SqliteStorage::check_health(&storage, 100.0, 200.0, 10000)
         .await
         .unwrap();
     assert_eq!(result["status"], "healthy");
@@ -3834,7 +3762,7 @@ async fn test_health_check_node_limit() {
         .await
         .unwrap();
 
-    let result = <SqliteStorage as MaintenanceManager>::check_health(&storage, 100.0, 200.0, 1)
+    let result = SqliteStorage::check_health(&storage, 100.0, 200.0, 1)
         .await
         .unwrap();
     assert_eq!(result["status"], "warning");
@@ -3857,9 +3785,7 @@ async fn test_consolidate_prunes_stale() {
             .unwrap();
     }
 
-    let result = <SqliteStorage as MaintenanceManager>::consolidate(&storage, 30, 100)
-        .await
-        .unwrap();
+    let result = SqliteStorage::consolidate(&storage, 30, 100).await.unwrap();
     assert!(result["pruned_stale"].as_i64().unwrap() >= 1);
     assert!(result["after"].as_i64().unwrap() < result["before"].as_i64().unwrap());
 }
@@ -3887,9 +3813,7 @@ async fn test_consolidate_caps_summaries() {
         }
     }
 
-    let result = <SqliteStorage as MaintenanceManager>::consolidate(&storage, 365, 2)
-        .await
-        .unwrap();
+    let result = SqliteStorage::consolidate(&storage, 365, 2).await.unwrap();
     assert_eq!(result["pruned_summaries"].as_i64().unwrap(), 3);
     assert_eq!(result["after"].as_i64().unwrap(), 2);
 }
@@ -3910,7 +3834,7 @@ async fn test_compact_dry_run() {
         }
     }
 
-    let result = <SqliteStorage as MaintenanceManager>::compact(&storage, "decision", 0.5, 2, true)
+    let result = SqliteStorage::compact(&storage, "decision", 0.5, 2, true)
         .await
         .unwrap();
     assert!(result["clusters_found"].as_i64().unwrap() >= 1);
@@ -3934,10 +3858,9 @@ async fn test_compact_merges() {
         }
     }
 
-    let result =
-        <SqliteStorage as MaintenanceManager>::compact(&storage, "decision", 0.5, 2, false)
-            .await
-            .unwrap();
+    let result = SqliteStorage::compact(&storage, "decision", 0.5, 2, false)
+        .await
+        .unwrap();
     assert!(result["memories_compacted"].as_i64().unwrap() >= 2);
 }
 
@@ -3956,10 +3879,9 @@ async fn test_compact_below_threshold() {
     .await
     .unwrap();
 
-    let result =
-        <SqliteStorage as MaintenanceManager>::compact(&storage, "decision", 0.5, 2, false)
-            .await
-            .unwrap();
+    let result = SqliteStorage::compact(&storage, "decision", 0.5, 2, false)
+        .await
+        .unwrap();
     assert_eq!(result["clusters_found"].as_i64().unwrap(), 0);
 }
 
@@ -3991,7 +3913,7 @@ async fn test_clear_session() {
     .await
     .unwrap();
 
-    let deleted = <SqliteStorage as MaintenanceManager>::clear_session(&storage, "sess-a")
+    let deleted = SqliteStorage::clear_session(&storage, "sess-a")
         .await
         .unwrap();
     assert_eq!(deleted, 2);
@@ -4017,9 +3939,7 @@ async fn test_welcome_briefing() {
         .await
         .unwrap();
 
-    let result = <SqliteStorage as WelcomeProvider>::welcome(&storage, None, None)
-        .await
-        .unwrap();
+    let result = SqliteStorage::welcome(&storage, None, None).await.unwrap();
     assert_eq!(result["memory_count"], 2);
     assert!(result["greeting"].as_str().unwrap().contains("2 memories"));
     assert_eq!(result["recent_memories"].as_array().unwrap().len(), 2);
@@ -4068,9 +3988,7 @@ async fn test_welcome_surfaces_user_context() {
     .await
     .unwrap();
 
-    let result = <SqliteStorage as WelcomeProvider>::welcome(&storage, None, None)
-        .await
-        .unwrap();
+    let result = SqliteStorage::welcome(&storage, None, None).await.unwrap();
     assert_eq!(result["memory_count"], 3);
     let user_ctx = result["user_context"].as_array().unwrap();
     assert_eq!(user_ctx.len(), 2);
@@ -4083,9 +4001,7 @@ async fn test_welcome_surfaces_user_context() {
 async fn test_welcome_first_run_greeting() {
     let storage = SqliteStorage::new_in_memory().unwrap();
 
-    let result = <SqliteStorage as WelcomeProvider>::welcome(&storage, None, None)
-        .await
-        .unwrap();
+    let result = SqliteStorage::welcome(&storage, None, None).await.unwrap();
     assert_eq!(result["memory_count"], 0);
     assert!(
         result["greeting"]
@@ -4143,9 +4059,7 @@ async fn test_type_stats() {
     .await
     .unwrap();
 
-    let result = <SqliteStorage as StatsProvider>::type_stats(&storage)
-        .await
-        .unwrap();
+    let result = SqliteStorage::type_stats(&storage).await.unwrap();
     assert_eq!(result["decision"], 2);
     assert_eq!(result["lesson_learned"], 1);
     assert_eq!(result["_total"], 3);
@@ -4179,9 +4093,7 @@ async fn test_session_stats() {
     .await
     .unwrap();
 
-    let result = <SqliteStorage as StatsProvider>::session_stats(&storage)
-        .await
-        .unwrap();
+    let result = SqliteStorage::session_stats(&storage).await.unwrap();
     assert_eq!(result["total_sessions"], 2);
     let sessions = result["sessions"].as_array().unwrap();
     assert_eq!(sessions.len(), 2);
@@ -4207,9 +4119,7 @@ async fn test_weekly_digest() {
     .await
     .unwrap();
 
-    let result = <SqliteStorage as StatsProvider>::weekly_digest(&storage, 7)
-        .await
-        .unwrap();
+    let result = SqliteStorage::weekly_digest(&storage, 7).await.unwrap();
     assert_eq!(result["total_memories"], 2);
     assert_eq!(result["period_new"], 2);
     assert_eq!(result["period_days"], 7);
@@ -4239,9 +4149,7 @@ async fn test_access_rate_stats() {
         .unwrap();
     }
 
-    let result = <SqliteStorage as StatsProvider>::access_rate_stats(&storage)
-        .await
-        .unwrap();
+    let result = SqliteStorage::access_rate_stats(&storage).await.unwrap();
     assert_eq!(result["total_memories"], 2);
     assert_eq!(result["zero_access_count"], 1);
     assert!(!result["top_accessed"].as_array().unwrap().is_empty());
@@ -4294,14 +4202,10 @@ async fn test_dual_match_boost_applied() {
     .await
     .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "alpha context",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results =
+        SqliteStorage::advanced_search(&storage, "alpha context", 10, &SearchOptions::default())
+            .await
+            .unwrap();
 
     // Both candidates should be returned (they share similar content)
     assert!(
@@ -4333,14 +4237,10 @@ async fn test_dual_match_boost_disabled() {
     .await
     .unwrap();
 
-    let results_no_boost = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "alpha context",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results_no_boost =
+        SqliteStorage::advanced_search(&storage, "alpha context", 10, &SearchOptions::default())
+            .await
+            .unwrap();
 
     assert!(!results_no_boost.is_empty());
 }
@@ -4373,7 +4273,7 @@ async fn test_dual_match_boost_increases_score() {
         .await
         .unwrap();
 
-        let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+        let results = SqliteStorage::advanced_search(
             &storage,
             "alpha context searchable",
             10,
@@ -4809,10 +4709,9 @@ async fn test_phrase_search_with_event_after_filter() {
         event_after: Some("2024-01-01T00:00:00Z".to_string()),
         ..Default::default()
     };
-    let results =
-        <SqliteStorage as PhraseSearcher>::phrase_search(&storage, "unique phrase", 10, &opts)
-            .await
-            .unwrap();
+    let results = SqliteStorage::phrase_search(&storage, "unique phrase", 10, &opts)
+        .await
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "ph-new");
 }
@@ -4866,21 +4765,17 @@ async fn test_advanced_search_explain_mode() {
     }
 
     // Without explain: metadata should NOT contain _explain
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "alpha context",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results =
+        SqliteStorage::advanced_search(&storage, "alpha context", 10, &SearchOptions::default())
+            .await
+            .unwrap();
     assert!(!results.is_empty());
     for r in &results {
         assert!(r.metadata.get("_explain").is_none());
     }
 
     // With explain=true: metadata should contain _explain with component scores
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "alpha context",
         10,
@@ -4934,7 +4829,7 @@ async fn test_advanced_search_explain_false_no_metadata() {
     .unwrap();
 
     // explain=false should behave the same as unset
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "beta context",
         10,
@@ -4968,7 +4863,7 @@ async fn test_advanced_search_abstention_returns_empty() {
     .unwrap();
 
     // Query with no overlap should trigger abstention (empty results)
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "completely unrelated banana smoothie recipe",
         10,
@@ -5017,7 +4912,7 @@ async fn test_abstention_gate_fires_for_unrelated_query() {
     }
 
     // Query about something completely unrelated — no word overlap expected
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "What is the best French pastry recipe for croissants",
         10,
@@ -5069,7 +4964,7 @@ async fn test_abstention_gate_does_not_fire_for_relevant_query() {
     }
 
     // Query about Rust — overlapping words should pass the gate
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "How does the Rust borrow checker work",
         10,
@@ -5193,7 +5088,7 @@ async fn test_cross_project_isolation_advanced_search() {
     }
 
     // Advanced search filtered to project="alpha"
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "design decision target",
         10,
@@ -5214,7 +5109,7 @@ async fn test_cross_project_isolation_advanced_search() {
     }
 
     // Advanced search filtered to project="beta"
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "design decision target",
         10,
@@ -5602,16 +5497,14 @@ async fn query_cache_returns_cached_results() {
     let opts = SearchOptions::default();
 
     // First query — populates cache
-    let results1 =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "databases", 5, &opts)
-            .await
-            .unwrap();
+    let results1 = SqliteStorage::advanced_search(&storage, "databases", 5, &opts)
+        .await
+        .unwrap();
 
     // Second query — should hit cache (same results)
-    let results2 =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "databases", 5, &opts)
-            .await
-            .unwrap();
+    let results2 = SqliteStorage::advanced_search(&storage, "databases", 5, &opts)
+        .await
+        .unwrap();
 
     assert_eq!(results1.len(), results2.len());
     for (r1, r2) in results1.iter().zip(results2.iter()) {
@@ -5637,10 +5530,9 @@ async fn query_cache_invalidated_on_store() {
     let opts = SearchOptions::default();
 
     // Populate cache
-    let results1 =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "unique alpha", 5, &opts)
-            .await
-            .unwrap();
+    let results1 = SqliteStorage::advanced_search(&storage, "unique alpha", 5, &opts)
+        .await
+        .unwrap();
     assert!(!results1.is_empty());
 
     // Store new memory — should invalidate cache
@@ -5657,10 +5549,9 @@ async fn query_cache_invalidated_on_store() {
         .unwrap();
 
     // Next query should include the new memory
-    let results2 =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "unique alpha", 5, &opts)
-            .await
-            .unwrap();
+    let results2 = SqliteStorage::advanced_search(&storage, "unique alpha", 5, &opts)
+        .await
+        .unwrap();
     assert!(results2.len() >= results1.len());
 }
 
@@ -5681,14 +5572,10 @@ async fn hot_cache_marks_merged_results() {
         .unwrap();
     storage.debug_force_access_count("hot-1", 30).unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "migration runbook",
-        5,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results =
+        SqliteStorage::advanced_search(&storage, "migration runbook", 5, &SearchOptions::default())
+            .await
+            .unwrap();
 
     let first = results.first().expect("expected hot cache result");
     assert_eq!(first.id, "hot-1");
@@ -5741,7 +5628,7 @@ async fn hot_cache_invalidated_on_delete() {
         .unwrap();
     storage.debug_force_access_count("hot-delete", 25).unwrap();
 
-    let warm_results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let warm_results = SqliteStorage::advanced_search(
         &storage,
         "deleted hot entries",
         5,
@@ -5753,7 +5640,7 @@ async fn hot_cache_invalidated_on_delete() {
 
     storage.delete("hot-delete").await.unwrap();
 
-    let results_after_delete = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results_after_delete = SqliteStorage::advanced_search(
         &storage,
         "deleted hot entries",
         5,
@@ -5812,14 +5699,10 @@ async fn hot_cache_respects_temporal_expansion() {
         .await
         .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "rollout yesterday",
-        5,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results =
+        SqliteStorage::advanced_search(&storage, "rollout yesterday", 5, &SearchOptions::default())
+            .await
+            .unwrap();
 
     assert!(results.iter().any(|result| result.id == "hot-recent"));
     assert!(results.iter().all(|result| result.id != "hot-stale"));
@@ -5857,7 +5740,7 @@ async fn hot_cache_respects_importance_min() {
         .await
         .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "incident runbook",
         5,
@@ -5904,14 +5787,10 @@ async fn hot_cache_respects_custom_abstention_threshold() {
         .unwrap();
     storage.debug_force_access_count("hot-abstain", 42).unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "incident runbook",
-        5,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results =
+        SqliteStorage::advanced_search(&storage, "incident runbook", 5, &SearchOptions::default())
+            .await
+            .unwrap();
 
     assert!(results.is_empty());
 }
@@ -5936,7 +5815,7 @@ async fn hot_cache_preserves_stored_metadata() {
         .unwrap();
     storage.debug_force_access_count("hot-meta", 20).unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "deployment runbook",
         5,
@@ -6045,7 +5924,7 @@ async fn hot_cache_merge_dedupes_matching_content_fingerprints() {
         .await
         .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results = SqliteStorage::advanced_search(
         &storage,
         "deployment checklist cutovers",
         5,
@@ -6099,14 +5978,10 @@ async fn hot_cache_does_not_reintroduce_suppressed_results() {
         .await
         .unwrap();
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "migration runbook",
-        1,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results =
+        SqliteStorage::advanced_search(&storage, "migration runbook", 1, &SearchOptions::default())
+            .await
+            .unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "hot-winner");
@@ -6128,14 +6003,10 @@ async fn hot_cache_refreshes_updated_content() {
         .unwrap();
     storage.debug_force_access_count("hot-update", 18).unwrap();
 
-    let warm_results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "rollout checklist",
-        5,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let warm_results =
+        SqliteStorage::advanced_search(&storage, "rollout checklist", 5, &SearchOptions::default())
+            .await
+            .unwrap();
     assert!(warm_results.iter().any(|result| result.id == "hot-update"));
 
     storage
@@ -6150,7 +6021,7 @@ async fn hot_cache_refreshes_updated_content() {
         .unwrap();
     storage.debug_force_access_count("hot-update", 18).unwrap();
 
-    let updated_results = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let updated_results = SqliteStorage::advanced_search(
         &storage,
         "onboarding checklist",
         5,
@@ -6230,10 +6101,9 @@ async fn selective_invalidation_preserves_unrelated_cache_entries() {
         project: Some("beta".to_string()),
         ..Default::default()
     };
-    let results_before =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "networking", 5, &beta_opts)
-            .await
-            .unwrap();
+    let results_before = SqliteStorage::advanced_search(&storage, "networking", 5, &beta_opts)
+        .await
+        .unwrap();
     assert!(!results_before.is_empty());
 
     // Store a new memory in project "alpha" — should NOT invalidate the "beta" cache.
@@ -6285,10 +6155,9 @@ async fn selective_invalidation_evicts_matching_project_entry() {
         project: Some("x".to_string()),
         ..Default::default()
     };
-    let _results =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "databases", 5, &x_opts)
-            .await
-            .unwrap();
+    let _results = SqliteStorage::advanced_search(&storage, "databases", 5, &x_opts)
+        .await
+        .unwrap();
 
     // Store another memory in the SAME project "x" — should invalidate matching cache entry.
     storage
@@ -6334,10 +6203,9 @@ async fn selective_invalidation_evicts_unfiltered_queries() {
 
     // Populate cache with an unfiltered query (no project/session/type filter).
     let opts = SearchOptions::default();
-    let _results =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "caching", 5, &opts)
-            .await
-            .unwrap();
+    let _results = SqliteStorage::advanced_search(&storage, "caching", 5, &opts)
+        .await
+        .unwrap();
 
     // Store a memory with specific project — unfiltered entries must be evicted.
     storage
@@ -6383,10 +6251,9 @@ async fn import_invalidates_cache() {
 
     // Populate cache.
     let opts = SearchOptions::default();
-    let _results =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "before import", 5, &opts)
-            .await
-            .unwrap();
+    let _results = SqliteStorage::advanced_search(&storage, "before import", 5, &opts)
+        .await
+        .unwrap();
 
     // Verify cache is populated.
     let cache_key = super::helpers::query_cache_key("before import", 5, &opts);
@@ -6416,8 +6283,6 @@ async fn import_invalidates_cache() {
 
 #[tokio::test]
 async fn sweep_expired_invalidates_cache() {
-    use crate::memory_core::ExpirationSweeper;
-
     let storage = SqliteStorage::new_in_memory().unwrap();
 
     // Store a memory with a 1-second TTL.
@@ -6436,10 +6301,9 @@ async fn sweep_expired_invalidates_cache() {
 
     // Populate cache.
     let opts = SearchOptions::default();
-    let _results =
-        <SqliteStorage as AdvancedSearcher>::advanced_search(&storage, "ephemeral", 5, &opts)
-            .await
-            .unwrap();
+    let _results = SqliteStorage::advanced_search(&storage, "ephemeral", 5, &opts)
+        .await
+        .unwrap();
 
     // Force the memory to be expired by backdating created_at.
     {
@@ -6552,8 +6416,6 @@ fn cache_entry_affected_check_logic() {
 
 #[tokio::test]
 async fn test_create_backup_produces_valid_file() {
-    use crate::memory_core::BackupManager;
-
     let base = std::env::temp_dir().join(format!("mag-backup-test-{}", Uuid::new_v4()));
     let db_path = base.join("memory.db");
     let storage = SqliteStorage::new_with_path(
@@ -6586,8 +6448,6 @@ async fn test_create_backup_produces_valid_file() {
 
 #[tokio::test]
 async fn test_rotate_backups_keeps_only_n() {
-    use crate::memory_core::BackupManager;
-
     let base = std::env::temp_dir().join(format!("mag-rotate-test-{}", Uuid::new_v4()));
     let db_path = base.join("memory.db");
     let storage = SqliteStorage::new_with_path(
@@ -6631,8 +6491,6 @@ async fn test_rotate_backups_keeps_only_n() {
 
 #[tokio::test]
 async fn test_restore_backup_replaces_current_db() {
-    use crate::memory_core::BackupManager;
-
     let base = std::env::temp_dir().join(format!("mag-restore-test-{}", Uuid::new_v4()));
     let db_path = base.join("memory.db");
     let storage = SqliteStorage::new_with_path(
@@ -6681,8 +6539,6 @@ async fn test_restore_backup_replaces_current_db() {
 
 #[tokio::test]
 async fn test_list_backups_empty_returns_empty() {
-    use crate::memory_core::BackupManager;
-
     let base = std::env::temp_dir().join(format!("mag-list-test-{}", Uuid::new_v4()));
     let db_path = base.join("memory.db");
     let storage = SqliteStorage::new_with_path(
@@ -6699,8 +6555,6 @@ async fn test_list_backups_empty_returns_empty() {
 
 #[tokio::test]
 async fn test_maybe_startup_backup_creates_on_first_run() {
-    use crate::memory_core::BackupManager;
-
     let base = std::env::temp_dir().join(format!("mag-startup-test-{}", Uuid::new_v4()));
     let db_path = base.join("memory.db");
     let storage = SqliteStorage::new_with_path(
@@ -6722,8 +6576,6 @@ async fn test_maybe_startup_backup_creates_on_first_run() {
 
 #[tokio::test]
 async fn test_maybe_startup_backup_skips_when_recent() {
-    use crate::memory_core::BackupManager;
-
     let base = std::env::temp_dir().join(format!("mag-startup-skip-test-{}", Uuid::new_v4()));
     let db_path = base.join("memory.db");
     let storage = SqliteStorage::new_with_path(
@@ -6747,8 +6599,6 @@ async fn test_maybe_startup_backup_skips_when_recent() {
 
 #[tokio::test]
 async fn test_backup_in_memory_returns_error() {
-    use crate::memory_core::BackupManager;
-
     let storage = SqliteStorage::new_in_memory().unwrap();
     let result = storage.create_backup().await;
     assert!(result.is_err(), "backup of in-memory DB should fail");
@@ -6756,8 +6606,6 @@ async fn test_backup_in_memory_returns_error() {
 
 #[tokio::test]
 async fn test_maybe_startup_backup_skips_in_memory() {
-    use crate::memory_core::BackupManager;
-
     let storage = SqliteStorage::new_in_memory().unwrap();
     let result = storage.maybe_startup_backup().await.unwrap();
     assert!(
@@ -6787,7 +6635,7 @@ async fn test_cache_invalidation_on_store_then_search() {
     .await
     .unwrap();
 
-    let results1 = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results1 = SqliteStorage::advanced_search(
         &storage,
         "quantum computing",
         10,
@@ -6816,7 +6664,7 @@ async fn test_cache_invalidation_on_store_then_search() {
     .unwrap();
 
     // Search again — the new memory should appear because cache was invalidated.
-    let results2 = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results2 = SqliteStorage::advanced_search(
         &storage,
         "quantum computing",
         10,
@@ -6853,14 +6701,10 @@ async fn test_cache_invalidation_on_update() {
     .await
     .unwrap();
 
-    let results_before = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "photosynthesis",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results_before =
+        SqliteStorage::advanced_search(&storage, "photosynthesis", 10, &SearchOptions::default())
+            .await
+            .unwrap();
     assert!(
         results_before.iter().any(|r| r.id == "ci-u1"),
         "memory should be found by old terms before update"
@@ -6883,21 +6727,17 @@ async fn test_cache_invalidation_on_update() {
         .unwrap();
 
     // Search with old terms — should NOT find the updated memory.
-    let results_old = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "photosynthesis",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results_old =
+        SqliteStorage::advanced_search(&storage, "photosynthesis", 10, &SearchOptions::default())
+            .await
+            .unwrap();
     assert!(
         !results_old.iter().any(|r| r.id == "ci-u1"),
         "memory should NOT be found by old terms after update"
     );
 
     // Search with new terms — should find it.
-    let results_new = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results_new = SqliteStorage::advanced_search(
         &storage,
         "volcanic eruption",
         10,
@@ -6930,7 +6770,7 @@ async fn test_cache_invalidation_on_delete() {
     .await
     .unwrap();
 
-    let results_before = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results_before = SqliteStorage::advanced_search(
         &storage,
         "ephemeral data processing",
         10,
@@ -6948,7 +6788,7 @@ async fn test_cache_invalidation_on_delete() {
     assert!(deleted, "delete should return true for existing memory");
 
     // Search again — should NOT find the deleted memory.
-    let results_after = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results_after = SqliteStorage::advanced_search(
         &storage,
         "ephemeral data processing",
         10,
@@ -6982,7 +6822,7 @@ async fn test_cache_invalidation_on_sweep() {
     .unwrap();
 
     // Search for it to populate the cache.
-    let results_before = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results_before = SqliteStorage::advanced_search(
         &storage,
         "transient notification",
         10,
@@ -7006,13 +6846,11 @@ async fn test_cache_invalidation_on_sweep() {
     }
 
     // Sweep expired memories.
-    let swept = <SqliteStorage as ExpirationSweeper>::sweep_expired(&storage)
-        .await
-        .unwrap();
+    let swept = SqliteStorage::sweep_expired(&storage).await.unwrap();
     assert_eq!(swept, 1, "one memory should be swept");
 
     // Search again — should NOT find the swept memory.
-    let results_after = <SqliteStorage as AdvancedSearcher>::advanced_search(
+    let results_after = SqliteStorage::advanced_search(
         &storage,
         "transient notification",
         10,
@@ -7051,23 +6889,15 @@ async fn test_search_cache_hit_returns_same_results() {
     }
 
     // Search twice with the same query — results should be identical (cache hit).
-    let results1 = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "neural network",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results1 =
+        SqliteStorage::advanced_search(&storage, "neural network", 10, &SearchOptions::default())
+            .await
+            .unwrap();
 
-    let results2 = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "neural network",
-        10,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results2 =
+        SqliteStorage::advanced_search(&storage, "neural network", 10, &SearchOptions::default())
+            .await
+            .unwrap();
 
     assert_eq!(
         results1.len(),

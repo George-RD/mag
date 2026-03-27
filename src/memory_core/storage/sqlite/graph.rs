@@ -1,8 +1,7 @@
 use super::*;
 
-#[async_trait]
-impl GraphTraverser for SqliteStorage {
-    async fn traverse(
+impl SqliteStorage {
+    pub async fn traverse(
         &self,
         start_id: &str,
         max_hops: usize,
@@ -137,9 +136,8 @@ impl GraphTraverser for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl SimilarFinder for SqliteStorage {
-    async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>> {
+impl SqliteStorage {
+    pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>> {
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -271,9 +269,8 @@ impl SimilarFinder for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl RelationshipQuerier for SqliteStorage {
-    async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>> {
+impl SqliteStorage {
+    pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>> {
         let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
 
@@ -315,9 +312,8 @@ impl RelationshipQuerier for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl VersionChainQuerier for SqliteStorage {
-    async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>> {
+impl SqliteStorage {
+    pub async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>> {
         let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
 
@@ -420,7 +416,8 @@ impl VersionChainQuerier for SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
-    async fn supersede_memory(&self, old_id: &str, new_id: &str) -> Result<()> {
+    #[allow(dead_code)]
+    pub async fn supersede_memory(&self, old_id: &str, new_id: &str) -> Result<()> {
         let pool = Arc::clone(&self.pool);
         let old_id = old_id.to_string();
         let new_id = new_id.to_string();

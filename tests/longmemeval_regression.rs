@@ -1,5 +1,5 @@
 use mag::memory_core::storage::sqlite::SqliteStorage;
-use mag::memory_core::{AdvancedSearcher, EventType, MemoryInput, SearchOptions, Storage};
+use mag::memory_core::{EventType, MemoryInput, SearchOptions, Storage};
 
 async fn seed(
     storage: &SqliteStorage,
@@ -52,14 +52,14 @@ async fn multi_session_vector_query_prefers_sqlite_vec_memory() {
     )
     .await;
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "OMEGA vector search implementation",
-        3,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results = storage
+        .advanced_search(
+            "OMEGA vector search implementation",
+            3,
+            &SearchOptions::default(),
+        )
+        .await
+        .unwrap();
 
     assert!(!results.is_empty());
     assert!(results[0].content.contains("sqlite-vec extension"));
@@ -96,14 +96,10 @@ async fn multi_session_ci_cd_query_prefers_migration_step_memory() {
     )
     .await;
 
-    let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-        &storage,
-        "database migration in CI/CD",
-        3,
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results = storage
+        .advanced_search("database migration in CI/CD", 3, &SearchOptions::default())
+        .await
+        .unwrap();
 
     assert!(!results.is_empty());
     assert!(results[0].content.contains("migration step"));
