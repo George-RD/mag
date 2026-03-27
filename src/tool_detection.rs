@@ -131,7 +131,6 @@ pub struct DetectionResult {
     pub not_found: Vec<AiTool>,
 }
 
-#[allow(dead_code)] // Used by tests; kept for future callers.
 impl DetectionResult {
     /// Returns tools that are installed but do not have MAG configured.
     pub fn unconfigured(&self) -> Vec<&DetectedTool> {
@@ -197,7 +196,6 @@ pub fn detect_all_tools(project_root: Option<&Path>) -> DetectionResult {
 /// Returns a `Vec<DetectedTool>` with all found config locations for this tool
 /// (e.g., both global and project-level). Returns an empty `Vec` if the tool
 /// is not found at any of its known paths.
-#[allow(dead_code)] // Used by tests; kept for future callers.
 pub fn detect_tool(tool: AiTool, project_root: Option<&Path>) -> Vec<DetectedTool> {
     let home = match crate::app_paths::home_dir() {
         Ok(h) => h,
@@ -529,6 +527,7 @@ fn check_mag_in_toml(path: &Path) -> MagConfigStatus {
 mod tests {
     use super::*;
     use crate::test_helpers::with_temp_home;
+    use serial_test::serial;
 
     // -- AiTool basics --
 
@@ -564,6 +563,7 @@ mod tests {
     // -- Detection: Claude Code --
 
     #[test]
+    #[serial]
     fn detects_claude_code_when_config_exists() {
         with_temp_home(|home| {
             std::fs::write(home.join(".claude.json"), r#"{"mcpServers": {}}"#).unwrap();
@@ -577,6 +577,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn detects_claude_code_with_mag_configured() {
         with_temp_home(|home| {
             std::fs::write(
@@ -591,6 +592,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn detects_claude_code_project_config() {
         with_temp_home(|_home| {
             let project =
@@ -615,6 +617,7 @@ mod tests {
     // -- Detection: Cursor --
 
     #[test]
+    #[serial]
     fn detects_cursor_global_config() {
         with_temp_home(|home| {
             let cursor_dir = home.join(".cursor");
@@ -628,6 +631,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn detects_project_local_cursor_config() {
         with_temp_home(|_home| {
             let project =
@@ -647,6 +651,7 @@ mod tests {
     // -- Detection: VS Code + Copilot --
 
     #[test]
+    #[serial]
     fn detects_vscode_uses_servers_key() {
         with_temp_home(|home| {
             // On non-macOS, non-Windows: ~/.config/Code/User/mcp.json
@@ -669,6 +674,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn vscode_not_configured_without_mag_entry() {
         with_temp_home(|home| {
             let config_path = if cfg!(target_os = "macos") {
@@ -691,6 +697,7 @@ mod tests {
     // -- Detection: Windsurf --
 
     #[test]
+    #[serial]
     fn detects_windsurf_global_config() {
         with_temp_home(|home| {
             let ws_dir = home.join(".codeium/windsurf");
@@ -710,6 +717,7 @@ mod tests {
     // -- Detection: Zed --
 
     #[test]
+    #[serial]
     fn detects_zed_with_source_custom_validation() {
         with_temp_home(|home| {
             let zed_dir = home.join(".config/zed");
@@ -727,6 +735,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn detects_zed_missing_source_custom_as_misconfigured() {
         with_temp_home(|home| {
             let zed_dir = home.join(".config/zed");
@@ -747,6 +756,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn detects_zed_with_mag_memory_key() {
         with_temp_home(|home| {
             let zed_dir = home.join(".config/zed");
@@ -766,6 +776,7 @@ mod tests {
     // -- Detection: Codex --
 
     #[test]
+    #[serial]
     fn detects_codex_with_mag_in_toml() {
         with_temp_home(|home| {
             let codex_dir = home.join(".codex");
@@ -783,6 +794,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn detects_codex_not_configured() {
         with_temp_home(|home| {
             let codex_dir = home.join(".codex");
@@ -802,6 +814,7 @@ mod tests {
     // -- Detection: Gemini CLI --
 
     #[test]
+    #[serial]
     fn detects_gemini_cli_global_config() {
         with_temp_home(|home| {
             let gemini_dir = home.join(".gemini");
@@ -818,6 +831,7 @@ mod tests {
     // -- Detection: Claude Desktop --
 
     #[test]
+    #[serial]
     fn detects_claude_desktop_global_config() {
         with_temp_home(|home| {
             let config_path = if cfg!(target_os = "macos") {
@@ -844,6 +858,7 @@ mod tests {
     // -- Detection: Cline --
 
     #[test]
+    #[serial]
     fn detects_cline_in_vscode() {
         with_temp_home(|home| {
             let suffix =
@@ -871,6 +886,7 @@ mod tests {
     // -- Negative tests --
 
     #[test]
+    #[serial]
     fn returns_empty_when_tool_not_installed() {
         with_temp_home(|_home| {
             let result = detect_tool(AiTool::Cursor, None);
@@ -881,6 +897,7 @@ mod tests {
     // -- Full scan tests --
 
     #[test]
+    #[serial]
     fn detect_all_with_no_tools_installed() {
         with_temp_home(|_home| {
             let result = detect_all_tools(None);
@@ -890,6 +907,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn detect_all_finds_multiple_tools() {
         with_temp_home(|home| {
             // Set up Claude Code
@@ -914,6 +932,7 @@ mod tests {
     // -- Error handling tests --
 
     #[test]
+    #[serial]
     fn unreadable_config_returns_unreadable_status() {
         with_temp_home(|home| {
             std::fs::write(home.join(".claude.json"), "not valid json{{{").unwrap();
@@ -928,6 +947,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn empty_config_file_returns_unreadable() {
         with_temp_home(|home| {
             std::fs::write(home.join(".claude.json"), "").unwrap();
@@ -945,6 +965,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn empty_toml_config_returns_unreadable() {
         with_temp_home(|home| {
             let codex_dir = home.join(".codex");

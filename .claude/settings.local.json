@@ -9,7 +9,8 @@
       "WebFetch(domain:crates.io)",
       "Skill(release)",
       "WebFetch(domain:cas-bridge.xethub.hf.co)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:index.crates.io)"
     ]
   },
   "hooks": {

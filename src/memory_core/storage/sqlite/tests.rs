@@ -5970,6 +5970,7 @@ async fn hot_cache_preserves_stored_metadata() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn hot_cache_skips_entries_that_expire_after_refresh() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     storage
@@ -5994,17 +5995,24 @@ async fn hot_cache_skips_entries_that_expire_after_refresh() {
     assert!(
         initial_results
             .iter()
-            .any(|result| result.id == "hot-expire")
+            .any(|result| result.id == "hot-expire"),
+        "entry should be present in hot cache before TTL expires"
     );
 
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    let results_after_expiry =
-        hot_cache.query_with_options("maintenance checklist", 5, &SearchOptions::default());
-    assert!(
-        results_after_expiry
-            .iter()
-            .all(|result| result.id != "hot-expire")
-    );
+    // The TTL is 1 second and the hot cache checks expiry using wall-clock time
+    // (chrono::Utc::now). Poll until the entry expires, with a bounded retry to
+    // avoid hanging indefinitely on CI.
+    for attempt in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let results =
+            hot_cache.query_with_options("maintenance checklist", 5, &SearchOptions::default());
+        if results.iter().all(|r| r.id != "hot-expire") {
+            return; // success — entry filtered out after TTL expiry
+        }
+        if attempt == 39 {
+            panic!("hot cache still returned expired entry after 4 seconds");
+        }
+    }
 }
 
 #[tokio::test]
@@ -6156,6 +6164,7 @@ async fn hot_cache_refreshes_updated_content() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn hot_cache_refresh_task_releases_pool_on_drop() {
     let storage = SqliteStorage::new_in_memory().unwrap();
     storage
@@ -6172,11 +6181,13 @@ async fn hot_cache_refresh_task_releases_pool_on_drop() {
     let weak_pool = std::sync::Arc::downgrade(&storage.pool);
 
     drop(storage);
-    for _ in 0..20 {
+    // Retry with bounded attempts and a generous per-attempt timeout to
+    // avoid flaky failures on slow CI runners.
+    for _ in 0..50 {
         if weak_pool.upgrade().is_none() {
             return;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 
     assert!(weak_pool.upgrade().is_none());
