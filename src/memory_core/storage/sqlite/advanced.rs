@@ -1,7 +1,9 @@
-use super::helpers::{
-    IntentProfile, QueryIntent, classify_query_intent, content_fingerprint,
-    detect_dynamic_limit_mult, extract_entities_from_tags, extract_query_entities,
-    extract_topic_keywords, generate_sub_queries, resolve_priority,
+use super::helpers::{extract_entities_from_tags, resolve_priority};
+use super::nlp::{
+    content_fingerprint, extract_query_entities, extract_topic_keywords, generate_sub_queries,
+};
+use super::query_classifier::{
+    IntentProfile, QueryIntent, classify_query_intent, detect_dynamic_limit_mult,
 };
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;

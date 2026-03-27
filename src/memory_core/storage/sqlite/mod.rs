@@ -1243,26 +1243,33 @@ struct RankedSemanticCandidate {
 
 mod admin;
 mod advanced;
+mod conn_pool;
 mod crud;
+mod embedding_codec;
 mod entities;
 mod graph;
 mod helpers;
 mod hot_cache;
 mod lifecycle;
+mod nlp;
+mod query_classifier;
 mod schema;
 mod search;
 mod session;
+mod temporal;
 
-pub(crate) use helpers::dot_product;
+use conn_pool::{ConnPool, retry_on_lock};
+pub(crate) use embedding_codec::dot_product;
+use embedding_codec::{decode_embedding, encode_embedding};
 use helpers::{
-    ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
-    content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
-    event_type_to_sql, expand_temporal_query, matches_search_options, normalize_for_dedup,
-    parse_metadata_from_db, parse_tags_from_db, query_cache_key, retry_on_lock,
+    EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash, content_hash,
+    escape_like_pattern, event_type_from_sql, event_type_to_sql, matches_search_options,
+    normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, query_cache_key,
     search_result_from_row, to_param_refs, validate_iso8601,
 };
 use hot_cache::{HOT_CACHE_CAPACITY, HOT_CACHE_REFRESH_SECS, HotTierCache};
-use schema::{default_db_path, initialize_parent_dir, initialize_schema};
+use schema::default_db_path;
+use temporal::expand_temporal_query;
 
 #[cfg(feature = "sqlite-vec")]
 use helpers::{
