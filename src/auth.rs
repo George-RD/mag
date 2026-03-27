@@ -7,12 +7,18 @@ use axum::body::Body;
 use axum::http::{Method, Request, Response, StatusCode};
 
 /// Constant-time string comparison to prevent timing attacks on token validation.
+///
+/// Both inputs are hashed with SHA-256 before comparison, ensuring the comparison
+/// always operates on fixed-length (32-byte) digests regardless of input lengths.
+/// This eliminates the timing side-channel that would otherwise leak token length.
 fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.bytes()
-        .zip(b.bytes())
+    use sha2::{Digest, Sha256};
+    let hash_a = Sha256::digest(a.as_bytes());
+    let hash_b = Sha256::digest(b.as_bytes());
+    hash_a
+        .as_slice()
+        .iter()
+        .zip(hash_b.as_slice().iter())
         .fold(0u8, |acc, (x, y)| acc | (x ^ y))
         == 0
 }
