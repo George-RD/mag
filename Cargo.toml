@@ -22,6 +22,7 @@ default = ["real-embeddings"]
 real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:dotenvy"]
 mimalloc = ["dep:mimalloc"]
 sqlite-vec = ["dep:sqlite-vec"]
+daemon-http = []
 
 [dependencies]
 anyhow = "1.0.101"

@@ -525,11 +525,14 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     .await??;
 
     assert!(
-        batch_result.content.iter().any(|c| c
-            .as_text()
-            .is_some_and(|text| text.text.contains("batch-1")
-                && text.text.contains("batch-2")
-                && text.text.contains("batch-3"))),
+        batch_result
+            .content
+            .iter()
+            .any(
+                |c| c.as_text().is_some_and(|text| text.text.contains("batch-1")
+                    && text.text.contains("batch-2")
+                    && text.text.contains("batch-3"))
+            ),
         "expected batch store to return all three IDs"
     );
     assert!(
@@ -594,11 +597,14 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     .await??;
 
     assert!(
-        add_rel_result.content.iter().any(|c| c
-            .as_text()
-            .is_some_and(|text| text.text.contains("related_to")
-                && text.text.contains("batch-1")
-                && text.text.contains("batch-2"))),
+        add_rel_result
+            .content
+            .iter()
+            .any(|c| c
+                .as_text()
+                .is_some_and(|text| text.text.contains("related_to")
+                    && text.text.contains("batch-1")
+                    && text.text.contains("batch-2"))),
         "expected add relation to confirm source, target, and type"
     );
 
@@ -622,8 +628,9 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     assert!(
         list_rel_result.content.iter().any(|c| c
             .as_text()
-            .is_some_and(|text| text.text.contains("relationships")
-                && text.text.contains("related_to"))),
+            .is_some_and(
+                |text| text.text.contains("relationships") && text.text.contains("related_to")
+            )),
         "expected list relations to include the added relationship"
     );
 
@@ -680,8 +687,7 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     assert!(
         feedback_result.content.iter().any(|c| c
             .as_text()
-            .is_some_and(|text| text.text.contains("batch-1")
-                && text.text.contains("feedback"))),
+            .is_some_and(|text| text.text.contains("batch-1") && text.text.contains("feedback"))),
         "expected feedback to confirm memory_id and feedback recording"
     );
 
@@ -703,9 +709,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     .await??;
 
     assert!(
-        lifecycle_health_result.content.iter().any(|c| c
-            .as_text()
-            .is_some_and(|text| !text.text.is_empty())),
+        lifecycle_health_result
+            .content
+            .iter()
+            .any(|c| c.as_text().is_some_and(|text| !text.text.is_empty())),
         "expected lifecycle health to return non-empty response"
     );
 
@@ -735,8 +742,9 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     assert!(
         checkpoint_save_result.content.iter().any(|c| c
             .as_text()
-            .is_some_and(|text| text.text.contains("memory_id")
-                && text.text.contains("checkpoint_number"))),
+            .is_some_and(
+                |text| text.text.contains("memory_id") && text.text.contains("checkpoint_number")
+            )),
         "expected checkpoint save to return memory_id and checkpoint_number"
     );
 
@@ -764,8 +772,9 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     assert!(
         checkpoint_resume_result.content.iter().any(|c| c
             .as_text()
-            .is_some_and(|text| text.text.contains("smoke test task")
-                || text.text.contains("50% done"))),
+            .is_some_and(
+                |text| text.text.contains("smoke test task") || text.text.contains("50% done")
+            )),
         "expected checkpoint resume to return saved checkpoint data"
     );
 
@@ -792,9 +801,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     .await??;
 
     assert!(
-        remind_set_result.content.iter().any(|c| c
-            .as_text()
-            .is_some_and(|text| !text.text.is_empty())),
+        remind_set_result
+            .content
+            .iter()
+            .any(|c| c.as_text().is_some_and(|text| !text.text.is_empty())),
         "expected reminder set to return non-empty response"
     );
 
@@ -887,9 +897,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     .await??;
 
     assert!(
-        profile_read_result.content.iter().any(|c| c
-            .as_text()
-            .is_some_and(|text| !text.text.is_empty())),
+        profile_read_result
+            .content
+            .iter()
+            .any(|c| c.as_text().is_some_and(|text| !text.text.is_empty())),
         "expected profile read to return non-empty response"
     );
 
@@ -938,9 +949,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     .await??;
 
     assert!(
-        profile_verify_result.content.iter().any(|c| c
-            .as_text()
-            .is_some_and(|text| text.text.contains("Rust"))),
+        profile_verify_result
+            .content
+            .iter()
+            .any(|c| c.as_text().is_some_and(|text| text.text.contains("Rust"))),
         "expected updated profile to contain 'Rust'"
     );
 
@@ -1041,8 +1053,9 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     assert!(
         unicode_retrieve_result.content.iter().any(|c| c
             .as_text()
-            .is_some_and(|text| text.text.contains("\u{1F680}")
-                && text.text.contains("\u{4F60}\u{597D}"))),
+            .is_some_and(
+                |text| text.text.contains("\u{1F680}") && text.text.contains("\u{4F60}\u{597D}")
+            )),
         "expected retrieved unicode content to preserve emoji and CJK characters"
     );
 

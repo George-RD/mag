@@ -131,6 +131,7 @@ pub struct DetectionResult {
     pub not_found: Vec<AiTool>,
 }
 
+#[allow(dead_code)] // Used by setup.rs and tests; clippy can't trace cross-module usage
 impl DetectionResult {
     /// Returns tools that are installed but do not have MAG configured.
     pub fn unconfigured(&self) -> Vec<&DetectedTool> {
@@ -196,6 +197,7 @@ pub fn detect_all_tools(project_root: Option<&Path>) -> DetectionResult {
 /// Returns a `Vec<DetectedTool>` with all found config locations for this tool
 /// (e.g., both global and project-level). Returns an empty `Vec` if the tool
 /// is not found at any of its known paths.
+#[allow(dead_code)] // Used by setup.rs and tests
 pub fn detect_tool(tool: AiTool, project_root: Option<&Path>) -> Vec<DetectedTool> {
     let home = match crate::app_paths::home_dir() {
         Ok(h) => h,
