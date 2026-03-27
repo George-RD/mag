@@ -4,7 +4,6 @@ use std::str::FromStr;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use uuid::Uuid;
 
 pub mod embedder;
@@ -332,9 +331,6 @@ pub struct MemoryInput {
     /// ISO 8601 timestamp for when the event actually occurred.
     /// When provided, this overrides the default `event_at = now()` on insert.
     pub referenced_date: Option<String>,
-    /// Source type label (e.g. `"cli_input"`, `"mcp"`, `"api"`).
-    /// Defaults to `"cli_input"` when `None`.
-    pub source_type: Option<String>,
 }
 
 impl Default for MemoryInput {
@@ -353,7 +349,6 @@ impl Default for MemoryInput {
             agent_type: None,
             ttl_seconds: None,
             referenced_date: None,
-            source_type: None,
         }
     }
 }
@@ -955,86 +950,6 @@ impl Ingestor for PlaceholderPipeline {
 impl Processor for PlaceholderPipeline {
     async fn process(&self, input: &str) -> Result<String> {
         Ok(format!("processed: {}", input))
-    }
-}
-
-#[async_trait]
-impl Storage for PlaceholderPipeline {
-    async fn store(&self, id: &str, data: &str, _input: &MemoryInput) -> Result<()> {
-        info!(memory_id = %id, content_len = data.len(), "Storing placeholder payload");
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl Retriever for PlaceholderPipeline {
-    async fn retrieve(&self, id: &str) -> Result<String> {
-        Ok(format!("retrieved: {}", id))
-    }
-}
-
-#[async_trait]
-impl Searcher for PlaceholderPipeline {
-    async fn search(
-        &self,
-        query: &str,
-        _limit: usize,
-        _opts: &SearchOptions,
-    ) -> Result<Vec<SearchResult>> {
-        Ok(vec![SearchResult {
-            id: "placeholder".to_string(),
-            content: format!("search result for: {query}"),
-            tags: Vec::new(),
-            importance: 0.5,
-            metadata: serde_json::json!({}),
-            event_type: None,
-            session_id: None,
-            project: None,
-            entity_id: None,
-            agent_type: None,
-        }])
-    }
-}
-
-#[async_trait]
-impl Recents for PlaceholderPipeline {
-    async fn recent(&self, _limit: usize, _opts: &SearchOptions) -> Result<Vec<SearchResult>> {
-        Ok(vec![SearchResult {
-            id: "placeholder-recent".to_string(),
-            content: "recent result".to_string(),
-            tags: Vec::new(),
-            importance: 0.5,
-            metadata: serde_json::json!({}),
-            event_type: None,
-            session_id: None,
-            project: None,
-            entity_id: None,
-            agent_type: None,
-        }])
-    }
-}
-
-#[async_trait]
-impl SemanticSearcher for PlaceholderPipeline {
-    async fn semantic_search(
-        &self,
-        query: &str,
-        _limit: usize,
-        _opts: &SearchOptions,
-    ) -> Result<Vec<SemanticResult>> {
-        Ok(vec![SemanticResult {
-            id: "placeholder-semantic".to_string(),
-            content: format!("semantic result for: {query}"),
-            tags: Vec::new(),
-            importance: 0.5,
-            metadata: serde_json::json!({}),
-            event_type: None,
-            session_id: None,
-            project: None,
-            entity_id: None,
-            agent_type: None,
-            score: 1.0,
-        }])
     }
 }
 

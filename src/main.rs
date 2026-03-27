@@ -21,12 +21,15 @@ use tracing::info;
 use memory_core::PlaceholderEmbedder;
 
 mod app_paths;
-#[allow(dead_code)] // Consumers come in a follow-up PR (http_server)
+#[cfg(feature = "daemon-http")]
+#[allow(dead_code)]
 mod auth;
 mod cli;
-#[allow(dead_code)] // Consumers come in a follow-up PR (http_server)
+#[cfg(feature = "daemon-http")]
+#[allow(dead_code)]
 mod daemon;
-#[allow(dead_code)] // Consumers (daemon HTTP server) land in a follow-up PR.
+#[cfg(feature = "daemon-http")]
+#[allow(dead_code)]
 mod idle_timer;
 mod mcp_server;
 mod memory_core;
@@ -132,7 +135,6 @@ async fn main() -> anyhow::Result<()> {
 
     let storage_mode = match cli.init_mode {
         InitModeArg::Default => InitMode::Default,
-        InitModeArg::Advanced => InitMode::Advanced,
     };
     let warmup = matches!(&cli.command, Commands::Serve { .. });
 

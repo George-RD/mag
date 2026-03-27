@@ -143,12 +143,7 @@ pub fn write_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigWr
     // Insert the mag entry
     current
         .as_object_mut()
-        .with_context(|| {
-            format!(
-                "MCP parent key is not an object in {}",
-                path.display()
-            )
-        })?
+        .with_context(|| format!("MCP parent key is not an object in {}", path.display()))?
         .insert("mag".to_string(), mag_entry);
 
     // Create backup if file existed
@@ -222,8 +217,7 @@ pub fn remove_config(tool: &DetectedTool) -> Result<RemoveResult> {
 
     // Backup before writing
     let bak = backup_path_for(path);
-    std::fs::copy(path, &bak)
-        .with_context(|| format!("creating backup at {}", bak.display()))?;
+    std::fs::copy(path, &bak).with_context(|| format!("creating backup at {}", bak.display()))?;
 
     // Serialize and write back
     let serialized = serialize_json(&root)?;
@@ -254,7 +248,7 @@ pub fn verify_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigS
         Err(e) => {
             return Ok(ConfigStatus::Malformed {
                 error: e.to_string(),
-            })
+            });
         }
     };
 
@@ -363,9 +357,7 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
     let pid = std::process::id();
     let tmp_name = format!(
         "{}.mag.{pid}.tmp",
-        path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
+        path.file_name().unwrap_or_default().to_string_lossy()
     );
     let tmp_path = path
         .parent()
@@ -386,15 +378,14 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
                 let same_dir_tmp = path
                     .parent()
                     .unwrap_or_else(|| Path::new("."))
-                    .join(format!("{}.mag.{pid}.xdev.tmp", path.file_name().unwrap_or_default().to_string_lossy()));
+                    .join(format!(
+                        "{}.mag.{pid}.xdev.tmp",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ));
                 std::fs::copy(&tmp_path, &same_dir_tmp)
                     .with_context(|| format!("cross-device copy to {}", same_dir_tmp.display()))?;
                 std::fs::rename(&same_dir_tmp, path).with_context(|| {
-                    format!(
-                        "renaming {} -> {}",
-                        same_dir_tmp.display(),
-                        path.display()
-                    )
+                    format!("renaming {} -> {}", same_dir_tmp.display(), path.display())
                 })?;
                 // Clean up the original temp file
                 let _ = std::fs::remove_file(&tmp_path);
@@ -679,7 +670,8 @@ mod tests {
             write_config(&detected, TransportMode::Command).expect("first write");
 
             // Simulate user editing the file
-            let modified = r#"{"mcpServers": {"mag": {"command": "mag", "args": ["serve"]}}, "extra": true}"#;
+            let modified =
+                r#"{"mcpServers": {"mag": {"command": "mag", "args": ["serve"]}}, "extra": true}"#;
             std::fs::write(&config_path, modified).expect("simulate user edit");
 
             // Write again (update)
@@ -700,10 +692,7 @@ mod tests {
 
             let result =
                 write_config(&detected, TransportMode::Command).expect("write should succeed");
-            assert_eq!(
-                result,
-                ConfigWriteResult::Written { backup_path: None }
-            );
+            assert_eq!(result, ConfigWriteResult::Written { backup_path: None });
         });
     }
 
@@ -917,7 +906,10 @@ mod tests {
 
             let result =
                 write_config(&detected, TransportMode::Stdio).expect("write should succeed");
-            assert!(matches!(result, ConfigWriteResult::UnsupportedFormat { .. }));
+            assert!(matches!(
+                result,
+                ConfigWriteResult::UnsupportedFormat { .. }
+            ));
         });
     }
 

@@ -5,8 +5,6 @@ use clap::{Args, Parser, Subcommand};
 pub enum InitModeArg {
     /// Standard initialization with default database path.
     Default,
-    /// Reserved for future advanced configuration.
-    Advanced,
 }
 
 /// CLI representation of allowed feedback ratings.
@@ -1073,13 +1071,6 @@ mod tests {
         let args = vec!["mag", "ingest", "test content"];
         let cli = Cli::parse_from(args);
         assert_eq!(cli.init_mode, InitModeArg::Default);
-    }
-
-    #[test]
-    fn test_cli_advanced_init_mode() {
-        let args = vec!["mag", "--init-mode", "advanced", "ingest", "test content"];
-        let cli = Cli::parse_from(args);
-        assert_eq!(cli.init_mode, InitModeArg::Advanced);
     }
 
     #[test]
