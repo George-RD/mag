@@ -476,6 +476,7 @@ mod tests {
     use super::*;
     use crate::test_helpers::with_temp_home;
     use crate::tool_detection::{ConfigScope, DetectedTool, MagConfigStatus};
+    use serial_test::serial;
 
     /// Helper to create a DetectedTool for testing.
     fn make_detected(tool: AiTool, config_path: PathBuf) -> DetectedTool {
@@ -534,6 +535,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn write_then_verify_reports_valid() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -549,6 +551,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn write_then_read_preserves_entry() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -566,6 +569,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn existing_servers_preserved_after_write() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -590,6 +594,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn existing_non_mcp_keys_preserved() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -606,6 +611,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn update_existing_mag_entry() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -637,6 +643,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn first_write_creates_backup() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -660,6 +667,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn second_write_updates_backup() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -685,6 +693,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn new_file_write_has_no_backup() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -701,6 +710,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn double_write_returns_already_current() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -716,6 +726,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn double_write_file_unchanged() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -737,6 +748,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn write_creates_missing_parent_dirs() {
         with_temp_home(|home| {
             let config_path = home.join("deep/nested/dir/.claude.json");
@@ -750,6 +762,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn write_to_nonexistent_file_creates_it() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -766,6 +779,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn remove_when_no_mag_entry_returns_not_present() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -778,6 +792,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn remove_when_no_file_returns_no_config_file() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -789,6 +804,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn remove_existing_mag_entry() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -814,6 +830,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn remove_preserves_other_servers() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -836,6 +853,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn verify_missing_file_returns_no_config_file() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -847,6 +865,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn verify_malformed_json_returns_malformed() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -859,6 +878,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn verify_stale_entry_returns_stale() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -878,6 +898,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn verify_missing_mag_entry_returns_missing() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -894,6 +915,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn zed_write_returns_unsupported_format() {
         with_temp_home(|home| {
             let config_path = home.join(".config/zed/settings.json");
@@ -914,6 +936,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn zed_remove_returns_unsupported_format() {
         with_temp_home(|home| {
             let config_path = home.join(".config/zed/settings.json");
@@ -930,6 +953,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn codex_write_returns_deferred() {
         with_temp_home(|home| {
             let config_path = home.join(".codex/config.toml");
@@ -951,6 +975,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn vscode_uses_servers_key() {
         with_temp_home(|home| {
             let config_path = home.join("vscode/mcp.json");
@@ -981,6 +1006,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn bom_prefixed_config_is_handled() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -1003,6 +1029,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn output_has_two_space_indent_and_trailing_newline() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");
@@ -1037,6 +1064,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn windsurf_write_and_verify() {
         with_temp_home(|home| {
             let config_path = home.join(".codeium/windsurf/mcp_config.json");
@@ -1064,6 +1092,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[serial]
     fn remove_creates_backup() {
         with_temp_home(|home| {
             let config_path = home.join(".claude.json");

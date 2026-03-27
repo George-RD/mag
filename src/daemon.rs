@@ -154,6 +154,7 @@ fn write_token_file(path: &std::path::Path, token: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     /// Helper: set HOME to a temp dir so `DaemonInfo::path()` resolves there.
     ///
@@ -177,6 +178,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn write_read_round_trip() {
         with_temp_home(|_dir| {
             let info = DaemonInfo {
@@ -197,6 +199,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn read_returns_none_when_missing() {
         with_temp_home(|_dir| {
             let result = DaemonInfo::read().unwrap();
@@ -205,6 +208,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn remove_deletes_file() {
         with_temp_home(|_dir| {
             let info = DaemonInfo {
@@ -239,6 +243,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn read_or_create_auth_token_creates_and_reads() {
         with_temp_home(|dir| {
             let token1 = read_or_create_auth_token().unwrap();

@@ -20,7 +20,6 @@ doctest = false
 [features]
 default = ["real-embeddings"]
 real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:dotenvy"]
-daemon-http = []
 mimalloc = ["dep:mimalloc"]
 sqlite-vec = ["dep:sqlite-vec"]
 
@@ -67,6 +66,9 @@ all = { level = "deny", priority = -1 }
 cast_possible_truncation = "deny"
 cast_sign_loss = "deny"
 cast_precision_loss = "deny"
+
+[dev-dependencies]
+serial_test = "3.2"
 
 [[bin]]
 name = "mag"
