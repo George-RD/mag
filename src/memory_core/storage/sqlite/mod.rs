@@ -1024,7 +1024,7 @@ impl SqliteStorage {
                         row.context("failed to decode auto relate row")?;
                     let embedding: Vec<f32> = decode_embedding(&embedding_blob)
                         .context("failed to decode candidate embedding for auto relate")?;
-                    let score = cosine_similarity(&source_embedding, &embedding);
+                    let score = dot_product(&source_embedding, &embedding);
                     if score >= 0.45 {
                         ranked.push((id, score));
                     }
@@ -1253,7 +1253,7 @@ mod schema;
 mod search;
 mod session;
 
-pub(crate) use helpers::cosine_similarity;
+pub(crate) use helpers::dot_product;
 use helpers::{
     ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
     content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,

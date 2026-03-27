@@ -11,6 +11,30 @@ pub(super) fn initialize_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Returns the current schema version from the `schema_migrations` table.
+/// Returns `0` if the table does not exist or is empty.
+fn current_schema_version(conn: &Connection) -> Result<i64> {
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !table_exists {
+        return Ok(0);
+    }
+
+    conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(|e| anyhow!("Failed to read schema version: {e}"))
+}
+
 /// Creates the `memories` and `relationships` tables if they don't exist and enables foreign keys.
 pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")
@@ -26,6 +50,39 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         "PRAGMA cache_size=-16000; PRAGMA mmap_size=33554432; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY;",
     );
 
+    // --- Schema version tracking ---
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );",
+    )
+    .context("failed to create schema_migrations table")?;
+
+    // Seed version records for existing databases that pre-date version tracking.
+    // If the memories table already exists but schema_migrations is empty, this is
+    // an existing DB — mark all historical migrations as applied.
+    let memories_exist: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if memories_exist && current_schema_version(conn)? == 0 {
+        for v in 1..=4 {
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?1)",
+                params![v],
+            );
+        }
+    }
+
+    let current = current_schema_version(conn)?;
+
+    // --- v1: Base schema (CREATE TABLE IF NOT EXISTS is always idempotent) ---
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS memories (
             id TEXT PRIMARY KEY,
@@ -66,64 +123,103 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
     )
     .context("failed to initialize sqlite schema")?;
 
-    let new_columns = [
-        "ALTER TABLE memories ADD COLUMN session_id TEXT",
-        "ALTER TABLE memories ADD COLUMN event_type TEXT",
-        "ALTER TABLE memories ADD COLUMN project TEXT",
-        "ALTER TABLE memories ADD COLUMN priority INTEGER",
-        "ALTER TABLE memories ADD COLUMN entity_id TEXT",
-        "ALTER TABLE memories ADD COLUMN agent_type TEXT",
-        "ALTER TABLE memories ADD COLUMN ttl_seconds INTEGER",
-        "ALTER TABLE memories ADD COLUMN canonical_hash TEXT",
-        "ALTER TABLE memories ADD COLUMN version_chain_id TEXT",
-        "ALTER TABLE memories ADD COLUMN superseded_by_id TEXT",
-        "ALTER TABLE memories ADD COLUMN superseded_at TEXT",
-    ];
-    for alter in &new_columns {
-        let _ = conn.execute_batch(alter);
+    if current < 1 {
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (1)",
+            [],
+        )?;
     }
 
-    let new_rel_columns = [
-        "ALTER TABLE relationships ADD COLUMN weight REAL NOT NULL DEFAULT 1.0",
-        "ALTER TABLE relationships ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
-        "ALTER TABLE relationships ADD COLUMN created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-    ];
-    for alter in &new_rel_columns {
-        let _ = conn.execute_batch(alter);
+    // --- v2: Memory + relationship column ALTERs ---
+    if current < 2 {
+        let new_columns = [
+            "ALTER TABLE memories ADD COLUMN session_id TEXT",
+            "ALTER TABLE memories ADD COLUMN event_type TEXT",
+            "ALTER TABLE memories ADD COLUMN project TEXT",
+            "ALTER TABLE memories ADD COLUMN priority INTEGER",
+            "ALTER TABLE memories ADD COLUMN entity_id TEXT",
+            "ALTER TABLE memories ADD COLUMN agent_type TEXT",
+            "ALTER TABLE memories ADD COLUMN ttl_seconds INTEGER",
+            "ALTER TABLE memories ADD COLUMN canonical_hash TEXT",
+            "ALTER TABLE memories ADD COLUMN version_chain_id TEXT",
+            "ALTER TABLE memories ADD COLUMN superseded_by_id TEXT",
+            "ALTER TABLE memories ADD COLUMN superseded_at TEXT",
+        ];
+        for alter in &new_columns {
+            let _ = conn.execute_batch(alter);
+        }
+
+        let new_rel_columns = [
+            "ALTER TABLE relationships ADD COLUMN weight REAL NOT NULL DEFAULT 1.0",
+            "ALTER TABLE relationships ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE relationships ADD COLUMN created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        ];
+        for alter in &new_rel_columns {
+            let _ = conn.execute_batch(alter);
+        }
+
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (2)",
+            [],
+        )?;
     }
 
-    migrate_fts_to_porter(conn)?;
-    rebuild_fts_index(conn)?;
+    // --- v3: Performance indexes ---
+    if current < 3 {
+        let indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_ttl ON memories(ttl_seconds)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_event_access ON memories(event_type, access_count)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_project_last_accessed_active ON memories(project, last_accessed_at DESC) WHERE superseded_by_id IS NULL",
+            "CREATE INDEX IF NOT EXISTS idx_memories_session_last_accessed_active ON memories(session_id, last_accessed_at DESC) WHERE superseded_by_id IS NULL",
+            "CREATE INDEX IF NOT EXISTS idx_memories_event_last_accessed_active ON memories(event_type, last_accessed_at DESC) WHERE superseded_by_id IS NULL",
+            "CREATE INDEX IF NOT EXISTS idx_memories_project_created_active ON memories(project, created_at DESC) WHERE superseded_by_id IS NULL",
+            "CREATE INDEX IF NOT EXISTS idx_memories_session_created_active ON memories(session_id, created_at DESC) WHERE superseded_by_id IS NULL",
+            "CREATE INDEX IF NOT EXISTS idx_memories_event_created_active ON memories(event_type, created_at DESC) WHERE superseded_by_id IS NULL",
+            "CREATE INDEX IF NOT EXISTS idx_memories_entity_id ON memories(entity_id)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_canonical ON memories(canonical_hash)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_version_chain ON memories(version_chain_id)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_superseded ON memories(superseded_by_id)",
+            "CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id)",
+            "CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id)",
+            "CREATE INDEX IF NOT EXISTS idx_relationships_source_type ON relationships(source_id, rel_type)",
+            "CREATE INDEX IF NOT EXISTS idx_relationships_target_type ON relationships(target_id, rel_type)",
+        ];
+        for idx in &indexes {
+            let _ = conn.execute_batch(idx);
+        }
 
-    // Performance indexes
-    let indexes = [
-        "CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_ttl ON memories(ttl_seconds)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_event_access ON memories(event_type, access_count)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_project_last_accessed_active ON memories(project, last_accessed_at DESC) WHERE superseded_by_id IS NULL",
-        "CREATE INDEX IF NOT EXISTS idx_memories_session_last_accessed_active ON memories(session_id, last_accessed_at DESC) WHERE superseded_by_id IS NULL",
-        "CREATE INDEX IF NOT EXISTS idx_memories_event_last_accessed_active ON memories(event_type, last_accessed_at DESC) WHERE superseded_by_id IS NULL",
-        "CREATE INDEX IF NOT EXISTS idx_memories_project_created_active ON memories(project, created_at DESC) WHERE superseded_by_id IS NULL",
-        "CREATE INDEX IF NOT EXISTS idx_memories_session_created_active ON memories(session_id, created_at DESC) WHERE superseded_by_id IS NULL",
-        "CREATE INDEX IF NOT EXISTS idx_memories_event_created_active ON memories(event_type, created_at DESC) WHERE superseded_by_id IS NULL",
-        "CREATE INDEX IF NOT EXISTS idx_memories_entity_id ON memories(entity_id)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_canonical ON memories(canonical_hash)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_version_chain ON memories(version_chain_id)",
-        "CREATE INDEX IF NOT EXISTS idx_memories_superseded ON memories(superseded_by_id)",
-        "CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id)",
-        "CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id)",
-        "CREATE INDEX IF NOT EXISTS idx_relationships_source_type ON relationships(source_id, rel_type)",
-        "CREATE INDEX IF NOT EXISTS idx_relationships_target_type ON relationships(target_id, rel_type)",
-    ];
-    for idx in &indexes {
-        let _ = conn.execute_batch(idx);
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (3)",
+            [],
+        )?;
     }
 
+    // --- v4: FTS porter migration ---
+    if current < 4 {
+        migrate_fts_to_porter(conn)?;
+        rebuild_fts_index(conn)?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (4)",
+            [],
+        )?;
+    }
+
+    // --- v5: vec_memories initialization (feature-gated) ---
     #[cfg(feature = "sqlite-vec")]
-    initialize_vec_table(conn, embedding_dim)?;
+    {
+        if current < 5 {
+            initialize_vec_table(conn, embedding_dim)?;
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version) VALUES (5)",
+                [],
+            )?;
+        }
+    }
 
     #[cfg(not(feature = "sqlite-vec"))]
     let _ = embedding_dim;
