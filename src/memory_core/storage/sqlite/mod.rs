@@ -98,18 +98,24 @@ pub struct SqliteStorage {
 #[cfg(feature = "sqlite-vec")]
 fn ensure_vec_extension_registered() {
     use std::sync::Once;
+
+    /// Expected signature for SQLite extension entry points.
+    type SqliteExtensionInit = unsafe extern "C" fn(
+        *mut rusqlite::ffi::sqlite3,
+        *mut *mut i8,
+        *const rusqlite::ffi::sqlite3_api_routines,
+    ) -> i32;
+
     static VEC_INIT: Once = Once::new();
     VEC_INIT.call_once(|| unsafe {
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
-            *const (),
-            unsafe extern "C" fn(
-                *mut rusqlite::ffi::sqlite3,
-                *mut *mut i8,
-                *const rusqlite::ffi::sqlite3_api_routines,
-            ) -> i32,
-        >(
-            sqlite_vec::sqlite3_vec_init as *const ()
-        )));
+        // SAFETY: `sqlite_vec::sqlite3_vec_init` is a valid SQLite extension entry point
+        // whose actual signature matches `SqliteExtensionInit`. The transmute converts the
+        // Rust function pointer representation for use with SQLite's C FFI. This is the
+        // standard pattern for registering statically-linked SQLite extensions via
+        // `sqlite3_auto_extension`.
+        let init_fn: SqliteExtensionInit =
+            std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ());
+        rusqlite::ffi::sqlite3_auto_extension(Some(init_fn));
     });
 }
 
@@ -1032,7 +1038,7 @@ impl SqliteStorage {
                         row.context("failed to decode auto relate row")?;
                     let embedding: Vec<f32> = decode_embedding(&embedding_blob)
                         .context("failed to decode candidate embedding for auto relate")?;
-                    let score = dot_product(&source_embedding, &embedding);
+                    let score = cosine_similarity(&source_embedding, &embedding);
                     if score >= 0.45 {
                         ranked.push((id, score));
                     }
@@ -1261,7 +1267,7 @@ mod schema;
 mod search;
 mod session;
 
-pub(crate) use helpers::dot_product;
+pub(crate) use helpers::cosine_similarity;
 use helpers::{
     ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
     content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
