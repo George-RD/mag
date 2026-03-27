@@ -327,7 +327,7 @@ impl SemanticSearcher for SqliteStorage {
                     ) = row.context("failed to decode semantic search row")?;
                     let candidate: Vec<f32> = decode_embedding(&embedding_blob)
                         .context("failed to decode stored embedding")?;
-                    let score = cosine_similarity(&query_embedding, &candidate);
+                    let score = dot_product(&query_embedding, &candidate);
                     ranked.push(SemanticResult {
                         id,
                         content,

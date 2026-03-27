@@ -736,7 +736,7 @@ impl MaintenanceManager for SqliteStorage {
                         if embeddings[j].is_none() {
                             continue;
                         }
-                        let sim = cosine_similarity(
+                        let sim = dot_product(
                             embeddings[i].as_ref().unwrap(),
                             embeddings[j].as_ref().unwrap(),
                         ) as f64;

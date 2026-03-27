@@ -27,6 +27,7 @@ impl Storage for SqliteStorage {
         let agent_type = input.agent_type.clone();
         let ttl_seconds = input.ttl_seconds;
         let referenced_date = input.referenced_date.clone();
+        let source_type = input.source_type.clone();
         let id_for_store = id.clone();
 
         let (outcome, superseded_ids, final_tags) = tokio::task::spawn_blocking(move || {
@@ -198,7 +199,7 @@ impl Storage for SqliteStorage {
                         && let Ok(candidate_embedding) =
                             decode_embedding(emb_blob)
                     {
-                        let cosine = cosine_similarity(emb_data, &candidate_embedding);
+                        let cosine = dot_product(emb_data, &candidate_embedding);
                         cosine >= SUPERSESSION_COSINE_THRESHOLD
                     } else {
                         false // No embedding = cannot supersede
@@ -253,7 +254,7 @@ impl Storage for SqliteStorage {
                     NULL,
                     COALESCE(?16, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                     ?4,
-                    'cli_input',
+                    ?17,
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     ?5,
                     ?6,
@@ -302,6 +303,7 @@ impl Storage for SqliteStorage {
                     ttl_seconds,
                     normalized_hash,
                     event_at_value,
+                    source_type.as_deref().unwrap_or("cli_input"),
                 ],
             )
             .context("failed to insert memory")?;

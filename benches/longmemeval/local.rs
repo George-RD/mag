@@ -155,6 +155,7 @@ fn default_input(
         agent_type: None,
         ttl_seconds: None,
         referenced_date: None,
+        source_type: None,
     }
 }
 
