@@ -68,6 +68,7 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     present_summary(&summary);
 
     // Daemon phase
+    #[cfg(feature = "daemon-http")]
     maybe_start_daemon(args.port, args.no_start)?;
 
     Ok(())
@@ -308,6 +309,7 @@ fn run_uninstall(project_root: Option<&Path>) -> Result<()> {
 // Daemon management
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "daemon-http")]
 fn maybe_start_daemon(port: u16, no_start: bool) -> Result<()> {
     if no_start {
         tracing::debug!("--no-start: skipping daemon check");
@@ -367,7 +369,6 @@ mod tests {
     use super::*;
     use crate::test_helpers::with_temp_home;
     use crate::tool_detection::{AiTool, ConfigScope, DetectedTool, MagConfigStatus};
-    use serial_test::serial;
     use std::path::PathBuf;
 
     // -----------------------------------------------------------------------
@@ -602,7 +603,6 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[serial]
     fn configure_tools_writes_config() {
         with_temp_home(|home| {
             // Create a Claude Code config file
@@ -631,7 +631,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn configure_tools_idempotent() {
         with_temp_home(|home| {
             // Create a config that already has MAG configured
@@ -693,7 +692,6 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[serial]
     fn full_non_interactive_setup() {
         with_temp_home(|home| {
             // Set up a Cursor config file
@@ -736,7 +734,6 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[serial]
     fn uninstall_removes_configured_tools() {
         with_temp_home(|home| {
             // Set up a Claude Code config with MAG
@@ -759,7 +756,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn uninstall_no_tools_detected() {
         with_temp_home(|_home| {
             // No config files exist — should not error
