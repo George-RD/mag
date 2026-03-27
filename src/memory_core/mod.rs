@@ -332,6 +332,9 @@ pub struct MemoryInput {
     /// ISO 8601 timestamp for when the event actually occurred.
     /// When provided, this overrides the default `event_at = now()` on insert.
     pub referenced_date: Option<String>,
+    /// Source type label (e.g. `"cli_input"`, `"mcp"`, `"api"`).
+    /// Defaults to `"cli_input"` when `None`.
+    pub source_type: Option<String>,
 }
 
 impl Default for MemoryInput {
@@ -350,6 +353,7 @@ impl Default for MemoryInput {
             agent_type: None,
             ttl_seconds: None,
             referenced_date: None,
+            source_type: None,
         }
     }
 }

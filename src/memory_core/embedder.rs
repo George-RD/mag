@@ -835,7 +835,7 @@ pub(crate) async fn download_file(url: &str, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_core::storage::sqlite::cosine_similarity;
+    use crate::memory_core::storage::sqlite::dot_product;
 
     #[test]
     fn test_placeholder_embedder_dimension() {
@@ -875,25 +875,25 @@ mod tests {
     }
 
     #[test]
-    fn test_cosine_similarity_identical() {
+    fn test_dot_product_identical() {
         let a = vec![0.5_f32, 0.5, 0.5, 0.5];
-        let score = cosine_similarity(&a, &a);
+        let score = dot_product(&a, &a);
         assert!((score - 1.0).abs() < 1e-6);
     }
 
     #[test]
-    fn test_cosine_similarity_orthogonal() {
+    fn test_dot_product_orthogonal() {
         let a = vec![1.0_f32, 0.0, 0.0];
         let b = vec![0.0_f32, 1.0, 0.0];
-        let score = cosine_similarity(&a, &b);
+        let score = dot_product(&a, &b);
         assert!(score.abs() < 1e-6);
     }
 
     #[test]
-    fn test_cosine_similarity_different_lengths() {
+    fn test_dot_product_different_lengths() {
         let a = vec![1.0_f32, 0.0, 0.0];
         let b = vec![1.0_f32, 0.0];
-        let score = cosine_similarity(&a, &b);
+        let score = dot_product(&a, &b);
         assert_eq!(score, 0.0);
     }
 

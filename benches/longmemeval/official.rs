@@ -91,6 +91,7 @@ async fn seed_official_question(
                 agent_type: Some(turn.role.clone()),
                 ttl_seconds: None,
                 referenced_date: None,
+                source_type: None,
             };
             storage.store(&memory_id, &turn.content, &input).await?;
             count += 1;

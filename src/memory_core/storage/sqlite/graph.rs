@@ -245,7 +245,7 @@ impl SimilarFinder for SqliteStorage {
                     ) = row.context("failed to decode similar row")?;
                     let embedding: Vec<f32> = decode_embedding(&embedding_blob)
                         .context("failed to decode candidate embedding")?;
-                    let score = cosine_similarity(&source_embedding, &embedding);
+                    let score = dot_product(&source_embedding, &embedding);
                     ranked.push(SemanticResult {
                         id,
                         content,

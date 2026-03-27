@@ -149,7 +149,7 @@ fn collect_vector_candidates(
             ) = row.context("failed to decode advanced vector row")?;
             let candidate_emb: Vec<f32> =
                 decode_embedding(&embedding_blob).context("failed to decode stored embedding")?;
-            let similarity = cosine_similarity(query_embedding, &candidate_emb) as f64;
+            let similarity = dot_product(query_embedding, &candidate_emb) as f64;
             if similarity < 0.1 {
                 continue;
             }
@@ -748,7 +748,7 @@ fn fuse_refine_and_output(
                         let vec_sim = embedding_blob.and_then(|blob| {
                             decode_embedding(&blob)
                                 .ok()
-                                .map(|emb| cosine_similarity(query_embedding, &emb) as f64)
+                                .map(|emb| dot_product(query_embedding, &emb) as f64)
                         });
                         neighbor_score *= feedback_factor(fb_score, scoring_params);
 

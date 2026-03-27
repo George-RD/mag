@@ -1031,10 +1031,19 @@ fn decode_binary_embedding(blob: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-pub(crate) fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+/// Dot product of two vectors. Equivalent to cosine similarity when inputs are L2-normalized.
+pub(crate) fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
+    debug_assert!(
+        (a.iter().map(|v| v * v).sum::<f32>().sqrt() - 1.0).abs() < 0.01,
+        "input a is not L2-normalized"
+    );
+    debug_assert!(
+        (b.iter().map(|v| v * v).sum::<f32>().sqrt() - 1.0).abs() < 0.01,
+        "input b is not L2-normalized"
+    );
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 

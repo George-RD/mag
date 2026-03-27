@@ -155,6 +155,7 @@ fn generate_input(index: usize) -> MemoryInput {
         agent_type: None,
         ttl_seconds: None,
         referenced_date: None,
+        source_type: None,
     }
 }
 
@@ -396,6 +397,7 @@ async fn run_benchmark(args: &Args) -> Result<Vec<ScaleResult>> {
             agent_type: None,
             ttl_seconds: None,
             referenced_date: None,
+            source_type: None,
         };
         storage.store(&needle.id, &needle.content, &input).await?;
     }
