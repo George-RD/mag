@@ -49,10 +49,9 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
 
     // Detect phase
     println!("\n  Detecting AI coding tools...\n");
-    let result: DetectionResult =
-        tokio::task::spawn_blocking(|| detect_phase(None))
-            .await
-            .context("tool detection task panicked")?;
+    let result: DetectionResult = tokio::task::spawn_blocking(|| detect_phase(None))
+        .await
+        .context("tool detection task panicked")?;
 
     present_detection(&result);
 
@@ -69,6 +68,7 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     present_summary(&summary);
 
     // Daemon phase
+    #[cfg(feature = "daemon-http")]
     maybe_start_daemon(args.port, args.no_start)?;
 
     Ok(())
@@ -95,10 +95,10 @@ fn present_detection(result: &DetectionResult) {
     println!("  Detected tools:\n");
     for dt in &result.detected {
         let status_icon = match &dt.mag_status {
-            MagConfigStatus::Configured => "\u{2713}",          // check mark
-            MagConfigStatus::NotConfigured => "\u{2717}",       // X mark
-            MagConfigStatus::Misconfigured(_) => "\u{26a0}",    // warning
-            MagConfigStatus::Unreadable(_) => "\u{26a0}",       // warning
+            MagConfigStatus::Configured => "\u{2713}",    // check mark
+            MagConfigStatus::NotConfigured => "\u{2717}", // X mark
+            MagConfigStatus::Misconfigured(_) => "\u{26a0}", // warning
+            MagConfigStatus::Unreadable(_) => "\u{26a0}", // warning
         };
         let status_label = match &dt.mag_status {
             MagConfigStatus::Configured => "configured",
@@ -119,7 +119,11 @@ fn present_detection(result: &DetectionResult) {
 
     if !result.not_found.is_empty() {
         println!();
-        let not_found_names: Vec<&str> = result.not_found.iter().map(|t: &tool_detection::AiTool| t.display_name()).collect();
+        let not_found_names: Vec<&str> = result
+            .not_found
+            .iter()
+            .map(|t: &tool_detection::AiTool| t.display_name())
+            .collect();
         tracing::debug!(tools = ?not_found_names, "tools not found");
     }
     println!();
@@ -196,9 +200,7 @@ fn select_tools<'a>(
     select_tools_interactive(&actionable)
 }
 
-fn select_tools_interactive<'a>(
-    tools: &[&'a DetectedTool],
-) -> Result<Vec<&'a DetectedTool>> {
+fn select_tools_interactive<'a>(tools: &[&'a DetectedTool]) -> Result<Vec<&'a DetectedTool>> {
     println!(
         "  Configure {} tool{}? [Y/n] ",
         tools.len(),
@@ -225,10 +227,7 @@ fn select_tools_interactive<'a>(
 // Configuration phase
 // ---------------------------------------------------------------------------
 
-fn configure_tools(
-    tools: &[&DetectedTool],
-    mode: TransportMode,
-) -> Result<ConfigureSummary> {
+fn configure_tools(tools: &[&DetectedTool], mode: TransportMode) -> Result<ConfigureSummary> {
     let mut summary = ConfigureSummary::default();
 
     for tool in tools {
@@ -310,6 +309,7 @@ fn run_uninstall(project_root: Option<&Path>) -> Result<()> {
 // Daemon management
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "daemon-http")]
 fn maybe_start_daemon(port: u16, no_start: bool) -> Result<()> {
     if no_start {
         tracing::debug!("--no-start: skipping daemon check");
@@ -328,9 +328,7 @@ fn maybe_start_daemon(port: u16, no_start: bool) -> Result<()> {
         _ => {}
     }
 
-    println!(
-        "  Tip: start the MAG daemon with `mag serve` (port {port}).\n"
-    );
+    println!("  Tip: start the MAG daemon with `mag serve` (port {port}).\n");
 
     Ok(())
 }
@@ -345,7 +343,9 @@ pub fn parse_transport(s: &str, port: u16) -> Result<TransportMode> {
         "command" | "cmd" => Ok(TransportMode::Command),
         "http" => Ok(TransportMode::Http { port }),
         "stdio" => Ok(TransportMode::Stdio),
-        other => anyhow::bail!("unknown transport mode: '{other}' (expected command, http, or stdio)"),
+        other => {
+            anyhow::bail!("unknown transport mode: '{other}' (expected command, http, or stdio)")
+        }
     }
 }
 
@@ -410,7 +410,10 @@ mod tests {
         let result = parse_transport("grpc", 4242);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("grpc"), "error should mention the bad input: {msg}");
+        assert!(
+            msg.contains("grpc"),
+            "error should mention the bad input: {msg}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -523,9 +526,10 @@ mod tests {
     #[test]
     fn select_tools_all_configured_returns_empty() {
         let result = DetectionResult {
-            detected: vec![
-                make_detected(AiTool::ClaudeCode, MagConfigStatus::Configured),
-            ],
+            detected: vec![make_detected(
+                AiTool::ClaudeCode,
+                MagConfigStatus::Configured,
+            )],
             not_found: vec![],
         };
         let args = SetupArgs {

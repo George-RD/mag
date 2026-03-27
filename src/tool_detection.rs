@@ -131,6 +131,7 @@ pub struct DetectionResult {
     pub not_found: Vec<AiTool>,
 }
 
+#[allow(dead_code)] // Used by tests; kept for future callers.
 impl DetectionResult {
     /// Returns tools that are installed but do not have MAG configured.
     pub fn unconfigured(&self) -> Vec<&DetectedTool> {
@@ -196,6 +197,7 @@ pub fn detect_all_tools(project_root: Option<&Path>) -> DetectionResult {
 /// Returns a `Vec<DetectedTool>` with all found config locations for this tool
 /// (e.g., both global and project-level). Returns an empty `Vec` if the tool
 /// is not found at any of its known paths.
+#[allow(dead_code)] // Used by tests; kept for future callers.
 pub fn detect_tool(tool: AiTool, project_root: Option<&Path>) -> Vec<DetectedTool> {
     let home = match crate::app_paths::home_dir() {
         Ok(h) => h,
@@ -478,7 +480,7 @@ fn check_mag_in_json(
                     _ => {
                         return MagConfigStatus::Misconfigured(
                             "missing source: custom".to_string(),
-                        )
+                        );
                     }
                 }
             }
@@ -591,7 +593,8 @@ mod tests {
     #[test]
     fn detects_claude_code_project_config() {
         with_temp_home(|_home| {
-            let project = std::env::temp_dir().join(format!("mag-project-{}", uuid::Uuid::new_v4()));
+            let project =
+                std::env::temp_dir().join(format!("mag-project-{}", uuid::Uuid::new_v4()));
             let claude_dir = project.join(".claude");
             std::fs::create_dir_all(&claude_dir).unwrap();
             std::fs::write(
@@ -627,7 +630,8 @@ mod tests {
     #[test]
     fn detects_project_local_cursor_config() {
         with_temp_home(|_home| {
-            let project = std::env::temp_dir().join(format!("mag-project-{}", uuid::Uuid::new_v4()));
+            let project =
+                std::env::temp_dir().join(format!("mag-project-{}", uuid::Uuid::new_v4()));
             let cursor_dir = project.join(".cursor");
             std::fs::create_dir_all(&cursor_dir).unwrap();
             std::fs::write(cursor_dir.join("mcp.json"), r#"{"mcpServers": {}}"#).unwrap();
@@ -802,11 +806,7 @@ mod tests {
         with_temp_home(|home| {
             let gemini_dir = home.join(".gemini");
             std::fs::create_dir_all(&gemini_dir).unwrap();
-            std::fs::write(
-                gemini_dir.join("settings.json"),
-                r#"{"mcpServers": {}}"#,
-            )
-            .unwrap();
+            std::fs::write(gemini_dir.join("settings.json"), r#"{"mcpServers": {}}"#).unwrap();
 
             let result = detect_tool(AiTool::GeminiCli, None);
             assert!(!result.is_empty());
@@ -829,8 +829,11 @@ mod tests {
                 std::fs::create_dir_all(&dir).unwrap();
                 dir.join("claude_desktop_config.json")
             };
-            std::fs::write(&config_path, r#"{"mcpServers": {"mag": {"command": "mag"}}}"#)
-                .unwrap();
+            std::fs::write(
+                &config_path,
+                r#"{"mcpServers": {"mag": {"command": "mag"}}}"#,
+            )
+            .unwrap();
 
             let result = detect_tool(AiTool::ClaudeDesktop, None);
             assert!(!result.is_empty());

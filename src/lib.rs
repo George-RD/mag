@@ -1,10 +1,11 @@
 pub mod app_paths;
 pub mod benchmarking;
-pub mod config_writer;
+pub(crate) mod config_writer;
+#[cfg(feature = "daemon-http")]
 pub mod daemon;
 pub mod memory_core;
 pub mod setup;
-pub mod tool_detection;
+pub(crate) mod tool_detection;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

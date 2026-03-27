@@ -20,6 +20,7 @@ doctest = false
 [features]
 default = ["real-embeddings"]
 real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:dotenvy"]
+daemon-http = []
 mimalloc = ["dep:mimalloc"]
 sqlite-vec = ["dep:sqlite-vec"]
 

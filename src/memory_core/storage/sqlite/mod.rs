@@ -69,8 +69,6 @@ enum StoreOutcome {
 pub enum InitMode {
     /// Use the resolved default database path (`~/.mag/memory.db` with legacy fallback).
     Default,
-    /// Reserved for future advanced configuration (currently delegates to `Default`).
-    Advanced,
 }
 
 /// SQLite-backed persistent storage for the memory system.
@@ -98,24 +96,18 @@ pub struct SqliteStorage {
 #[cfg(feature = "sqlite-vec")]
 fn ensure_vec_extension_registered() {
     use std::sync::Once;
-
-    /// Expected signature for SQLite extension entry points.
-    type SqliteExtensionInit = unsafe extern "C" fn(
-        *mut rusqlite::ffi::sqlite3,
-        *mut *mut i8,
-        *const rusqlite::ffi::sqlite3_api_routines,
-    ) -> i32;
-
     static VEC_INIT: Once = Once::new();
     VEC_INIT.call_once(|| unsafe {
-        // SAFETY: `sqlite_vec::sqlite3_vec_init` is a valid SQLite extension entry point
-        // whose actual signature matches `SqliteExtensionInit`. The transmute converts the
-        // Rust function pointer representation for use with SQLite's C FFI. This is the
-        // standard pattern for registering statically-linked SQLite extensions via
-        // `sqlite3_auto_extension`.
-        let init_fn: SqliteExtensionInit =
-            std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ());
-        rusqlite::ffi::sqlite3_auto_extension(Some(init_fn));
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut rusqlite::ffi::sqlite3,
+                *mut *mut i8,
+                *const rusqlite::ffi::sqlite3_api_routines,
+            ) -> i32,
+        >(
+            sqlite_vec::sqlite3_vec_init as *const ()
+        )));
     });
 }
 
@@ -130,7 +122,6 @@ impl SqliteStorage {
     pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self> {
         match mode {
             InitMode::Default => Self::new_default(embedder),
-            InitMode::Advanced => Self::new_advanced_placeholder(embedder),
         }
     }
 
@@ -138,11 +129,6 @@ impl SqliteStorage {
     pub fn new_default(embedder: Arc<dyn Embedder>) -> Result<Self> {
         let path = default_db_path()?;
         Self::new_with_path(path, embedder)
-    }
-
-    /// Placeholder for advanced initialization (currently delegates to [`new_default`](Self::new_default)).
-    pub fn new_advanced_placeholder(embedder: Arc<dyn Embedder>) -> Result<Self> {
-        Self::new_default(embedder)
     }
 
     /// Opens (or creates) a database at the given `path`, creating parent directories as needed.
