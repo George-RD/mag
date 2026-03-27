@@ -501,6 +501,551 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected protocol to describe memory_admin"
     );
 
+    // ─── memory_store_batch ───
+    let batch_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_store_batch".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "items": [
+                        { "content": "batch item one", "id": "batch-1", "tags": ["batch"] },
+                        { "content": "batch item two", "id": "batch-2", "tags": ["batch"] },
+                        { "content": "batch item three", "id": "batch-3", "importance": 0.9 }
+                    ]
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        batch_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("batch-1")
+                && text.text.contains("batch-2")
+                && text.text.contains("batch-3"))),
+        "expected batch store to return all three IDs"
+    );
+    assert!(
+        batch_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("\"count\":3"))),
+        "expected batch store count to be 3"
+    );
+
+    // ─── memory_retrieve ───
+    let retrieve_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_retrieve".into(),
+            arguments: Some(
+                serde_json::json!({ "id": "batch-1" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        retrieve_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("batch item one"))),
+        "expected retrieve to return the stored content"
+    );
+    assert!(
+        retrieve_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("batch-1"))),
+        "expected retrieve to return the memory ID"
+    );
+
+    // ─── memory_relations (add + list + traverse) ───
+    // First, add a relation between two memories
+    let add_rel_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_relations".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "action": "add",
+                    "source_id": "batch-1",
+                    "target_id": "batch-2",
+                    "rel_type": "related_to",
+                    "weight": 0.8
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        add_rel_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("related_to")
+                && text.text.contains("batch-1")
+                && text.text.contains("batch-2"))),
+        "expected add relation to confirm source, target, and type"
+    );
+
+    // List relations for batch-1
+    let list_rel_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_relations".into(),
+            arguments: Some(
+                serde_json::json!({ "action": "list", "id": "batch-1" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        list_rel_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("relationships")
+                && text.text.contains("related_to"))),
+        "expected list relations to include the added relationship"
+    );
+
+    // Traverse graph from batch-1
+    let traverse_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_relations".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "action": "traverse",
+                    "id": "batch-1",
+                    "max_hops": 2,
+                    "min_weight": 0.5
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        traverse_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("batch-2"))),
+        "expected traversal to reach batch-2 via the relationship"
+    );
+
+    // ─── memory_feedback ───
+    let feedback_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_feedback".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "memory_id": "batch-1",
+                    "rating": "helpful",
+                    "reason": "accurate and useful"
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        feedback_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("batch-1")
+                && text.text.contains("feedback"))),
+        "expected feedback to confirm memory_id and feedback recording"
+    );
+
+    // ─── memory_lifecycle (action=health) ───
+    let lifecycle_health_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_lifecycle".into(),
+            arguments: Some(
+                serde_json::json!({ "action": "health" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        lifecycle_health_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| !text.text.is_empty())),
+        "expected lifecycle health to return non-empty response"
+    );
+
+    // ─── memory_checkpoint (save + resume) ───
+    let checkpoint_save_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_checkpoint".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "action": "save",
+                    "task_title": "smoke test task",
+                    "progress": "50% done with MCP testing",
+                    "next_steps": "finish remaining tools",
+                    "decisions": ["chose to test in priority order"]
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        checkpoint_save_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("memory_id")
+                && text.text.contains("checkpoint_number"))),
+        "expected checkpoint save to return memory_id and checkpoint_number"
+    );
+
+    // Resume the checkpoint
+    let checkpoint_resume_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_checkpoint".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "action": "resume",
+                    "task_title": "smoke test task",
+                    "limit": 1
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        checkpoint_resume_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("smoke test task")
+                || text.text.contains("50% done"))),
+        "expected checkpoint resume to return saved checkpoint data"
+    );
+
+    // ─── memory_remind (set + list) ───
+    let remind_set_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_remind".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "action": "set",
+                    "text": "review smoke test coverage",
+                    "duration": "1h",
+                    "context": "testing MCP tools"
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        remind_set_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| !text.text.is_empty())),
+        "expected reminder set to return non-empty response"
+    );
+
+    // List reminders
+    let remind_list_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_remind".into(),
+            arguments: Some(
+                serde_json::json!({ "action": "list" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        remind_list_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("results"))),
+        "expected reminder list to include results"
+    );
+
+    // ─── memory_lessons ───
+    // First store a lesson_learned type memory
+    let _lesson_store = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_store".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "content": "always test edge cases in MCP tools",
+                    "id": "lesson-1",
+                    "event_type": "lesson_learned",
+                    "tags": ["testing", "mcp"],
+                    "importance": 0.8
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    let lessons_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_lessons".into(),
+            arguments: Some(
+                serde_json::json!({ "limit": 5 })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        lessons_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("results"))),
+        "expected lessons query to return results"
+    );
+
+    // ─── memory_profile (read + update + read) ───
+    let profile_read_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_profile".into(),
+            arguments: Some(
+                serde_json::json!({ "action": "read" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        profile_read_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| !text.text.is_empty())),
+        "expected profile read to return non-empty response"
+    );
+
+    // Update the profile
+    let profile_update_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_profile".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "action": "update",
+                    "update": { "preferred_language": "Rust", "experience_level": "senior" }
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        profile_update_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("updated"))),
+        "expected profile update to confirm success"
+    );
+
+    // Read updated profile to verify persistence
+    let profile_verify_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_profile".into(),
+            arguments: Some(
+                serde_json::json!({ "action": "read" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        profile_verify_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("Rust"))),
+        "expected updated profile to contain 'Rust'"
+    );
+
+    // ─── Edge case: store with empty content ───
+    let empty_store_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_store".into(),
+            arguments: Some(
+                serde_json::json!({ "content": "", "id": "empty-content-1" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        empty_store_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("empty-content-1"))),
+        "expected store with empty content to succeed and return ID"
+    );
+
+    // ─── Edge case: search with empty query ───
+    let empty_search_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_search".into(),
+            arguments: Some(
+                serde_json::json!({ "query": "", "mode": "text", "advanced": false })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    // Empty query should not crash — it either returns results or an empty set
+    assert!(
+        empty_search_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("results"))),
+        "expected search with empty query to return a results field"
+    );
+
+    // ─── Edge case: store with unicode content (emoji + CJK) ───
+    let unicode_store_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_store".into(),
+            arguments: Some(
+                serde_json::json!({
+                    "content": "\u{1F680} rocket launch \u{4F60}\u{597D}\u{4E16}\u{754C}",
+                    "id": "unicode-1",
+                    "tags": ["\u{1F3F7}\u{FE0F}tag"]
+                })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        unicode_store_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("unicode-1"))),
+        "expected store with unicode content to succeed and return ID"
+    );
+
+    // Verify we can retrieve the unicode content back
+    let unicode_retrieve_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_retrieve".into(),
+            arguments: Some(
+                serde_json::json!({ "id": "unicode-1" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        unicode_retrieve_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(|text| text.text.contains("\u{1F680}")
+                && text.text.contains("\u{4F60}\u{597D}"))),
+        "expected retrieved unicode content to preserve emoji and CJK characters"
+    );
+
     let shutdown_result = timeout(
         Duration::from_secs(20),
         service.close_with_timeout(Duration::from_secs(5)),
