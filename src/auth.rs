@@ -240,4 +240,16 @@ mod tests {
     fn constant_time_eq_empty_strings() {
         assert!(constant_time_eq("", ""));
     }
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn constant_time_eq_equivalence(a in "\\PC{0,100}", b in "\\PC{0,100}") {
+                prop_assert_eq!(constant_time_eq(&a, &b), a == b);
+            }
+        }
+    }
 }

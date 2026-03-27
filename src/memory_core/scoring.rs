@@ -1214,3 +1214,130 @@ mod tests {
         assert!((params.entity_relation_boost - 1.3).abs() < 1e-9);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn jaccard_symmetry(a in "\\PC{0,100}", b in "\\PC{0,100}") {
+            let score_ab = jaccard_similarity(&a, &b, 3);
+            let score_ba = jaccard_similarity(&b, &a, 3);
+            prop_assert!((score_ab - score_ba).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn jaccard_identity(a in "\\PC{0,100}") {
+            let score = jaccard_similarity(&a, &a, 3);
+            let tokens = token_set(&a, 3);
+            if tokens.is_empty() {
+                prop_assert!((score - 0.0).abs() < f64::EPSILON);
+            } else {
+                prop_assert!((score - 1.0).abs() < f64::EPSILON);
+            }
+        }
+
+        #[test]
+        fn jaccard_boundedness(a in "\\PC{0,100}", b in "\\PC{0,100}") {
+            let score = jaccard_similarity(&a, &b, 3);
+            prop_assert!(score >= 0.0);
+            prop_assert!(score <= 1.0);
+        }
+
+        #[test]
+        fn jaccard_empty(b in "\\PC{0,100}") {
+            let score = jaccard_similarity("", &b, 3);
+            prop_assert!((score - 0.0).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn simple_stem_length_never_increases(word in "[a-zA-Z]{0,50}") {
+            let stemmed = simple_stem(&word);
+            prop_assert!(stemmed.len() <= word.len());
+        }
+
+        #[test]
+        fn simple_stem_idempotency(word in "[a-zA-Z]{0,50}") {
+            let once = simple_stem(&word).into_owned();
+            let twice = simple_stem(&once).into_owned();
+            prop_assert_eq!(once, twice);
+        }
+
+        #[test]
+        fn simple_stem_minimum_length(word in "[a-zA-Z]{4,50}") {
+            let stemmed = simple_stem(&word);
+            prop_assert!(stemmed.len() >= 3);
+        }
+
+        #[test]
+        fn token_set_no_empty_strings(text in "\\PC{0,200}") {
+            let tokens = token_set(&text, 3);
+            for token in &tokens {
+                prop_assert!(!token.is_empty());
+            }
+        }
+
+        #[test]
+        fn token_set_all_lowercase(text in "\\PC{0,200}") {
+            let tokens = token_set(&text, 3);
+            for token in &tokens {
+                prop_assert_eq!(token, &token.to_lowercase());
+            }
+        }
+
+        #[test]
+        fn feedback_factor_non_negative(score in any::<i64>()) {
+            let params = ScoringParams::default();
+            let factor = feedback_factor(score, &params);
+            prop_assert!(factor >= 0.0);
+        }
+
+        #[test]
+        fn feedback_factor_monotonic(a in 1i64..=i64::MAX - 1, b in 1i64..=i64::MAX - 1) {
+            let params = ScoringParams::default();
+            let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+            let f_lo = feedback_factor(lo, &params);
+            let f_hi = feedback_factor(hi, &params);
+            prop_assert!(f_hi >= f_lo, "feedback_factor({}) = {} < feedback_factor({}) = {}", hi, f_hi, lo, f_lo);
+        }
+    }
+
+    #[test]
+    fn scoring_params_default_all_finite() {
+        let p = ScoringParams::default();
+        let fields: Vec<f64> = vec![
+            p.rrf_k,
+            p.rrf_weight_vec,
+            p.rrf_weight_fts,
+            p.abstention_min_text,
+            p.graph_neighbor_factor,
+            p.graph_min_edge_weight,
+            p.word_overlap_weight,
+            p.query_coverage_weight,
+            p.jaccard_weight,
+            p.importance_floor,
+            p.importance_scale,
+            p.context_tag_weight,
+            p.time_decay_days,
+            p.priority_base,
+            p.priority_scale,
+            p.feedback_heavy_suppress,
+            p.feedback_strong_suppress,
+            p.feedback_positive_scale,
+            p.feedback_positive_cap,
+            p.neighbor_word_overlap_weight,
+            p.neighbor_importance_floor,
+            p.neighbor_importance_scale,
+            p.dual_match_boost,
+            p.rerank_blend_alpha,
+            p.preceded_by_boost,
+            p.entity_relation_boost,
+        ];
+        for (i, val) in fields.iter().enumerate() {
+            assert!(val.is_finite(), "field index {} is not finite: {}", i, val);
+            assert!(*val >= 0.0, "field index {} is negative: {}", i, val);
+        }
+    }
+}
