@@ -569,6 +569,12 @@ fn fuse_refine_and_output(
     }
 
     // ── Phase 5: Graph enrichment -- inject 1-hop neighbors from top seeds ──
+    // TODO(#121): batch graph-neighbor queries into a single IN(...) clause instead
+    // of per-seed queries.  Currently each seed needs its own parameterized query
+    // because neighbor scoring depends on the individual seed_score, and the SQL uses
+    // a per-seed CASE expression.  An IN(...) batch would require post-hoc
+    // seed-attribution which adds complexity for marginal gain (seeds are capped at
+    // graph_seed_max, typically ~10).  The prepare is already hoisted outside the loop.
     if scoring_params.graph_neighbor_factor > 0.0 {
         let mut seed_list: Vec<(String, f64)> =
             ranked.iter().map(|(id, c)| (id.clone(), c.score)).collect();
@@ -814,35 +820,35 @@ fn fuse_refine_and_output(
             let mut expanded_count = 0usize;
             let existing_ids: HashSet<String> = ranked.keys().cloned().collect();
 
-            // For each entity tag, find memories with that tag
-            for entity_tag in &entity_tags_to_search {
-                if expanded_count >= expansion_limit {
-                    break;
-                }
+            // Query for memories with entity tags using json_each.
+            // Prepare the statement once and reuse it for each entity tag (#121).
+            let tag_sql = if include_superseded {
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, \
+                 project, priority, created_at, entity_id, agent_type, event_at \
+                 FROM memories \
+                 WHERE json_valid(tags) AND EXISTS ( \
+                     SELECT 1 FROM json_each(tags) WHERE value = ?1 \
+                 ) \
+                 ORDER BY created_at DESC LIMIT ?2"
+            } else {
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, \
+                 project, priority, created_at, entity_id, agent_type, event_at \
+                 FROM memories \
+                 WHERE json_valid(tags) AND EXISTS ( \
+                     SELECT 1 FROM json_each(tags) WHERE value = ?1 \
+                 ) \
+                 AND superseded_by_id IS NULL \
+                 ORDER BY created_at DESC LIMIT ?2"
+            };
 
-                // Query for memories with this entity tag using json_each
-                let tag_sql = if include_superseded {
-                    "SELECT id, content, tags, importance, metadata, event_type, session_id, \
-                     project, priority, created_at, entity_id, agent_type, event_at \
-                     FROM memories \
-                     WHERE json_valid(tags) AND EXISTS ( \
-                         SELECT 1 FROM json_each(tags) WHERE value = ?1 \
-                     ) \
-                     ORDER BY created_at DESC LIMIT ?2"
-                } else {
-                    "SELECT id, content, tags, importance, metadata, event_type, session_id, \
-                     project, priority, created_at, entity_id, agent_type, event_at \
-                     FROM memories \
-                     WHERE json_valid(tags) AND EXISTS ( \
-                         SELECT 1 FROM json_each(tags) WHERE value = ?1 \
-                     ) \
-                     AND superseded_by_id IS NULL \
-                     ORDER BY created_at DESC LIMIT ?2"
-                };
+            let per_entity_limit = 5i64;
+            if let Ok(mut stmt) = conn.prepare(tag_sql) {
+                for entity_tag in &entity_tags_to_search {
+                    if expanded_count >= expansion_limit {
+                        break;
+                    }
 
-                let per_entity_limit = 5i64;
-                if let Ok(mut stmt) = conn.prepare(tag_sql)
-                    && let Ok(rows) = stmt.query_map(params![entity_tag, per_entity_limit], |row| {
+                    if let Ok(rows) = stmt.query_map(params![entity_tag, per_entity_limit], |row| {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, String>(1)?,
@@ -860,115 +866,115 @@ fn fuse_refine_and_output(
                             row.get::<_, String>(12)
                                 .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
                         ))
-                    })
-                {
-                    for row_res in rows {
-                        if expanded_count >= expansion_limit {
-                            break;
-                        }
-                        let row = match row_res {
-                            Ok(r) => r,
-                            Err(e) => {
-                                tracing::warn!("failed to decode entity expansion row: {e}");
-                                continue;
+                    }) {
+                        for row_res in rows {
+                            if expanded_count >= expansion_limit {
+                                break;
                             }
-                        };
-                        let (
-                            id,
-                            content,
-                            raw_tags,
-                            importance,
-                            raw_metadata,
-                            event_type_str,
-                            session_id,
-                            project,
-                            priority,
-                            created_at,
-                            entity_id,
-                            agent_type,
-                            event_at,
-                        ) = row;
-
-                        if existing_ids.contains(&id) {
-                            continue; // Already in results
-                        }
-
-                        let tags = parse_tags_from_db(&raw_tags);
-                        let metadata = parse_metadata_from_db(&raw_metadata);
-                        let et = event_type_from_sql(event_type_str);
-                        let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
-                        let priority_value = resolve_priority(et.as_ref(), priority);
-
-                        // Score: type_weight x priority x importance x ENTITY_EXPANSION_BOOST
-                        let base_score = type_weight_et(et_ref)
-                            * priority_factor(priority_value, scoring_params);
-                        let importance_factor_val = scoring_params.importance_floor
-                            + importance * scoring_params.importance_scale;
-                        let with_tags_text = if tags.is_empty() {
-                            content.clone()
-                        } else {
-                            format!("{} {}", content, tags.join(" "))
-                        };
-                        let overlap =
-                            word_overlap_pre(&query_tokens, &token_set(&with_tags_text, 3));
-                        let td = time_decay_et(&created_at, et_ref, scoring_params);
-
-                        let expanded_score = base_score
-                            * importance_factor_val
-                            * (1.0 + overlap * scoring_params.word_overlap_weight)
-                            * td
-                            * ENTITY_EXPANSION_BOOST;
-
-                        // Use a fraction of the max seed score as a baseline
-                        let max_seed_score = seed_list_for_expansion
-                            .first()
-                            .map(|(_, s, _)| *s)
-                            .unwrap_or(1.0);
-                        let final_score = expanded_score.min(max_seed_score * 0.8);
-
-                        let explain_data = if explain_enabled {
-                            Some(serde_json::json!({
-                                "entity_expansion": true,
-                                "expanded_from_tag": entity_tag,
-                                "entity_boost": ENTITY_EXPANSION_BOOST,
-                                "word_overlap": overlap,
-                                "importance_factor": importance_factor_val,
-                                "time_decay": td,
-                            }))
-                        } else {
-                            None
-                        };
-
-                        let candidate = RankedSemanticCandidate {
-                            result: SemanticResult {
-                                id: id.clone(),
+                            let row = match row_res {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    tracing::warn!("failed to decode entity expansion row: {e}");
+                                    continue;
+                                }
+                            };
+                            let (
+                                id,
                                 content,
-                                tags,
+                                raw_tags,
                                 importance,
-                                metadata,
-                                event_type: et,
+                                raw_metadata,
+                                event_type_str,
                                 session_id,
                                 project,
-                                entity_id: entity_id.clone(),
-                                agent_type: agent_type.clone(),
-                                score: 0.0,
-                            },
-                            created_at,
-                            event_at,
-                            score: final_score,
-                            priority_value,
-                            vec_sim: None,
-                            text_overlap: overlap,
-                            entity_id,
-                            agent_type,
-                            explain: explain_data,
-                        };
-                        // Skip candidates that don't match original search filters
-                        if !matches_search_options(&candidate, opts) {
-                            continue;
+                                priority,
+                                created_at,
+                                entity_id,
+                                agent_type,
+                                event_at,
+                            ) = row;
+
+                            if existing_ids.contains(&id) {
+                                continue; // Already in results
+                            }
+
+                            let tags = parse_tags_from_db(&raw_tags);
+                            let metadata = parse_metadata_from_db(&raw_metadata);
+                            let et = event_type_from_sql(event_type_str);
+                            let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
+                            let priority_value = resolve_priority(et.as_ref(), priority);
+
+                            // Score: type_weight x priority x importance x ENTITY_EXPANSION_BOOST
+                            let base_score = type_weight_et(et_ref)
+                                * priority_factor(priority_value, scoring_params);
+                            let importance_factor_val = scoring_params.importance_floor
+                                + importance * scoring_params.importance_scale;
+                            let with_tags_text = if tags.is_empty() {
+                                content.clone()
+                            } else {
+                                format!("{} {}", content, tags.join(" "))
+                            };
+                            let overlap =
+                                word_overlap_pre(&query_tokens, &token_set(&with_tags_text, 3));
+                            let td = time_decay_et(&created_at, et_ref, scoring_params);
+
+                            let expanded_score = base_score
+                                * importance_factor_val
+                                * (1.0 + overlap * scoring_params.word_overlap_weight)
+                                * td
+                                * ENTITY_EXPANSION_BOOST;
+
+                            // Use a fraction of the max seed score as a baseline
+                            let max_seed_score = seed_list_for_expansion
+                                .first()
+                                .map(|(_, s, _)| *s)
+                                .unwrap_or(1.0);
+                            let final_score = expanded_score.min(max_seed_score * 0.8);
+
+                            let explain_data = if explain_enabled {
+                                Some(serde_json::json!({
+                                    "entity_expansion": true,
+                                    "expanded_from_tag": entity_tag,
+                                    "entity_boost": ENTITY_EXPANSION_BOOST,
+                                    "word_overlap": overlap,
+                                    "importance_factor": importance_factor_val,
+                                    "time_decay": td,
+                                }))
+                            } else {
+                                None
+                            };
+
+                            let candidate = RankedSemanticCandidate {
+                                result: SemanticResult {
+                                    id: id.clone(),
+                                    content,
+                                    tags,
+                                    importance,
+                                    metadata,
+                                    event_type: et,
+                                    session_id,
+                                    project,
+                                    entity_id: entity_id.clone(),
+                                    agent_type: agent_type.clone(),
+                                    score: 0.0,
+                                },
+                                created_at,
+                                event_at,
+                                score: final_score,
+                                priority_value,
+                                vec_sim: None,
+                                text_overlap: overlap,
+                                entity_id,
+                                agent_type,
+                                explain: explain_data,
+                            };
+                            // Skip candidates that don't match original search filters
+                            if !matches_search_options(&candidate, opts) {
+                                continue;
+                            }
+                            ranked.insert(id, candidate);
+                            expanded_count += 1;
                         }
-                        ranked.insert(id, candidate);
-                        expanded_count += 1;
                     }
                 }
             }
@@ -1482,6 +1488,12 @@ impl AdvancedSearcher for SqliteStorage {
                 let decomp_embedder = Arc::clone(&self.embedder);
                 let decomp_sp = self.scoring_params.clone();
                 let decomp_opts = opts_for_decomp.clone();
+                // TODO(#121): parallelize sub-queries when pool supports concurrent
+                // readers.  Currently sequential because: (1) SQLite is single-writer
+                // and the pool may not have multiple reader connections, (2) results
+                // are merged with dedup logic that accumulates seen_ids across
+                // iterations.  With a read-only connection pool, these could use
+                // futures::future::join_all and merge afterward.
                 for sub_query in sub_queries.iter().skip(1) {
                     let sub_results = run_single_query_pipeline(
                         &decomp_pool,

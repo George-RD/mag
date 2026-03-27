@@ -2,7 +2,7 @@
 
 **Issues:** #115-#127
 **Started:** 2026-03-27
-**Status:** Wave 1 implementation in progress
+**Status:** 9 of 13 shipped, 1 forging, 3 deferred
 
 ## Wave Structure
 
