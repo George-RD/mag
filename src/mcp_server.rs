@@ -23,6 +23,25 @@ use crate::memory_core::{
     is_valid_event_type,
 };
 
+// ──────────────────────── Validation constants ────────────────────────
+
+/// Hard upper bound for any `limit` parameter to prevent OOM via giant result sets.
+const MAX_RESULT_LIMIT: usize = 1000;
+
+/// Maximum number of items in a single `store_batch` call.
+const MAX_BATCH_SIZE: usize = 1000;
+
+/// Validate that a float parameter is finite (not NaN or Infinity).
+fn require_finite(name: &str, value: f64) -> Result<(), McpError> {
+    if value.is_nan() || value.is_infinite() {
+        return Err(McpError::invalid_params(
+            format!("{name} must be a finite number"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
 // ──────────────────────── Tool Registry ────────────────────────
 
 /// Metadata for a single MCP tool, used to generate protocol docs and CLI output.
@@ -189,6 +208,9 @@ fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpE
         && !is_valid_event_type(et)
     {
         return Err(McpError::invalid_params("invalid event_type", None));
+    }
+    if let Some(imp) = item.importance {
+        require_finite("importance", imp)?;
     }
     let id = item
         .id
@@ -476,6 +498,15 @@ impl McpMemoryServer {
         &self,
         params: Parameters<StoreBatchRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if params.0.items.len() > MAX_BATCH_SIZE {
+            return Err(McpError::invalid_params(
+                format!(
+                    "batch size {} exceeds maximum of {MAX_BATCH_SIZE}",
+                    params.0.items.len()
+                ),
+                None,
+            ));
+        }
         let mut batch_items = Vec::with_capacity(params.0.items.len());
 
         for item in &params.0.items {
@@ -520,8 +551,12 @@ impl McpMemoryServer {
         params: Parameters<SearchRequest>,
     ) -> Result<CallToolResult, McpError> {
         let mode = params.0.mode.as_deref().unwrap_or("text");
-        let limit = params.0.limit.unwrap_or(10);
+        let limit = params.0.limit.unwrap_or(10).min(MAX_RESULT_LIMIT);
         let use_advanced = params.0.advanced.unwrap_or(mode == "text");
+
+        if let Some(v) = params.0.importance_min {
+            require_finite("importance_min", v)?;
+        }
 
         // "similar" mode doesn't use opts — early-return path
         if mode == "similar" {
@@ -720,7 +755,10 @@ impl McpMemoryServer {
             return Err(McpError::invalid_params("invalid event_type", None));
         }
         let sort = params.0.sort.as_deref().unwrap_or("created");
-        let limit = params.0.limit.unwrap_or(10);
+        let limit = params.0.limit.unwrap_or(10).min(MAX_RESULT_LIMIT);
+        if let Some(v) = params.0.importance_min {
+            require_finite("importance_min", v)?;
+        }
         let opts = SearchOptions {
             event_type: EventType::from_optional(params.0.event_type.as_deref()),
             project: params.0.project.clone(),
@@ -866,6 +904,7 @@ impl McpMemoryServer {
                     McpError::invalid_params("rel_type is required for action=add", None)
                 })?;
                 let weight = params.0.weight.unwrap_or(1.0);
+                require_finite("weight", weight)?;
                 if !(0.0..=1.0).contains(&weight) {
                     return Err(McpError::invalid_params(
                         "weight must be between 0.0 and 1.0",
@@ -896,13 +935,20 @@ impl McpMemoryServer {
                     McpError::internal_error(format!("memory not found for traversal: {e}"), None)
                 })?;
                 let max_hops = params.0.max_hops.unwrap_or(2);
-                if max_hops > 5 {
+                if !(1..=5).contains(&max_hops) {
                     return Err(McpError::invalid_params(
                         "max_hops must be between 1 and 5",
                         None,
                     ));
                 }
                 let min_weight = params.0.min_weight.unwrap_or(0.0);
+                require_finite("min_weight", min_weight)?;
+                if !(0.0..=1.0).contains(&min_weight) {
+                    return Err(McpError::invalid_params(
+                        "min_weight must be between 0.0 and 1.0",
+                        None,
+                    ));
+                }
                 let nodes = <SqliteStorage as GraphTraverser>::traverse(
                     &self.storage,
                     id,
@@ -1011,7 +1057,9 @@ impl McpMemoryServer {
             "health" => {
                 let warn = req.warn_mb.unwrap_or(350.0);
                 let crit = req.critical_mb.unwrap_or(800.0);
-                let max = req.max_nodes.unwrap_or(10000);
+                require_finite("warn_mb", warn)?;
+                require_finite("critical_mb", crit)?;
+                let max = req.max_nodes.unwrap_or(10000).min(100_000);
                 let result = self
                     .storage
                     .check_health(warn, crit, max)
@@ -1025,7 +1073,13 @@ impl McpMemoryServer {
             }
             "consolidate" => {
                 let prune = req.prune_days.unwrap_or(30);
+                if prune < 1 {
+                    return Err(McpError::invalid_params("prune_days must be >= 1", None));
+                }
                 let max_sum = req.max_summaries.unwrap_or(50);
+                if max_sum < 1 {
+                    return Err(McpError::invalid_params("max_summaries must be >= 1", None));
+                }
                 let result = self
                     .storage
                     .consolidate(prune, max_sum)
@@ -1045,7 +1099,20 @@ impl McpMemoryServer {
                 }
                 let et = req.event_type.as_deref().unwrap_or("lesson_learned");
                 let thresh = req.similarity_threshold.unwrap_or(0.6);
+                require_finite("similarity_threshold", thresh)?;
+                if !(0.0..=1.0).contains(&thresh) {
+                    return Err(McpError::invalid_params(
+                        "similarity_threshold must be between 0.0 and 1.0",
+                        None,
+                    ));
+                }
                 let min_cs = req.min_cluster_size.unwrap_or(3);
+                if min_cs < 2 {
+                    return Err(McpError::invalid_params(
+                        "min_cluster_size must be >= 2",
+                        None,
+                    ));
+                }
                 let dry = req.dry_run.unwrap_or(false);
                 let result = self
                     .storage
@@ -1059,7 +1126,7 @@ impl McpMemoryServer {
                 )]))
             }
             "auto_compact" => {
-                let threshold = req.count_threshold.unwrap_or(500);
+                let threshold = req.count_threshold.unwrap_or(500).min(10_000);
                 let dry = req.dry_run.unwrap_or(false);
                 let result = self
                     .storage
@@ -1192,7 +1259,7 @@ impl McpMemoryServer {
             }
             "resume" => {
                 let query = params.0.task_title.clone().unwrap_or_default();
-                let limit = params.0.limit.unwrap_or(1);
+                let limit = params.0.limit.unwrap_or(1).min(MAX_RESULT_LIMIT);
                 let results = <SqliteStorage as CheckpointManager>::resume_task(
                     &self.storage,
                     &query,
@@ -1303,7 +1370,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<LessonsRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let limit = params.0.limit.unwrap_or(5);
+        let limit = params.0.limit.unwrap_or(5).min(MAX_RESULT_LIMIT);
         let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
             &self.storage,
             params.0.task.as_deref(),
@@ -1372,7 +1439,7 @@ impl McpMemoryServer {
                         )]))
                     }
                     "digest" => {
-                        let days = params.0.days.unwrap_or(7);
+                        let days = params.0.days.unwrap_or(7).min(365);
                         let result = self.storage.weekly_digest(days).await.map_err(|e| {
                             McpError::internal_error(format!("weekly_digest failed: {e}"), None)
                         })?;
