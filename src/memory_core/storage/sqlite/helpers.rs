@@ -1047,23 +1047,19 @@ pub(crate) fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
-#[allow(dead_code)]
-pub(super) fn resolve_priority(event_type: Option<&str>, priority: Option<i64>) -> u8 {
+pub(super) fn resolve_priority(event_type: Option<&EventType>, priority: Option<i64>) -> u8 {
     if let Some(value) = priority
         && (1..=5).contains(&value)
     {
         return u8::try_from(value).unwrap_or(3);
     }
     event_type
-        .map(|value| {
-            let event_type = value
-                .parse::<EventType>()
-                .unwrap_or_else(|err| match err {});
-            let priority = event_type.default_priority();
-            if priority == 0 {
+        .map(|et| {
+            let dp = et.default_priority();
+            if dp == 0 {
                 3
             } else {
-                u8::try_from(priority).unwrap_or(3)
+                u8::try_from(dp).unwrap_or(3)
             }
         })
         .unwrap_or(3)

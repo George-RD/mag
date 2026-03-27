@@ -1,7 +1,7 @@
 use super::helpers::{
     IntentProfile, QueryIntent, classify_query_intent, content_fingerprint,
     detect_dynamic_limit_mult, extract_entities_from_tags, extract_query_entities,
-    extract_topic_keywords, generate_sub_queries,
+    extract_topic_keywords, generate_sub_queries, resolve_priority,
 };
 use super::*;
 use crate::memory_core::scoring::query_coverage_boost;
@@ -49,18 +49,7 @@ fn collect_vector_candidates(
             if let Some(row_data) = hydrated_rows.remove(&memory_id) {
                 let et = row_data.event_type.clone();
                 let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
-                let priority_value = if let Some(p) = row_data.priority
-                    && (1..=5).contains(&p)
-                {
-                    u8::try_from(p).unwrap_or(3)
-                } else {
-                    let dp = et_ref.default_priority();
-                    if dp == 0 {
-                        3
-                    } else {
-                        u8::try_from(dp).unwrap_or(3)
-                    }
-                };
+                let priority_value = resolve_priority(et.as_ref(), row_data.priority);
                 let initial_score =
                     type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
                 vector_candidates.push((
@@ -156,20 +145,7 @@ fn collect_vector_candidates(
 
             let et = event_type_from_sql(event_type_str.clone());
             let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
-            let priority_value = if let Some(p) = priority
-                && (1..=5).contains(&p)
-            {
-                // SAFETY: range check above guarantees p is in 1..=5
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let v = p as u8;
-                v
-            } else {
-                let dp = et_ref.default_priority();
-                // SAFETY: default_priority() returns small non-negative values (0-5)
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let v = if dp == 0 { 3 } else { dp as u8 };
-                v
-            };
+            let priority_value = resolve_priority(et.as_ref(), priority);
             let initial_score =
                 type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
             vector_candidates.push((
@@ -291,18 +267,7 @@ fn collect_fts_candidates(
 
                 let et = event_type_from_sql(event_type.clone());
                 let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
-                let priority_value = if let Some(p) = priority
-                    && (1..=5).contains(&p)
-                {
-                    u8::try_from(p).unwrap_or(3)
-                } else {
-                    let dp = et_ref.default_priority();
-                    if dp == 0 {
-                        3
-                    } else {
-                        u8::try_from(dp).unwrap_or(3)
-                    }
-                };
+                let priority_value = resolve_priority(et.as_ref(), priority);
                 let initial_score =
                     type_weight_et(et_ref) * priority_factor(priority_value, scoring_params);
                 fts_candidates.push((
@@ -728,18 +693,7 @@ fn fuse_refine_and_output(
                             + overlap * scoring_params.neighbor_word_overlap_weight * fb_dampening;
                         let neighbor_et = event_type_from_sql(event_type);
                         let neighbor_et_ref = neighbor_et.as_ref().unwrap_or(&EventType::Memory);
-                        let neighbor_pv = if let Some(p) = priority
-                            && (1..=5).contains(&p)
-                        {
-                            u8::try_from(p).unwrap_or(3)
-                        } else {
-                            let dp = neighbor_et_ref.default_priority();
-                            if dp == 0 {
-                                3
-                            } else {
-                                u8::try_from(dp).unwrap_or(3)
-                            }
-                        };
+                        let neighbor_pv = resolve_priority(neighbor_et.as_ref(), priority);
                         neighbor_score *=
                             time_decay_et(&created_at, neighbor_et_ref, scoring_params);
                         neighbor_score *= scoring_params.neighbor_importance_floor
@@ -943,18 +897,7 @@ fn fuse_refine_and_output(
                         let metadata = parse_metadata_from_db(&raw_metadata);
                         let et = event_type_from_sql(event_type_str);
                         let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
-                        let priority_value = if let Some(p) = priority
-                            && (1..=5).contains(&p)
-                        {
-                            u8::try_from(p).unwrap_or(3)
-                        } else {
-                            let dp = et_ref.default_priority();
-                            if dp == 0 {
-                                3
-                            } else {
-                                u8::try_from(dp).unwrap_or(3)
-                            }
-                        };
+                        let priority_value = resolve_priority(et.as_ref(), priority);
 
                         // Score: type_weight x priority x importance x ENTITY_EXPANSION_BOOST
                         let base_score = type_weight_et(et_ref)
