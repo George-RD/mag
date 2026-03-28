@@ -16,12 +16,13 @@ use uuid::Uuid;
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
-    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
-    Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
-    SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
-    Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider, embedder::Embedder,
-    feedback_factor, is_stopword, jaccard_pre, jaccard_similarity, priority_factor, simple_stem,
-    time_decay_et, token_set, type_weight_et, word_overlap_pre,
+    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, REL_PRECEDED_BY,
+    REL_RELATED, REL_RELATES_TO, Recents, Relationship, RelationshipQuerier, ReminderManager,
+    Retriever, ScoringParams, SearchOptions, SearchResult, Searcher, SemanticResult,
+    SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger, Updater,
+    VersionChainQuerier, WelcomeProvider, embedder::Embedder, feedback_factor, is_stopword,
+    jaccard_pre, jaccard_similarity, priority_factor, simple_stem, time_decay_et, token_set,
+    type_weight_et, word_overlap_pre,
 };
 
 /// Query result cache TTL in seconds.
@@ -1044,7 +1045,7 @@ impl SqliteStorage {
                 .add_relationship(
                     &memory_id,
                     &target_id,
-                    "related",
+                    REL_RELATED,
                     f64::from(score),
                     &serde_json::json!({}),
                 )
@@ -1085,7 +1086,7 @@ impl SqliteStorage {
             self.add_relationship(
                 &pred_id,
                 &memory_id,
-                "PRECEDED_BY",
+                REL_PRECEDED_BY,
                 1.0,
                 &serde_json::json!({"source": "temporal_adjacency"}),
             )
@@ -1157,7 +1158,7 @@ impl SqliteStorage {
                 .add_relationship(
                     memory_id,
                     &target_id,
-                    "RELATES_TO",
+                    REL_RELATES_TO,
                     0.7,
                     &serde_json::json!({"source": "entity_cooccurrence", "entity": entity_tag}),
                 )

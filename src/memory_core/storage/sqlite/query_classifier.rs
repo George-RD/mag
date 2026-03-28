@@ -72,8 +72,6 @@ pub(super) struct IntentProfile {
     pub fts_weight_mult: f64,
     pub word_overlap_mult: f64,
     pub top_k_mult: f64,
-    #[allow(dead_code)] // Planned for future use; currently tested for intent profiling.
-    pub suggested_limit_mult: f64,
 }
 
 impl IntentProfile {
@@ -85,28 +83,24 @@ impl IntentProfile {
                 fts_weight_mult: 1.0,
                 word_overlap_mult: 1.3,
                 top_k_mult: 1.0,
-                suggested_limit_mult: 1.0,
             },
             QueryIntent::Factual => Self {
                 vec_weight_mult: 1.0,
                 fts_weight_mult: 1.1,
                 word_overlap_mult: 1.15,
                 top_k_mult: 1.0,
-                suggested_limit_mult: 1.0,
             },
             QueryIntent::Conceptual => Self {
                 vec_weight_mult: 1.5,
                 fts_weight_mult: 0.85,
                 word_overlap_mult: 0.7,
                 top_k_mult: 1.3,
-                suggested_limit_mult: 1.3,
             },
             QueryIntent::General => Self {
                 vec_weight_mult: 1.0,
                 fts_weight_mult: 1.0,
                 word_overlap_mult: 1.0,
                 top_k_mult: 1.0,
-                suggested_limit_mult: 1.0,
             },
         }
     }
@@ -454,11 +448,4 @@ mod tests {
         assert!((detect_dynamic_limit_mult("Tell me about the weather") - 1.0).abs() < 1e-9);
     }
 
-    #[test]
-    fn test_intent_profile_suggested_limit_mult() {
-        let p = IntentProfile::for_intent(QueryIntent::Conceptual);
-        assert!((p.suggested_limit_mult - 1.3).abs() < 1e-9);
-        let p = IntentProfile::for_intent(QueryIntent::General);
-        assert!((p.suggested_limit_mult - 1.0).abs() < 1e-9);
-    }
 }

@@ -8,6 +8,19 @@ pub const TTL_EPHEMERAL: i64 = 3600;
 pub const TTL_SHORT_TERM: i64 = 86_400;
 pub const TTL_LONG_TERM: i64 = 1_209_600;
 
+// ── Relationship type constants ──────────────────────────────────────────
+/// Temporal adjacency: the source memory was stored immediately before the target
+/// within the same session.
+pub const REL_PRECEDED_BY: &str = "PRECEDED_BY";
+/// Entity co-occurrence: two memories share an entity tag.
+pub const REL_RELATES_TO: &str = "RELATES_TO";
+/// Semantic similarity detected at store time (auto-relate).
+pub const REL_RELATED: &str = "related";
+/// Alternate semantic-similarity labels used in graph scoring.
+pub const REL_SIMILAR_TO: &str = "SIMILAR_TO";
+pub const REL_SHARES_THEME: &str = "SHARES_THEME";
+pub const REL_PARALLEL_CONTEXT: &str = "PARALLEL_CONTEXT";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryKind {
     Episodic,
