@@ -25,11 +25,11 @@ The gap between 0.25 and 0.33 provides a natural decision boundary.
 
 ## Threshold
 
-The abstention threshold is set at **0.30** (`ABSTENTION_MIN_TEXT` in
+The abstention threshold is set at **0.15** (`ABSTENTION_MIN_TEXT` in
 `src/memory_core/scoring.rs`). This value was determined through grid search
 optimization on the LongMemEval benchmark. After computing all candidate scores,
 the pipeline checks the maximum text overlap across all in-scope candidates. If
-this maximum falls below 0.30, the entire result set is suppressed and an empty
+this maximum falls below 0.15, the entire result set is suppressed and an empty
 vector is returned.
 
 A safety bypass exists for queries with no eligible word tokens (all tokens
@@ -49,7 +49,7 @@ Query
   -> RRF fusion
   -> Score refinement (type x priority x word_overlap x importance x feedback)
   -> Search-option filtering + dedup
-  -> **Abstention gate** (max text_overlap < 0.30 -> return empty)
+  -> **Abstention gate** (max text_overlap < 0.15 -> return empty)
   -> Final ranking + normalization
   -> Results
 ```
@@ -86,5 +86,5 @@ let params = ScoringParams {
 
 Lower values make the system more permissive (returns results for weaker
 matches). Higher values make it more aggressive (abstains more often). The
-default of 0.30 was optimized for the LongMemEval benchmark via grid search
+default of 0.15 was optimized for the LongMemEval benchmark via grid search
 and balances precision against recall.

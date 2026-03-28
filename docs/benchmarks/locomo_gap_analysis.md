@@ -1,6 +1,8 @@
 # LoCoMo Gap Analysis: MAG vs AutoMem
 <!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ | Needs review -->
 
+> **Note (2026-03-28):** This gap analysis is historical. The improvements described below have been implemented and MAG now scores 90.1% on LoCoMo-10 (10-sample, word-overlap), closing the gap with AutoMem's 90.5%. See [methodology.md](methodology.md) for current numbers.
+
 ## Baseline
 
 | System | Word-Overlap Score | Dataset |

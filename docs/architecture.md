@@ -3,7 +3,7 @@
 
 Single binary, single SQLite file, hybrid retrieval.
 No external services, no network calls at query time.
-Everything runs locally: embeddings (ONNX), full-text search (FTS5), vector KNN, cross-encoder reranking, and a relationship graph -- all inside one process backed by one `.mag.db` file.
+Everything runs locally: embeddings (ONNX), full-text search (FTS5), vector KNN, cross-encoder reranking, and a relationship graph -- all inside one process backed by one `memory.db` file (`~/.mag/memory.db`).
 
 ## Storage Pipeline
 
