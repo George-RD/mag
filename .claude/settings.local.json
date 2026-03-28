@@ -11,7 +11,8 @@
       "WebFetch(domain:cas-bridge.xethub.hf.co)",
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:index.crates.io)",
-      "WebFetch(domain:registry.npmjs.org)"
+      "WebFetch(domain:registry.npmjs.org)",
+      "WebFetch(domain:api.openai.com)"
     ]
   },
   "hooks": {
