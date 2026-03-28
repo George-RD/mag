@@ -140,7 +140,16 @@ Overall Substring: `39.8%` | Overall Evidence Recall: `92.0%`
 | Adversarial | `92.6%` | `100.0%` |
 | **Overall** | **`90.1%`** | **`90.5%`** |
 
-AutoMem numbers are their published figures from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 10 --scoring-mode word-overlap` with default settings (dynamic limit mode, base top_k=50, scales with conversation size). Both systems use their own optimal retrieval settings.
+AutoMem numbers are their published figures from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). Both systems use dynamic per-question-type retrieval limits:
+
+| Setting | MAG | AutoMem |
+|---------|-----|---------|
+| Base retrieval limit | 50 | 50 |
+| Temporal questions | ~1.5x (dynamic) | 75 |
+| Multi-hop questions | ~2x (dynamic, cap 250) | 100 + speaker-tag recall |
+| Scaling | Conversation-size proportional | Fixed per question type |
+
+MAG command: `--samples 10 --scoring-mode word-overlap` with default settings (dynamic limit mode). AutoMem limits are hardcoded in `recall_for_question()` in their benchmark code (note: the `--recall-limit 10` config default in their repo is dead code — the actual benchmark uses 50/75/100).
 
 This is a retrieval-oriented benchmark, not a full generative evaluation. The README describes it that way intentionally.
 
