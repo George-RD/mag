@@ -16,12 +16,13 @@ use uuid::Uuid;
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
-    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
-    Relationship, RelationshipQuerier, ReminderManager, Retriever, ScoringParams, SearchOptions,
-    SearchResult, Searcher, SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider,
-    Storage, Tagger, Updater, VersionChainQuerier, WelcomeProvider, embedder::Embedder,
-    feedback_factor, is_stopword, jaccard_pre, jaccard_similarity, priority_factor, simple_stem,
-    time_decay_et, token_set, type_weight_et, word_overlap_pre,
+    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, REL_PRECEDED_BY,
+    REL_RELATED, REL_RELATES_TO, Recents, Relationship, RelationshipQuerier, ReminderManager,
+    Retriever, ScoringParams, SearchOptions, SearchResult, Searcher, SemanticResult,
+    SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger, Updater,
+    VersionChainQuerier, WelcomeProvider, embedder::Embedder, feedback_factor, is_stopword,
+    jaccard_pre, jaccard_similarity, priority_factor, simple_stem, time_decay_et, token_set,
+    type_weight_et, word_overlap_pre,
 };
 
 /// Query result cache TTL in seconds.
@@ -1044,7 +1045,7 @@ impl SqliteStorage {
                 .add_relationship(
                     &memory_id,
                     &target_id,
-                    "related",
+                    REL_RELATED,
                     f64::from(score),
                     &serde_json::json!({}),
                 )
@@ -1085,7 +1086,7 @@ impl SqliteStorage {
             self.add_relationship(
                 &pred_id,
                 &memory_id,
-                "PRECEDED_BY",
+                REL_PRECEDED_BY,
                 1.0,
                 &serde_json::json!({"source": "temporal_adjacency"}),
             )
@@ -1157,7 +1158,7 @@ impl SqliteStorage {
                 .add_relationship(
                     memory_id,
                     &target_id,
-                    "RELATES_TO",
+                    REL_RELATES_TO,
                     0.7,
                     &serde_json::json!({"source": "entity_cooccurrence", "entity": entity_tag}),
                 )
@@ -1243,26 +1244,33 @@ struct RankedSemanticCandidate {
 
 mod admin;
 mod advanced;
+mod conn_pool;
 mod crud;
+mod embedding_codec;
 mod entities;
 mod graph;
 mod helpers;
 mod hot_cache;
 mod lifecycle;
+mod nlp;
+mod query_classifier;
 mod schema;
 mod search;
 mod session;
+mod temporal;
 
-pub(crate) use helpers::dot_product;
+use conn_pool::{ConnPool, retry_on_lock};
+pub(crate) use embedding_codec::dot_product;
+use embedding_codec::{decode_embedding, encode_embedding};
 use helpers::{
-    ConnPool, EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash,
-    content_hash, decode_embedding, encode_embedding, escape_like_pattern, event_type_from_sql,
-    event_type_to_sql, expand_temporal_query, matches_search_options, normalize_for_dedup,
-    parse_metadata_from_db, parse_tags_from_db, query_cache_key, retry_on_lock,
+    EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash, content_hash,
+    escape_like_pattern, event_type_from_sql, event_type_to_sql, matches_search_options,
+    normalize_for_dedup, parse_metadata_from_db, parse_tags_from_db, query_cache_key,
     search_result_from_row, to_param_refs, validate_iso8601,
 };
 use hot_cache::{HOT_CACHE_CAPACITY, HOT_CACHE_REFRESH_SECS, HotTierCache};
-use schema::{default_db_path, initialize_parent_dir, initialize_schema};
+use schema::default_db_path;
+use temporal::expand_temporal_query;
 
 #[cfg(feature = "sqlite-vec")]
 use helpers::{

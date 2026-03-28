@@ -271,7 +271,13 @@ pub(super) fn expand_tag_prefixes(tag: &str) -> Vec<String> {
     prefixes
 }
 
-/// Common words that should not be extracted as person names.
+/// Common words that should not be extracted as person/tool/project names.
+///
+/// Overlaps significantly with `scoring::is_stopword()` but is intentionally a
+/// separate list: `is_stopword` targets BM25/FTS dilution (short function words)
+/// while this list targets entity-extraction false positives (auxiliaries, calendar
+/// names, temporal adverbs). Merging them changes entity tags and graph edges,
+/// which regresses retrieval benchmarks (see #72).
 fn is_common_word(word: &str) -> bool {
     let lower = word.to_lowercase();
     matches!(
