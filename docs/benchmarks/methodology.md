@@ -4,11 +4,11 @@ This document records the benchmark methodology and the latest measured outputs 
 
 ## Environment
 
-- Date: `2026-03-16`
-- Commit: `4028f4749e2e444110e3cee10e14de83a68b0b4b`
+- Date: `2026-03-28`
+- Commit: `83abccf`
 - Machine: `macOS aarch64, 12 CPU`
 - OS: `macOS 26.3 (25D125)`
-- Note: These published measurements were captured before later PR review follow-up fixes and were not rerun afterward.
+- Embedder: `bge-small-en-v1.5` (ONNX, 384-dim)
 
 ## Dataset Policy
 
@@ -104,39 +104,42 @@ Dataset: [`locomo10.json`](https://raw.githubusercontent.com/snap-research/locom
 
 | Parameter | Value |
 | --- | --- |
-| Commit | `4028f47` |
-| Date | `2026-03-16` |
+| Commit | `83abccf` |
+| Date | `2026-03-28` |
 | Samples evaluated | `10` |
 | Questions evaluated | `1986` |
 | Memories ingested | `5882` |
+| Graph edges | `73002` (5610 PRECEDED_BY, 49806 RELATES_TO, 17586 related) |
 | Top-k | `20` |
-| Total duration | `112.0 s` |
-| Average query time | `13.3 ms` |
-| Peak RSS | `277 MB` |
+| Total duration | `~82 s` |
+| Average query time | `7 ms` |
+| Embedder | `bge-small-en-v1.5` (ONNX, 384-dim) |
 
 ### Results by category (word-overlap)
 
-| Category | Questions | Word Overlap | Substring | Evidence Recall |
-| --- | ---: | ---: | ---: | ---: |
-| Single-Hop QA | 282 | `57.9%` | `14.5%` | `50.9%` |
-| Temporal Reasoning | 321 | `75.5%` | `15.0%` | `80.0%` |
-| Multi-Hop QA | 96 | `32.5%` | `8.3%` | `43.1%` |
-| Open-Domain | 841 | `83.4%` | `45.4%` | `83.3%` |
-| Adversarial | 446 | `78.3%` | `43.0%` | `78.1%` |
-| **Overall** | **1986** | **`74.9%`** | **`33.8%`** | **`75.1%`** |
-
-### Comparison (word-overlap, 2-sample fast run)
-
-| Category | MAG | AutoMem |
+| Category | Questions | Word Overlap |
 | --- | ---: | ---: |
-| Single-Hop QA | `61.4%` | `79.8%` |
-| Temporal Reasoning | `87.8%` | `85.1%` |
-| Multi-Hop QA | `43.7%` | `50.0%` |
-| Open-Domain | `76.5%` | `95.8%` |
-| Adversarial | `72.6%` | `100.0%` |
-| **Overall** | **`74.4%`** | **`90.5%`** |
+| Single-Hop QA | 282 | `86.9%` |
+| Temporal Reasoning | 321 | `85.0%` |
+| Multi-Hop QA | 96 | `56.2%` |
+| Open-Domain | 841 | `95.7%` |
+| Adversarial | 446 | `92.6%` |
+| **Overall** | **1986** | **`90.1%`** |
 
-AutoMem numbers are from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 2 --scoring-mode word-overlap --top-k 20`.
+Overall Substring: `39.8%` | Overall Evidence Recall: `92.0%`
+
+### Comparison (word-overlap, 10-sample)
+
+| Category | MAG (10-sample) | AutoMem |
+| --- | ---: | ---: |
+| Single-Hop QA | `86.9%` | `79.8%` |
+| Temporal Reasoning | `85.0%` | `85.1%` |
+| Multi-Hop QA | `56.2%` | `50.0%` |
+| Open-Domain | `95.7%` | `95.8%` |
+| Adversarial | `92.6%` | `100.0%` |
+| **Overall** | **`90.1%`** | **`90.5%`** |
+
+AutoMem numbers are their published figures from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 10 --scoring-mode word-overlap --top-k 20`.
 
 This is a retrieval-oriented benchmark, not a full generative evaluation. The README describes it that way intentionally.
 

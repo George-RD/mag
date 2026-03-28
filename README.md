@@ -70,7 +70,7 @@ Any tool that supports MCP can connect to MAG. Windows is untested - [report you
 
 ## Benchmarks
 
-**91.1% retrieval accuracy on the LoCoMo memory benchmark.** Don't trust our number - [run it yourself](docs/benchmarks/methodology.md#running-the-benchmark):
+**90.1% retrieval accuracy on the LoCoMo memory benchmark.** Don't trust our number - [run it yourself](docs/benchmarks/methodology.md#running-the-benchmark):
 
 ```bash
 ./scripts/bench.sh
