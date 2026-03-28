@@ -10,7 +10,8 @@
       "Skill(release)",
       "WebFetch(domain:cas-bridge.xethub.hf.co)",
       "WebFetch(domain:api.github.com)",
-      "WebFetch(domain:index.crates.io)"
+      "WebFetch(domain:index.crates.io)",
+      "WebFetch(domain:registry.npmjs.org)"
     ]
   },
   "hooks": {

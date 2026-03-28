@@ -28,7 +28,7 @@ All MAG instances already share the same database file (`~/.mag/memory.db`) by d
 
 Run one MAG instance as a long-lived process and point all tools at it. This requires a TCP or Unix socket transport instead of stdio.
 
-> **Note:** MAG currently supports stdio transport only. TCP/Unix socket transport is planned. Until then, Option 1 (shared database file) is the recommended approach.
+> **Note:** MAG defaults to stdio transport for MCP. HTTP daemon mode is available behind the `daemon-http` feature flag (`mag serve` with HTTP transport). See the daemon documentation for details. Until TCP/Unix socket transport is added, Option 1 (shared database file) remains the recommended approach for multi-client setups.
 
 ## What Breaks with Two Instances
 

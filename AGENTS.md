@@ -64,6 +64,8 @@ Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-s
 - `src/main.rs` — CLI dispatch via clap
 - `src/mcp_server.rs` — MCP stdio server (16 tools), `TOOL_REGISTRY` const array
 - `src/memory_core/mod.rs` — 27+ traits defining the pipeline interface
+  - `domain.rs` — `EventType`, `MemoryKind`, TTL constants, relationship type constants
+  - `traits.rs` — 27+ trait definitions for the pipeline interface
 - `src/memory_core/embedder.rs` — `OnnxEmbedder` (real) and `PlaceholderEmbedder` (SHA256 fallback)
 - `src/memory_core/scoring.rs` — 26 externalized `ScoringParams`, type weights, word overlap, Jaccard
 - `src/memory_core/storage/sqlite/` — SQLite backend:
@@ -77,6 +79,11 @@ Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-s
   - `session.rs` — checkpoint, profile, session_info
   - `admin.rs` — health/export/import/stats, backup/restore
   - `helpers.rs` — retry logic, intent classification, cache keys, FTS5 query building
+  - `nlp.rs` — entity extraction, topic keywords, sub-query generation
+  - `query_classifier.rs` — intent classification (Keyword/Factual/Conceptual/General)
+  - `temporal.rs` — temporal query expansion (date parsing, relative dates)
+  - `conn_pool.rs` — connection pooling with reader/writer separation
+  - `embedding_codec.rs` — encode/decode embeddings, dot_product
 
 ### Search pipeline
 

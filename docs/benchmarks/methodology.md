@@ -111,7 +111,7 @@ Dataset: [`locomo10.json`](https://raw.githubusercontent.com/snap-research/locom
 | Questions evaluated | `1986` |
 | Memories ingested | `5882` |
 | Graph edges | `73002` (5610 PRECEDED_BY, 49806 RELATES_TO, 17586 related) |
-| Top-k | `20` |
+| Top-k | `50 (base), dynamic scaling` |
 | Total duration | `~82 s` |
 | Average query time | `7 ms` |
 | Embedder | `bge-small-en-v1.5` (ONNX, 384-dim) |
@@ -140,7 +140,7 @@ Overall Substring: `39.8%` | Overall Evidence Recall: `92.0%`
 | Adversarial | `92.6%` | `100.0%` |
 | **Overall** | **`90.1%`** | **`90.5%`** |
 
-AutoMem numbers are their published figures from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 10 --scoring-mode word-overlap --top-k 20`.
+AutoMem numbers are their published figures from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). MAG numbers use `--samples 10 --scoring-mode word-overlap` with default settings (dynamic limit mode, base top_k=50, scales with conversation size). Both systems use their own optimal retrieval settings.
 
 This is a retrieval-oriented benchmark, not a full generative evaluation. The README describes it that way intentionally.
 

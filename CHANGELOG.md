@@ -7,7 +7,7 @@ Notable changes to MAG. Format follows [Keep a Changelog](https://keepachangelog
 
 ### Added
 - `mag setup` CLI wizard — auto-detects installed AI tools and writes MCP configs (#106-109, #112-113)
-- Daemon mode — `mag serve --http` for persistent HTTP access (#97-104)
+- Daemon mode — `mag serve` with HTTP transport for persistent access (#97-104)
 - Claude Code plugin with hooks, skills, and AutoMem integration (#98)
 - MCP smoke tests covering all 16 tools (#124, #136)
 - Schema version tracking for additive migrations (#123, #134)
