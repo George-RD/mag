@@ -99,6 +99,7 @@ See [SECURITY.md](SECURITY.md) for the full data-flow audit.
 | Mode | Description |
 |---|---|
 | **Local** (default) | Single binary on your machine. Zero config. |
+| **Daemon** | `mag serve --http` for persistent HTTP access. Same binary, same file. |
 | **Self-hosted** | Deploy on your own server or cloud. Same privacy guarantees at scale. |
 | **MAG Cloud** | Coming soon. We run the infrastructure. You own the data. Same guarantees. |
 
@@ -172,11 +173,14 @@ Per-tool setup guides: [Claude Desktop](docs/setup/claude-desktop.md) | [Cursor]
 
 ## Learn More
 
+- [MCP Tools](docs/mcp-tools.md) - all 16 tools MAG exposes over MCP
+- [Architecture](docs/architecture.md) - search pipeline, scoring, modules
 - [Benchmarks](docs/benchmarks/) - full results, model comparisons, methodology
 - [Security](SECURITY.md) - data-flow audit, threat model
 - [What to Store](docs/what-to-store.md) - get the most out of persistent memory
 - [Setup Guides](docs/setup/) - per-tool configuration instructions
-- [AGENTS.md](AGENTS.md) - architecture, conventions, development commands
+- [Changelog](CHANGELOG.md) - recent changes
+- [AGENTS.md](AGENTS.md) - conventions, development commands
 
 ---
 
