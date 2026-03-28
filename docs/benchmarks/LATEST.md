@@ -1,4 +1,5 @@
 # MAG Benchmark Results
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 Latest benchmark runs. Updated automatically by `./scripts/bench.sh`.
 

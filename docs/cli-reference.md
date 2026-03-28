@@ -1,4 +1,5 @@
 # CLI Reference
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 All commands follow the form `mag <command> [args] [flags]`. Run `mag --help` or `mag <command> --help` for built-in usage.
 

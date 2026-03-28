@@ -1,4 +1,5 @@
 # MCP Tools Reference
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 MAG exposes 16 tools via the Model Context Protocol. Any MCP-compatible client can use these tools.
 

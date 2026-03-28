@@ -1,4 +1,5 @@
 # Shared Socket — One MAG Instance, All Tools
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 By default, each MCP client starts its own MAG process. This means each tool maintains its own connection to the database. SQLite handles concurrent reads well, but concurrent writes from multiple processes can cause lock contention.
 

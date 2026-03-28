@@ -1,4 +1,5 @@
 # How MAG Works
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 Single binary, single SQLite file, hybrid retrieval.
 No external services, no network calls at query time.

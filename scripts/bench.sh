@@ -29,6 +29,7 @@ DIM=""            # empty = use model default
 SAMPLES=2
 SCORING_MODE="word-overlap"
 NOTES=""
+GATE=false        # --gate: compare against 10-sample baseline, fail on regression
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -38,6 +39,7 @@ while [[ $# -gt 0 ]]; do
         --samples)      SAMPLES="$2";      shift 2 ;;
         --scoring-mode) SCORING_MODE="$2"; shift 2 ;;
         --notes)        NOTES="$2";        shift 2 ;;
+        --gate)         GATE=true;         shift ;;
         *) echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
 done
@@ -204,3 +206,68 @@ mkdir -p "$(dirname "${LATEST_MD}")"
     printf "%s\n" "${TABLE}"
 } > "${LATEST_MD}"
 echo "Updated ${LATEST_MD}"
+
+# ── Gate mode: compare against 10-sample baseline ────────────────────────────
+if [[ "${GATE}" == true ]]; then
+    echo ""
+    echo "=== PR Benchmark Gate ==="
+
+    WARN_THRESHOLD=2.0   # suggest 10-sample confirmation
+    FAIL_THRESHOLD=5.0   # hard fail — too large for variance
+
+    BASELINE=$(grep ",10," "${RESULTS_CSV}" | grep "bge-small" | tail -1 | cut -d',' -f8)
+    if [ -z "$BASELINE" ]; then
+        echo "WARNING: No 10-sample baseline found — skipping gate"
+    else
+        echo "10-sample baseline: ${BASELINE}%"
+        echo "Current (${SAMPLES}-sample): ${overall_score}%"
+
+        DIFF=$(echo "$BASELINE - $overall_score" | bc -l)
+        HARD_FAIL=$(echo "$DIFF > $FAIL_THRESHOLD" | bc -l)
+        SOFT_WARN=$(echo "$DIFF > $WARN_THRESHOLD" | bc -l)
+
+        if [ "$HARD_FAIL" = "1" ]; then
+            echo ""
+            echo "FAIL: Likely regression — ${overall_score}% vs ${BASELINE}% (delta: -${DIFF}pp)"
+            echo "Exceeds ${FAIL_THRESHOLD}pp hard-fail threshold."
+            exit 1
+        elif [ "$SOFT_WARN" = "1" ]; then
+            echo ""
+            echo "WARNING: Possible regression — ${overall_score}% vs ${BASELINE}% (delta: -${DIFF}pp)"
+            echo "Within ${SAMPLES}-sample variance but suspicious. Run full validation:"
+            echo "  ./scripts/bench.sh --samples 10 --notes 'pre-merge validation'"
+        else
+            echo "PASS: within ${WARN_THRESHOLD}pp of baseline"
+        fi
+    fi
+
+    # Docs freshness check
+    echo ""
+    if [ -f "${REPO_DIR}/docs/benchmarks/methodology.md" ]; then
+        METH_DATE=$(grep -oE 'Last verified: [0-9]{4}-[0-9]{2}-[0-9]{2}' "${REPO_DIR}/docs/benchmarks/methodology.md" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || \
+                    grep -m1 "^- Date:" "${REPO_DIR}/docs/benchmarks/methodology.md" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || echo "")
+        if [ -n "$METH_DATE" ]; then
+            METH_EPOCH=$(date -j -f "%Y-%m-%d" "$METH_DATE" "+%s" 2>/dev/null || date -d "$METH_DATE" "+%s" 2>/dev/null || echo "0")
+            NOW_EPOCH=$(date "+%s")
+            DAYS_OLD=$(( (NOW_EPOCH - METH_EPOCH) / 86400 ))
+            if [ "$DAYS_OLD" -gt 7 ]; then
+                echo "WARNING: methodology.md is ${DAYS_OLD}d stale (${METH_DATE})"
+            else
+                echo "Docs: methodology.md updated ${DAYS_OLD}d ago"
+            fi
+        fi
+    fi
+    if [ -f "${REPO_DIR}/README.md" ] && [ -n "${BASELINE:-}" ]; then
+        README_PCT=$(grep -oE '[0-9]+\.[0-9]+% retrieval accuracy' "${REPO_DIR}/README.md" | grep -oE '[0-9]+\.[0-9]+' || echo "")
+        if [ -n "$README_PCT" ]; then
+            ABS_DIFF=$(echo "$README_PCT - $BASELINE" | bc -l | tr -d '-')
+            TOO_FAR=$(echo "$ABS_DIFF > 1.5" | bc -l)
+            if [ "$TOO_FAR" = "1" ]; then
+                echo "WARNING: README says ${README_PCT}% but baseline is ${BASELINE}%"
+            fi
+        fi
+    fi
+
+    echo ""
+    echo "=== Gate complete ==="
+fi

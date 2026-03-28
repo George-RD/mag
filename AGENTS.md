@@ -1,4 +1,5 @@
 # AGENTS.md
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 Universal agent guidance for AI coding assistants working on this repository.
 Vendor-neutral — applies to Claude Code, Cursor, Windsurf, Copilot, and any AI tool.
@@ -38,6 +39,8 @@ cargo run --release --bin locomo_bench -- --llm-judge --samples 2               
 ./scripts/bench.sh --model voyage-nano-int8        # voyage-4-nano INT8 @ 1024-dim
 ./scripts/bench.sh --model bge-small --samples 10  # full validation run
 ./scripts/bench.sh --model voyage-nano-fp32 --notes "after scoring tweak"  # with notes
+./scripts/bench.sh --gate                          # PR gate: run + compare vs 10-sample baseline
+./scripts/bench.sh --gate --notes "pre-merge #142" # PR gate with context
 
 # README update checker (suggests edits, does not modify files)
 ./scripts/check-readme.sh                          # analyze last 3 commits vs README
@@ -112,9 +115,10 @@ Every code change MUST pass before pushing:
 1. **Format**: `cargo fmt --all -- --check`
 2. **Lint**: `cargo clippy --all-targets --all-features -- -D warnings`
 3. **Tests**: `cargo test --all-features`
-4. **Benchmark** (if touching scoring/search/storage): `cargo run --release --bin locomo_bench -- --samples 2 --scoring-mode word-overlap` — no regressions without justification
+4. **Benchmark** (if touching scoring/search/storage): `./scripts/bench.sh --gate` — runs 2-sample, logs to CSV, compares against 10-sample baseline. Warns at >2pp delta, fails at >5pp.
+5. **Full validation** (before merge if gate warned): `./scripts/bench.sh --samples 10 --notes "pre-merge validation"` — authoritative 10-sample run.
 
-Run `prek run` for gates 1-3.
+Run `prek run` for gates 1-3. Always use `bench.sh` (not raw `cargo run`) so results are logged to the CSV.
 
 ## Post-Implementation Checklist
 

@@ -1,4 +1,5 @@
 # Abstention Gate
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 The abstention gate is a collection-level filter in the advanced search pipeline
 that prevents MAG from returning results when no stored memory is
