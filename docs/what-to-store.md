@@ -1,4 +1,5 @@
 # What to Store
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 10 system prompt patterns for building useful memory with MAG. Copy-paste these into your AI tool's system prompt or CLAUDE.md to guide what gets stored.
 

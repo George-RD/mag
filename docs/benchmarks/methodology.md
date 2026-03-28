@@ -1,4 +1,5 @@
 # Benchmark Report
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 This document records the benchmark methodology and the latest measured outputs used by the README.
 

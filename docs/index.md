@@ -1,4 +1,5 @@
 # MAG Documentation
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 ## Getting Started
 - [Installation](../README.md#install) — Shell, Homebrew, npm, uv, pip, Cargo

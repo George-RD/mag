@@ -1,4 +1,5 @@
 # Embedding Model Comparison
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 LoCoMo word-overlap scoring, 2 samples. Benchmarked 2026-03-19 on macOS aarch64.
 

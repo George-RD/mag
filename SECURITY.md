@@ -1,4 +1,5 @@
 # Security
+<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 MAG is a local-first memory system. This document describes the security model.
 
