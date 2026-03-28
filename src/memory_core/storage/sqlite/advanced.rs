@@ -651,9 +651,10 @@ fn enrich_graph_neighbors(
                 if let (Some(existing_explain), Some(neighbor_explain)) =
                     (&mut existing.explain, &neighbor.explain)
                 {
-                    if let (Some(dst), Some(src)) =
-                        (existing_explain.as_object_mut(), neighbor_explain.as_object())
-                    {
+                    if let (Some(dst), Some(src)) = (
+                        existing_explain.as_object_mut(),
+                        neighbor_explain.as_object(),
+                    ) {
                         for key in ["graph_injected", "graph_seed_id", "graph_edge_weight"] {
                             if let Some(v) = src.get(key) {
                                 dst.insert(key.to_string(), v.clone());
@@ -801,8 +802,7 @@ fn expand_entity_tags(
                     } else {
                         format!("{} {}", content, tags.join(" "))
                     };
-                    let overlap =
-                        word_overlap_pre(query_tokens, &token_set(&with_tags_text, 3));
+                    let overlap = word_overlap_pre(query_tokens, &token_set(&with_tags_text, 3));
                     let td = time_decay_et(&created_at, et_ref, scoring_params);
 
                     let expanded_score = base_score
@@ -999,7 +999,13 @@ fn fuse_refine_and_output(
     }
 
     let query_tokens = token_set(query, 3);
-    refine_scores(&mut ranked, &query_tokens, opts, explain_enabled, scoring_params);
+    refine_scores(
+        &mut ranked,
+        &query_tokens,
+        opts,
+        explain_enabled,
+        scoring_params,
+    );
 
     // ── Phase 5: Graph enrichment ──
     enrich_graph_neighbors(
@@ -1024,7 +1030,6 @@ fn fuse_refine_and_output(
         scoring_params,
         opts,
     );
-
 
     // ── Phase 6: Collection-level abstention + dedup ─────────────
     let mut deduped = Vec::new();

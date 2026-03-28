@@ -1,5 +1,5 @@
 # Benchmark Report
-<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
+<!-- Last verified: 2026-03-29 | Valid for: v0.1.2+ -->
 
 This document records the benchmark methodology and the latest measured outputs used by the README.
 
@@ -140,7 +140,7 @@ Overall Substring: `39.8%` | Overall Evidence Recall: `92.0%`
 | Adversarial | `92.6%` | `100.0%` |
 | **Overall** | **`90.1%`** | **`90.5%`** |
 
-AutoMem numbers are their published figures from the [LoCoMo paper](https://arxiv.org/abs/2402.18180) Table 2 (Recall column, LoCoMo-10 subset). Both systems use dynamic per-question-type retrieval limits:
+AutoMem numbers are from their self-evaluation using the [LoCoMo dataset](https://arxiv.org/abs/2402.17753) (AutoMem is not part of the LoCoMo paper itself). Both systems evaluate retrieval-only word-overlap recall with dynamic per-question-type retrieval limits:
 
 | Setting | MAG | AutoMem |
 |---------|-----|---------|
@@ -155,9 +155,9 @@ This is a retrieval-oriented benchmark, not a full generative evaluation. The RE
 
 ### E2E LLM Evaluation Mode
 
-The E2E (end-to-end) word-overlap mode combines LLM answer generation with word-overlap recall scoring. This mirrors AutoMem's evaluation pipeline: retrieve context, generate an LLM answer, then score the generated answer against the expected answer using word-overlap recall.
+The E2E (end-to-end) word-overlap mode combines LLM answer generation with word-overlap recall scoring: retrieve context, generate an LLM answer, then score the generated answer against the expected answer using word-overlap recall. This is a harder test than retrieval-only — retrieval mode scores across all retrieved text (thousands of tokens), while E2E scores only the LLM's short answer.
 
-This gives a more realistic evaluation than retrieval-only word-overlap (which scores raw retrieved text) or LLM F1 (which uses token-level F1). Adversarial questions are scored via phrase-based detection (same as `llm-f1` mode).
+Adversarial questions are scored via phrase-based detection (same as `llm-f1` mode).
 
 Command:
 
@@ -170,16 +170,16 @@ cargo run --release --bin locomo_bench -- --e2e --local --samples 2
 cargo run --release --bin locomo_bench -- --scoring-mode e2e-word-overlap --llm-judge --samples 2
 ```
 
-| Category | MAG (E2E) | MAG (retrieval) | AutoMem |
-| --- | ---: | ---: | ---: |
-| Single-Hop QA | `33.8%` | `86.9%` | `79.8%` |
-| Temporal Reasoning | `39.0%` | `85.0%` | `85.1%` |
-| Multi-Hop QA | `16.5%` | `56.2%` | `50.0%` |
-| Open-Domain | `51.4%` | `95.7%` | `95.8%` |
-| Adversarial | `98.6%` | `92.6%` | `100.0%` |
-| **Overall** | **`55.9%`** | **`90.1%`** | **`90.5%`** |
+| Category | MAG (E2E, gpt-5.4, 2-sample) | MAG (retrieval, 10-sample) |
+| --- | ---: | ---: |
+| Single-Hop QA | `87.1%` | `86.9%` |
+| Temporal Reasoning | `91.5%` | `85.0%` |
+| Multi-Hop QA | `75.6%` | `56.2%` |
+| Open-Domain | `94.3%` | `95.7%` |
+| Adversarial | `91.3%` | `92.6%` |
+| **Overall** | **`91.2%`** | **`90.1%`** |
 
-E2E numbers from `--e2e --llm-judge --samples 2` with gpt-4o-mini (2026-03-28). Evidence recall is 88.1%, confirming retrieval quality is strong. The E2E word-overlap gap (55.9% vs 90.1% retrieval) is caused by the LLM generating concise answers with fewer matching tokens — the bottleneck is now generation, not retrieval. Adversarial remains at 98.6% because the LLM correctly identifies absent information.
+E2E numbers from `--e2e --llm-judge --samples 2` with gpt-5.4 (2026-03-29). Evidence recall is 90.9%. Retrieval column is the 10-sample baseline from the section above; treat per-category deltas as directional due to different sample sizes. E2E scores are sensitive to model quality (gpt-4o: 90.3%, gpt-4o-mini: 76.0%).
 
 ## Scale Benchmark
 

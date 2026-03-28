@@ -320,8 +320,16 @@ pub(crate) fn word_overlap_score(hits: &[RetrievalHit], expected: &str) -> f64 {
 
 /// Compute word-overlap recall between LLM-generated text and expected answer.
 /// Reuses `normalize_tokens()` for consistency with retrieval word-overlap.
+/// Applies date expansion so ISO dates in LLM output (e.g. "2023-05-07")
+/// match expected natural-language dates (e.g. "May 2023").
 pub(crate) fn word_overlap_on_text(generated: &str, expected: &str) -> f64 {
-    hybrid_overlap(generated, expected)
+    let date_expansion = expand_date_tokens(generated);
+    if date_expansion.is_empty() {
+        hybrid_overlap(generated, expected)
+    } else {
+        let expanded = format!("{generated}{date_expansion}");
+        hybrid_overlap(&expanded, expected)
+    }
 }
 
 /// Shared hybrid overlap: stemmed-token set membership OR substring match.
@@ -743,6 +751,18 @@ mod tests {
     fn test_word_overlap_on_text_case_insensitive() {
         let score = word_overlap_on_text("PARIS TUESDAY", "paris tuesday");
         assert!((score - 1.0).abs() < 1e-9, "expected 1.0, got {score}");
+    }
+
+    #[test]
+    fn test_word_overlap_on_text_date_expansion() {
+        // LLM outputs ISO date "2023-05-07", expected is "May 2023".
+        // Without date expansion this would score ~0.5 (only "2023" matches).
+        // With date expansion, "May" is generated from the ISO date.
+        let score = word_overlap_on_text("2023-05-07", "May 2023");
+        assert!(
+            score > 0.99,
+            "date expansion should match 'May 2023' from ISO date, got {score}"
+        );
     }
 
     #[test]

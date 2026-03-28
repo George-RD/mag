@@ -447,5 +447,4 @@ mod tests {
         assert!((detect_dynamic_limit_mult("What is Alice's job?") - 1.0).abs() < 1e-9);
         assert!((detect_dynamic_limit_mult("Tell me about the weather") - 1.0).abs() < 1e-9);
     }
-
 }
