@@ -400,7 +400,11 @@ pub fn remove_claude_plugin() -> Result<RemoveResult> {
             tracing::debug!("plugin not installed, treating as not-present");
             Ok(RemoveResult::NotPresent)
         } else {
-            anyhow::bail!("claude plugin uninstall failed (exit {}): {}", output.status, stderr.trim())
+            anyhow::bail!(
+                "claude plugin uninstall failed (exit {}): {}",
+                output.status,
+                stderr.trim()
+            )
         }
     }
 }

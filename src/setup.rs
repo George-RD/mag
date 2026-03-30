@@ -739,7 +739,8 @@ mod tests {
 
             // Run uninstall
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(crate::uninstall::run_uninstall(false, true)).unwrap();
+            rt.block_on(crate::uninstall::run_uninstall(false, true))
+                .unwrap();
 
             // Verify MAG was removed but other config preserved
             let content = std::fs::read_to_string(&config_path).unwrap();
@@ -754,7 +755,8 @@ mod tests {
         with_temp_home(|_home| {
             // No config files exist — should not error
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(crate::uninstall::run_uninstall(false, true)).unwrap();
+            rt.block_on(crate::uninstall::run_uninstall(false, true))
+                .unwrap();
         });
     }
 
