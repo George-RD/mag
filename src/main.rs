@@ -119,6 +119,10 @@ async fn main() -> anyhow::Result<()> {
         .await;
     }
 
+    if let Commands::Uninstall { all, configs_only } = cli.command {
+        return mag::uninstall::run_uninstall(all, configs_only).await;
+    }
+
     if matches!(cli.command, Commands::Paths) {
         let paths = app_paths::resolve_app_paths()?;
         println!(
@@ -941,6 +945,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Setup { .. } => {
             unreachable!("setup is handled before storage initialization")
+        }
+        Commands::Uninstall { .. } => {
+            unreachable!("uninstall is handled before storage initialization")
         }
         Commands::DownloadModel => {
             unreachable!("download-model is handled before storage initialization")
