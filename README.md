@@ -134,6 +134,10 @@ mag setup
 
 This detects installed AI tools, shows their configuration status, and writes the correct MCP config for each one. Use `--non-interactive` for CI or scripted environments.
 
+**Let your AI set it up:** Paste this into any AI assistant and it will handle install + configuration for you:
+
+> Install and configure MAG by following https://github.com/George-RD/mag/blob/main/docs/SETUP.md
+
 <details>
 <summary>Manual configuration</summary>
 
@@ -178,7 +182,8 @@ Per-tool setup guides: [Claude Desktop](docs/setup/claude-desktop.md) | [Cursor]
 - [Benchmarks](docs/benchmarks/) - full results, model comparisons, methodology
 - [Security](SECURITY.md) - data-flow audit, threat model
 - [What to Store](docs/what-to-store.md) - get the most out of persistent memory
-- [Setup Guides](docs/setup/) - per-tool configuration instructions
+- [Setup Guide](docs/SETUP.md) - install, configure, and best practices
+- [Per-Tool Guides](docs/setup/) - detailed per-tool configuration
 - [Changelog](CHANGELOG.md) - recent changes
 - [AGENTS.md](AGENTS.md) - conventions, development commands
 
