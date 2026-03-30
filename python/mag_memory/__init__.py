@@ -11,10 +11,10 @@ import subprocess
 import sys
 
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 # Version of the Rust binary to download (kept in sync with __version__)
-_BINARY_VERSION = "0.1.2"
+_BINARY_VERSION = "0.1.3"
 
 
 def _binary_dir():
