@@ -95,7 +95,11 @@ pub(crate) async fn generate_answer(question: &str, hits: &[RetrievalHit]) -> Re
         .collect::<Vec<_>>()
         .join("\n");
 
-    let user_msg = format!("Context:\n{context}\n\nQuestion: {question}\n\nAnswer concisely.");
+    let user_msg = format!(
+        "Context:\n{context}\n\nQuestion: {question}\n\n\
+         Answer the question using the exact words and phrases from the context. \
+         Include all relevant details."
+    );
 
     let body = OpenAiChatRequest {
         model,

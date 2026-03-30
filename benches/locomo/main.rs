@@ -54,7 +54,7 @@ mod voyage_embedder;
 use bench_utils::formatting::{pct, truncate};
 use bench_utils::metrics::PeakRss;
 
-const DEFAULT_LLM_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_LLM_MODEL: &str = "gpt-5.4";
 const DEFAULT_LOCAL_MODEL: &str = "qwen3.5-9b-optiq";
 const DEFAULT_LOCAL_URL: &str = "http://localhost:1234/v1/chat/completions";
 
@@ -95,7 +95,7 @@ struct Args {
     /// OpenAI-compatible API endpoint URL (default: OpenAI, or localhost:1234 with --local).
     #[arg(long)]
     llm_url: Option<String>,
-    /// Model name for LLM generation (default: gpt-4o-mini, or qwen3.5-9b-optiq with --local).
+    /// Model name for LLM generation (default: gpt-5.4, or qwen3.5-9b-optiq with --local).
     #[arg(long)]
     llm_model: Option<String>,
     /// Use OpenAI text-embedding-3-large (3072-dim) instead of local ONNX bge-small-en-v1.5.
@@ -611,7 +611,10 @@ fn main() -> Result<()> {
             } else {
                 top_k
             };
-            let hits = if matches!(scoring_mode, ScoringMode::WordOverlap) {
+            let hits = if matches!(
+                scoring_mode,
+                ScoringMode::WordOverlap | ScoringMode::E2eWordOverlap
+            ) {
                 runtime.block_on(seeding::query_with_speaker_recall(
                     &storage,
                     &qa.question,
