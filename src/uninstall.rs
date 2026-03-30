@@ -631,5 +631,4 @@ mod tests {
             assert!(parsed["mcpServers"]["mag"].is_null());
         });
     }
-
 }
