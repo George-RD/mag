@@ -106,6 +106,8 @@ pub enum MagConfigStatus {
     Misconfigured(String),
     /// Config file exists but could not be read or parsed.
     Unreadable(String),
+    /// MAG is installed as a native plugin (not just MCP config).
+    InstalledAsPlugin,
 }
 
 /// Information about a single detected AI tool installation.
@@ -247,6 +249,13 @@ fn detect_tool_with_home(
     let paths = config_paths_for_tool(tool, home, project_root);
     let mut results = Vec::new();
 
+    // For Claude Code, check if the plugin is installed (takes priority over MCP config).
+    let plugin_installed = if tool == AiTool::ClaudeCode {
+        check_claude_plugin_installed(home)
+    } else {
+        false
+    };
+
     for (path, scope) in paths {
         tracing::debug!(tool = %tool.display_name(), path = %path.display(), "checking config path");
 
@@ -254,13 +263,17 @@ fn detect_tool_with_home(
             continue;
         }
 
-        let mag_status = match tool.config_format() {
-            ConfigFormat::Json => {
-                let parent_key = mcp_key_for_tool(tool);
-                let server_names = server_names_for_tool(tool);
-                check_mag_in_json(&path, server_names, parent_key, tool == AiTool::Zed)
+        let mag_status = if plugin_installed {
+            MagConfigStatus::InstalledAsPlugin
+        } else {
+            match tool.config_format() {
+                ConfigFormat::Json => {
+                    let parent_key = mcp_key_for_tool(tool);
+                    let server_names = server_names_for_tool(tool);
+                    check_mag_in_json(&path, server_names, parent_key, tool == AiTool::Zed)
+                }
+                ConfigFormat::Toml => check_mag_in_toml(&path),
             }
-            ConfigFormat::Toml => check_mag_in_toml(&path),
         };
 
         results.push(DetectedTool {
@@ -271,11 +284,57 @@ fn detect_tool_with_home(
         });
     }
 
+    // If the plugin is installed but no config file was found, still report
+    // Claude Code as detected with InstalledAsPlugin status.
+    if results.is_empty() && plugin_installed {
+        let fallback_path = home.join(".claude/settings.json");
+        results.push(DetectedTool {
+            tool,
+            config_path: fallback_path,
+            scope: ConfigScope::Global,
+            mag_status: MagConfigStatus::InstalledAsPlugin,
+        });
+    }
+
     if results.is_empty() {
         tracing::debug!(tool = %tool.display_name(), "not found at any known path");
     }
 
     results
+}
+
+/// Checks whether the MAG plugin is installed in Claude Code by reading
+/// `~/.claude/settings.json` and looking for `"mag@mag-plugins": true` in
+/// the `enabledPlugins` object.
+fn check_claude_plugin_installed(home: &Path) -> bool {
+    let settings_path = home.join(".claude/settings.json");
+    if !settings_path.exists() {
+        return false;
+    }
+
+    let content = match std::fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!(path = %settings_path.display(), error = %e, "failed to read claude settings");
+            return false;
+        }
+    };
+
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
+
+    let parsed: serde_json::Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::debug!(error = %e, "failed to parse claude settings.json");
+            return false;
+        }
+    };
+
+    parsed
+        .get("enabledPlugins")
+        .and_then(|v| v.get("mag@mag-plugins"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 /// Returns the candidate server names to look for in a tool's config.
@@ -1067,5 +1126,108 @@ mod tests {
             };
             assert_eq!(tool.config_format(), expected);
         }
+    }
+
+    // -- Plugin detection (InstalledAsPlugin) --
+
+    #[test]
+    #[serial]
+    fn detects_claude_code_installed_as_plugin() {
+        with_temp_home(|home| {
+            // Create the .claude.json config file (so Claude Code is "detected")
+            std::fs::write(home.join(".claude.json"), r#"{"mcpServers": {}}"#).unwrap();
+
+            // Create the settings.json with plugin enabled
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(
+                claude_dir.join("settings.json"),
+                r#"{"enabledPlugins": {"mag@mag-plugins": true}}"#,
+            )
+            .unwrap();
+
+            let result = detect_tool(AiTool::ClaudeCode, None);
+            assert!(!result.is_empty());
+            assert_eq!(result[0].mag_status, MagConfigStatus::InstalledAsPlugin);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn plugin_status_takes_priority_over_mcp_config() {
+        with_temp_home(|home| {
+            // Both MCP config AND plugin are set up
+            std::fs::write(
+                home.join(".claude.json"),
+                r#"{"mcpServers": {"mag": {"command": "mag", "args": ["serve"]}}}"#,
+            )
+            .unwrap();
+
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(
+                claude_dir.join("settings.json"),
+                r#"{"enabledPlugins": {"mag@mag-plugins": true}}"#,
+            )
+            .unwrap();
+
+            let result = detect_tool(AiTool::ClaudeCode, None);
+            assert!(!result.is_empty());
+            // Plugin should take priority
+            assert_eq!(result[0].mag_status, MagConfigStatus::InstalledAsPlugin);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn disabled_plugin_falls_back_to_mcp_check() {
+        with_temp_home(|home| {
+            std::fs::write(home.join(".claude.json"), r#"{"mcpServers": {}}"#).unwrap();
+
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(
+                claude_dir.join("settings.json"),
+                r#"{"enabledPlugins": {"mag@mag-plugins": false}}"#,
+            )
+            .unwrap();
+
+            let result = detect_tool(AiTool::ClaudeCode, None);
+            assert!(!result.is_empty());
+            // Plugin is disabled, so falls back to MCP check
+            assert_eq!(result[0].mag_status, MagConfigStatus::NotConfigured);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn non_claude_tool_ignores_plugin_settings() {
+        with_temp_home(|home| {
+            // Set up Cursor config
+            let cursor_dir = home.join(".cursor");
+            std::fs::create_dir_all(&cursor_dir).unwrap();
+            std::fs::write(cursor_dir.join("mcp.json"), r#"{"mcpServers": {}}"#).unwrap();
+
+            // Also set up a plugin settings file (should be ignored for Cursor)
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(
+                claude_dir.join("settings.json"),
+                r#"{"enabledPlugins": {"mag@mag-plugins": true}}"#,
+            )
+            .unwrap();
+
+            let result = detect_tool(AiTool::Cursor, None);
+            assert!(!result.is_empty());
+            // Cursor should not be affected by Claude Code plugin settings
+            assert_eq!(result[0].mag_status, MagConfigStatus::NotConfigured);
+        });
+    }
+
+    #[test]
+    fn installed_as_plugin_variant_serializes() {
+        let status = MagConfigStatus::InstalledAsPlugin;
+        let serialized = serde_json::to_string(&status).unwrap();
+        assert!(serialized.contains("InstalledAsPlugin"));
     }
 }

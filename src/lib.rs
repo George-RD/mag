@@ -6,6 +6,7 @@ pub mod daemon;
 pub mod memory_core;
 pub mod setup;
 pub(crate) mod tool_detection;
+pub mod uninstall;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

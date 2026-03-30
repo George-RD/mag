@@ -48,6 +48,8 @@ pub enum ConfigWriteResult {
     /// The tool's config write is deferred because serialization support is
     /// not yet implemented (e.g., TOML for Codex).
     Deferred { tool: AiTool },
+    /// MAG was installed as a Claude Code plugin via the marketplace.
+    Plugin,
 }
 
 /// Outcome of a config remove operation.
@@ -307,6 +309,160 @@ pub fn build_mag_entry(tool: AiTool, mode: TransportMode) -> serde_json::Value {
                 "command": "mag",
                 "args": ["serve", "--stdio"]
             })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code plugin (marketplace) API
+// ---------------------------------------------------------------------------
+
+/// Installs MAG as a Claude Code plugin via the marketplace.
+///
+/// Runs:
+/// 1. `claude plugin marketplace add George-RD/mag-plugins`
+/// 2. `claude plugin install mag@mag-plugins --scope user`
+///
+/// Returns `ConfigWriteResult::Plugin` on success.
+/// Falls back to an error if the `claude` CLI is not found or the install fails.
+pub fn install_claude_plugin() -> Result<ConfigWriteResult> {
+    let claude = find_claude_cli()?;
+
+    // Step 1: add the marketplace (ignore "already added" errors)
+    let add_output = std::process::Command::new(&claude)
+        .args(["plugin", "marketplace", "add", "George-RD/mag-plugins"])
+        .output()
+        .with_context(|| format!("running `{} plugin marketplace add`", claude.display()))?;
+
+    tracing::debug!(
+        status = %add_output.status,
+        stdout_len = add_output.stdout.len(),
+        stderr_len = add_output.stderr.len(),
+        "claude plugin marketplace add"
+    );
+
+    // Step 2: install the plugin
+    let install_output = std::process::Command::new(&claude)
+        .args(["plugin", "install", "mag@mag-plugins", "--scope", "user"])
+        .output()
+        .with_context(|| format!("running `{} plugin install`", claude.display()))?;
+
+    tracing::debug!(
+        status = %install_output.status,
+        stdout_len = install_output.stdout.len(),
+        stderr_len = install_output.stderr.len(),
+        "claude plugin install"
+    );
+
+    if !install_output.status.success() {
+        let stderr = String::from_utf8_lossy(&install_output.stderr);
+        let stdout = String::from_utf8_lossy(&install_output.stdout);
+        anyhow::bail!(
+            "claude plugin install failed (exit {}): {}{}",
+            install_output.status,
+            stderr.trim(),
+            if stdout.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n{}", stdout.trim())
+            }
+        );
+    }
+
+    Ok(ConfigWriteResult::Plugin)
+}
+
+/// Removes the MAG Claude Code plugin.
+///
+/// Runs `claude plugin uninstall mag@mag-plugins --scope user`.
+pub fn remove_claude_plugin() -> Result<RemoveResult> {
+    let claude = find_claude_cli()?;
+
+    let output = std::process::Command::new(&claude)
+        .args(["plugin", "uninstall", "mag@mag-plugins", "--scope", "user"])
+        .output()
+        .with_context(|| format!("running `{} plugin uninstall`", claude.display()))?;
+
+    tracing::debug!(
+        status = %output.status,
+        stdout_len = output.stdout.len(),
+        stderr_len = output.stderr.len(),
+        "claude plugin uninstall"
+    );
+
+    if output.status.success() {
+        Ok(RemoveResult::Removed)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // "not found" means plugin wasn't installed — treat as NotPresent.
+        // Any other failure is a real error.
+        if stderr.contains("not found") {
+            tracing::debug!("plugin not installed, treating as not-present");
+            Ok(RemoveResult::NotPresent)
+        } else {
+            anyhow::bail!("claude plugin uninstall failed (exit {}): {}", output.status, stderr.trim())
+        }
+    }
+}
+
+/// Checks whether the MAG plugin is installed and enabled in Claude Code.
+///
+/// Reads `~/.claude/settings.json` and looks for `"mag@mag-plugins": true`
+/// in the `enabledPlugins` object.
+#[allow(dead_code)] // Used by setup.rs and tests; clippy can't trace cross-module usage
+pub fn verify_claude_plugin() -> Result<bool> {
+    let home = crate::app_paths::home_dir()?;
+    let settings_path = home.join(".claude/settings.json");
+
+    if !settings_path.exists() {
+        return Ok(false);
+    }
+
+    let content = std::fs::read_to_string(&settings_path)
+        .with_context(|| format!("reading {}", settings_path.display()))?;
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
+
+    let parsed: serde_json::Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::debug!(error = %e, "failed to parse claude settings.json");
+            return Ok(false);
+        }
+    };
+
+    let enabled = parsed
+        .get("enabledPlugins")
+        .and_then(|v| v.get("mag@mag-plugins"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    Ok(enabled)
+}
+
+/// Locates the `claude` CLI binary on the system PATH.
+///
+/// Uses `command -v claude` on Unix (or `where claude` on Windows) to resolve
+/// the binary path without requiring an external crate.
+fn find_claude_cli() -> Result<PathBuf> {
+    let output = if cfg!(target_os = "windows") {
+        std::process::Command::new("where").arg("claude").output()
+    } else {
+        std::process::Command::new("sh")
+            .args(["-c", "command -v claude"])
+            .output()
+    };
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let path_str = String::from_utf8_lossy(&o.stdout);
+            let path = path_str.trim();
+            if path.is_empty() {
+                anyhow::bail!("claude CLI not found on PATH — install Claude Code first");
+            }
+            Ok(PathBuf::from(path))
+        }
+        _ => {
+            anyhow::bail!("claude CLI not found on PATH — install Claude Code first");
         }
     }
 }
@@ -1108,5 +1264,85 @@ mod tests {
             let backup_content = std::fs::read_to_string(&bak_path).expect("read backup");
             assert_eq!(backup_content, initial);
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // Plugin verification tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[serial]
+    fn verify_claude_plugin_returns_false_when_no_settings() {
+        with_temp_home(|_home| {
+            let result = verify_claude_plugin().expect("verify should not error");
+            assert!(!result);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn verify_claude_plugin_returns_false_when_no_enabled_plugins() {
+        with_temp_home(|home| {
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(claude_dir.join("settings.json"), r#"{"theme": "dark"}"#).unwrap();
+
+            let result = verify_claude_plugin().expect("verify should not error");
+            assert!(!result);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn verify_claude_plugin_returns_true_when_enabled() {
+        with_temp_home(|home| {
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(
+                claude_dir.join("settings.json"),
+                r#"{"enabledPlugins": {"mag@mag-plugins": true}}"#,
+            )
+            .unwrap();
+
+            let result = verify_claude_plugin().expect("verify should not error");
+            assert!(result);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn verify_claude_plugin_returns_false_when_disabled() {
+        with_temp_home(|home| {
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(
+                claude_dir.join("settings.json"),
+                r#"{"enabledPlugins": {"mag@mag-plugins": false}}"#,
+            )
+            .unwrap();
+
+            let result = verify_claude_plugin().expect("verify should not error");
+            assert!(!result);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn verify_claude_plugin_handles_malformed_json() {
+        with_temp_home(|home| {
+            let claude_dir = home.join(".claude");
+            std::fs::create_dir_all(&claude_dir).unwrap();
+            std::fs::write(claude_dir.join("settings.json"), "not valid json{{{").unwrap();
+
+            let result = verify_claude_plugin().expect("verify should not error");
+            assert!(!result);
+        });
+    }
+
+    #[test]
+    fn config_write_result_plugin_variant() {
+        let result = ConfigWriteResult::Plugin;
+        // Verify the variant exists and Debug works
+        assert_eq!(format!("{result:?}"), "Plugin");
     }
 }
