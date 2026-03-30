@@ -352,6 +352,15 @@ pub enum Commands {
         #[arg(long)]
         cross_encoder: bool,
     },
+    /// Completely uninstall MAG: remove tool configs, models, and data.
+    Uninstall {
+        /// Skip interactive prompts and remove everything.
+        #[arg(long, conflicts_with = "configs_only")]
+        all: bool,
+        /// Skip interactive prompts, only remove tool configurations.
+        #[arg(long, conflicts_with = "all")]
+        configs_only: bool,
+    },
     /// Interactive wizard to detect and configure AI tools for MAG.
     Setup {
         /// Skip interactive prompts (auto-configure all unconfigured tools).
@@ -1199,6 +1208,39 @@ mod tests {
                 assert_eq!(days, 7);
             }
             _ => panic!("Expected StatsExtended command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_uninstall_command() {
+        let args = vec!["mag", "uninstall"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Uninstall { all, configs_only } => {
+                assert!(!all);
+                assert!(!configs_only);
+            }
+            _ => panic!("Expected Uninstall command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_uninstall_all() {
+        let args = vec!["mag", "uninstall", "--all"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Uninstall { all, .. } => assert!(all),
+            _ => panic!("Expected Uninstall command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_uninstall_configs_only() {
+        let args = vec!["mag", "uninstall", "--configs-only"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Uninstall { configs_only, .. } => assert!(configs_only),
+            _ => panic!("Expected Uninstall command"),
         }
     }
 }

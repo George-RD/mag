@@ -9,7 +9,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::config_writer::{self, ConfigWriteResult, RemoveResult, TransportMode};
+use crate::config_writer::{self, ConfigWriteResult, TransportMode};
 use crate::tool_detection::{self, DetectedTool, DetectionResult, MagConfigStatus};
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ struct ConfigureSummary {
 /// Main entry point for `mag setup`.
 pub async fn run_setup(args: SetupArgs) -> Result<()> {
     if args.uninstall {
-        return run_uninstall(None);
+        return crate::uninstall::run_uninstall(false, true).await;
     }
 
     // Detect phase
@@ -95,13 +95,15 @@ fn present_detection(result: &DetectionResult) {
     println!("  Detected tools:\n");
     for dt in &result.detected {
         let status_icon = match &dt.mag_status {
-            MagConfigStatus::Configured => "\u{2713}",    // check mark
+            MagConfigStatus::Configured => "\u{2713}", // check mark
+            MagConfigStatus::InstalledAsPlugin => "\u{2713}", // check mark
             MagConfigStatus::NotConfigured => "\u{2717}", // X mark
             MagConfigStatus::Misconfigured(_) => "\u{26a0}", // warning
             MagConfigStatus::Unreadable(_) => "\u{26a0}", // warning
         };
         let status_label = match &dt.mag_status {
             MagConfigStatus::Configured => "configured",
+            MagConfigStatus::InstalledAsPlugin => "installed as plugin",
             MagConfigStatus::NotConfigured => "not configured",
             MagConfigStatus::Misconfigured(reason) => reason.as_str(),
             MagConfigStatus::Unreadable(reason) => reason.as_str(),
@@ -184,7 +186,12 @@ fn select_tools<'a>(
     // Filter to only unconfigured/misconfigured tools
     let actionable: Vec<&DetectedTool> = candidates
         .into_iter()
-        .filter(|dt| !matches!(dt.mag_status, MagConfigStatus::Configured))
+        .filter(|dt| {
+            !matches!(
+                dt.mag_status,
+                MagConfigStatus::Configured | MagConfigStatus::InstalledAsPlugin
+            )
+        })
         .collect();
 
     if actionable.is_empty() {
@@ -232,6 +239,26 @@ fn configure_tools(tools: &[&DetectedTool], mode: TransportMode) -> Result<Confi
 
     for tool in tools {
         let name = tool.tool.display_name().to_string();
+
+        // For Claude Code, prefer the plugin marketplace install.
+        // Fall back to MCP config if `claude` CLI is not available.
+        if tool.tool == tool_detection::AiTool::ClaudeCode {
+            match config_writer::install_claude_plugin() {
+                Ok(ConfigWriteResult::Plugin) => {
+                    summary.written.push(format!("{name} (plugin)"));
+                    continue;
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "plugin install failed, falling back to MCP config");
+                    // Fall through to regular write_config below
+                }
+                Ok(other) => {
+                    tracing::debug!(result = ?other, "unexpected plugin install result, falling back");
+                    // Fall through
+                }
+            }
+        }
+
         match config_writer::write_config(tool, mode) {
             Ok(ConfigWriteResult::Written { backup_path }) => {
                 if let Some(ref bak) = backup_path {
@@ -249,6 +276,10 @@ fn configure_tools(tools: &[&DetectedTool], mode: TransportMode) -> Result<Confi
             Ok(ConfigWriteResult::Deferred { tool: ai_tool }) => {
                 summary.deferred.push(ai_tool.display_name().to_string());
             }
+            Ok(ConfigWriteResult::Plugin) => {
+                // Shouldn't reach here for non-Claude tools, but handle it
+                summary.written.push(format!("{name} (plugin)"));
+            }
             Err(e) => {
                 summary.errors.push((name, format!("{e:#}")));
             }
@@ -256,53 +287,6 @@ fn configure_tools(tools: &[&DetectedTool], mode: TransportMode) -> Result<Confi
     }
 
     Ok(summary)
-}
-
-// ---------------------------------------------------------------------------
-// Uninstall
-// ---------------------------------------------------------------------------
-
-fn run_uninstall(project_root: Option<&Path>) -> Result<()> {
-    println!("\n  Removing MAG from all detected tools...\n");
-
-    let result = detect_phase(project_root);
-
-    if result.detected.is_empty() {
-        println!("  No tools detected — nothing to remove.");
-        return Ok(());
-    }
-
-    let mut removed = Vec::new();
-    let mut not_present = Vec::new();
-    let mut errors = Vec::new();
-
-    for dt in &result.detected {
-        let name = dt.tool.display_name().to_string();
-        match config_writer::remove_config(dt) {
-            Ok(RemoveResult::Removed) => removed.push(name),
-            Ok(RemoveResult::NotPresent | RemoveResult::NoConfigFile) => {
-                not_present.push(name);
-            }
-            Ok(RemoveResult::UnsupportedFormat { reason }) => {
-                not_present.push(format!("{name} (skipped: {reason})"));
-            }
-            Err(e) => errors.push((name, format!("{e:#}"))),
-        }
-    }
-
-    println!("  Uninstall summary:\n");
-    for name in &removed {
-        println!("    \u{2713} {name} — removed");
-    }
-    for name in &not_present {
-        println!("    - {name} — was not configured");
-    }
-    for (name, err) in &errors {
-        println!("    \u{2717} {name} — error: {err}");
-    }
-    println!();
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -620,13 +604,22 @@ mod tests {
             let summary = configure_tools(&tools, TransportMode::Command).unwrap();
 
             assert_eq!(summary.written.len(), 1);
-            assert_eq!(summary.written[0], "Claude Code");
             assert!(summary.errors.is_empty());
 
-            // Verify the config was written
-            let content = std::fs::read_to_string(&config_path).unwrap();
-            let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-            assert!(parsed["mcpServers"]["mag"].is_object());
+            // Claude Code may be configured via plugin (if `claude` CLI is available)
+            // or via MCP config (if not). Both are valid outcomes.
+            let name = &summary.written[0];
+            assert!(
+                name == "Claude Code" || name == "Claude Code (plugin)",
+                "unexpected written entry: {name}"
+            );
+
+            if name == "Claude Code" {
+                // Verify the MCP config was written (fallback path)
+                let content = std::fs::read_to_string(&config_path).unwrap();
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert!(parsed["mcpServers"]["mag"].is_object());
+            }
         });
     }
 
@@ -745,7 +738,8 @@ mod tests {
             .unwrap();
 
             // Run uninstall
-            run_uninstall(None).unwrap();
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(crate::uninstall::run_uninstall(false, true)).unwrap();
 
             // Verify MAG was removed but other config preserved
             let content = std::fs::read_to_string(&config_path).unwrap();
@@ -759,7 +753,8 @@ mod tests {
     fn uninstall_no_tools_detected() {
         with_temp_home(|_home| {
             // No config files exist — should not error
-            run_uninstall(None).unwrap();
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(crate::uninstall::run_uninstall(false, true)).unwrap();
         });
     }
 
@@ -816,5 +811,82 @@ mod tests {
         let tool_names: Vec<_> = selected.iter().map(|d| d.tool).collect();
         assert!(tool_names.contains(&AiTool::Cursor));
         assert!(tool_names.contains(&AiTool::Windsurf));
+    }
+
+    // -----------------------------------------------------------------------
+    // Plugin-related tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn select_tools_skips_installed_as_plugin() {
+        let result = DetectionResult {
+            detected: vec![
+                make_detected(AiTool::ClaudeCode, MagConfigStatus::InstalledAsPlugin),
+                make_detected(AiTool::Cursor, MagConfigStatus::NotConfigured),
+            ],
+            not_found: vec![],
+        };
+        let args = SetupArgs {
+            non_interactive: true,
+            tools: None,
+            transport: TransportMode::Command,
+            port: 4242,
+            no_start: true,
+            uninstall: false,
+            force: false,
+        };
+
+        let selected = select_tools(&result, &args).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].tool, AiTool::Cursor);
+    }
+
+    #[test]
+    fn select_tools_force_includes_plugin_installed() {
+        let result = DetectionResult {
+            detected: vec![make_detected(
+                AiTool::ClaudeCode,
+                MagConfigStatus::InstalledAsPlugin,
+            )],
+            not_found: vec![],
+        };
+        let args = SetupArgs {
+            non_interactive: true,
+            tools: None,
+            transport: TransportMode::Command,
+            port: 4242,
+            no_start: true,
+            uninstall: false,
+            force: true,
+        };
+
+        let selected = select_tools(&result, &args).unwrap();
+        assert_eq!(selected.len(), 1);
+    }
+
+    #[test]
+    fn present_detection_shows_plugin_status() {
+        let result = DetectionResult {
+            detected: vec![
+                make_detected(AiTool::ClaudeCode, MagConfigStatus::InstalledAsPlugin),
+                make_detected(AiTool::Cursor, MagConfigStatus::NotConfigured),
+            ],
+            not_found: vec![],
+        };
+        // Smoke test — should not panic
+        present_detection(&result);
+    }
+
+    #[test]
+    fn present_summary_with_plugin_entry() {
+        let summary = ConfigureSummary {
+            written: vec!["Claude Code (plugin)".to_string()],
+            already_current: vec![],
+            unsupported: vec![],
+            deferred: vec![],
+            errors: vec![],
+        };
+        // Smoke test — should not panic
+        present_summary(&summary);
     }
 }
