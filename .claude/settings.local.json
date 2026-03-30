@@ -12,7 +12,8 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:index.crates.io)",
       "WebFetch(domain:registry.npmjs.org)",
-      "WebFetch(domain:api.openai.com)"
+      "WebFetch(domain:api.openai.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   },
   "hooks": {
