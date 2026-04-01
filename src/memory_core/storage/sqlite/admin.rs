@@ -1,5 +1,5 @@
 use super::*;
-use crate::memory_core::BackupInfo;
+use crate::memory_core::{BackupInfo, WelcomeOptions};
 
 /// Maximum number of automatic backups to keep.
 const MAX_BACKUPS: usize = 5;
@@ -886,7 +886,7 @@ impl MaintenanceManager for SqliteStorage {
 
 /// Estimate the number of LLM tokens in a string using the 4-chars-per-token heuristic.
 fn estimate_tokens(s: &str) -> usize {
-    (s.len() + 3) / 4
+    s.len().div_ceil(4)
 }
 
 #[async_trait]

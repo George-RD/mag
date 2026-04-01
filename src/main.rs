@@ -916,8 +916,8 @@ async fn main() -> anyhow::Result<()> {
                 agent_type: agent_type.clone(),
                 entity_id: entity_id.clone(),
             };
-            let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(&mcp_storage, &opts)
-                .await?;
+            let result =
+                <SqliteStorage as WelcomeProvider>::welcome_scoped(&mcp_storage, &opts).await?;
             println!("{result}");
         }
         Commands::Protocol { section: _ } => {

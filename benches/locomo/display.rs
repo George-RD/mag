@@ -141,6 +141,7 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
     println!("------------------------------------------------------------------------");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn record_result(
     by_category: &mut BTreeMap<String, CategoryResult>,
     category: &str,

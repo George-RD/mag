@@ -1098,8 +1098,13 @@ mod tests {
         let args = vec!["mag", "serve"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Serve { cross_encoder } => {
+            Commands::Serve {
+                cross_encoder,
+                mcp_tools,
+                ..
+            } => {
                 assert!(!cross_encoder);
+                assert_eq!(mcp_tools, "full");
             }
             _ => panic!("Expected Serve command"),
         }
