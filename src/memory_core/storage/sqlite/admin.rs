@@ -994,9 +994,10 @@ impl WelcomeProvider for SqliteStorage {
 
     async fn welcome_scoped(&self, opts: &WelcomeOptions) -> Result<serde_json::Value> {
         // If no budget and no scoping beyond what welcome() already supports, delegate exactly.
-        let has_scope =
-            opts.project.is_some() || opts.agent_type.is_some() || opts.entity_id.is_some();
-        if opts.budget_tokens.is_none() && !has_scope {
+        // Note: welcome() already handles project filtering, so only agent_type and entity_id
+        // count as "extra scope" that requires the budgeted path.
+        let has_extra_scope = opts.agent_type.is_some() || opts.entity_id.is_some();
+        if opts.budget_tokens.is_none() && !has_extra_scope {
             return self
                 .welcome(opts.session_id.as_deref(), opts.project.as_deref())
                 .await;
