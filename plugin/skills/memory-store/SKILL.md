@@ -19,9 +19,9 @@ Store important information for future sessions.
 
 2. Store via CLI:
    ```
-   mag hook store "Brief title. Context. Rationale." \
-     --project PROJECT \
+   mag process "Brief title. Context. Rationale." \
      --event-type TYPE \
+     --project PROJECT \
      --importance 0.8 \
      --tags "tag1,tag2"
    ```

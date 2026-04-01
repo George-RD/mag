@@ -13,11 +13,11 @@ You have persistent memory via MAG. Memories survive across sessions and are sha
 
 ### How
 
-Use `mag hook` CLI commands via Bash:
-- `mag hook search "query" --project PROJECT` — search memories
-- `mag hook store "content" --project PROJECT --event-type TYPE` — store a memory
-- `mag checkpoint "title" "progress"` — save task state for handoff
-- `mag resume-task` — resume from last checkpoint
+Use MAG CLI commands via Bash:
+- `mag advanced-search "query" --project PROJECT --limit 10` — search memories
+- `mag process "content" --event-type TYPE --project PROJECT --importance 0.8` — store a memory
+- `mag checkpoint "title" "progress" --project PROJECT` — save task state for handoff
+- `mag resume-task --project PROJECT` — resume from last checkpoint
 
 ### Behavior
 
