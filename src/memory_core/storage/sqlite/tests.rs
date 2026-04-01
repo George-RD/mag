@@ -2265,10 +2265,13 @@ async fn test_supersession_detection_at_ingest() {
 async fn test_superseded_filtered_from_advanced_search() {
     let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
 
+    // Note: strings must have Jaccard < 0.75 (the UserPreference dedup threshold)
+    // so that adv-new is stored as a new memory rather than deduplicated onto adv-old.
+    // Both share enough tokens (Jaccard ≥ 0.30) to trigger auto-supersession at ingest.
     <SqliteStorage as Storage>::store(
         &storage,
         "adv-old",
-        "alpha preference: use compact commit titles",
+        "alpha user prefers writing compact commit titles",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             ..Default::default()
@@ -2279,7 +2282,7 @@ async fn test_superseded_filtered_from_advanced_search() {
     <SqliteStorage as Storage>::store(
         &storage,
         "adv-new",
-        "alpha preference updated: use compact commit titles with scope",
+        "alpha user now prefers writing short compact commit titles with scope",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             ..Default::default()
