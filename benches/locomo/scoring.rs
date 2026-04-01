@@ -937,4 +937,42 @@ mod tests {
             "retrieval-only adversarial always 1.0, got {score}"
         );
     }
+
+    // ── hit_at_k tests ──────────────────────────────────────────────────
+
+    fn make_hit(dia_id: &str) -> RetrievalHit {
+        RetrievalHit {
+            content: "c".to_string(),
+            score: 0.5,
+            metadata: serde_json::json!({"dia_id": dia_id}),
+        }
+    }
+
+    #[test]
+    fn test_hit_at_k_top1() {
+        let hits = vec![make_hit("d1"), make_hit("d2"), make_hit("d3")];
+        let gold = vec!["d1".to_string()];
+        assert!(hit_at_k(&hits, &gold, 1));
+    }
+
+    #[test]
+    fn test_hit_at_k_miss_at_1_hit_at_5() {
+        let hits = vec![make_hit("a"), make_hit("b"), make_hit("c"), make_hit("d1")];
+        let gold = vec!["d1".to_string()];
+        assert!(!hit_at_k(&hits, &gold, 3));
+        assert!(hit_at_k(&hits, &gold, 5));
+    }
+
+    #[test]
+    fn test_hit_at_k_empty_gold_is_true() {
+        let hits = vec![make_hit("a")];
+        assert!(hit_at_k(&hits, &[], 1));
+    }
+
+    #[test]
+    fn test_hit_at_k_k_exceeds_hits_len() {
+        let hits = vec![make_hit("d1")];
+        let gold = vec!["d1".to_string()];
+        assert!(hit_at_k(&hits, &gold, 100));
+    }
 }
