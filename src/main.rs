@@ -962,7 +962,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::DownloadCrossEncoder => {
             unreachable!("download-cross-encoder is handled before storage initialization")
         }
-        Commands::Serve { cross_encoder } => {
+        Commands::Serve {
+            cross_encoder,
+            mcp_tools,
+        } => {
             info!("Starting MCP server over stdio");
 
             #[cfg(feature = "real-embeddings")]
@@ -1016,7 +1019,15 @@ async fn main() -> anyhow::Result<()> {
                 });
             }
 
-            McpMemoryServer::new(mcp_storage).serve_stdio().await?;
+            let tool_mode = if mcp_tools == "minimal" {
+                mcp_server::McpToolMode::Minimal
+            } else {
+                mcp_server::McpToolMode::Full
+            };
+            McpMemoryServer::new(mcp_storage)
+                .with_tool_mode(tool_mode)
+                .serve_stdio()
+                .await?;
         }
     }
 

@@ -357,6 +357,11 @@ pub enum Commands {
         /// Enable cross-encoder reranking (disabled by default).
         #[arg(long)]
         cross_encoder: bool,
+        /// Which tools to advertise to MCP clients: "full" (default, all 19 tools) or
+        /// "minimal" (only the 4 unified facades: memory, memory_manage, memory_session,
+        /// memory_admin).
+        #[arg(long, default_value = "full")]
+        mcp_tools: String,
     },
     /// Completely uninstall MAG: remove tool configs, models, and data.
     Uninstall {

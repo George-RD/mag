@@ -42,6 +42,25 @@ fn require_finite(name: &str, value: f64) -> Result<(), McpError> {
     Ok(())
 }
 
+// ──────────────────────── Tool mode ────────────────────────
+
+/// Controls which tools are advertised to MCP clients.
+///
+/// - `Full` (default): all 19 tools — 15 legacy + 4 unified facades.
+/// - `Minimal`: only the 4 unified facades (memory, memory_manage,
+///   memory_session, memory_admin) — reduces tool-list noise for clients
+///   that support action-based routing.
+///
+/// NOTE: Minimal mode filtering (list_tools override) is not yet wired —
+/// the mode is stored but rmcp's proc-macro-generated router needs a
+/// list_tools override to filter at runtime. This is tracked as follow-up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum McpToolMode {
+    #[default]
+    Full,
+    Minimal,
+}
+
 // ──────────────────────── MCP Instructions ────────────────────────
 
 /// Instructions returned in the MCP `initialize` handshake.
@@ -88,10 +107,13 @@ If this is a coding environment (Claude Code, Cursor, etc.), mention this once p
   \"Tip: install the MAG plugin for automatic memory. Run: mag setup --plugin\"\n\
 Do not repeat after the first mention.\n\
 \n\
-## 999 — UNIFIED TOOL PREVIEW (Wave 2)\n\
-A single `memory` tool now wraps store/store_batch/retrieve/delete via an `action` field.\n\
-This is a spike running alongside all 16 existing tools — both interfaces work.\n\
-Future sessions may prefer `memory` for reduced tool-list noise.\
+## 999 — UNIFIED TOOL INTERFACE (Wave 2)\n\
+Four unified facade tools replace the 16 legacy tools via `action` fields:\n\
+- `memory` — store/store_batch/retrieve/delete\n\
+- `memory_manage` — update/feedback/relations/lifecycle\n\
+- `memory_session` — info/checkpoint/remind/lessons/profile\n\
+- `memory_admin` — list/health/export/import\n\
+Legacy tools remain available in full mode. Use `--mcp-tools=minimal` to advertise only the 4 facades.\
 ";
 
 // ──────────────────────── Tool Registry ────────────────────────
@@ -188,13 +210,24 @@ pub const TOOL_REGISTRY: &[ToolMeta] = &[
     },
     // System
     ToolMeta {
-        name: "memory_admin",
-        summary: "Administrative actions (action: health|export|import)",
-        category: "System",
-    },
-    ToolMeta {
         name: "memory_session_info",
         summary: "Welcome briefing or protocol (mode: welcome|protocol)",
+        category: "System",
+    },
+    // ── Wave 2 unified facades ──
+    ToolMeta {
+        name: "memory_manage",
+        summary: "Unified manage facade: update/feedback/relations/lifecycle via action field",
+        category: "Storage & Retrieval",
+    },
+    ToolMeta {
+        name: "memory_session",
+        summary: "Unified session facade: info/checkpoint/remind/lessons/profile via action field",
+        category: "Cross-Session",
+    },
+    ToolMeta {
+        name: "memory_admin",
+        summary: "Unified admin facade: list/health/export/import via action field (Wave 2 — replaces legacy admin+list)",
         category: "System",
     },
 ];
@@ -299,6 +332,7 @@ fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpE
 pub struct McpMemoryServer {
     storage: SqliteStorage,
     tool_router: ToolRouter<Self>,
+    tool_mode: McpToolMode,
 }
 
 impl McpMemoryServer {
@@ -306,7 +340,13 @@ impl McpMemoryServer {
         Self {
             storage,
             tool_router: Self::tool_router(),
+            tool_mode: McpToolMode::Full,
         }
+    }
+
+    pub fn with_tool_mode(mut self, mode: McpToolMode) -> Self {
+        self.tool_mode = mode;
+        self
     }
 
     pub async fn serve_stdio(self) -> Result<()> {
@@ -499,17 +539,7 @@ struct LessonsRequest {
     agent_type: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
-struct AdminRequest {
-    /// Action: "health" (default), "export", or "import".
-    action: Option<String>,
-    /// Detail level for action=health: "basic" (default), "stats", "types", "sessions", "digest", "access_rate".
-    detail: Option<String>,
-    /// Days for health detail=digest (default 7).
-    days: Option<i64>,
-    /// JSON data to import for action=import.
-    data: Option<String>,
-}
+// AdminRequest removed — absorbed by MemoryAdminFacadeRequest
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SessionInfoRequest {
@@ -549,6 +579,122 @@ struct MemoryRequest {
     // ── store_batch fields ──
     /// Items for action=store_batch.
     items: Option<Vec<StoreRequest>>,
+}
+
+/// Unified facade for update / feedback / relations / lifecycle.
+/// Routes based on `action` (default: "update").
+#[derive(Debug, Deserialize, JsonSchema)]
+struct MemoryManageRequest {
+    /// Action: "update" (default), "feedback", "relations", "lifecycle".
+    action: Option<String>,
+    // ── update fields ──
+    /// Memory ID (required for update, feedback, relations).
+    id: Option<String>,
+    content: Option<String>,
+    tags: Option<Vec<String>>,
+    importance: Option<f64>,
+    metadata: Option<serde_json::Value>,
+    event_type: Option<String>,
+    priority: Option<i32>,
+    // ── feedback fields ──
+    memory_id: Option<String>,
+    rating: Option<String>,
+    reason: Option<String>,
+    // ── relations fields ──
+    /// Sub-action for action=relations: "list" (default), "add", "traverse", "version_chain".
+    relations_action: Option<String>,
+    source_id: Option<String>,
+    target_id: Option<String>,
+    rel_type: Option<String>,
+    weight: Option<f64>,
+    max_hops: Option<usize>,
+    min_weight: Option<f64>,
+    // ── lifecycle fields ──
+    /// Sub-action for action=lifecycle: "sweep" (default), "health", "consolidate", "compact", "auto_compact", "clear_session", "backup", "backup_list".
+    lifecycle_action: Option<String>,
+    warn_mb: Option<f64>,
+    critical_mb: Option<f64>,
+    max_nodes: Option<i64>,
+    prune_days: Option<i64>,
+    max_summaries: Option<i64>,
+    similarity_threshold: Option<f64>,
+    min_cluster_size: Option<usize>,
+    dry_run: Option<bool>,
+    session_id: Option<String>,
+    count_threshold: Option<usize>,
+}
+
+/// Unified facade for session_info / checkpoint / remind / lessons / profile.
+/// Routes based on `action` (default: "info").
+#[derive(Debug, Deserialize, JsonSchema)]
+struct MemorySessionRequest {
+    /// Action: "info" (default), "checkpoint", "remind", "lessons", "profile".
+    action: Option<String>,
+    // ── info fields ──
+    /// Mode for action=info: "welcome" (default) or "protocol".
+    info_mode: Option<String>,
+    session_id: Option<String>,
+    project: Option<String>,
+    // ── checkpoint fields ──
+    /// Sub-action for action=checkpoint: "save" (default) or "resume".
+    checkpoint_action: Option<String>,
+    task_title: Option<String>,
+    progress: Option<String>,
+    plan: Option<String>,
+    files_touched: Option<serde_json::Value>,
+    decisions: Option<Vec<String>>,
+    key_context: Option<String>,
+    next_steps: Option<String>,
+    limit: Option<usize>,
+    // ── remind fields ──
+    /// Sub-action for action=remind: "set" (default), "list", "dismiss".
+    remind_action: Option<String>,
+    text: Option<String>,
+    duration: Option<String>,
+    context: Option<String>,
+    status: Option<String>,
+    reminder_id: Option<String>,
+    // ── lessons fields ──
+    task: Option<String>,
+    exclude_session: Option<String>,
+    agent_type: Option<String>,
+    // ── profile fields ──
+    /// Sub-action for action=profile: "read" (default) or "update".
+    profile_action: Option<String>,
+    update: Option<serde_json::Value>,
+}
+
+/// Unified facade for list / health / export / import.
+/// Routes based on `action` (default: "list").
+#[derive(Debug, Deserialize, JsonSchema)]
+struct MemoryAdminFacadeRequest {
+    /// Action: "list" (default), "health", "export", "import".
+    action: Option<String>,
+    // ── list fields ──
+    /// Sort order: "created" (default) or "recent".
+    sort: Option<String>,
+    offset: Option<usize>,
+    /// Result limit for action=list (default 10).
+    list_limit: Option<usize>,
+    /// Filter by event type for action=list.
+    list_event_type: Option<String>,
+    project: Option<String>,
+    session_id: Option<String>,
+    include_superseded: Option<bool>,
+    event_after: Option<String>,
+    event_before: Option<String>,
+    importance_min: Option<f64>,
+    created_after: Option<String>,
+    created_before: Option<String>,
+    context_tags: Option<Vec<String>>,
+    // ── health fields ──
+    /// Detail level for action=health: "basic" (default), "stats", "types", "sessions", "digest", "access_rate".
+    detail: Option<String>,
+    /// Days for health detail=digest (default 7).
+    days: Option<i64>,
+    // ── import fields ──
+    /// JSON data to import for action=import.
+    data: Option<String>,
 }
 
 // ──────────────────────── Tool implementations ────────────────────────
@@ -1471,107 +1617,6 @@ impl McpMemoryServer {
     }
 
     #[tool(
-        name = "memory_admin",
-        description = "Administrative actions. action='health' (default, detail: basic|stats|types|sessions|digest|access_rate), action='export' (dump all data), or action='import' (restore from JSON data)."
-    )]
-    async fn memory_admin(
-        &self,
-        params: Parameters<AdminRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let action = params.0.action.as_deref().unwrap_or("health");
-
-        match action {
-            "health" => {
-                let detail = params.0.detail.as_deref().unwrap_or("basic");
-                match detail {
-                    "basic" => {
-                        self.storage.stats().await.map_err(|e| {
-                            McpError::internal_error(format!("storage probe failed: {e}"), None)
-                        })?;
-                        Ok(CallToolResult::success(vec![Content::text(
-                            json!({ "status": "healthy" }).to_string(),
-                        )]))
-                    }
-                    "stats" => {
-                        let stats = self.storage.stats().await.map_err(|e| {
-                            McpError::internal_error(format!("failed to get stats: {e}"), None)
-                        })?;
-                        Ok(CallToolResult::success(vec![Content::text(
-                            serde_json::to_string(&stats).map_err(|e| {
-                                McpError::internal_error(
-                                    format!("failed to serialize stats: {e}"),
-                                    None,
-                                )
-                            })?,
-                        )]))
-                    }
-                    "types" => {
-                        let result = self.storage.type_stats().await.map_err(|e| {
-                            McpError::internal_error(format!("type_stats failed: {e}"), None)
-                        })?;
-                        Ok(CallToolResult::success(vec![Content::text(
-                            result.to_string(),
-                        )]))
-                    }
-                    "sessions" => {
-                        let result = self.storage.session_stats().await.map_err(|e| {
-                            McpError::internal_error(format!("session_stats failed: {e}"), None)
-                        })?;
-                        Ok(CallToolResult::success(vec![Content::text(
-                            result.to_string(),
-                        )]))
-                    }
-                    "digest" => {
-                        let days = params.0.days.unwrap_or(7).min(365);
-                        let result = self.storage.weekly_digest(days).await.map_err(|e| {
-                            McpError::internal_error(format!("weekly_digest failed: {e}"), None)
-                        })?;
-                        Ok(CallToolResult::success(vec![Content::text(
-                            result.to_string(),
-                        )]))
-                    }
-                    "access_rate" => {
-                        let result = self.storage.access_rate_stats().await.map_err(|e| {
-                            McpError::internal_error(format!("access_rate_stats failed: {e}"), None)
-                        })?;
-                        Ok(CallToolResult::success(vec![Content::text(
-                            result.to_string(),
-                        )]))
-                    }
-                    other => Err(McpError::invalid_params(
-                        format!(
-                            "unknown detail level: {other} (expected basic|stats|types|sessions|digest|access_rate)"
-                        ),
-                        None,
-                    )),
-                }
-            }
-            "export" => {
-                let export_data = self.storage.export_all().await.map_err(|e| {
-                    McpError::internal_error(format!("failed to export: {e}"), None)
-                })?;
-                Ok(CallToolResult::success(vec![Content::text(export_data)]))
-            }
-            "import" => {
-                let data = params.0.data.as_deref().ok_or_else(|| {
-                    McpError::invalid_params("data is required for action=import", None)
-                })?;
-                let count = self.storage.import_all(data).await.map_err(|e| {
-                    McpError::internal_error(format!("failed to import: {e}"), None)
-                })?;
-                Ok(CallToolResult::success(vec![Content::text(
-                    json!({ "imported_memories": count.0, "imported_relationships": count.1 })
-                        .to_string(),
-                )]))
-            }
-            other => Err(McpError::invalid_params(
-                format!("unknown admin action: {other} (expected health|export|import)"),
-                None,
-            )),
-        }
-    }
-
-    #[tool(
         name = "memory_profile",
         description = "Read or update the cross-session user profile"
     )]
@@ -1739,6 +1784,838 @@ impl McpMemoryServer {
             )),
         }
     }
+
+    #[tool(
+        name = "memory_manage",
+        description = "Unified manage facade (Wave 2). Routes to update/feedback/relations/lifecycle based on `action` field (default: \"update\"). Sub-actions: relations_action (list|add|traverse|version_chain), lifecycle_action (sweep|health|consolidate|compact|auto_compact|clear_session|backup|backup_list)."
+    )]
+    async fn memory_manage(
+        &self,
+        params: Parameters<MemoryManageRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("update");
+        let req = &params.0;
+
+        match action {
+            "update" => {
+                let id = req.id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("id is required for action=update", None)
+                })?;
+                if req.content.is_none()
+                    && req.tags.is_none()
+                    && req.importance.is_none()
+                    && req.metadata.is_none()
+                    && req.event_type.is_none()
+                    && req.priority.is_none()
+                {
+                    return Err(McpError::invalid_params(
+                        "at least one of content, tags, importance, metadata, event_type, or priority must be provided",
+                        None,
+                    ));
+                }
+                if let Some(event_type) = req.event_type.as_deref()
+                    && !is_valid_event_type(event_type)
+                {
+                    return Err(McpError::invalid_params("invalid event_type", None));
+                }
+                let update = MemoryUpdate {
+                    content: req.content.clone(),
+                    tags: req.tags.clone(),
+                    importance: req.importance,
+                    metadata: req.metadata.clone(),
+                    event_type: EventType::from_optional(req.event_type.as_deref()),
+                    priority: req.priority,
+                };
+                <SqliteStorage as Updater>::update(&self.storage, id, &update)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to update memory: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "id": id, "updated": true }).to_string(),
+                )]))
+            }
+            "feedback" => {
+                let memory_id = req.memory_id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("memory_id is required for action=feedback", None)
+                })?;
+                let rating = req.rating.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("rating is required for action=feedback", None)
+                })?;
+                if !matches!(rating, "helpful" | "unhelpful" | "outdated") {
+                    return Err(McpError::invalid_params("invalid rating", None));
+                }
+                let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
+                    &self.storage,
+                    memory_id,
+                    rating,
+                    req.reason.as_deref(),
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to record feedback: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({"memory_id": memory_id, "feedback": result}).to_string(),
+                )]))
+            }
+            "relations" => {
+                let sub = req.relations_action.as_deref().unwrap_or("list");
+                match sub {
+                    "list" => {
+                        let id = req.id.as_deref().ok_or_else(|| {
+                            McpError::invalid_params("id is required for relations_action=list", None)
+                        })?;
+                        let rels = self.storage.get_relationships(id).await.map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to get relationships: {e}"),
+                                None,
+                            )
+                        })?;
+                        let payload: Vec<_> = rels
+                            .into_iter()
+                            .map(|r| {
+                                json!({
+                                    "id": r.id,
+                                    "source_id": r.source_id,
+                                    "target_id": r.target_id,
+                                    "rel_type": r.rel_type,
+                                    "weight": r.weight,
+                                    "metadata": r.metadata,
+                                    "created_at": r.created_at
+                                })
+                            })
+                            .collect();
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "relationships": payload }).to_string(),
+                        )]))
+                    }
+                    "add" => {
+                        let source_id = req.source_id.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "source_id is required for relations_action=add",
+                                None,
+                            )
+                        })?;
+                        let target_id = req.target_id.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "target_id is required for relations_action=add",
+                                None,
+                            )
+                        })?;
+                        let rel_type = req.rel_type.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "rel_type is required for relations_action=add",
+                                None,
+                            )
+                        })?;
+                        let weight = req.weight.unwrap_or(1.0);
+                        require_finite("weight", weight)?;
+                        if !(0.0..=1.0).contains(&weight) {
+                            return Err(McpError::invalid_params(
+                                "weight must be between 0.0 and 1.0",
+                                None,
+                            ));
+                        }
+                        let metadata = req
+                            .metadata
+                            .clone()
+                            .unwrap_or_else(|| serde_json::json!({}));
+                        let rel_id = self
+                            .storage
+                            .add_relationship(source_id, target_id, rel_type, weight, &metadata)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(
+                                    format!("failed to add relationship: {e}"),
+                                    None,
+                                )
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "id": rel_id, "source_id": source_id, "target_id": target_id, "rel_type": rel_type, "weight": weight, "metadata": metadata }).to_string(),
+                        )]))
+                    }
+                    "traverse" => {
+                        let id = req.id.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "id is required for relations_action=traverse",
+                                None,
+                            )
+                        })?;
+                        self.storage.retrieve(id).await.map_err(|e| {
+                            McpError::internal_error(
+                                format!("memory not found for traversal: {e}"),
+                                None,
+                            )
+                        })?;
+                        let max_hops = req.max_hops.unwrap_or(2);
+                        if !(1..=5).contains(&max_hops) {
+                            return Err(McpError::invalid_params(
+                                "max_hops must be between 1 and 5",
+                                None,
+                            ));
+                        }
+                        let min_weight = req.min_weight.unwrap_or(0.0);
+                        require_finite("min_weight", min_weight)?;
+                        if !(0.0..=1.0).contains(&min_weight) {
+                            return Err(McpError::invalid_params(
+                                "min_weight must be between 0.0 and 1.0",
+                                None,
+                            ));
+                        }
+                        let nodes = <SqliteStorage as GraphTraverser>::traverse(
+                            &self.storage,
+                            id,
+                            max_hops,
+                            min_weight,
+                            None,
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(format!("failed to traverse graph: {e}"), None)
+                        })?;
+                        let mut grouped = serde_json::Map::new();
+                        for node in nodes {
+                            let key = node.hop.to_string();
+                            let entry = grouped
+                                .entry(key)
+                                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                            if let serde_json::Value::Array(items) = entry {
+                                items.push(json!({
+                                    "id": node.id,
+                                    "content": node.content,
+                                    "event_type": node.event_type,
+                                    "metadata": node.metadata,
+                                    "hop": node.hop,
+                                    "weight": node.weight,
+                                    "edge_type": node.edge_type,
+                                    "created_at": node.created_at
+                                }));
+                            }
+                        }
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::Value::Object(grouped).to_string(),
+                        )]))
+                    }
+                    "version_chain" => {
+                        let id = req.id.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "id is required for relations_action=version_chain",
+                                None,
+                            )
+                        })?;
+                        let results = self.storage.get_version_chain(id).await.map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to get version chain: {e}"),
+                                None,
+                            )
+                        })?;
+                        let payload = serialize_results(results)?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "chain": payload }).to_string(),
+                        )]))
+                    }
+                    other => Err(McpError::invalid_params(
+                        format!("unknown relations_action: {other} (expected list|add|traverse|version_chain)"),
+                        None,
+                    )),
+                }
+            }
+            "lifecycle" => {
+                let sub = req.lifecycle_action.as_deref().unwrap_or("sweep");
+                match sub {
+                    "sweep" => {
+                        let swept_count =
+                            <SqliteStorage as ExpirationSweeper>::sweep_expired(&self.storage)
+                                .await
+                                .map_err(|e| {
+                                    McpError::internal_error(
+                                        format!("failed to sweep expired: {e}"),
+                                        None,
+                                    )
+                                })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "swept_count": swept_count }).to_string(),
+                        )]))
+                    }
+                    "health" => {
+                        let warn = req.warn_mb.unwrap_or(350.0);
+                        let crit = req.critical_mb.unwrap_or(800.0);
+                        require_finite("warn_mb", warn)?;
+                        require_finite("critical_mb", crit)?;
+                        let max = req.max_nodes.unwrap_or(10000).min(100_000);
+                        let result = self
+                            .storage
+                            .check_health(warn, crit, max)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(format!("health check failed: {e}"), None)
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "consolidate" => {
+                        let prune = req.prune_days.unwrap_or(30);
+                        if prune < 1 {
+                            return Err(McpError::invalid_params(
+                                "prune_days must be >= 1",
+                                None,
+                            ));
+                        }
+                        let max_sum = req.max_summaries.unwrap_or(50);
+                        if max_sum < 1 {
+                            return Err(McpError::invalid_params(
+                                "max_summaries must be >= 1",
+                                None,
+                            ));
+                        }
+                        let result = self
+                            .storage
+                            .consolidate(prune, max_sum)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(
+                                    format!("consolidation failed: {e}"),
+                                    None,
+                                )
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "compact" => {
+                        if let Some(event_type) = req.event_type.as_deref()
+                            && !is_valid_event_type(event_type)
+                        {
+                            return Err(McpError::invalid_params("invalid event_type", None));
+                        }
+                        let et = req.event_type.as_deref().unwrap_or("lesson_learned");
+                        let thresh = req.similarity_threshold.unwrap_or(0.6);
+                        require_finite("similarity_threshold", thresh)?;
+                        if !(0.0..=1.0).contains(&thresh) {
+                            return Err(McpError::invalid_params(
+                                "similarity_threshold must be between 0.0 and 1.0",
+                                None,
+                            ));
+                        }
+                        let min_cs = req.min_cluster_size.unwrap_or(3);
+                        if min_cs < 2 {
+                            return Err(McpError::invalid_params(
+                                "min_cluster_size must be >= 2",
+                                None,
+                            ));
+                        }
+                        let dry = req.dry_run.unwrap_or(false);
+                        let result = self
+                            .storage
+                            .compact(et, thresh, min_cs, dry)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(format!("compaction failed: {e}"), None)
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "auto_compact" => {
+                        let threshold = req.count_threshold.unwrap_or(500).min(10_000);
+                        let dry = req.dry_run.unwrap_or(false);
+                        let result = self
+                            .storage
+                            .auto_compact(threshold, dry)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(
+                                    format!("auto_compact failed: {e}"),
+                                    None,
+                                )
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "clear_session" => {
+                        let sid = req.session_id.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "session_id is required for lifecycle_action=clear_session",
+                                None,
+                            )
+                        })?;
+                        let removed = self.storage.clear_session(sid).await.map_err(|e| {
+                            McpError::internal_error(format!("clear_session failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({"session_id": sid, "removed": removed}).to_string(),
+                        )]))
+                    }
+                    "backup" => {
+                        let info =
+                            <SqliteStorage as BackupManager>::create_backup(&self.storage)
+                                .await
+                                .map_err(|e| {
+                                    McpError::internal_error(
+                                        format!("backup failed: {e}"),
+                                        None,
+                                    )
+                                })?;
+                        let _ =
+                            <SqliteStorage as BackupManager>::rotate_backups(&self.storage, 5)
+                                .await;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({
+                                "path": info.path.display().to_string(),
+                                "size_bytes": info.size_bytes,
+                                "created_at": info.created_at,
+                            })
+                            .to_string(),
+                        )]))
+                    }
+                    "backup_list" => {
+                        let backups = <SqliteStorage as BackupManager>::list_backups(&self.storage)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(
+                                    format!("backup list failed: {e}"),
+                                    None,
+                                )
+                            })?;
+                        let payload: Vec<_> = backups
+                            .iter()
+                            .map(|b| {
+                                json!({
+                                    "path": b.path.display().to_string(),
+                                    "size_bytes": b.size_bytes,
+                                    "created_at": b.created_at,
+                                })
+                            })
+                            .collect();
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "backups": payload, "count": backups.len() }).to_string(),
+                        )]))
+                    }
+                    other => Err(McpError::invalid_params(
+                        format!("unknown lifecycle_action: {other} (expected sweep|health|consolidate|compact|auto_compact|clear_session|backup|backup_list)"),
+                        None,
+                    )),
+                }
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown action: {other} (expected update|feedback|relations|lifecycle)"),
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_session",
+        description = "Unified session facade (Wave 2). Routes to info/checkpoint/remind/lessons/profile based on `action` field (default: \"info\"). Sub-actions: checkpoint_action (save|resume), remind_action (set|list|dismiss), profile_action (read|update)."
+    )]
+    async fn memory_session(
+        &self,
+        params: Parameters<MemorySessionRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("info");
+        let req = &params.0;
+
+        match action {
+            "info" => {
+                match req.info_mode.as_deref().unwrap_or("welcome") {
+                    "welcome" => {
+                        let result = self
+                            .storage
+                            .welcome(req.session_id.as_deref(), req.project.as_deref())
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(format!("welcome failed: {e}"), None)
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "protocol" => {
+                        let protocol = generate_protocol_markdown();
+                        Ok(CallToolResult::success(vec![Content::text(protocol)]))
+                    }
+                    other => Err(McpError::invalid_params(
+                        format!("unknown info_mode: {other} (expected welcome|protocol)"),
+                        None,
+                    )),
+                }
+            }
+            "checkpoint" => {
+                let sub = req.checkpoint_action.as_deref().unwrap_or("save");
+                match sub {
+                    "save" => {
+                        let task_title = req.task_title.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "task_title is required for checkpoint_action=save",
+                                None,
+                            )
+                        })?;
+                        let progress = req.progress.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "progress is required for checkpoint_action=save",
+                                None,
+                            )
+                        })?;
+                        let input = CheckpointInput {
+                            task_title: task_title.to_string(),
+                            progress: progress.to_string(),
+                            plan: req.plan.clone(),
+                            files_touched: req.files_touched.clone(),
+                            decisions: req.decisions.clone(),
+                            key_context: req.key_context.clone(),
+                            next_steps: req.next_steps.clone(),
+                            session_id: req.session_id.clone(),
+                            project: req.project.clone(),
+                        };
+                        let memory_id =
+                            <SqliteStorage as CheckpointManager>::save_checkpoint(
+                                &self.storage,
+                                input,
+                            )
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(
+                                    format!("failed to save checkpoint: {e}"),
+                                    None,
+                                )
+                            })?;
+                        let latest = <SqliteStorage as CheckpointManager>::resume_task(
+                            &self.storage,
+                            task_title,
+                            req.project.as_deref(),
+                            1,
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to resolve checkpoint number: {e}"),
+                                None,
+                            )
+                        })?;
+                        let checkpoint_number = latest
+                            .first()
+                            .and_then(|entry| entry.get("metadata"))
+                            .and_then(|metadata| metadata.get("checkpoint_number"))
+                            .and_then(serde_json::Value::as_i64)
+                            .unwrap_or(1);
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
+                                .to_string(),
+                        )]))
+                    }
+                    "resume" => {
+                        let query = req.task_title.clone().unwrap_or_default();
+                        let limit = req.limit.unwrap_or(1).min(MAX_RESULT_LIMIT);
+                        let results = <SqliteStorage as CheckpointManager>::resume_task(
+                            &self.storage,
+                            &query,
+                            req.project.as_deref(),
+                            limit,
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(format!("failed to resume task: {e}"), None)
+                        })?;
+                        let mut markdown = String::new();
+                        for (index, entry) in results.iter().enumerate() {
+                            if index > 0 {
+                                markdown.push_str("\n\n---\n\n");
+                            }
+                            markdown.push_str("### Checkpoint\n");
+                            markdown.push_str(entry["content"].as_str().unwrap_or(""));
+                            markdown.push_str("\n\nMetadata:\n");
+                            markdown.push_str(&entry["metadata"].to_string());
+                            markdown.push_str("\n\nCreated At: ");
+                            markdown.push_str(entry["created_at"].as_str().unwrap_or(""));
+                        }
+                        Ok(CallToolResult::success(vec![Content::text(markdown)]))
+                    }
+                    other => Err(McpError::invalid_params(
+                        format!("unknown checkpoint_action: {other} (expected save|resume)"),
+                        None,
+                    )),
+                }
+            }
+            "remind" => {
+                let sub = req.remind_action.as_deref().unwrap_or("set");
+                match sub {
+                    "set" => {
+                        let text = req.text.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "text is required for remind_action=set",
+                                None,
+                            )
+                        })?;
+                        let duration = req.duration.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "duration is required for remind_action=set",
+                                None,
+                            )
+                        })?;
+                        let result = <SqliteStorage as ReminderManager>::create_reminder(
+                            &self.storage,
+                            text,
+                            duration,
+                            req.context.as_deref(),
+                            req.session_id.as_deref(),
+                            req.project.as_deref(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to create reminder: {e}"),
+                                None,
+                            )
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "list" => {
+                        let result = <SqliteStorage as ReminderManager>::list_reminders(
+                            &self.storage,
+                            req.status.as_deref(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to list reminders: {e}"),
+                                None,
+                            )
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "results": result }).to_string(),
+                        )]))
+                    }
+                    "dismiss" => {
+                        let reminder_id = req.reminder_id.as_deref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "reminder_id is required for remind_action=dismiss",
+                                None,
+                            )
+                        })?;
+                        let result = <SqliteStorage as ReminderManager>::dismiss_reminder(
+                            &self.storage,
+                            reminder_id,
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to dismiss reminder: {e}"),
+                                None,
+                            )
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    _ => Err(McpError::invalid_params(
+                        "remind_action must be one of: set, list, dismiss",
+                        None,
+                    )),
+                }
+            }
+            "lessons" => {
+                let limit = req.limit.unwrap_or(5).min(MAX_RESULT_LIMIT);
+                let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
+                    &self.storage,
+                    req.task.as_deref(),
+                    req.project.as_deref(),
+                    req.exclude_session.as_deref(),
+                    req.agent_type.as_deref(),
+                    limit,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to query lessons: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "results": lessons }).to_string(),
+                )]))
+            }
+            "profile" => {
+                let sub = req.profile_action.as_deref().unwrap_or("read");
+                match sub {
+                    "read" => {
+                        let profile = <SqliteStorage as ProfileManager>::get_profile(&self.storage)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(
+                                    format!("failed to read profile: {e}"),
+                                    None,
+                                )
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(profile.to_string())]))
+                    }
+                    "update" => {
+                        let updates = req.update.as_ref().ok_or_else(|| {
+                            McpError::invalid_params(
+                                "update payload is required for profile_action=update",
+                                None,
+                            )
+                        })?;
+                        <SqliteStorage as ProfileManager>::set_profile(&self.storage, updates)
+                            .await
+                            .map_err(|e| {
+                                McpError::internal_error(
+                                    format!("failed to update profile: {e}"),
+                                    None,
+                                )
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "updated": true }).to_string(),
+                        )]))
+                    }
+                    _ => Err(McpError::invalid_params(
+                        "profile_action must be one of: read, update",
+                        None,
+                    )),
+                }
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown action: {other} (expected info|checkpoint|remind|lessons|profile)"),
+                None,
+            )),
+        }
+    }
+
+    #[tool(
+        name = "memory_admin",
+        description = "Unified admin facade (Wave 2). Routes to list/health/export/import based on `action` field (default: \"list\"). Use list_limit and list_event_type for the list action to avoid ambiguity with health parameters."
+    )]
+    async fn memory_admin(
+        &self,
+        params: Parameters<MemoryAdminFacadeRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("list");
+        let req = &params.0;
+
+        match action {
+            "list" => {
+                if let Some(event_type) = req.list_event_type.as_deref()
+                    && !is_valid_event_type(event_type)
+                {
+                    return Err(McpError::invalid_params("invalid event_type", None));
+                }
+                let sort = req.sort.as_deref().unwrap_or("created");
+                let limit = req.list_limit.unwrap_or(10).min(MAX_RESULT_LIMIT);
+                if let Some(v) = req.importance_min {
+                    require_finite("importance_min", v)?;
+                }
+                let opts = SearchOptions {
+                    event_type: EventType::from_optional(req.list_event_type.as_deref()),
+                    project: req.project.clone(),
+                    session_id: req.session_id.clone(),
+                    include_superseded: req.include_superseded,
+                    event_after: req.event_after.clone(),
+                    event_before: req.event_before.clone(),
+                    importance_min: req.importance_min,
+                    created_after: req.created_after.clone(),
+                    created_before: req.created_before.clone(),
+                    context_tags: req.context_tags.clone(),
+                    ..Default::default()
+                };
+                match sort {
+                    "created" => {
+                        let offset = req.offset.unwrap_or(0);
+                        let result =
+                            self.storage.list(offset, limit, &opts).await.map_err(|e| {
+                                McpError::internal_error(
+                                    format!("failed to list memories: {e}"),
+                                    None,
+                                )
+                            })?;
+                        let payload = serialize_results(result.memories)?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "results": payload, "total": result.total }).to_string(),
+                        )]))
+                    }
+                    "recent" => {
+                        let results = self.storage.recent(limit, &opts).await.map_err(|e| {
+                            McpError::internal_error(format!("failed to list recents: {e}"), None)
+                        })?;
+                        let payload = serialize_results(results)?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "results": payload }).to_string(),
+                        )]))
+                    }
+                    other => Err(McpError::invalid_params(
+                        format!("unknown sort: {other} (expected created|recent)"),
+                        None,
+                    )),
+                }
+            }
+            "health" => {
+                let detail = req.detail.as_deref().unwrap_or("basic");
+                match detail {
+                    "basic" => {
+                        self.storage.stats().await.map_err(|e| {
+                            McpError::internal_error(format!("storage probe failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            json!({ "status": "healthy" }).to_string(),
+                        )]))
+                    }
+                    "stats" => {
+                        let stats = self.storage.stats().await.map_err(|e| {
+                            McpError::internal_error(format!("failed to get stats: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::to_string(&stats).map_err(|e| {
+                                McpError::internal_error(
+                                    format!("failed to serialize stats: {e}"),
+                                    None,
+                                )
+                            })?,
+                        )]))
+                    }
+                    "types" => {
+                        let result = self.storage.type_stats().await.map_err(|e| {
+                            McpError::internal_error(format!("type_stats failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "sessions" => {
+                        let result = self.storage.session_stats().await.map_err(|e| {
+                            McpError::internal_error(format!("session_stats failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "digest" => {
+                        let days = req.days.unwrap_or(7).min(365);
+                        let result = self.storage.weekly_digest(days).await.map_err(|e| {
+                            McpError::internal_error(format!("weekly_digest failed: {e}"), None)
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    "access_rate" => {
+                        let result = self.storage.access_rate_stats().await.map_err(|e| {
+                            McpError::internal_error(
+                                format!("access_rate_stats failed: {e}"),
+                                None,
+                            )
+                        })?;
+                        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+                    }
+                    other => Err(McpError::invalid_params(
+                        format!("unknown detail level: {other} (expected basic|stats|types|sessions|digest|access_rate)"),
+                        None,
+                    )),
+                }
+            }
+            "export" => {
+                let export_data = self.storage.export_all().await.map_err(|e| {
+                    McpError::internal_error(format!("failed to export: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(export_data)]))
+            }
+            "import" => {
+                let data = req.data.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("data is required for action=import", None)
+                })?;
+                let count = self.storage.import_all(data).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to import: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "imported_memories": count.0, "imported_relationships": count.1 })
+                        .to_string(),
+                )]))
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown action: {other} (expected list|health|export|import)"),
+                None,
+            )),
+        }
+    }
 }
 
 #[tool_handler]
@@ -1762,7 +2639,7 @@ mod tests {
     fn tool_registry_has_expected_count() {
         assert_eq!(
             TOOL_REGISTRY.len(),
-            17,
+            19,
             "TOOL_REGISTRY length changed — update the expected count and verify all tools are listed"
         );
     }
