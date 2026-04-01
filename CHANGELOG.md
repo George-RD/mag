@@ -5,6 +5,21 @@ Notable changes to MAG. Format follows [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-01
+
+### Added
+- 3 unified MCP facade tools (`memory`, `memory_recall`, `memory_admin`) replacing 16 individual tools (#175)
+- `--mcp-tools full|minimal` flag for tool mode selection (#175)
+- Token-budgeted `welcome_scoped()` with 4-tier priority injection (#174, #176)
+- `Hit@1/Hit@3/Hit@5` metrics in LoCoMo benchmark (#170)
+- `UserPreference` dedup threshold + schema migration (#173)
+- `--budget-tokens` flags in hook scripts (#177)
+
+### Fixed
+- `welcome_scoped` project guard and `memory_admin` default doc mismatch (#180)
+
+## [0.1.4]
+
 ### Added
 - `mag setup` CLI wizard — auto-detects installed AI tools and writes MCP configs (#106-109, #112-113)
 - Daemon mode — `mag serve` with HTTP transport for persistent access (#97-104)
@@ -36,5 +51,7 @@ Notable changes to MAG. Format follows [Keep a Changelog](https://keepachangelog
 
 Initial public release on crates.io, npm, and PyPI.
 
-[Unreleased]: https://github.com/George-RD/mag/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/George-RD/mag/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/George-RD/mag/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/George-RD/mag/compare/v0.1.2...v0.1.4
 [0.1.2]: https://github.com/George-RD/mag/releases/tag/v0.1.2
