@@ -129,6 +129,12 @@ pub(crate) struct CategoryResult {
     pub correct: usize,
     pub f1_sum: f64,
     pub evidence_recall_sum: f64,
+    /// Number of questions where at least one gold dia_id appears in top-1 results.
+    pub hit_at_1: usize,
+    /// Number of questions where at least one gold dia_id appears in top-3 results.
+    pub hit_at_3: usize,
+    /// Number of questions where at least one gold dia_id appears in top-5 results.
+    pub hit_at_5: usize,
     pub details: Vec<String>,
 }
 
@@ -149,6 +155,12 @@ pub(crate) struct LoCoMoSummary {
     pub raw_percentage: f64,
     pub mean_f1: f64,
     pub mean_evidence_recall: f64,
+    /// Fraction of questions with a gold dia_id in top-1 retrieved results.
+    pub hit_at_1: f64,
+    /// Fraction of questions with a gold dia_id in top-3 retrieved results.
+    pub hit_at_3: f64,
+    /// Fraction of questions with a gold dia_id in top-5 retrieved results.
+    pub hit_at_5: f64,
     pub categories: BTreeMap<String, CategoryResult>,
     pub embedder_name: String,
     pub total_seed_ms: u64,

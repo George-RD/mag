@@ -135,6 +135,9 @@ pub(crate) fn print_results(summary: &LoCoMoSummary) {
         "  MEAN EV. RECALL:  {:.1}%",
         summary.mean_evidence_recall * 100.0
     );
+    println!("  HIT@1:            {:.1}%", summary.hit_at_1 * 100.0);
+    println!("  HIT@3:            {:.1}%", summary.hit_at_3 * 100.0);
+    println!("  HIT@5:            {:.1}%", summary.hit_at_5 * 100.0);
     println!("------------------------------------------------------------------------");
 }
 
@@ -144,6 +147,9 @@ pub(crate) fn record_result(
     passed: bool,
     f1: f64,
     evidence_recall: f64,
+    h1: bool,
+    h3: bool,
+    h5: bool,
     detail: Option<String>,
 ) {
     let entry = by_category.entry(category.to_string()).or_default();
@@ -153,6 +159,15 @@ pub(crate) fn record_result(
     }
     entry.f1_sum += f1;
     entry.evidence_recall_sum += evidence_recall;
+    if h1 {
+        entry.hit_at_1 += 1;
+    }
+    if h3 {
+        entry.hit_at_3 += 1;
+    }
+    if h5 {
+        entry.hit_at_5 += 1;
+    }
     if let Some(line) = detail {
         entry.details.push(line);
     }

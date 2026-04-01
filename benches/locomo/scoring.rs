@@ -170,6 +170,20 @@ pub(crate) fn evidence_recall(hits: &[RetrievalHit], expected_dia_ids: &[String]
     }
 }
 
+// ── Hit@K ───────────────────────────────────────────────────────────────
+
+/// Returns true if any of the top-k retrieved results' dia_id matches any
+/// gold evidence dia_id.  No evidence required = trivially true (skip counting).
+pub(crate) fn hit_at_k(hits: &[RetrievalHit], gold_dia_ids: &[String], k: usize) -> bool {
+    if gold_dia_ids.is_empty() {
+        return true; // No evidence required — treat as hit.
+    }
+    hits.iter()
+        .take(k)
+        .filter_map(|hit| hit.dia_id())
+        .any(|id| gold_dia_ids.iter().any(|g| g == id))
+}
+
 // ── Substring match (backward compat) ───────────────────────────────────
 
 pub(crate) fn substring_match(hits: &[RetrievalHit], expected: &str) -> bool {

@@ -521,6 +521,9 @@ fn main() -> Result<()> {
     let mut total_correct = 0usize;
     let mut total_f1_sum = 0.0f64;
     let mut total_evidence_recall_sum = 0.0f64;
+    let mut total_hit_at_1 = 0usize;
+    let mut total_hit_at_3 = 0usize;
+    let mut total_hit_at_5 = 0usize;
     let mut categories = BTreeMap::new();
     let mut samples_evaluated = 0usize;
     let total_question_count = args
@@ -642,6 +645,11 @@ fn main() -> Result<()> {
             // Evidence recall.
             let ev_recall = scoring::evidence_recall(&hits, &qa.evidence);
 
+            // Hit@K: does any gold dia_id appear in the top-K results?
+            let h1 = scoring::hit_at_k(&hits, &qa.evidence, 1);
+            let h3 = scoring::hit_at_k(&hits, &qa.evidence, 3);
+            let h5 = scoring::hit_at_k(&hits, &qa.evidence, 5);
+
             // Primary score: depends on the chosen scoring mode.
             let is_adversarial = category == "adversarial";
             let (f1, _actual_text) = match scoring_mode {
@@ -741,6 +749,15 @@ fn main() -> Result<()> {
             if substr_passed {
                 total_correct += 1;
             }
+            if h1 {
+                total_hit_at_1 += 1;
+            }
+            if h3 {
+                total_hit_at_3 += 1;
+            }
+            if h5 {
+                total_hit_at_5 += 1;
+            }
 
             let detail = if args.verbose {
                 let status = if substr_passed { "PASS" } else { "FAIL" };
@@ -761,6 +778,9 @@ fn main() -> Result<()> {
                 substr_passed,
                 f1,
                 ev_recall,
+                h1,
+                h3,
+                h5,
                 detail,
             );
 
@@ -808,6 +828,24 @@ fn main() -> Result<()> {
     } else {
         total_evidence_recall_sum / total_queries as f64
     };
+    #[allow(clippy::cast_precision_loss)]
+    let mean_hit_at_1 = if total_queries == 0 {
+        0.0
+    } else {
+        total_hit_at_1 as f64 / total_queries as f64
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let mean_hit_at_3 = if total_queries == 0 {
+        0.0
+    } else {
+        total_hit_at_3 as f64 / total_queries as f64
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let mean_hit_at_5 = if total_queries == 0 {
+        0.0
+    } else {
+        total_hit_at_5 as f64 / total_queries as f64
+    };
 
     let scoring_label = match scoring_mode {
         ScoringMode::Substring => "substring",
@@ -835,6 +873,9 @@ fn main() -> Result<()> {
         raw_percentage: pct(total_correct, total_queries),
         mean_f1,
         mean_evidence_recall,
+        hit_at_1: mean_hit_at_1,
+        hit_at_3: mean_hit_at_3,
+        hit_at_5: mean_hit_at_5,
         categories,
         embedder_name,
         total_seed_ms: total_seed_ms_u64,

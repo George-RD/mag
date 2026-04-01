@@ -3,7 +3,7 @@ use async_trait::async_trait;
 
 use super::domain::{
     BackupInfo, CheckpointInput, GraphNode, ListResult, MemoryInput, MemoryUpdate, Relationship,
-    SearchOptions, SearchResult, SemanticResult,
+    SearchOptions, SearchResult, SemanticResult, WelcomeOptions,
 };
 
 /// Trait for ingesting raw content into the memory system.
@@ -247,6 +247,13 @@ pub trait WelcomeProvider: Send + Sync {
         session_id: Option<&str>,
         project: Option<&str>,
     ) -> Result<serde_json::Value>;
+
+    /// Generate a scoped welcome briefing using structured options.
+    /// Default implementation delegates to `welcome()` using session_id and project fields.
+    async fn welcome_scoped(&self, opts: &WelcomeOptions) -> Result<serde_json::Value> {
+        self.welcome(opts.session_id.as_deref(), opts.project.as_deref())
+            .await
+    }
 }
 
 /// Manages database backup, rotation, and restore.
