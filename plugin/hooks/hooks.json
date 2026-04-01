@@ -33,6 +33,18 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/commit-capture.sh",
+            "timeout": 4000
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "*",
