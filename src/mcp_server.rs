@@ -665,10 +665,10 @@ struct MemorySessionRequest {
 }
 
 /// Unified facade for list / health / export / import.
-/// Routes based on `action` (default: "list").
+/// Routes based on `action` (default: "health").
 #[derive(Debug, Deserialize, JsonSchema)]
 struct MemoryAdminFacadeRequest {
-    /// Action: "list" (default), "health", "export", "import".
+    /// Action: "health" (default), "list", "export", "import".
     action: Option<String>,
     // ── list fields ──
     /// Sort order: "created" (default) or "recent".

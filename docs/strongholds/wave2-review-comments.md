@@ -1,6 +1,6 @@
 # Wave 2 — Review Comments Stronghold
 
-## Status: in-progress
+## Status: complete (PR #180)
 
 Compiled from CodeRabbit + human reviews on PRs #174-#179 (2026-04-01).
 
@@ -11,30 +11,30 @@ Compiled from CodeRabbit + human reviews on PRs #174-#179 (2026-04-01).
 ### 1. PR #176 — `has_scope` guard bug (REAL BUG)
 - **File**: `src/memory_core/storage/sqlite/admin.rs` (welcome_scoped impl)
 - **Issue**: The `has_scope` guard omits `project`, so callers passing only `project=Some(...)` with no budget fall through to the 200-entry budgeted path instead of the lean `welcome()` fast-path.
-- **Fix**: Add `opts.project.is_some()` to the scope check.
+- **Fix**: Opposite of what CodeRabbit suggested — `project` was already IN the guard, but should be REMOVED since `welcome()` already handles project filtering. Renamed guard to `has_extra_scope`.
 - **Severity**: Medium — correctness bug, performance impact on project-only queries.
-- **Status**: OPEN
+- **Status**: FIXED in PR #180
 
 ### 2. PR #176 — Tier order substring matching (BRITTLE)
 - **File**: `src/memory_core/storage/sqlite/admin.rs`
 - **Issue**: Tier order clause derived by substring matching on SQL strings — brittle and fragile.
-- **Fix**: Add an explicit `order_clause` field to the tier tuple.
+- **Fix**: Already resolved — code uses explicit `Tier` struct with `order` field (not substring matching).
 - **Severity**: Low — design smell, not a runtime bug.
-- **Status**: OPEN
+- **Status**: NOT A BUG (already uses struct)
 
 ### 3. PR #176 — Misleading greedy-fit comment (COMMENT/CODE MISMATCH)
 - **File**: `src/memory_core/storage/sqlite/admin.rs`
 - **Issue**: Comment says "try smaller entries later" but code `break`s immediately when token budget is exceeded.
-- **Fix**: Either implement greedy-fit (`continue` instead of `break`) or fix the misleading comment.
-- **Severity**: Low — misleading docs, not a runtime bug unless greedy-fit is desired.
-- **Status**: OPEN
+- **Fix**: Misleading comment already removed. `break` is correct: entries within a tier have constant `cap_chars`, so if one doesn't fit, later ones won't either.
+- **Severity**: Low — was misleading docs, already resolved.
+- **Status**: NOT A BUG (comment removed, break behavior is correct)
 
 ### 4. PR #179 — Test gap for `mcp_tools` default (BLOCKING PR MERGE)
 - **File**: `src/cli.rs:1101-1103`
 - **Issue**: Test uses `{ cross_encoder, .. }` hiding the new `mcp_tools` field — no assertion on default value.
 - **Fix**: Explicitly destructure `mcp_tools` and add `assert_eq!`.
 - **Severity**: Medium — missing test coverage for new feature flag.
-- **Status**: Assigned to rustfmt-fixer agent
+- **Status**: FIXED in PR #179 (mcp_tools now explicitly destructured and asserted)
 
 ---
 
@@ -43,7 +43,7 @@ Compiled from CodeRabbit + human reviews on PRs #174-#179 (2026-04-01).
 - PR #174: WelcomeOptions struct + trait method — **zero automated review**
 - PR #175: Unified memory facade tool — **zero automated review**
 
-These may need manual review during Gate 2 (/dg).
+Manually reviewed during Gate 2 (/dg) in PR #180. Both clean — no issues found.
 
 ---
 
