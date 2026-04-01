@@ -167,6 +167,7 @@ impl EventType {
             EventType::Decision => Some(0.80),
             EventType::LessonLearned => Some(0.85),
             EventType::UserFact => Some(0.85),
+            EventType::UserPreference => Some(0.75),
             _ => None,
         }
     }
@@ -198,6 +199,7 @@ impl EventType {
             EventType::Decision,
             EventType::LessonLearned,
             EventType::UserFact,
+            EventType::UserPreference,
         ]
     }
 }

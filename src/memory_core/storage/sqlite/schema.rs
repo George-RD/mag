@@ -221,6 +221,15 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         }
     }
 
+    // --- v6: last_confirmed_at column for UserPreference dedup ---
+    if current < 6 {
+        let _ = conn.execute_batch("ALTER TABLE memories ADD COLUMN last_confirmed_at TEXT");
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (6)",
+            [],
+        )?;
+    }
+
     #[cfg(not(feature = "sqlite-vec"))]
     let _ = embedding_dim;
 
