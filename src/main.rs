@@ -11,7 +11,8 @@ use memory_core::{
     EventType, ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister,
     MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
     ProfileManager, RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder,
-    StatsProvider, Updater, VersionChainQuerier, WelcomeProvider, is_valid_event_type,
+    StatsProvider, Updater, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
+    is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -904,13 +905,19 @@ async fn main() -> anyhow::Result<()> {
         Commands::Welcome {
             session_id,
             project,
+            budget_tokens,
+            agent_type,
+            entity_id,
         } => {
-            let result = <SqliteStorage as WelcomeProvider>::welcome(
-                &mcp_storage,
-                session_id.as_deref(),
-                project.as_deref(),
-            )
-            .await?;
+            let opts = WelcomeOptions {
+                session_id: session_id.clone(),
+                project: project.clone(),
+                budget_tokens: *budget_tokens,
+                agent_type: agent_type.clone(),
+                entity_id: entity_id.clone(),
+            };
+            let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(&mcp_storage, &opts)
+                .await?;
             println!("{result}");
         }
         Commands::Protocol { section: _ } => {

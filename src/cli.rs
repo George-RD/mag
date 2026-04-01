@@ -1184,6 +1184,7 @@ mod tests {
             Commands::Welcome {
                 session_id,
                 project,
+                ..
             } => {
                 assert_eq!(session_id.as_deref(), Some("s1"));
                 assert_eq!(project.as_deref(), Some("proj"));

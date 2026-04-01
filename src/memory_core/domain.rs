@@ -401,6 +401,15 @@ pub struct SearchOptions {
     pub explain: Option<bool>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct WelcomeOptions {
+    pub session_id: Option<String>,
+    pub project: Option<String>,
+    pub agent_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub budget_tokens: Option<usize>,
+}
+
 #[derive(Debug, Clone)]
 pub struct CheckpointInput {
     pub task_title: String,
