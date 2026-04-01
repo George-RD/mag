@@ -12,4 +12,4 @@ mkdir -p "$HOME/.mag"
 printf '%s session_start project=%s session=%s\n' \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$SESSION_ID" >> "$LOG" 2>/dev/null || true
 
-mag welcome --project "$PROJECT" --session-id "$SESSION_ID" 2>/dev/null || true
+mag welcome --project "$PROJECT" --session-id "$SESSION_ID" --budget-tokens 2000 2>/dev/null || true
