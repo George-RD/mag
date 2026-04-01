@@ -8,11 +8,11 @@ read -r PROMPT || true
 # Check for memory-relevant signals
 case "$PROMPT" in
   *remember*|*"don't forget"*|*"store this"*|*"note that"*|*"save this"*)
-    echo '{"additionalContext":"<MAG_HINT>User wants to store something. Consider using mag memory_store.</MAG_HINT>"}'
+    echo '{"additionalContext":"<MAG_HINT>User wants to store something. Use: mag process \"content\" --event-type TYPE --project PROJECT --importance 0.8</MAG_HINT>"}'
     exit 0
     ;;
   *"last time"*|*previously*|*"we discussed"*|*"what did we"*|*"we decided"*|*recall*)
-    echo '{"additionalContext":"<MAG_HINT>User references prior context. Consider using mag memory_search.</MAG_HINT>"}'
+    echo '{"additionalContext":"<MAG_HINT>User references prior context. Use: mag advanced-search \"query\" --project PROJECT --limit 10</MAG_HINT>"}'
     exit 0
     ;;
   *checkpoint*|*handoff*|*"wrap up"*|*"pick up where"*)
