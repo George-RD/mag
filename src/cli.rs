@@ -323,6 +323,12 @@ pub enum Commands {
         session_id: Option<String>,
         #[arg(long)]
         project: Option<String>,
+        #[arg(long)]
+        budget_tokens: Option<usize>,
+        #[arg(long)]
+        agent_type: Option<String>,
+        #[arg(long)]
+        entity_id: Option<String>,
     },
     /// Show available tools and operational guidelines.
     Protocol {

@@ -41,6 +41,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/commit-capture.sh",
             "timeout": 4000
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/error-capture.sh",
+            "timeout": 4000
           }
         ]
       }
