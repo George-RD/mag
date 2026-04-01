@@ -1,5 +1,4 @@
 # MAG Benchmark Results
-<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
 
 Latest benchmark runs. Updated automatically by `./scripts/bench.sh`.
 
@@ -39,3 +38,4 @@ See `docs/benchmarks/benchmark_log.csv` for full history.
 | 2026-03-19 | bge-small-en-v1.5-xenova-int8 | 91.1 | 87.6 | 91.5 | 75.6 | 94.0 | 90.9 | 90.2 | 7.0 |
 | 2026-03-23 | onnx-bge-small | 90.1 | 86.9 | 85.0 | 56.2 | 95.7 | 92.6 | 92.0 | 5.1 |
 | 2026-03-23 | all-MiniLM-L6-v2-int8 | 90.0 | 86.8 | 84.8 | 57.2 | 95.3 | 92.8 | 90.8 | 8.9 |
+| 2026-04-01 | onnx-bge-small | 91.5 | 87.1 | 91.5 | 75.6 | 94.3 | 92.7 | 90.9 | 4.9 |
