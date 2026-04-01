@@ -23,4 +23,4 @@ Use MAG CLI commands via Bash:
 
 - Do not announce memory operations. Weave recalled context naturally.
 - Do not store secrets, credentials, or large code blocks.
-- Store signal, not noise. If memory_search returns nothing, do not mention it.
+- Store signal, not noise. If a memory search returns nothing, do not mention it.

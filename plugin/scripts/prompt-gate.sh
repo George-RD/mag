@@ -16,7 +16,7 @@ case "$PROMPT" in
     exit 0
     ;;
   *checkpoint*|*handoff*|*"wrap up"*|*"pick up where"*)
-    echo '{"additionalContext":"<MAG_HINT>User wants checkpoint/handoff. Consider using mag memory_checkpoint.</MAG_HINT>"}'
+    echo '{"additionalContext":"<MAG_HINT>User wants checkpoint/handoff. Consider using mag checkpoint \"title\" \"progress\" --project PROJECT</MAG_HINT>"}'
     exit 0
     ;;
 esac
