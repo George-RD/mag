@@ -86,7 +86,12 @@ MAG works best with the CLI + hooks plugin, which provides automatic memory\n\
 at session start/end, after compaction, and on every prompt — no manual tool calls needed.\n\
 If this is a coding environment (Claude Code, Cursor, etc.), mention this once per session:\n\
   \"Tip: install the MAG plugin for automatic memory. Run: mag setup --plugin\"\n\
-Do not repeat after the first mention.\
+Do not repeat after the first mention.\n\
+\n\
+## 999 — UNIFIED TOOL PREVIEW (Wave 2)\n\
+A single `memory` tool now wraps store/store_batch/retrieve/delete via an `action` field.\n\
+This is a spike running alongside all 16 existing tools — both interfaces work.\n\
+Future sessions may prefer `memory` for reduced tool-list noise.\
 ";
 
 // ──────────────────────── Tool Registry ────────────────────────
@@ -102,6 +107,11 @@ pub struct ToolMeta {
 /// tool names, summaries, and categories. Keep in sync with `#[tool(...)]` attrs.
 pub const TOOL_REGISTRY: &[ToolMeta] = &[
     // Storage & Retrieval
+    ToolMeta {
+        name: "memory",
+        summary: "Unified facade (Wave 2 preview): store/store_batch/retrieve/delete via action field",
+        category: "Storage & Retrieval",
+    },
     ToolMeta {
         name: "memory_store",
         summary: "Store new memory content with tags, importance, metadata",
@@ -513,6 +523,32 @@ struct SessionInfoRequest {
 struct ProfileRequest {
     action: Option<String>,
     update: Option<serde_json::Value>,
+}
+
+/// Unified facade request — routes to store / store_batch / retrieve / delete
+/// based on `action` (default: "store").  Preview tool for Wave 2 MCP collapse.
+#[derive(Debug, Deserialize, JsonSchema)]
+struct MemoryRequest {
+    /// Action to perform: "store" (default), "store_batch", "retrieve", "delete".
+    action: Option<String>,
+    // ── store fields (all optional; required only for action=store) ──
+    content: Option<String>,
+    id: Option<String>,
+    tags: Option<Vec<String>>,
+    importance: Option<f64>,
+    metadata: Option<serde_json::Value>,
+    event_type: Option<String>,
+    session_id: Option<String>,
+    project: Option<String>,
+    priority: Option<i32>,
+    entity_id: Option<String>,
+    agent_type: Option<String>,
+    ttl_seconds: Option<i64>,
+    /// ISO 8601 timestamp for when the event actually occurred (overrides default event_at).
+    referenced_date: Option<String>,
+    // ── store_batch fields ──
+    /// Items for action=store_batch.
+    items: Option<Vec<StoreRequest>>,
 }
 
 // ──────────────────────── Tool implementations ────────────────────────
@@ -1605,6 +1641,104 @@ impl McpMemoryServer {
             )),
         }
     }
+
+    #[tool(
+        name = "memory",
+        description = "Unified memory facade (Wave 2 preview). Routes to store/store_batch/retrieve/delete based on `action` field (default: \"store\"). Use this single tool instead of the four individual tools when you prefer a collapsed interface."
+    )]
+    async fn memory(
+        &self,
+        params: Parameters<MemoryRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("store");
+
+        match action {
+            "store" => {
+                let content = params.0.content.as_ref().ok_or_else(|| {
+                    McpError::invalid_params("content is required for action=store", None)
+                })?;
+                let store_req = StoreRequest {
+                    content: content.clone(),
+                    id: params.0.id.clone(),
+                    tags: params.0.tags.clone(),
+                    importance: params.0.importance,
+                    metadata: params.0.metadata.clone(),
+                    event_type: params.0.event_type.clone(),
+                    session_id: params.0.session_id.clone(),
+                    project: params.0.project.clone(),
+                    priority: params.0.priority,
+                    entity_id: params.0.entity_id.clone(),
+                    agent_type: params.0.agent_type.clone(),
+                    ttl_seconds: params.0.ttl_seconds,
+                    referenced_date: params.0.referenced_date.clone(),
+                };
+                let (id, input) = build_memory_input(&store_req)?;
+                <SqliteStorage as Storage>::store(&self.storage, &id, content, &input)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to store memory: {e}"), None)
+                    })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "id": id }).to_string(),
+                )]))
+            }
+            "store_batch" => {
+                let items = params.0.items.as_ref().ok_or_else(|| {
+                    McpError::invalid_params("items is required for action=store_batch", None)
+                })?;
+                if items.len() > MAX_BATCH_SIZE {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "batch size {} exceeds maximum of {MAX_BATCH_SIZE}",
+                            items.len()
+                        ),
+                        None,
+                    ));
+                }
+                let mut batch_items = Vec::with_capacity(items.len());
+                for item in items {
+                    let (id, input) = build_memory_input(item)?;
+                    batch_items.push((id, item.content.clone(), input));
+                }
+                self.storage
+                    .store_batch(&batch_items)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("failed to batch store: {e}"), None)
+                    })?;
+                let ids: Vec<&str> = batch_items.iter().map(|(id, _, _)| id.as_str()).collect();
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "ids": ids, "count": ids.len() }).to_string(),
+                )]))
+            }
+            "retrieve" => {
+                let id = params.0.id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("id is required for action=retrieve", None)
+                })?;
+                let content = self.storage.retrieve(id).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to retrieve memory: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "id": id, "content": content }).to_string(),
+                )]))
+            }
+            "delete" => {
+                let id = params.0.id.as_deref().ok_or_else(|| {
+                    McpError::invalid_params("id is required for action=delete", None)
+                })?;
+                let deleted = self.storage.delete(id).await.map_err(|e| {
+                    McpError::internal_error(format!("failed to delete memory: {e}"), None)
+                })?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    json!({ "id": id, "deleted": deleted }).to_string(),
+                )]))
+            }
+            other => Err(McpError::invalid_params(
+                format!("unknown action: {other} (expected store|store_batch|retrieve|delete)"),
+                None,
+            )),
+        }
+    }
 }
 
 #[tool_handler]
@@ -1628,7 +1762,7 @@ mod tests {
     fn tool_registry_has_expected_count() {
         assert_eq!(
             TOOL_REGISTRY.len(),
-            16,
+            17,
             "TOOL_REGISTRY length changed — update the expected count and verify all tools are listed"
         );
     }
