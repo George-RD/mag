@@ -32,14 +32,18 @@ jobs:
           fetch-depth: 0
 
       - name: Create tag if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.tag }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
+          SHA="$(git rev-parse HEAD)"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
             echo "Tag $TAG already exists"
           else
-            echo "Creating tag $TAG on HEAD"
-            git tag -a "$TAG" -m "$TAG"
-            git push origin "$TAG"
+            echo "Creating lightweight tag $TAG on $SHA"
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="$SHA"
           fi
 
   build:
