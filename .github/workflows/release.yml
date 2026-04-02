@@ -32,14 +32,22 @@ jobs:
           fetch-depth: 0
 
       - name: Create tag if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.tag }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
+          if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG#v}" >/dev/null 2>&1; then
             echo "Tag $TAG already exists"
           else
-            echo "Creating tag $TAG on HEAD"
-            git tag -a "$TAG" -m "$TAG"
-            git push origin "$TAG"
+            echo "Creating tag $TAG on $(git rev-parse HEAD)"
+            gh api "repos/${{ github.repository }}/git/tags" \
+              -f tag="$TAG" \
+              -f message="$TAG" \
+              -f object="$(git rev-parse HEAD)" \
+              -f type="commit"
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="$(git rev-parse HEAD)"
           fi
 
   build:
