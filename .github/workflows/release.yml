@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.3). Must match an existing git tag."
+        description: "Release tag (e.g. v0.1.5). Creates the tag on HEAD if it doesn't exist."
         required: true
         type: string
 
@@ -22,8 +22,30 @@ env:
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
+  ensure-tag:
+    name: Ensure tag exists
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create tag if missing
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+          else
+            echo "Creating tag $TAG on HEAD"
+            git tag -a "$TAG" -m "$TAG"
+            git push origin "$TAG"
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: [ensure-tag]
+    if: ${{ always() && (needs.ensure-tag.result == 'success' || needs.ensure-tag.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
