@@ -185,4 +185,9 @@ This repo uses jj (Jujutsu) in colocated mode.
 
 ### Codex (OpenAI)
 
-<!-- Add Codex-specific guidance here as needed -->
+- Codex reads `AGENTS.md` for project-level instructions — this file is automatically discovered
+- MCP config lives in `~/.codex/config.toml` under `[mcp_servers.mag]`
+- Hooks require `[features] codex_hooks = true` in config.toml; hook scripts at `~/.mag/hooks/codex/`
+- Hooks use JSON stdin/stdout protocol (not environment variables like Claude Code)
+- `mag setup` auto-configures both the MCP entry and lifecycle hooks
+- Project-scoped config supported at `.codex/config.toml` in the project root

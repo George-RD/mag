@@ -62,7 +62,7 @@ That's it. One command to install, one to store, one to recall. The installer au
 | Cline | ✅ | ✅ | `mag setup` |
 | Gemini CLI | ✅ | ✅ | `mag setup` |
 | Zed | ✅ | ✅ | Manual |
-| Codex (OpenAI) | ✅ | ✅ | Manual |
+| Codex (OpenAI) | ✅ | ✅ | `mag setup` |
 
 Any tool that supports MCP can connect to MAG. Windows is untested - [report your results](https://github.com/George-RD/mag/issues).
 
