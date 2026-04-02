@@ -446,8 +446,11 @@ fn project_config_paths(tool: AiTool, project_root: &Path) -> Vec<PathBuf> {
         AiTool::GeminiCli => {
             vec![project_root.join(".gemini/settings.json")]
         }
+        AiTool::Codex => {
+            vec![project_root.join(".codex/config.toml")]
+        }
         // These tools have no project-level config
-        AiTool::ClaudeDesktop | AiTool::Cline | AiTool::Codex => vec![],
+        AiTool::ClaudeDesktop | AiTool::Cline => vec![],
     }
 }
 

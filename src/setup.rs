@@ -265,6 +265,14 @@ fn configure_tools(tools: &[&DetectedTool], mode: TransportMode) -> Result<Confi
                     tracing::debug!(tool = %name, backup = %bak.display(), "config backed up");
                 }
                 let _ = backup_path; // suppress unused warning
+
+                // Install Codex hooks alongside the MCP config
+                if tool.tool == tool_detection::AiTool::Codex
+                    && let Err(e) = config_writer::install_codex_hooks()
+                {
+                    tracing::warn!(error = %e, "failed to install Codex hooks");
+                }
+
                 summary.written.push(name);
             }
             Ok(ConfigWriteResult::AlreadyCurrent) => {
@@ -666,18 +674,27 @@ mod tests {
     }
 
     #[test]
-    fn configure_tools_codex_deferred() {
-        let dt = DetectedTool {
-            tool: AiTool::Codex,
-            config_path: PathBuf::from("/fake/codex/config.toml"),
-            scope: ConfigScope::Global,
-            mag_status: MagConfigStatus::NotConfigured,
-        };
+    fn configure_tools_codex_writes_config() {
+        with_temp_home(|home| {
+            let codex_dir = home.join(".codex");
+            std::fs::create_dir_all(&codex_dir).unwrap();
+            let config_path = codex_dir.join("config.toml");
+            std::fs::write(&config_path, "# existing config\n").unwrap();
 
-        let tools: Vec<&DetectedTool> = vec![&dt];
-        let summary = configure_tools(&tools, TransportMode::Command).unwrap();
+            let dt = DetectedTool {
+                tool: AiTool::Codex,
+                config_path,
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
 
-        assert_eq!(summary.deferred.len(), 1);
+            let tools: Vec<&DetectedTool> = vec![&dt];
+            let summary = configure_tools(&tools, TransportMode::Command).unwrap();
+
+            assert_eq!(summary.written.len(), 1);
+            assert_eq!(summary.written[0], "Codex");
+            assert!(summary.deferred.is_empty());
+        });
     }
 
     // -----------------------------------------------------------------------

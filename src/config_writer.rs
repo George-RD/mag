@@ -46,7 +46,8 @@ pub enum ConfigWriteResult {
     /// The tool's config format is not supported for writing in this version.
     UnsupportedFormat { reason: String },
     /// The tool's config write is deferred because serialization support is
-    /// not yet implemented (e.g., TOML for Codex).
+    /// not yet implemented for the tool's config format.
+    #[allow(dead_code)] // Retained for future tools; setup.rs handles it
     Deferred { tool: AiTool },
     /// MAG was installed as a Claude Code plugin via the marketplace.
     Plugin,
@@ -95,7 +96,7 @@ pub enum ConfigStatus {
 /// - Writes atomically via temp file + rename.
 /// - Returns `AlreadyCurrent` if no changes needed.
 /// - Returns `UnsupportedFormat` for Zed (JSONC).
-/// - Returns `Deferred` for Codex (TOML not yet implemented).
+/// - Writes TOML config for Codex (with `[mcp_servers.mag]` and hooks feature).
 pub fn write_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigWriteResult> {
     // Zed: always unsupported
     if tool.tool == AiTool::Zed {
@@ -104,9 +105,9 @@ pub fn write_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigWr
         });
     }
 
-    // Codex: TOML is deferred
+    // Codex: TOML config
     if tool.tool.config_format() == ConfigFormat::Toml {
-        return Ok(ConfigWriteResult::Deferred { tool: tool.tool });
+        return write_toml_config(&tool.config_path, mode);
     }
 
     // Check idempotency first
@@ -180,11 +181,9 @@ pub fn remove_config(tool: &DetectedTool) -> Result<RemoveResult> {
         });
     }
 
-    // Codex: also unsupported for now (TOML)
+    // Codex: TOML config removal
     if tool.tool.config_format() == ConfigFormat::Toml {
-        return Ok(RemoveResult::UnsupportedFormat {
-            reason: "Codex TOML config removal is not yet supported".into(),
-        });
+        return remove_toml_config(&tool.config_path);
     }
 
     let path = &tool.config_path;
@@ -571,6 +570,416 @@ fn libc_exdev() -> i32 {
     // EXDEV is 18 on Linux and macOS
     18
 }
+
+/// Writes the MAG MCP entry into a Codex TOML config file.
+///
+/// Uses string-based manipulation (no TOML parsing crate required):
+/// - Reads existing content or starts fresh.
+/// - Removes any existing `[mcp_servers.mag]` section.
+/// - Appends the new section.
+/// - Ensures `[features]` has `codex_hooks = true` for hook support.
+/// - Creates a `.mag.bak` backup before every write (when file exists).
+fn write_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigWriteResult> {
+    // Check idempotency first
+    if path.exists() {
+        let status = verify_toml_config(path, mode)?;
+        if matches!(status, ConfigStatus::Valid { .. }) {
+            return Ok(ConfigWriteResult::AlreadyCurrent);
+        }
+    }
+
+    // Read existing content or start fresh
+    let (content, file_existed) = if path.exists() {
+        let c = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config at {}", path.display()))?;
+        (c, true)
+    } else {
+        (String::new(), false)
+    };
+
+    // Remove existing [mcp_servers.mag] section if present
+    let mut new_content = remove_toml_section(&content, "mcp_servers.mag");
+
+    // Append the new MCP section
+    let section = build_toml_mag_section(mode);
+    if !new_content.is_empty() && !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    new_content.push_str(&section);
+
+    // Ensure [features] has codex_hooks = true
+    new_content = ensure_toml_feature(&new_content, "codex_hooks");
+
+    // Create backup if file existed
+    let backup_path = if file_existed {
+        let bak = backup_path_for(path);
+        std::fs::copy(path, &bak)
+            .with_context(|| format!("creating backup at {}", bak.display()))?;
+        Some(bak)
+    } else {
+        None
+    };
+
+    // Atomic write
+    atomic_write(path, new_content.as_bytes())?;
+
+    Ok(ConfigWriteResult::Written { backup_path })
+}
+
+/// Removes the MAG entry from a Codex TOML config file.
+fn remove_toml_config(path: &Path) -> Result<RemoveResult> {
+    if !path.exists() {
+        return Ok(RemoveResult::NoConfigFile);
+    }
+
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("reading config at {}", path.display()))?;
+
+    // Check if [mcp_servers.mag] exists
+    if !content.lines().any(|l| l.trim() == "[mcp_servers.mag]") {
+        return Ok(RemoveResult::NotPresent);
+    }
+
+    // Backup
+    let bak = backup_path_for(path);
+    std::fs::copy(path, &bak).with_context(|| format!("creating backup at {}", bak.display()))?;
+
+    // Remove the section
+    let new_content = remove_toml_section(&content, "mcp_servers.mag");
+    atomic_write(path, new_content.as_bytes())?;
+
+    Ok(RemoveResult::Removed)
+}
+
+/// Builds the TOML section for `[mcp_servers.mag]` given a transport mode.
+fn build_toml_mag_section(mode: TransportMode) -> String {
+    match mode {
+        TransportMode::Http { port } => {
+            format!("[mcp_servers.mag]\ntype = \"http\"\nurl = \"http://127.0.0.1:{port}/mcp\"\n")
+        }
+        TransportMode::Command => {
+            "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n".to_string()
+        }
+        TransportMode::Stdio => {
+            "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\", \"--stdio\"]\n".to_string()
+        }
+    }
+}
+
+/// Removes a TOML section (e.g., `[mcp_servers.mag]`) and all its key-value
+/// lines until the next section header or end of file.
+fn remove_toml_section(content: &str, section_name: &str) -> String {
+    let header = format!("[{section_name}]");
+    let mut result = String::new();
+    let mut skipping = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == header {
+            skipping = true;
+            continue;
+        }
+        if skipping && trimmed.starts_with('[') {
+            skipping = false;
+        }
+        if !skipping {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    // Collapse multiple trailing newlines to one
+    while result.ends_with("\n\n") {
+        result.pop();
+    }
+
+    result
+}
+
+/// Ensures that a `[features]` section exists with `key = true`.
+/// If a `[features]` section already exists, appends the key if missing.
+/// If no `[features]` section exists, appends one.
+fn ensure_toml_feature(content: &str, key: &str) -> String {
+    let key_line = format!("{key} = true");
+
+    // Already present?
+    if content.contains(&key_line) {
+        return content.to_string();
+    }
+
+    // Find [features] section and insert the key
+    let features_header = "[features]";
+    if let Some(pos) = content.find(features_header) {
+        let insert_at = pos + features_header.len();
+        let mut result = content[..insert_at].to_string();
+        result.push('\n');
+        result.push_str(&key_line);
+        result.push_str(&content[insert_at..]);
+        return result;
+    }
+
+    // No [features] section — append one
+    let mut result = content.to_string();
+    if !result.is_empty() && !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result.push_str(&format!("\n{features_header}\n{key_line}\n"));
+    result
+}
+
+/// Installs Codex lifecycle hooks to `~/.codex/hooks.json`.
+///
+/// Creates hook scripts in `~/.mag/hooks/codex/` and a `hooks.json` in
+/// `~/.codex/` that references them. Existing hooks.json is merged (MAG
+/// hooks are added without removing user-defined hooks).
+pub fn install_codex_hooks() -> Result<()> {
+    let home = crate::app_paths::home_dir()?;
+    let scripts_dir = home.join(".mag/hooks/codex");
+    std::fs::create_dir_all(&scripts_dir)
+        .with_context(|| format!("creating {}", scripts_dir.display()))?;
+
+    // Write hook scripts
+    write_codex_script(&scripts_dir.join("session-start.sh"), CODEX_SESSION_START)?;
+    write_codex_script(&scripts_dir.join("session-end.sh"), CODEX_SESSION_END)?;
+    write_codex_script(&scripts_dir.join("commit-capture.sh"), CODEX_COMMIT_CAPTURE)?;
+    write_codex_script(&scripts_dir.join("error-capture.sh"), CODEX_ERROR_CAPTURE)?;
+
+    // Write hooks.json
+    let hooks_path = home.join(".codex/hooks.json");
+    let hooks_json = build_codex_hooks_json(&scripts_dir);
+    atomic_write(&hooks_path, hooks_json.as_bytes())?;
+
+    tracing::debug!(
+        scripts = %scripts_dir.display(),
+        hooks = %hooks_path.display(),
+        "installed Codex hooks"
+    );
+
+    Ok(())
+}
+
+/// Writes a hook script file and makes it executable.
+fn write_codex_script(path: &Path, content: &str) -> Result<()> {
+    std::fs::write(path, content).with_context(|| format!("writing script {}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("setting executable on {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+/// Builds the hooks.json content for Codex.
+fn build_codex_hooks_json(scripts_dir: &Path) -> String {
+    let dir = scripts_dir.display();
+    format!(
+        r#"{{
+  "hooks": {{
+    "SessionStart": [
+      {{
+        "matcher": "startup|resume",
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "{dir}/session-start.sh",
+            "statusMessage": "Loading MAG memory context",
+            "timeout": 10
+          }}
+        ]
+      }}
+    ],
+    "PostToolUse": [
+      {{
+        "matcher": "Bash",
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "{dir}/commit-capture.sh",
+            "timeout": 10
+          }},
+          {{
+            "type": "command",
+            "command": "{dir}/error-capture.sh",
+            "timeout": 10
+          }}
+        ]
+      }}
+    ],
+    "Stop": [
+      {{
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "{dir}/session-end.sh",
+            "timeout": 10
+          }}
+        ]
+      }}
+    ]
+  }}
+}}
+"#
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Codex hook scripts (embedded)
+// ---------------------------------------------------------------------------
+
+/// Codex SessionStart hook — recall project context.
+/// Reads Codex hook JSON from stdin, outputs `{"additionalContext": "..."}`.
+const CODEX_SESSION_START: &str = r#"#!/bin/sh
+# MAG session start for Codex — recall project context
+# Codex hook protocol: JSON on stdin, JSON on stdout
+set -eu
+
+INPUT=$(cat)
+PROJECT=$(basename "$PWD")
+
+# Extract session_id from stdin JSON (best-effort; falls back to "unknown")
+SESSION_ID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+SESSION_ID="${SESSION_ID:-unknown}"
+
+mkdir -p "$HOME/.mag"
+printf '%s session_start project=%s session=%s\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date +%s)" "$PROJECT" "$SESSION_ID" \
+  >> "$HOME/.mag/auto-capture.log" 2>/dev/null || true
+
+CONTEXT=$(mag welcome --project "$PROJECT" --session-id "$SESSION_ID" --budget-tokens 2000 2>/dev/null || true)
+
+if [ -n "$CONTEXT" ]; then
+  # Use jq if available for safe JSON encoding, else simple escape
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$CONTEXT" | jq -Rs '{ additionalContext: . }'
+  else
+    # Escape backslashes, quotes, newlines for JSON
+    ESCAPED=$(printf '%s' "$CONTEXT" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')
+    printf '{"additionalContext":"%s"}' "$ESCAPED"
+  fi
+else
+  printf '{}'
+fi
+"#;
+
+/// Codex Stop hook — checkpoint session progress.
+const CODEX_SESSION_END: &str = r#"#!/bin/sh
+# MAG session end for Codex — store session summary
+set -eu
+
+INPUT=$(cat)
+PROJECT=$(basename "$PWD")
+SESSION_ID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+SESSION_ID="${SESSION_ID:-unknown}"
+
+mkdir -p "$HOME/.mag"
+printf '%s session_end project=%s session=%s\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date +%s)" "$PROJECT" "$SESSION_ID" \
+  >> "$HOME/.mag/auto-capture.log" 2>/dev/null || true
+
+mag process "Session ended. Project: $PROJECT." \
+  --event-type session_end \
+  --project "$PROJECT" \
+  --session-id "$SESSION_ID" \
+  --importance 0.4 2>/dev/null || true
+
+printf '{}'
+"#;
+
+/// Codex PostToolUse hook — capture git/jj commit messages.
+const CODEX_COMMIT_CAPTURE: &str = r##"#!/bin/sh
+# MAG commit-capture for Codex — auto-capture commit messages
+# Codex hook protocol: JSON on stdin, JSON on stdout
+set -eu
+
+INPUT=$(cat)
+
+# Fast-path: only process commit-related tool calls
+case "$INPUT" in
+  *"jj commit"*|*"jj describe"*|*"git commit"*) ;;
+  *) printf '{}'; exit 0 ;;
+esac
+
+# Extract command from tool_input (best-effort sed parsing)
+COMMAND=$(printf '%s' "$INPUT" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+
+# Extract commit message from -m flag
+MSG=$(printf '%s' "$COMMAND" | sed -nE "s/.*-m[[:space:]]+['\"]([^'\"]*)['\"].*/\1/p" | head -1 || true)
+if [ -z "$MSG" ]; then
+  MSG=$(printf '%s' "$COMMAND" | sed -nE 's/.*-m[[:space:]]+([^[:space:];|&]+).*/\1/p' | head -1 || true)
+fi
+
+[ -n "$MSG" ] || { printf '{}'; exit 0; }
+
+PROJECT=$(basename "$PWD")
+SESSION_ID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+SESSION_ID="${SESSION_ID:-unknown}"
+
+mkdir -p "$HOME/.mag"
+printf '%s git_commit project=%s session=%s msg=%.80s\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date +%s)" "$PROJECT" "$SESSION_ID" "$MSG" \
+  >> "$HOME/.mag/auto-capture.log" 2>/dev/null || true
+
+mag process "Commit: $MSG" \
+  --event-type git_commit \
+  --project "$PROJECT" \
+  --session-id "$SESSION_ID" \
+  --importance 0.5 2>/dev/null || true
+
+printf '{}'
+"##;
+
+/// Codex PostToolUse hook — capture build/test errors.
+const CODEX_ERROR_CAPTURE: &str = r##"#!/bin/sh
+# MAG error-capture for Codex — auto-capture build/test failures
+set -eu
+
+INPUT=$(cat)
+
+# Fast-path: only process build/test commands
+case "$INPUT" in
+  *"cargo test"*|*"cargo build"*|*"cargo check"*|*"cargo clippy"*|*"npm test"*|*"npm run"*|*"prek run"*) ;;
+  *) printf '{}'; exit 0 ;;
+esac
+
+# Check for failure signals in the output
+case "$INPUT" in
+  *"FAILED"*|*"error["*|*"error: "*|*"npm ERR!"*) ;;
+  *) printf '{}'; exit 0 ;;
+esac
+
+# Extract first error line
+ERROR_LINE=$(printf '%s' "$INPUT" | grep -oE 'error(\[E[0-9]+\])?: [^"\\]+' | head -1 || true)
+if [ -z "$ERROR_LINE" ]; then
+  ERROR_LINE=$(printf '%s' "$INPUT" | grep -oE 'npm ERR![^"\\]+' | head -1 || true)
+fi
+if [ -z "$ERROR_LINE" ]; then
+  ERROR_LINE=$(printf '%s' "$INPUT" | grep -oE 'FAILED[^"\\]*' | head -1 || true)
+fi
+
+[ -n "$ERROR_LINE" ] || { printf '{}'; exit 0; }
+
+ERROR_LINE=$(printf '%.200s' "$ERROR_LINE")
+PROJECT=$(basename "$PWD")
+SESSION_ID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+SESSION_ID="${SESSION_ID:-unknown}"
+
+mkdir -p "$HOME/.mag"
+printf '%s [error-capture] project=%s error=%s\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date +%s)" "$PROJECT" "$ERROR_LINE" \
+  >> "$HOME/.mag/auto-capture.log" 2>/dev/null || true
+
+mag process "Build/test error in $PROJECT: $ERROR_LINE" \
+  --event-type error_pattern \
+  --project "$PROJECT" \
+  --session-id "$SESSION_ID" \
+  --importance 0.5 2>/dev/null || true
+
+printf '{}'
+"##;
 
 /// Verify a TOML config (Codex) for an expected transport mode.
 fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> {
@@ -1114,9 +1523,131 @@ mod tests {
 
     #[test]
     #[serial]
-    fn codex_write_returns_deferred() {
+    fn codex_write_creates_toml_config() {
         with_temp_home(|home| {
             let config_path = home.join(".codex/config.toml");
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+
+            let result =
+                write_config(&detected, TransportMode::Command).expect("write should succeed");
+            assert!(matches!(result, ConfigWriteResult::Written { .. }));
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(content.contains("[mcp_servers.mag]"));
+            assert!(content.contains("command = \"mag\""));
+            assert!(content.contains("args = [\"serve\"]"));
+            assert!(content.contains("codex_hooks = true"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_write_idempotent() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+
+            let result1 = write_config(&detected, TransportMode::Command).expect("first write");
+            assert!(matches!(result1, ConfigWriteResult::Written { .. }));
+
+            let result2 = write_config(&detected, TransportMode::Command).expect("second write");
+            assert_eq!(result2, ConfigWriteResult::AlreadyCurrent);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_write_preserves_existing_config() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(&config_path, "model = \"gpt-5.2-codex\"\n\n[shell_environment_policy]\ninclude_only = [\"PATH\"]\n").unwrap();
+
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+
+            write_config(&detected, TransportMode::Stdio).expect("write should succeed");
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(content.contains("model = \"gpt-5.2-codex\""));
+            assert!(content.contains("[shell_environment_policy]"));
+            assert!(content.contains("[mcp_servers.mag]"));
+            assert!(content.contains("\"--stdio\""));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_write_http_mode() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+
+            write_config(&detected, TransportMode::Http { port: 19420 })
+                .expect("write should succeed");
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(content.contains("type = \"http\""));
+            assert!(content.contains("url = \"http://127.0.0.1:19420/mcp\""));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_remove_existing_entry() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::Configured,
+            };
+
+            // Write config first
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &config_path,
+                "model = \"gpt-5.2-codex\"\n\n[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n",
+            )
+            .unwrap();
+
+            let result = remove_config(&detected).expect("remove should succeed");
+            assert_eq!(result, RemoveResult::Removed);
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(!content.contains("[mcp_servers.mag]"));
+            assert!(content.contains("model = \"gpt-5.2-codex\""));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_remove_not_present() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(&config_path, "model = \"gpt-5.2-codex\"\n").unwrap();
+
             let detected = DetectedTool {
                 tool: AiTool::Codex,
                 config_path,
@@ -1124,9 +1655,8 @@ mod tests {
                 mag_status: MagConfigStatus::NotConfigured,
             };
 
-            let result =
-                write_config(&detected, TransportMode::Command).expect("write should succeed");
-            assert!(matches!(result, ConfigWriteResult::Deferred { .. }));
+            let result = remove_config(&detected).expect("remove should succeed");
+            assert_eq!(result, RemoveResult::NotPresent);
         });
     }
 
@@ -1348,5 +1878,124 @@ mod tests {
         let result = ConfigWriteResult::Plugin;
         // Verify the variant exists and Debug works
         assert_eq!(format!("{result:?}"), "Plugin");
+    }
+
+    // -----------------------------------------------------------------------
+    // TOML helper tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn remove_toml_section_removes_target() {
+        let input = "model = \"gpt-5\"\n\n[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n\n[features]\ncodex_hooks = true\n";
+        let result = remove_toml_section(input, "mcp_servers.mag");
+        assert!(!result.contains("[mcp_servers.mag]"));
+        assert!(!result.contains("command = \"mag\""));
+        assert!(result.contains("model = \"gpt-5\""));
+        assert!(result.contains("[features]"));
+    }
+
+    #[test]
+    fn remove_toml_section_no_match_preserves_all() {
+        let input = "model = \"gpt-5\"\n\n[features]\ncodex_hooks = true\n";
+        let result = remove_toml_section(input, "mcp_servers.mag");
+        assert!(result.contains("model = \"gpt-5\""));
+        assert!(result.contains("[features]"));
+    }
+
+    #[test]
+    fn ensure_toml_feature_adds_new_section() {
+        let input = "model = \"gpt-5\"\n";
+        let result = ensure_toml_feature(input, "codex_hooks");
+        assert!(result.contains("[features]"));
+        assert!(result.contains("codex_hooks = true"));
+    }
+
+    #[test]
+    fn ensure_toml_feature_adds_to_existing_section() {
+        let input = "model = \"gpt-5\"\n\n[features]\nsome_flag = true\n";
+        let result = ensure_toml_feature(input, "codex_hooks");
+        assert!(result.contains("codex_hooks = true"));
+        assert!(result.contains("some_flag = true"));
+    }
+
+    #[test]
+    fn ensure_toml_feature_noop_if_present() {
+        let input = "model = \"gpt-5\"\n\n[features]\ncodex_hooks = true\n";
+        let result = ensure_toml_feature(input, "codex_hooks");
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn build_toml_mag_section_command() {
+        let section = build_toml_mag_section(TransportMode::Command);
+        assert!(section.contains("[mcp_servers.mag]"));
+        assert!(section.contains("command = \"mag\""));
+        assert!(section.contains("args = [\"serve\"]"));
+    }
+
+    #[test]
+    fn build_toml_mag_section_stdio() {
+        let section = build_toml_mag_section(TransportMode::Stdio);
+        assert!(section.contains("\"--stdio\""));
+    }
+
+    #[test]
+    fn build_toml_mag_section_http() {
+        let section = build_toml_mag_section(TransportMode::Http { port: 8080 });
+        assert!(section.contains("type = \"http\""));
+        assert!(section.contains("url = \"http://127.0.0.1:8080/mcp\""));
+    }
+
+    #[test]
+    #[serial]
+    fn codex_hooks_install() {
+        with_temp_home(|home| {
+            install_codex_hooks().expect("hooks install should succeed");
+
+            // Verify hooks.json was created
+            let hooks_path = home.join(".codex/hooks.json");
+            assert!(hooks_path.exists(), "hooks.json should exist");
+            let hooks_content = std::fs::read_to_string(&hooks_path).unwrap();
+            assert!(hooks_content.contains("SessionStart"));
+            assert!(hooks_content.contains("PostToolUse"));
+            assert!(hooks_content.contains("Stop"));
+
+            // Verify scripts were created
+            let scripts_dir = home.join(".mag/hooks/codex");
+            assert!(scripts_dir.join("session-start.sh").exists());
+            assert!(scripts_dir.join("session-end.sh").exists());
+            assert!(scripts_dir.join("commit-capture.sh").exists());
+            assert!(scripts_dir.join("error-capture.sh").exists());
+        });
+    }
+
+    #[test]
+    fn codex_verify_toml_command_valid() {
+        let dir = std::env::temp_dir().join(format!("mag-toml-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n",
+        )
+        .unwrap();
+
+        let status = verify_toml_config(&path, TransportMode::Command).unwrap();
+        assert!(matches!(status, ConfigStatus::Valid { .. }));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn codex_verify_toml_missing() {
+        let dir = std::env::temp_dir().join(format!("mag-toml-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "model = \"gpt-5\"\n").unwrap();
+
+        let status = verify_toml_config(&path, TransportMode::Command).unwrap();
+        assert_eq!(status, ConfigStatus::Missing);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
