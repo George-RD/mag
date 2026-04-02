@@ -22,34 +22,49 @@ env:
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
-  ensure-tag:
-    name: Ensure tag exists
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  preflight:
+    name: Preflight
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Create tag if missing
+      - name: Resolve tag
+        id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.inputs.tag }}"
-          SHA="$(git rev-parse HEAD)"
-          if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists"
-          else
-            echo "Creating lightweight tag $TAG on $SHA"
-            gh api "repos/${{ github.repository }}/git/refs" \
-              -f ref="refs/tags/$TAG" \
-              -f sha="$SHA"
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          # Detect prerelease (shell case — no grep quoting issues)
+          case "$TAG" in
+            *-rc*|*-alpha*|*-beta*|*-dev*)
+              echo "is_prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "is_prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+          # Create tag if workflow_dispatch and tag doesn't exist
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG already exists"
+            else
+              SHA="$(git rev-parse HEAD)"
+              echo "Creating tag $TAG on $SHA"
+              gh api "repos/${{ github.repository }}/git/refs" \
+                -f ref="refs/tags/$TAG" \
+                -f sha="$SHA"
+            fi
           fi
 
   build:
     name: Build ${{ matrix.target }}
-    needs: [ensure-tag]
-    if: ${{ always() && (needs.ensure-tag.result == 'success' || needs.ensure-tag.result == 'skipped') }}
+    needs: [preflight]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -68,7 +83,9 @@ jobs:
             os: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -97,7 +114,7 @@ jobs:
           7z a ../../../${{ env.BINARY_NAME }}-${{ matrix.target }}.zip ${{ env.BINARY_NAME }}.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
           path: ${{ env.BINARY_NAME }}-${{ matrix.target }}.*
@@ -105,11 +122,11 @@ jobs:
 
   release:
     name: Create Release
-    needs: build
+    needs: [preflight, build]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
@@ -120,21 +137,12 @@ jobs:
           sha256sum mag-* > checksums.txt
           cat checksums.txt
 
-      - name: Detect prerelease
-        id: meta
-        run: |
-          TAG="${RELEASE_TAG}"
-          if echo "$TAG" | grep -qE '-(rc|alpha|beta|dev)'; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
           generate_release_notes: true
-          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          prerelease: ${{ needs.preflight.outputs.is_prerelease == 'true' }}
           files: |
             artifacts/mag-*.tar.gz
             artifacts/mag-*.zip
@@ -142,11 +150,13 @@ jobs:
 
   publish-crates:
     name: Publish to crates.io
-    needs: release
-    if: ${{ !contains(github.ref, '-') }}
+    needs: [preflight, release]
+    if: needs.preflight.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish
         run: cargo publish --no-verify
@@ -155,12 +165,14 @@ jobs:
 
   publish-npm:
     name: Publish to npm
-    needs: release
-    if: ${{ !contains(github.ref, '-') }}
+    needs: [preflight, release]
+    if: needs.preflight.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
@@ -172,14 +184,16 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    needs: release
-    if: ${{ !contains(github.ref, '-') }}
+    needs: [preflight, release]
+    if: needs.preflight.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Build package
@@ -194,20 +208,29 @@ jobs:
 
   update-homebrew:
     name: Update Homebrew tap
-    needs: release
-    if: ${{ !contains(github.ref, '-') }}
+    needs: [preflight, release]
+    if: needs.preflight.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Download checksums from release
         run: |
-          TAG="${RELEASE_TAG}"
-          gh release download "$TAG" --pattern checksums.txt --repo "$GITHUB_REPOSITORY"
-          cat checksums.txt
+          TAG="${{ needs.preflight.outputs.tag }}"
+          for i in 1 2 3 4 5; do
+            if gh release download "$TAG" --pattern checksums.txt --repo "$GITHUB_REPOSITORY"; then
+              echo "Downloaded checksums.txt"
+              cat checksums.txt
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Failed to download checksums after 5 attempts"
+          exit 1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: George-RD/homebrew-mag
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -215,7 +238,7 @@ jobs:
 
       - name: Update formula
         run: |
-          TAG="${RELEASE_TAG}"
+          TAG="${{ needs.preflight.outputs.tag }}"
           VERSION="${TAG#v}"
 
           get_sha() { grep "$1" checksums.txt | awk '{print $1}'; }
@@ -228,7 +251,6 @@ jobs:
           # Update checksums using URL context to match the right sha256 line
           # Each sha256 line follows its URL line, so we match by the target in the URL
           sed -i "/aarch64-apple-darwin/{n;s/sha256 \"[^\"]*\"/sha256 \"$(get_sha aarch64-apple-darwin)\"/;}" "$FORMULA"
-          sed -i "/x86_64-apple-darwin/{n;s/sha256 \"[^\"]*\"/sha256 \"$(get_sha x86_64-apple-darwin)\"/;}" "$FORMULA"
           sed -i "/aarch64-unknown-linux-gnu/{n;s/sha256 \"[^\"]*\"/sha256 \"$(get_sha aarch64-unknown-linux-gnu)\"/;}" "$FORMULA"
           sed -i "/x86_64-unknown-linux-gnu/{n;s/sha256 \"[^\"]*\"/sha256 \"$(get_sha x86_64-unknown-linux-gnu)\"/;}" "$FORMULA"
 
@@ -237,7 +259,7 @@ jobs:
 
       - name: Commit and push
         run: |
-          TAG="${RELEASE_TAG}"
+          TAG="${{ needs.preflight.outputs.tag }}"
           VERSION="${TAG#v}"
           cd homebrew-tap
           git config user.name "github-actions[bot]"
