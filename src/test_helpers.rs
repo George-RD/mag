@@ -28,21 +28,31 @@ where
     let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("mag-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("failed to create temp home directory for test");
-    let prev = std::env::var_os("HOME");
+    let prev_home = std::env::var_os("HOME");
+    let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
 
     // SAFETY: Tests are serialized by HOME_MUTEX, ensuring no concurrent
-    // access to the HOME environment variable. This is required because
-    // tool detection resolves paths relative to HOME.
-    unsafe { std::env::set_var("HOME", &dir) };
+    // access to these environment variables. This is required because
+    // tool detection resolves paths relative to HOME and XDG_CONFIG_HOME.
+    unsafe {
+        std::env::set_var("HOME", &dir);
+        // Unset XDG_CONFIG_HOME so xdg_config_home() falls back to $HOME/.config,
+        // giving tests a predictable path within the temp directory.
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
 
     let result = f(&dir);
 
-    match prev {
-        // SAFETY: Same as above — restoring the original HOME value
-        // under the same mutex guard.
-        Some(val) => unsafe { std::env::set_var("HOME", val) },
-        // SAFETY: Same as above — removing HOME if it was not previously set.
-        None => unsafe { std::env::remove_var("HOME") },
+    // SAFETY: Restoring original values under the same mutex guard.
+    unsafe {
+        match prev_home {
+            Some(val) => std::env::set_var("HOME", val),
+            None => std::env::remove_var("HOME"),
+        }
+        match prev_xdg {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
     }
     let _ = std::fs::remove_dir_all(&dir);
     result

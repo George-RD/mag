@@ -29,6 +29,7 @@ pub enum AiTool {
     Zed,
     Codex,
     GeminiCli,
+    OpenCode,
 }
 
 impl AiTool {
@@ -44,12 +45,13 @@ impl AiTool {
             Self::Zed => "Zed",
             Self::Codex => "Codex",
             Self::GeminiCli => "Gemini CLI",
+            Self::OpenCode => "OpenCode",
         }
     }
 
     /// Returns all known tool variants.
     pub fn all() -> &'static [AiTool] {
-        static ALL_TOOLS: [AiTool; 9] = [
+        static ALL_TOOLS: [AiTool; 10] = [
             AiTool::ClaudeCode,
             AiTool::ClaudeDesktop,
             AiTool::Cursor,
@@ -59,6 +61,7 @@ impl AiTool {
             AiTool::Zed,
             AiTool::Codex,
             AiTool::GeminiCli,
+            AiTool::OpenCode,
         ];
         &ALL_TOOLS
     }
@@ -68,6 +71,20 @@ impl AiTool {
         match self {
             Self::Codex => ConfigFormat::Toml,
             _ => ConfigFormat::Json,
+        }
+    }
+
+    /// Returns the content tier — what kind of guidance content this tool accepts
+    /// beyond raw MCP config.
+    pub fn content_tier(&self) -> ContentTier {
+        match self {
+            Self::ClaudeCode => ContentTier::Plugin,
+            Self::Codex | Self::GeminiCli => ContentTier::AgentsMd,
+            Self::OpenCode => ContentTier::Skills,
+            Self::Cursor | Self::Windsurf => ContentTier::Rules,
+            // Explicit list so that adding a new AiTool variant causes a compile
+            // error rather than silently inheriting ContentTier::Mcp.
+            Self::ClaudeDesktop | Self::VSCodeCopilot | Self::Cline | Self::Zed => ContentTier::Mcp,
         }
     }
 }
@@ -83,6 +100,21 @@ impl fmt::Display for AiTool {
 pub enum ConfigFormat {
     Json,
     Toml,
+}
+
+/// Classification of what guidance content a tool accepts beyond raw MCP config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentTier {
+    /// MCP config only (Claude Desktop, VS Code Copilot, Cline, Zed).
+    Mcp,
+    /// MCP + global AGENTS.md file (Codex, GeminiCli).
+    AgentsMd,
+    /// MCP + per-skill SKILL.md files (OpenCode).
+    Skills,
+    /// MCP + project-scoped rules files (Cursor, Windsurf) — Wave 3B, deferred.
+    Rules,
+    /// MCP + full plugin system (Claude Code) — already implemented.
+    Plugin,
 }
 
 /// The scope (global vs project-local) of a detected config file.
@@ -233,6 +265,8 @@ pub(crate) fn mcp_key_for_tool(tool: AiTool) -> &'static str {
         // Codex uses TOML — this key is not used in the detection path,
         // but we return a sensible value for config_writer consumers.
         AiTool::Codex => "mcp_servers",
+        // OpenCode uses JSON with mcpServers key in ~/.config/opencode/config.json
+        AiTool::OpenCode => "mcpServers",
     }
 }
 
@@ -422,6 +456,9 @@ fn global_config_paths(tool: AiTool, home: &Path) -> Vec<PathBuf> {
         AiTool::GeminiCli => {
             vec![home.join(".gemini/settings.json")]
         }
+        AiTool::OpenCode => {
+            vec![crate::app_paths::xdg_config_home(home).join("opencode/config.json")]
+        }
     }
 }
 
@@ -447,7 +484,7 @@ fn project_config_paths(tool: AiTool, project_root: &Path) -> Vec<PathBuf> {
             vec![project_root.join(".gemini/settings.json")]
         }
         // These tools have no project-level config
-        AiTool::ClaudeDesktop | AiTool::Cline | AiTool::Codex => vec![],
+        AiTool::ClaudeDesktop | AiTool::Cline | AiTool::Codex | AiTool::OpenCode => vec![],
     }
 }
 
@@ -593,12 +630,12 @@ mod tests {
     // -- AiTool basics --
 
     #[test]
-    fn all_tools_returns_nine_variants() {
+    fn all_tools_returns_ten_variants() {
         let all = AiTool::all();
-        assert_eq!(all.len(), 9);
+        assert_eq!(all.len(), 10);
         // Each variant appears exactly once
         let set: std::collections::HashSet<AiTool> = all.iter().copied().collect();
-        assert_eq!(set.len(), 9);
+        assert_eq!(set.len(), 10);
     }
 
     #[test]
@@ -606,6 +643,7 @@ mod tests {
         assert_eq!(AiTool::ClaudeCode.display_name(), "Claude Code");
         assert_eq!(AiTool::VSCodeCopilot.display_name(), "VS Code + Copilot");
         assert_eq!(AiTool::GeminiCli.display_name(), "Gemini CLI");
+        assert_eq!(AiTool::OpenCode.display_name(), "OpenCode");
     }
 
     #[test]
@@ -1045,6 +1083,50 @@ mod tests {
         });
     }
 
+    // -- Detection: OpenCode via XDG_CONFIG_HOME --
+
+    #[test]
+    #[serial]
+    fn detects_opencode_via_xdg_config_home() {
+        with_temp_home(|_home| {
+            let xdg_dir = std::env::temp_dir().join(format!("mag-xdg-{}", uuid::Uuid::new_v4()));
+            let opencode_dir = xdg_dir.join("opencode");
+            std::fs::create_dir_all(&opencode_dir).unwrap();
+            std::fs::write(
+                opencode_dir.join("config.json"),
+                r#"{"mcpServers": {"mag": {"command": "mag", "args": ["serve"]}}}"#,
+            )
+            .unwrap();
+
+            // Save the previous XDG_CONFIG_HOME so we can restore it afterwards
+            // regardless of how the test exits, preventing pollution of other tests.
+            let prev_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+
+            // SAFETY: Serialized by HOME_MUTEX (held by with_temp_home).
+            unsafe { std::env::set_var("XDG_CONFIG_HOME", &xdg_dir) };
+
+            let result = detect_tool(AiTool::OpenCode, None);
+
+            // SAFETY: Restoring XDG_CONFIG_HOME to its pre-test value under the same
+            // mutex guard that protects all env-var mutations in this test suite.
+            unsafe {
+                match prev_xdg {
+                    Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                    None => std::env::remove_var("XDG_CONFIG_HOME"),
+                }
+            }
+
+            let _ = std::fs::remove_dir_all(&xdg_dir);
+
+            assert!(
+                !result.is_empty(),
+                "expected OpenCode to be detected via XDG_CONFIG_HOME"
+            );
+            assert_eq!(result[0].tool, AiTool::OpenCode);
+            assert_eq!(result[0].mag_status, MagConfigStatus::Configured);
+        });
+    }
+
     // -- DetectionResult helpers --
 
     #[test]
@@ -1112,6 +1194,7 @@ mod tests {
         assert_eq!(mcp_key_for_tool(AiTool::Zed), "context_servers");
         assert_eq!(mcp_key_for_tool(AiTool::Codex), "mcp_servers");
         assert_eq!(mcp_key_for_tool(AiTool::GeminiCli), "mcpServers");
+        assert_eq!(mcp_key_for_tool(AiTool::OpenCode), "mcpServers");
     }
 
     // -- config_format --
@@ -1229,5 +1312,84 @@ mod tests {
         let status = MagConfigStatus::InstalledAsPlugin;
         let serialized = serde_json::to_string(&status).unwrap();
         assert!(serialized.contains("InstalledAsPlugin"));
+    }
+
+    // -- content_tier --
+
+    #[test]
+    fn content_tier_plugin_for_claude_code() {
+        assert_eq!(AiTool::ClaudeCode.content_tier(), ContentTier::Plugin);
+    }
+
+    #[test]
+    fn content_tier_agents_md_for_codex_and_gemini() {
+        assert_eq!(AiTool::Codex.content_tier(), ContentTier::AgentsMd);
+        assert_eq!(AiTool::GeminiCli.content_tier(), ContentTier::AgentsMd);
+    }
+
+    #[test]
+    fn content_tier_rules_for_cursor_and_windsurf() {
+        assert_eq!(AiTool::Cursor.content_tier(), ContentTier::Rules);
+        assert_eq!(AiTool::Windsurf.content_tier(), ContentTier::Rules);
+    }
+
+    #[test]
+    fn content_tier_skills_for_opencode() {
+        assert_eq!(AiTool::OpenCode.content_tier(), ContentTier::Skills);
+    }
+
+    #[test]
+    fn content_tier_mcp_for_remaining_tools() {
+        assert_eq!(AiTool::ClaudeDesktop.content_tier(), ContentTier::Mcp);
+        assert_eq!(AiTool::VSCodeCopilot.content_tier(), ContentTier::Mcp);
+        assert_eq!(AiTool::Cline.content_tier(), ContentTier::Mcp);
+        assert_eq!(AiTool::Zed.content_tier(), ContentTier::Mcp);
+    }
+
+    #[test]
+    fn content_tier_covers_all_variants() {
+        for &tool in AiTool::all() {
+            let _ = tool.content_tier();
+        }
+    }
+
+    // -- Detection: OpenCode --
+
+    #[test]
+    #[serial]
+    fn detects_opencode_global_config() {
+        with_temp_home(|home| {
+            let oc_dir = home.join(".config/opencode");
+            std::fs::create_dir_all(&oc_dir).unwrap();
+            std::fs::write(oc_dir.join("config.json"), r#"{"mcpServers": {}}"#).unwrap();
+
+            let result = detect_tool(AiTool::OpenCode, None);
+            assert!(!result.is_empty());
+            assert_eq!(result[0].tool, AiTool::OpenCode);
+            assert_eq!(result[0].mag_status, MagConfigStatus::NotConfigured);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn detects_opencode_with_mag_configured() {
+        with_temp_home(|home| {
+            let oc_dir = home.join(".config/opencode");
+            std::fs::create_dir_all(&oc_dir).unwrap();
+            std::fs::write(
+                oc_dir.join("config.json"),
+                r#"{"mcpServers": {"mag": {"command": "mag", "args": ["serve"]}}}"#,
+            )
+            .unwrap();
+
+            let result = detect_tool(AiTool::OpenCode, None);
+            assert!(!result.is_empty());
+            assert_eq!(result[0].mag_status, MagConfigStatus::Configured);
+        });
+    }
+
+    #[test]
+    fn opencode_uses_json_format() {
+        assert_eq!(AiTool::OpenCode.config_format(), ConfigFormat::Json);
     }
 }

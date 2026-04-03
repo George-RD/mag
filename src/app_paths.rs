@@ -12,6 +12,16 @@ pub struct AppPaths {
     pub benchmark_root: PathBuf,
 }
 
+/// Returns the XDG config home directory, respecting `XDG_CONFIG_HOME` if set
+/// and absolute, otherwise falling back to `$HOME/.config`.
+#[allow(dead_code)] // used by setup and tool_detection; not reachable from the binary target
+pub fn xdg_config_home(home: &Path) -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| home.join(".config"))
+}
+
 pub fn home_dir() -> Result<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))

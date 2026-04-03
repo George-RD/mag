@@ -79,7 +79,12 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
 
     if let Some(ref tc) = summary.tool_configs {
         match tc {
-            ToolConfigResult::Removed { count, errors } => {
+            ToolConfigResult::Removed {
+                count,
+                errors,
+                connector_count,
+                connector_errors,
+            } => {
                 if *count > 0 {
                     println!(
                         "    \u{2713} Tool configurations \u{2014} removed from {count} tool{}",
@@ -88,6 +93,15 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
                 }
                 for (name, err) in errors {
                     println!("    \u{2717} {name} \u{2014} error: {err}");
+                }
+                if *connector_count > 0 {
+                    println!(
+                        "    \u{2713} Connector content \u{2014} removed {connector_count} item{}",
+                        if *connector_count == 1 { "" } else { "s" }
+                    );
+                }
+                for (name, err) in connector_errors {
+                    println!("    \u{2717} Connector {name} \u{2014} error: {err}");
                 }
             }
             ToolConfigResult::NoneFound => {
@@ -140,6 +154,8 @@ enum ToolConfigResult {
     Removed {
         count: usize,
         errors: Vec<(String, String)>,
+        connector_count: usize,
+        connector_errors: Vec<(String, String)>,
     },
     NoneFound,
 }
@@ -260,7 +276,22 @@ fn confirm_database_deletion() -> Result<bool> {
 fn remove_tool_configs() -> ToolConfigResult {
     let result = tool_detection::detect_all_tools(None);
 
+    // Always attempt to remove connector content (AGENTS.md sections,
+    // OpenCode skills) regardless of whether any tool configs were detected.
+    // The files may exist even if configs were manually removed.
+    let (connector_count, connector_errors) = remove_connector_content();
+
     if result.detected.is_empty() {
+        // If connector content was cleaned up even though no tool configs were
+        // found, surface that so the user sees something was done.
+        if connector_count > 0 || !connector_errors.is_empty() {
+            return ToolConfigResult::Removed {
+                count: 0,
+                errors: vec![],
+                connector_count,
+                connector_errors,
+            };
+        }
         return ToolConfigResult::NoneFound;
     }
 
@@ -279,7 +310,7 @@ fn remove_tool_configs() -> ToolConfigResult {
                     tracing::debug!("claude plugin was not installed");
                 }
                 Err(e) => {
-                    tracing::debug!(error = %e, "claude plugin removal failed (claude CLI may not be installed)");
+                    tracing::warn!(error = %e, "claude plugin removal failed");
                 }
             }
         }
@@ -303,14 +334,73 @@ fn remove_tool_configs() -> ToolConfigResult {
         }
     }
 
-    if removed_count == 0 && errors.is_empty() {
+    if removed_count == 0
+        && errors.is_empty()
+        && connector_count == 0
+        && connector_errors.is_empty()
+    {
         ToolConfigResult::NoneFound
     } else {
         ToolConfigResult::Removed {
             count: removed_count,
             errors,
+            connector_count,
+            connector_errors,
         }
     }
+}
+
+/// Removes connector content installed by `mag setup`: MAG sections in
+/// AGENTS.md files and OpenCode skill directories.
+///
+/// Returns `(count, errors)` where `count` is the number of items removed and
+/// `errors` is a list of `(label, error_message)` pairs for any failures.
+fn remove_connector_content() -> (usize, Vec<(String, String)>) {
+    let home = match app_paths::home_dir() {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot resolve HOME for connector content removal");
+            return (0, vec![("home".to_string(), format!("{e:#}"))]);
+        }
+    };
+
+    let mut count = 0usize;
+    let mut errors: Vec<(String, String)> = Vec::new();
+
+    // Use agents_md_target to derive paths rather than hardcoding them.
+    for &tool in &[
+        tool_detection::AiTool::Codex,
+        tool_detection::AiTool::GeminiCli,
+    ] {
+        if let Some((_, path)) = crate::setup::agents_md_target(tool, &home) {
+            let label = format!("{} AGENTS.md", tool.display_name());
+            match crate::setup::remove_agents_md_section(&path) {
+                Ok(true) => {
+                    tracing::info!(path = %path.display(), "removed MAG section");
+                    count += 1;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(path = %path.display(), error = %e, "failed to clean AGENTS.md");
+                    errors.push((label, format!("{e:#}")));
+                }
+            }
+        }
+    }
+
+    match crate::setup::remove_opencode_skills(&home) {
+        Ok(n) if n > 0 => {
+            tracing::info!(count = n, "removed OpenCode skill directories");
+            count += n;
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to remove OpenCode skills");
+            errors.push(("OpenCode skills".to_string(), format!("{e:#}")));
+        }
+    }
+
+    (count, errors)
 }
 
 fn remove_directory(path: &Path) -> RemoveOutcome {
@@ -338,10 +428,32 @@ fn try_remove_empty_dir(path: &Path) -> bool {
         return false;
     }
     if is_dir_effectively_empty(path) {
-        std::fs::remove_dir_all(path).is_ok()
+        // Use recursive remove_dir (not remove_dir_all) so that if a concurrent
+        // process creates files after the emptiness check, remove_dir fails safely
+        // with "directory not empty" instead of deleting the new content.
+        match remove_empty_tree(path) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "failed to remove directory");
+                false
+            }
+        }
     } else {
         false
     }
+}
+
+/// Recursively removes a directory tree that should only contain empty subdirectories.
+/// Uses `remove_dir` (not `remove_dir_all`) at each level so that if a concurrent
+/// process creates files after the emptiness check, the operation fails safely.
+fn remove_empty_tree(path: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            remove_empty_tree(&entry.path())?;
+        }
+    }
+    std::fs::remove_dir(path)
 }
 
 /// Returns `true` if a directory is empty or contains only empty subdirectories.
@@ -555,7 +667,7 @@ mod tests {
 
             let result = remove_tool_configs();
             match result {
-                ToolConfigResult::Removed { count, errors } => {
+                ToolConfigResult::Removed { count, errors, .. } => {
                     assert!(count >= 1, "expected at least 1 removal");
                     assert!(errors.is_empty(), "expected no errors: {errors:?}");
                 }
