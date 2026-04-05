@@ -33,3 +33,20 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run Tests
         run: cargo test --all-features
+
+  version-check:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version consistency
+        run: |
+          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          NPM_VER=$(jq -r .version npm/package.json)
+          PYPI_VER=$(grep '^version' python/pyproject.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "Cargo: $CARGO_VER | npm: $NPM_VER | PyPI: $PYPI_VER"
+          if [ "$CARGO_VER" != "$NPM_VER" ] || [ "$CARGO_VER" != "$PYPI_VER" ]; then
+            echo "::error::Version mismatch: Cargo=$CARGO_VER npm=$NPM_VER PyPI=$PYPI_VER"
+            exit 1
+          fi
+          echo "✅ All versions match: $CARGO_VER"
