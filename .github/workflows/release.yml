@@ -62,9 +62,37 @@ jobs:
             fi
           fi
 
+      - name: Version consistency check
+        run: |
+          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          NPM_VER=$(jq -r .version npm/package.json)
+          PYPI_VER=$(grep '^version' python/pyproject.toml | sed 's/.*"\(.*\)"/\1/')
+          TAG_VER="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG_VER="${TAG_VER#v}"
+          echo "Tag=$TAG_VER  Cargo=$CARGO_VER  npm=$NPM_VER  PyPI=$PYPI_VER"
+          if [ "$CARGO_VER" != "$TAG_VER" ] || [ "$NPM_VER" != "$TAG_VER" ] || [ "$PYPI_VER" != "$TAG_VER" ]; then
+            echo "::error::Version mismatch! Tag=$TAG_VER Cargo=$CARGO_VER npm=$NPM_VER PyPI=$PYPI_VER"
+            exit 1
+          fi
+
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Run tests
+        run: cargo test --all-features
+
   build:
     name: Build ${{ matrix.target }}
-    needs: [preflight]
+    needs: [preflight, test]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -267,3 +295,31 @@ jobs:
           git add Formula/mag.rb
           git commit -m "mag ${VERSION}"
           git push
+
+  smoke-test:
+    name: Post-publish smoke test
+    needs: [preflight, publish-crates, publish-npm, publish-pypi]
+    if: needs.preflight.outputs.is_prerelease == 'false'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Wait for crates.io propagation
+        run: sleep 60
+
+      - name: Install mag from crates.io
+        run: cargo install mag
+
+      - name: Verify version
+        run: |
+          INSTALLED_VER=$(mag --version | awk '{print $2}')
+          EXPECTED_VER="${{ needs.preflight.outputs.tag }}"
+          EXPECTED_VER="${EXPECTED_VER#v}"
+          echo "Installed=$INSTALLED_VER  Expected=$EXPECTED_VER"
+          if [ "$INSTALLED_VER" != "$EXPECTED_VER" ]; then
+            echo "::warning::Smoke test: installed version ($INSTALLED_VER) != expected ($EXPECTED_VER)"
+            exit 1
+          fi
+          echo "Smoke test passed: mag $INSTALLED_VER"
