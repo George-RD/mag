@@ -1,0 +1,55 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in MAG
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill in as much detail as you can.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear, concise description of what the bug is.
+      placeholder: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the behavior.
+      placeholder: |
+        1. Run `mag ...`
+        2. Call tool `...`
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: MAG Version
+      description: Output of `mag --version`
+      placeholder: "e.g. mag 0.1.5"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS / Platform
+      description: Operating system and architecture
+      placeholder: "e.g. macOS 14.4 (arm64), Ubuntu 22.04 (x86_64)"
+    validations:
+      required: true
