@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+        exclude-patterns: ["ort", "rmcp"]
+      pre-stable:
+        patterns: ["ort", "rmcp"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: "/npm"
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: "/python"
+    schedule:
+      interval: monthly
