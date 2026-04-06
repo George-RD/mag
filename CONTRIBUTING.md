@@ -39,10 +39,13 @@ Signed-off-by: Your Name <your@email.com>
 
 Add it with `jj describe`, including the sign-off line in the message:
 
-```
-jj describe -m "feat(scope): description
+```bash
+jj describe -m "$(cat <<'EOF'
+feat(scope): description
 
-Signed-off-by: Your Name <your@email.com>"
+Signed-off-by: Your Name <your@email.com>
+EOF
+)"
 ```
 
 ## PR Process
@@ -50,7 +53,7 @@ Signed-off-by: Your Name <your@email.com>"
 1. Branch from `main` (`jj new main`)
 2. Make changes, run quality gates (see below)
 3. Push and open a PR against `main`
-4. Address review feedback; squash or rebase as needed before merge
+4. Address review feedback; use `jj squash` to fold fixups into parent, or `jj rebase -d main` to rebase onto latest main before merge
 
 ## Quality Gates
 
