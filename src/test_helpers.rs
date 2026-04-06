@@ -31,6 +31,8 @@ where
     let prev_home = std::env::var_os("HOME");
     let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
 
+    let prev_mag_data_root = std::env::var_os("MAG_DATA_ROOT");
+
     // SAFETY: Tests are serialized by HOME_MUTEX, ensuring no concurrent
     // access to these environment variables. This is required because
     // tool detection resolves paths relative to HOME and XDG_CONFIG_HOME.
@@ -39,6 +41,9 @@ where
         // Unset XDG_CONFIG_HOME so xdg_config_home() falls back to $HOME/.config,
         // giving tests a predictable path within the temp directory.
         std::env::remove_var("XDG_CONFIG_HOME");
+        // Clear MAG_DATA_ROOT so resolve_app_paths() uses HOME-relative defaults,
+        // preventing a stale override from a concurrent app_paths test from leaking in.
+        std::env::remove_var("MAG_DATA_ROOT");
     }
 
     let result = f(&dir);
@@ -52,6 +57,10 @@ where
         match prev_xdg {
             Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
             None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        match prev_mag_data_root {
+            Some(val) => std::env::set_var("MAG_DATA_ROOT", val),
+            None => std::env::remove_var("MAG_DATA_ROOT"),
         }
     }
     let _ = std::fs::remove_dir_all(&dir);

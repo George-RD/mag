@@ -29,19 +29,46 @@ pub fn home_dir() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("neither HOME nor USERPROFILE is set"))
 }
 
-pub fn resolve_app_paths() -> Result<AppPaths> {
-    Ok(app_paths_for_home(&home_dir()?))
+/// Resolves the MAG data root directory.
+///
+/// If `MAG_DATA_ROOT` is set, it must be an absolute path; a relative path is
+/// rejected with an error. When the variable is unset the default `$HOME/.mag`
+/// is used.
+pub fn resolve_data_root(home: &Path) -> Result<PathBuf> {
+    match std::env::var_os("MAG_DATA_ROOT") {
+        Some(val) => {
+            if val.is_empty() {
+                return Err(anyhow!(
+                    "MAG_DATA_ROOT is set but empty; unset it or provide an absolute path"
+                ));
+            }
+            let path = PathBuf::from(val);
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                Err(anyhow!(
+                    "MAG_DATA_ROOT must be an absolute path, got: {}",
+                    path.display()
+                ))
+            }
+        }
+        None => Ok(home.join(APP_DIR)),
+    }
 }
 
-fn app_paths_for_home(home: &Path) -> AppPaths {
-    let data_root = home.join(APP_DIR);
+pub fn resolve_app_paths() -> Result<AppPaths> {
+    let home = home_dir()?;
+    let data_root = resolve_data_root(&home)?;
+    Ok(app_paths_for(home, data_root))
+}
 
+fn app_paths_for(home: PathBuf, data_root: PathBuf) -> AppPaths {
     AppPaths {
-        home_dir: home.to_path_buf(),
-        data_root: data_root.clone(),
+        home_dir: home,
         database_path: data_root.join("memory.db"),
         model_root: data_root.join("models"),
         benchmark_root: data_root.join("benchmarks"),
+        data_root,
     }
 }
 
@@ -52,10 +79,98 @@ mod tests {
     #[test]
     fn uses_mag_root() {
         let home = std::env::temp_dir().join(format!("mag-paths-{}", uuid::Uuid::new_v4()));
-        let paths = app_paths_for_home(&home);
-        assert_eq!(paths.data_root, home.join(".mag"));
-        assert_eq!(paths.database_path, home.join(".mag/memory.db"));
-        assert_eq!(paths.model_root, home.join(".mag/models"));
-        assert_eq!(paths.benchmark_root, home.join(".mag/benchmarks"));
+        let data_root = home.join(APP_DIR);
+        let paths = app_paths_for(home.clone(), data_root);
+        assert_eq!(paths.data_root, home.join(APP_DIR));
+        assert_eq!(paths.database_path, home.join(APP_DIR).join("memory.db"));
+        assert_eq!(paths.model_root, home.join(APP_DIR).join("models"));
+        assert_eq!(paths.benchmark_root, home.join(APP_DIR).join("benchmarks"));
+    }
+
+    #[test]
+    fn mag_data_root_override_absolute_path() {
+        let override_dir =
+            std::env::temp_dir().join(format!("mag-override-{}", uuid::Uuid::new_v4()));
+        // Serialize with all other tests that mutate env vars (HOME, XDG_CONFIG_HOME, MAG_DATA_ROOT).
+        let _guard = crate::test_helpers::HOME_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("MAG_DATA_ROOT");
+        // SAFETY: Serialized by HOME_MUTEX; no other test mutates MAG_DATA_ROOT concurrently.
+        unsafe { std::env::set_var("MAG_DATA_ROOT", &override_dir) };
+        let home = PathBuf::from("/home/testuser");
+        let result = resolve_data_root(&home);
+        // Restore
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("MAG_DATA_ROOT", v),
+                None => std::env::remove_var("MAG_DATA_ROOT"),
+            }
+        }
+        let data_root = result.expect("absolute MAG_DATA_ROOT should be accepted");
+        assert_eq!(data_root, override_dir);
+    }
+
+    #[test]
+    fn mag_data_root_fallback_to_home_dot_mag() {
+        let _guard = crate::test_helpers::HOME_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("MAG_DATA_ROOT");
+        // SAFETY: Serialized by HOME_MUTEX; no other test mutates MAG_DATA_ROOT concurrently.
+        unsafe { std::env::remove_var("MAG_DATA_ROOT") };
+        let home = PathBuf::from("/home/testuser");
+        let result = resolve_data_root(&home);
+        // Restore
+        unsafe {
+            if let Some(v) = prev {
+                std::env::set_var("MAG_DATA_ROOT", v);
+            }
+        }
+        assert_eq!(result.unwrap(), PathBuf::from("/home/testuser/.mag"));
+    }
+
+    #[test]
+    fn mag_data_root_rejects_empty_string() {
+        let _guard = crate::test_helpers::HOME_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("MAG_DATA_ROOT");
+        // SAFETY: Serialized by HOME_MUTEX; no other test mutates MAG_DATA_ROOT concurrently.
+        unsafe { std::env::set_var("MAG_DATA_ROOT", "") };
+        let home = PathBuf::from("/home/testuser");
+        let result = resolve_data_root(&home);
+        // Restore
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("MAG_DATA_ROOT", v),
+                None => std::env::remove_var("MAG_DATA_ROOT"),
+            }
+        }
+        assert!(result.is_err(), "empty MAG_DATA_ROOT should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("empty"), "error should mention 'empty'");
+    }
+
+    #[test]
+    fn mag_data_root_rejects_relative_path() {
+        let _guard = crate::test_helpers::HOME_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("MAG_DATA_ROOT");
+        // SAFETY: Serialized by HOME_MUTEX; no other test mutates MAG_DATA_ROOT concurrently.
+        unsafe { std::env::set_var("MAG_DATA_ROOT", "relative/path") };
+        let home = PathBuf::from("/home/testuser");
+        let result = resolve_data_root(&home);
+        // Restore
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("MAG_DATA_ROOT", v),
+                None => std::env::remove_var("MAG_DATA_ROOT"),
+            }
+        }
+        assert!(result.is_err(), "relative MAG_DATA_ROOT should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("absolute"), "error should mention 'absolute'");
     }
 }
