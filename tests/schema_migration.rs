@@ -42,7 +42,7 @@ fn build_db_from_fixture(sql: &str) -> Result<PathBuf> {
 }
 
 /// Read the max applied version from `schema_migrations` via a raw connection.
-fn read_schema_version(db_path: &PathBuf) -> Result<i64> {
+fn read_schema_version(db_path: &std::path::Path) -> Result<i64> {
     let conn = Connection::open(db_path)?;
     let version: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -53,7 +53,7 @@ fn read_schema_version(db_path: &PathBuf) -> Result<i64> {
 }
 
 /// Check whether a column exists on a table using PRAGMA table_info.
-fn column_exists(db_path: &PathBuf, table: &str, column: &str) -> Result<bool> {
+fn column_exists(db_path: &std::path::Path, table: &str, column: &str) -> Result<bool> {
     let conn = Connection::open(db_path)?;
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let found = stmt
@@ -101,23 +101,15 @@ async fn test_migration_from_v0_1_4() -> Result<()> {
     );
 
     // Existing memories survive: retrieve by ID.
-    let content = storage.retrieve("v014-mem-001").await?;
-    assert_eq!(
-        content, "George prefers Rust for systems programming",
-        "memory v014-mem-001 must be retrievable after migration"
-    );
-
-    let content2 = storage.retrieve("v014-mem-002").await?;
-    assert_eq!(
-        content2, "MAG uses additive SQLite migrations for schema evolution",
-        "memory v014-mem-002 must be retrievable after migration"
-    );
-
-    let content3 = storage.retrieve("v014-mem-003").await?;
-    assert_eq!(
-        content3, "The embedding model is bge-small-en-v1.5 with 384 dimensions",
-        "memory v014-mem-003 must be retrievable after migration"
-    );
+    let expected_memories = [
+        ("v014-mem-001", "George prefers Rust for systems programming"),
+        ("v014-mem-002", "MAG uses additive SQLite migrations for schema evolution"),
+        ("v014-mem-003", "The embedding model is bge-small-en-v1.5 with 384 dimensions"),
+    ];
+    for (id, expected) in expected_memories {
+        let content = storage.retrieve(id).await?;
+        assert_eq!(content, expected, "memory {id} must be retrievable after migration");
+    }
 
     // FTS search over migrated data works.
     let results = storage
@@ -219,10 +211,6 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
     // exists but there is no schema_migrations table and no v2+ columns.
     // This mirrors what a database from before the schema version tracking PR
     // (refactor(schema) #134) would have looked like.
-    // A pre-versioning DB would already have had all ALTER TABLE migrations
-    // applied (session_id, event_type, etc.) — the version-tracking PR (#134)
-    // only added the schema_migrations table.  The DB therefore looks like the
-    // current schema minus the schema_migrations table and minus the v6 column.
     let sql = "
         PRAGMA journal_mode=WAL;
         PRAGMA foreign_keys = ON;
@@ -240,18 +228,7 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
             tags TEXT NOT NULL DEFAULT '[]',
             importance REAL NOT NULL DEFAULT 0.5,
             metadata TEXT NOT NULL DEFAULT '{}',
-            access_count INTEGER NOT NULL DEFAULT 0,
-            session_id TEXT,
-            event_type TEXT,
-            project TEXT,
-            priority INTEGER,
-            entity_id TEXT,
-            agent_type TEXT,
-            ttl_seconds INTEGER,
-            canonical_hash TEXT,
-            version_chain_id TEXT,
-            superseded_by_id TEXT,
-            superseded_at TEXT
+            access_count INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE relationships (
@@ -259,9 +236,6 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
             source_id TEXT NOT NULL,
             target_id TEXT NOT NULL,
             rel_type TEXT NOT NULL,
-            weight REAL NOT NULL DEFAULT 1.0,
-            metadata TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             FOREIGN KEY(source_id) REFERENCES memories(id) ON DELETE CASCADE,
             FOREIGN KEY(target_id) REFERENCES memories(id) ON DELETE CASCADE
         );
@@ -275,7 +249,7 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
         CREATE VIRTUAL TABLE memories_fts USING fts5(
             id UNINDEXED,
             content,
-            tokenize='porter unicode61'
+            tokenize='unicode61'
         );
 
         INSERT INTO memories (id, content, content_hash, source_type, created_at, event_at, last_accessed_at)
