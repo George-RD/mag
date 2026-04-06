@@ -160,19 +160,34 @@ mod tests {
     ///
     /// Uses the shared HOME_MUTEX from test_helpers to coordinate with all
     /// tests across the crate that mutate HOME.
+    ///
+    /// Also saves and clears MAG_DATA_ROOT so that resolve_app_paths() uses the
+    /// temp-HOME-relative default, preventing a stale override from leaking in.
     fn with_temp_home(f: impl FnOnce(PathBuf)) {
         let _guard = crate::test_helpers::HOME_MUTEX
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("mag-daemon-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join(".mag")).unwrap();
-        let prev = std::env::var_os("HOME");
-        // SAFETY: protected by HOME_MUTEX; no other test mutates HOME concurrently.
-        unsafe { std::env::set_var("HOME", &dir) };
+        let prev_home = std::env::var_os("HOME");
+        let prev_mag_data_root = std::env::var_os("MAG_DATA_ROOT");
+        // SAFETY: protected by HOME_MUTEX; no other test mutates HOME or MAG_DATA_ROOT concurrently.
+        unsafe {
+            std::env::set_var("HOME", &dir);
+            // Clear MAG_DATA_ROOT so resolve_app_paths() uses HOME-relative defaults.
+            std::env::remove_var("MAG_DATA_ROOT");
+        }
         f(dir.clone());
-        match prev {
-            Some(val) => unsafe { std::env::set_var("HOME", val) },
-            None => unsafe { std::env::remove_var("HOME") },
+        // SAFETY: Restoring original values under the same mutex guard.
+        unsafe {
+            match prev_home {
+                Some(val) => std::env::set_var("HOME", val),
+                None => std::env::remove_var("HOME"),
+            }
+            match prev_mag_data_root {
+                Some(val) => std::env::set_var("MAG_DATA_ROOT", val),
+                None => std::env::remove_var("MAG_DATA_ROOT"),
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

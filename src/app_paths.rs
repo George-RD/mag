@@ -37,6 +37,11 @@ pub fn home_dir() -> Result<PathBuf> {
 pub fn resolve_data_root(home: &Path) -> Result<PathBuf> {
     match std::env::var_os("MAG_DATA_ROOT") {
         Some(val) => {
+            if val.is_empty() {
+                return Err(anyhow!(
+                    "MAG_DATA_ROOT is set but empty; unset it or provide an absolute path"
+                ));
+            }
             let path = PathBuf::from(val);
             if path.is_absolute() {
                 Ok(path)
@@ -59,10 +64,10 @@ pub fn resolve_app_paths() -> Result<AppPaths> {
 
 fn app_paths_for(home: PathBuf, data_root: PathBuf) -> AppPaths {
     AppPaths {
+        home_dir: home,
         database_path: data_root.join("memory.db"),
         model_root: data_root.join("models"),
         benchmark_root: data_root.join("benchmarks"),
-        home_dir: home,
         data_root,
     }
 }
@@ -123,6 +128,28 @@ mod tests {
             }
         }
         assert_eq!(result.unwrap(), PathBuf::from("/home/testuser/.mag"));
+    }
+
+    #[test]
+    fn mag_data_root_rejects_empty_string() {
+        let _guard = crate::test_helpers::HOME_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("MAG_DATA_ROOT");
+        // SAFETY: Serialized by HOME_MUTEX; no other test mutates MAG_DATA_ROOT concurrently.
+        unsafe { std::env::set_var("MAG_DATA_ROOT", "") };
+        let home = PathBuf::from("/home/testuser");
+        let result = resolve_data_root(&home);
+        // Restore
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("MAG_DATA_ROOT", v),
+                None => std::env::remove_var("MAG_DATA_ROOT"),
+            }
+        }
+        assert!(result.is_err(), "empty MAG_DATA_ROOT should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("empty"), "error should mention 'empty'");
     }
 
     #[test]
