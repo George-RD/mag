@@ -36,9 +36,13 @@ jobs:
 
   version-check:
     name: Version Consistency
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Check version consistency
         run: |
           for f in Cargo.toml npm/package.json python/pyproject.toml; do
