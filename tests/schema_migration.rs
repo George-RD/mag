@@ -21,13 +21,23 @@ use rusqlite::Connection;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
+/// RAII guard that removes its directory on drop, even if the test panics.
+struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Build a fresh on-disk SQLite database from a SQL fixture file, returning the
-/// path.  The caller is responsible for removing the file after use.
+/// path and a cleanup guard.  The guard removes the directory when dropped, so
+/// callers just need to hold `_guard` in scope for the duration of the test.
 ///
 /// The connection is opened directly with `rusqlite` (bypassing `initialize_schema`)
 /// so the fixture represents the exact state a user's database would have been in
 /// before upgrading.
-fn build_db_from_fixture(sql: &str) -> Result<PathBuf> {
+fn build_db_from_fixture(sql: &str) -> Result<(PathBuf, TempDir)> {
     let dir = std::env::temp_dir().join(format!("mag-migration-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir)?;
     let db_path = dir.join("memory.db");
@@ -38,7 +48,8 @@ fn build_db_from_fixture(sql: &str) -> Result<PathBuf> {
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     drop(conn);
 
-    Ok(db_path)
+    let guard = TempDir(dir);
+    Ok((db_path, guard))
 }
 
 /// Read the max applied version from `schema_migrations` via a raw connection.
@@ -70,7 +81,7 @@ fn column_exists(db_path: &std::path::Path, table: &str, column: &str) -> Result
 #[tokio::test]
 async fn test_migration_from_v0_1_4() -> Result<()> {
     let sql = include_str!("fixtures/v0_1_4_schema.sql");
-    let db_path = build_db_from_fixture(sql)?;
+    let (db_path, _guard) = build_db_from_fixture(sql)?;
 
     // Pre-condition: fixture is at version 5, column absent.
     let pre_version = read_schema_version(&db_path)?;
@@ -102,13 +113,25 @@ async fn test_migration_from_v0_1_4() -> Result<()> {
 
     // Existing memories survive: retrieve by ID.
     let expected_memories = [
-        ("v014-mem-001", "George prefers Rust for systems programming"),
-        ("v014-mem-002", "MAG uses additive SQLite migrations for schema evolution"),
-        ("v014-mem-003", "The embedding model is bge-small-en-v1.5 with 384 dimensions"),
+        (
+            "v014-mem-001",
+            "George prefers Rust for systems programming",
+        ),
+        (
+            "v014-mem-002",
+            "MAG uses additive SQLite migrations for schema evolution",
+        ),
+        (
+            "v014-mem-003",
+            "The embedding model is bge-small-en-v1.5 with 384 dimensions",
+        ),
     ];
     for (id, expected) in expected_memories {
         let content = storage.retrieve(id).await?;
-        assert_eq!(content, expected, "memory {id} must be retrievable after migration");
+        assert_eq!(
+            content, expected,
+            "memory {id} must be retrievable after migration"
+        );
     }
 
     // FTS search over migrated data works.
@@ -134,7 +157,6 @@ async fn test_migration_from_v0_1_4() -> Result<()> {
         );
     }
 
-    let _ = std::fs::remove_dir_all(db_path.parent().unwrap());
     Ok(())
 }
 
@@ -149,7 +171,7 @@ async fn test_migration_idempotent_v0_1_5() -> Result<()> {
     // the v6 migration manually — this is equivalent to what a v0.1.5 binary
     // would have produced.
     let sql = include_str!("fixtures/v0_1_4_schema.sql");
-    let db_path = build_db_from_fixture(sql)?;
+    let (db_path, _guard) = build_db_from_fixture(sql)?;
 
     // Manually apply the v6 migration (as v0.1.5 binary would have).
     {
@@ -196,7 +218,6 @@ async fn test_migration_idempotent_v0_1_5() -> Result<()> {
         "FTS search must find v014-mem-002 in the idempotent-open scenario"
     );
 
-    let _ = std::fs::remove_dir_all(db_path.parent().unwrap());
     Ok(())
 }
 
@@ -207,10 +228,16 @@ async fn test_migration_idempotent_v0_1_5() -> Result<()> {
 /// recorded as applied, and the database is brought to the current version.
 #[tokio::test]
 async fn test_migration_from_pre_versioning_database() -> Result<()> {
-    // Construct a minimal pre-versioning database by hand: the memories table
-    // exists but there is no schema_migrations table and no v2+ columns.
-    // This mirrors what a database from before the schema version tracking PR
-    // (refactor(schema) #134) would have looked like.
+    // Construct a pre-versioning database by hand: the memories table exists with
+    // ALL columns that were present before the schema_migrations table was introduced
+    // (refactor(schema) #134), but there is NO schema_migrations table.
+    //
+    // A real pre-versioning DB would already have had all ALTER TABLE migrations
+    // applied (session_id, event_type, etc.) — the version-tracking PR (#134) only
+    // added the schema_migrations table.  The seed-versions logic in initialize_schema
+    // therefore marks v1–4 as applied WITHOUT re-running the ALTER TABLEs (which
+    // would fail since the columns already exist).  The search code expects all v2
+    // columns (session_id, event_type, project, entity_id, agent_type) to be present.
     let sql = "
         PRAGMA journal_mode=WAL;
         PRAGMA foreign_keys = ON;
@@ -228,7 +255,18 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
             tags TEXT NOT NULL DEFAULT '[]',
             importance REAL NOT NULL DEFAULT 0.5,
             metadata TEXT NOT NULL DEFAULT '{}',
-            access_count INTEGER NOT NULL DEFAULT 0
+            access_count INTEGER NOT NULL DEFAULT 0,
+            session_id TEXT,
+            event_type TEXT,
+            project TEXT,
+            priority INTEGER,
+            entity_id TEXT,
+            agent_type TEXT,
+            ttl_seconds INTEGER,
+            canonical_hash TEXT,
+            version_chain_id TEXT,
+            superseded_by_id TEXT,
+            superseded_at TEXT
         );
 
         CREATE TABLE relationships (
@@ -236,6 +274,9 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
             source_id TEXT NOT NULL,
             target_id TEXT NOT NULL,
             rel_type TEXT NOT NULL,
+            weight REAL NOT NULL DEFAULT 1.0,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             FOREIGN KEY(source_id) REFERENCES memories(id) ON DELETE CASCADE,
             FOREIGN KEY(target_id) REFERENCES memories(id) ON DELETE CASCADE
         );
@@ -249,7 +290,7 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
         CREATE VIRTUAL TABLE memories_fts USING fts5(
             id UNINDEXED,
             content,
-            tokenize='unicode61'
+            tokenize='porter unicode61'
         );
 
         INSERT INTO memories (id, content, content_hash, source_type, created_at, event_at, last_accessed_at)
@@ -259,7 +300,7 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
         INSERT INTO memories_fts (id, content) VALUES ('legacy-001', 'old memory from before versioning');
     ";
 
-    let db_path = build_db_from_fixture(sql)?;
+    let (db_path, _guard) = build_db_from_fixture(sql)?;
 
     // Pre-condition: no schema_migrations table exists.
     {
@@ -298,16 +339,21 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
         "FTS search must find legacy-001 after full migration"
     );
 
-    // New columns from v2 must exist.
+    // v2 columns must be present (they were in the fixture already; seed-versions
+    // marks them applied without re-running the ALTERs).
     assert!(
         column_exists(&db_path, "memories", "session_id")?,
-        "session_id column must exist after v2 migration"
+        "session_id column must exist in the pre-versioning database"
     );
+    assert!(
+        column_exists(&db_path, "memories", "event_type")?,
+        "event_type column must exist in the pre-versioning database"
+    );
+    // v6 column must have been added by the migration.
     assert!(
         column_exists(&db_path, "memories", "last_confirmed_at")?,
         "last_confirmed_at column must exist after v6 migration"
     );
 
-    let _ = std::fs::remove_dir_all(db_path.parent().unwrap());
     Ok(())
 }
