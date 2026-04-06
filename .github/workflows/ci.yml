@@ -44,9 +44,9 @@ jobs:
           for f in Cargo.toml npm/package.json python/pyproject.toml; do
             [ -f "$f" ] || { echo "::error::Required manifest not found: $f"; exit 1; }
           done
-          CARGO_VER=$(python3 -c "import tomllib; d=tomllib.loads(open('Cargo.toml').read()); print(d['package']['version'])")
+          CARGO_VER=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])")
           NPM_VER=$(python3 -c "import json; print(json.load(open('npm/package.json'))['version'])")
-          PYPI_VER=$(python3 -c "import tomllib; d=tomllib.loads(open('python/pyproject.toml').read()); print(d['project']['version'])")
+          PYPI_VER=$(python3 -c "import tomllib; print(tomllib.load(open('python/pyproject.toml','rb'))['project']['version'])")
           echo "Cargo: $CARGO_VER | npm: $NPM_VER | PyPI: $PYPI_VER"
           if [ "$CARGO_VER" != "$NPM_VER" ] || [ "$CARGO_VER" != "$PYPI_VER" ]; then
             echo "::error::Version mismatch: Cargo=$CARGO_VER npm=$NPM_VER PyPI=$PYPI_VER"
