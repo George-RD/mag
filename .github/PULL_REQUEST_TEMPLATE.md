@@ -9,6 +9,8 @@
 - [ ] `cargo test --all-features` passes
 - [ ] Benchmark shows no regression (`./scripts/bench.sh --gate`) — required if touching scoring, search, or storage
 - [ ] New public APIs have tests
+- [ ] Code simplification review done (if applicable)
+- [ ] AGENTS.md updated (if architecture/conventions changed)
 
 ## Notes for Reviewers
 

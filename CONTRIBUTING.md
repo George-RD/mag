@@ -37,11 +37,17 @@ All commits must include a DCO sign-off:
 Signed-off-by: Your Name <your@email.com>
 ```
 
-Add it with `git commit -s` or `jj describe` + manually append the line.
+Add it with `jj describe`, including the sign-off line in the message:
+
+```
+jj describe -m "feat(scope): description
+
+Signed-off-by: Your Name <your@email.com>"
+```
 
 ## PR Process
 
-1. Branch from `main` (`jj new main` or `git checkout -b feat/my-thing origin/main`)
+1. Branch from `main` (`jj new main`)
 2. Make changes, run quality gates (see below)
 3. Push and open a PR against `main`
 4. Address review feedback; squash or rebase as needed before merge
@@ -66,7 +72,7 @@ cargo test --all-features
 ./scripts/bench.sh --gate
 ```
 
-This runs a 2-sample benchmark, logs results to `docs/benchmarks/benchmark_log.csv`, and compares against the 10-sample baseline. Warns at >2 pp delta, fails at >5 pp. See `scripts/bench.sh` for full options.
+This runs a 2-sample benchmark, logs results to `docs/benchmarks/benchmark_log.csv`, and compares against the 10-sample baseline. Warns at >2 pp delta, fails at >5 pp. If the gate warns (>2 pp delta), run `./scripts/bench.sh --samples 10` for full validation before merging. See `scripts/bench.sh` for full options.
 
 See [AGENTS.md § Quality Gates](./AGENTS.md#quality-gates) for the authoritative list.
 
