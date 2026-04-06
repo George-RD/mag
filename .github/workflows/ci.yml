@@ -57,3 +57,45 @@ jobs:
             exit 1
           fi
           echo "All versions match: $CARGO_VER"
+
+  benchmark:
+    name: Benchmark Gate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Detect scoring/search changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            scoring:
+              - 'src/memory_core/scoring/**'
+              - 'src/memory_core/storage/sqlite/search*'
+              - 'src/memory_core/storage/sqlite/advanced*'
+
+      - name: Install Rust
+        if: steps.filter.outputs.scoring == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        if: steps.filter.outputs.scoring == 'true'
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmark gate
+        if: steps.filter.outputs.scoring == 'true'
+        run: ./scripts/bench.sh --gate
+
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+      - name: Run smoke test
+        run: bash scripts/smoke-test.sh
