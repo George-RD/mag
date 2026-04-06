@@ -62,9 +62,41 @@ jobs:
             fi
           fi
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Version consistency check
+        run: |
+          CARGO_VER=$(python3 -c "import tomllib; d=tomllib.load(open('Cargo.toml','rb')); print(d['package']['version'])")
+          NPM_VER=$(python3 -c "import json; print(json.load(open('npm/package.json'))['version'])")
+          PYPI_VER=$(python3 -c "import tomllib; d=tomllib.load(open('python/pyproject.toml','rb')); print(d['project']['version'])")
+          TAG_VER="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG_VER="${TAG_VER#v}"
+          echo "Tag=$TAG_VER  Cargo=$CARGO_VER  npm=$NPM_VER  PyPI=$PYPI_VER"
+          if [ "$CARGO_VER" != "$TAG_VER" ] || [ "$NPM_VER" != "$TAG_VER" ] || [ "$PYPI_VER" != "$TAG_VER" ]; then
+            echo "::error::Version mismatch! Tag=$TAG_VER Cargo=$CARGO_VER npm=$NPM_VER PyPI=$PYPI_VER"
+            exit 1
+          fi
+
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Run tests
+        run: cargo test --all-features
+
   build:
     name: Build ${{ matrix.target }}
-    needs: [preflight]
+    needs: [preflight, test]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -267,3 +299,39 @@ jobs:
           git add Formula/mag.rb
           git commit -m "mag ${VERSION}"
           git push
+
+  smoke-test:
+    name: Post-publish smoke test
+    needs: [preflight, publish-crates, publish-npm, publish-pypi]
+    if: needs.preflight.outputs.is_prerelease == 'false'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mag from crates.io (with retry)
+        run: |
+          EXPECTED_VER="${{ needs.preflight.outputs.tag }}"
+          EXPECTED_VER="${EXPECTED_VER#v}"
+          # Retry up to 5 times with 30s gaps to allow crates.io index propagation
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i: trying cargo install mag --version $EXPECTED_VER..."
+            cargo install mag --version "$EXPECTED_VER" && exit 0
+            echo "Attempt $i failed. Waiting 30s before retry..."
+            sleep 30
+          done
+          echo "::error::mag failed to install from crates.io after 5 attempts"
+          exit 1
+
+      - name: Verify version
+        run: |
+          INSTALLED_VER=$(mag --version | awk '{print $2}')
+          EXPECTED_VER="${{ needs.preflight.outputs.tag }}"
+          EXPECTED_VER="${EXPECTED_VER#v}"
+          echo "Installed=$INSTALLED_VER  Expected=$EXPECTED_VER"
+          if [ "$INSTALLED_VER" != "$EXPECTED_VER" ]; then
+            echo "::error::Smoke test: installed version ($INSTALLED_VER) != expected ($EXPECTED_VER)"
+            exit 1
+          fi
+          echo "Smoke test passed: mag $INSTALLED_VER"
