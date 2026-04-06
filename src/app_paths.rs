@@ -79,12 +79,12 @@ mod tests {
     #[test]
     fn uses_mag_root() {
         let home = std::env::temp_dir().join(format!("mag-paths-{}", uuid::Uuid::new_v4()));
-        let data_root = home.join(".mag");
-        let paths = app_paths_for(home.clone(), data_root.clone());
-        assert_eq!(paths.data_root, home.join(".mag"));
-        assert_eq!(paths.database_path, home.join(".mag/memory.db"));
-        assert_eq!(paths.model_root, home.join(".mag/models"));
-        assert_eq!(paths.benchmark_root, home.join(".mag/benchmarks"));
+        let data_root = home.join(APP_DIR);
+        let paths = app_paths_for(home.clone(), data_root);
+        assert_eq!(paths.data_root, home.join(APP_DIR));
+        assert_eq!(paths.database_path, home.join(APP_DIR).join("memory.db"));
+        assert_eq!(paths.model_root, home.join(APP_DIR).join("models"));
+        assert_eq!(paths.benchmark_root, home.join(APP_DIR).join("benchmarks"));
     }
 
     #[test]
