@@ -72,33 +72,4 @@ cargo test --all-features
 ./scripts/bench.sh --gate
 ```
 
-This runs a 2-sample benchmark, logs results to `docs/benchmarks/benchmark_log.csv`, and compares against the 10-sample baseline. Warns at >2 pp delta, fails at >5 pp. If the gate warns (>2 pp delta), run `./scripts/bench.sh --samples 10` for full validation before merging. See `scripts/bench.sh` for full options.
-
-See [AGENTS.md § Quality Gates](./AGENTS.md#quality-gates) for the authoritative list.
-
-## Running Benchmarks
-
-```bash
-# Fast iteration (2-sample, ~15s):
-./scripts/bench.sh
-
-# PR gate check (compares vs baseline):
-./scripts/bench.sh --gate
-
-# Full validation (10-sample, authoritative):
-./scripts/bench.sh --samples 10 --notes "pre-merge validation"
-```
-
-See [AGENTS.md § Commands](./AGENTS.md#commands) for all benchmark variants.
-
-## Maintainer Setup
-
-Recommended branch protection for `main` on GitHub:
-
-- Require pull request before merging
-- Require at least 1 approving review
-- Require status checks to pass (CI: `cargo fmt`, `cargo clippy`, `cargo test`)
-- Restrict pushes to maintainers only
-- Do not allow force pushes
-
-> Branch protection rules are set in **Settings → Branches** on GitHub. These are not enforced automatically by this repository — they must be configured manually by a maintainer.
+See [AGENTS.md § Quality Gates](./AGENTS.md#quality-gates) for thresholds and full options.
