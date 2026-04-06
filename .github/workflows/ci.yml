@@ -33,3 +33,27 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run Tests
         run: cargo test --all-features
+
+  version-check:
+    name: Version Consistency
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check version consistency
+        run: |
+          for f in Cargo.toml npm/package.json python/pyproject.toml; do
+            [ -f "$f" ] || { echo "::error::Required manifest not found: $f"; exit 1; }
+          done
+          CARGO_VER=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])")
+          NPM_VER=$(python3 -c "import json; print(json.load(open('npm/package.json'))['version'])")
+          PYPI_VER=$(python3 -c "import tomllib; print(tomllib.load(open('python/pyproject.toml','rb'))['project']['version'])")
+          echo "Cargo: $CARGO_VER | npm: $NPM_VER | PyPI: $PYPI_VER"
+          if [ "$CARGO_VER" != "$NPM_VER" ] || [ "$CARGO_VER" != "$PYPI_VER" ]; then
+            echo "::error::Version mismatch: Cargo=$CARGO_VER npm=$NPM_VER PyPI=$PYPI_VER"
+            exit 1
+          fi
+          echo "All versions match: $CARGO_VER"
