@@ -70,7 +70,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 CARGO_TOML="$REPO_ROOT/Cargo.toml"
-CARGO_LOCK="$REPO_ROOT/Cargo.lock"
 PKG_JSON="$REPO_ROOT/npm/package.json"
 PYPROJECT="$REPO_ROOT/python/pyproject.toml"
 
@@ -82,31 +81,33 @@ done
 
 # ── backup & rollback on failure ──────────────────────────────────────────────
 
+cp "$CARGO_TOML"         "$CARGO_TOML.bak"
+cp "$PKG_JSON"           "$PKG_JSON.bak"
+cp "$PYPROJECT"          "$PYPROJECT.bak"
+cp "$REPO_ROOT/Cargo.lock" "$REPO_ROOT/Cargo.lock.bak" 2>/dev/null || true
+
+SUCCESS=false
+
 restore_backups() {
   echo "error: restoring original files due to failure" >&2
-  [[ -f "$CARGO_TOML.bak" ]] && mv "$CARGO_TOML.bak" "$CARGO_TOML"
-  [[ -f "$PKG_JSON.bak"   ]] && mv "$PKG_JSON.bak"   "$PKG_JSON"
-  [[ -f "$PYPROJECT.bak"  ]] && mv "$PYPROJECT.bak"  "$PYPROJECT"
+  cp "$CARGO_TOML.bak" "$CARGO_TOML"
+  cp "$PKG_JSON.bak"   "$PKG_JSON"
+  cp "$PYPROJECT.bak"  "$PYPROJECT"
+  [[ -f "$REPO_ROOT/Cargo.lock.bak" ]] && cp "$REPO_ROOT/Cargo.lock.bak" "$REPO_ROOT/Cargo.lock"
 }
 
 remove_backups() {
-  rm -f "$CARGO_TOML.bak" "$PKG_JSON.bak" "$PYPROJECT.bak"
+  rm -f "$CARGO_TOML.bak" "$PKG_JSON.bak" "$PYPROJECT.bak" "$REPO_ROOT/Cargo.lock.bak"
 }
 
-cp "$CARGO_TOML" "$CARGO_TOML.bak"
-cp "$PKG_JSON"   "$PKG_JSON.bak"
-cp "$PYPROJECT"  "$PYPROJECT.bak"
-
-trap 'restore_backups' ERR
+trap 'if ! $SUCCESS; then restore_backups; fi; remove_backups' EXIT
 
 # ── update Cargo.toml ─────────────────────────────────────────────────────────
 # Update the FIRST occurrence of `version = "..."` (the [package] version,
 # not a dependency version).
 
 OLD_CARGO=$(grep -m1 '^version = "' "$CARGO_TOML" | sed 's/version = "\(.*\)"/\1/')
-if [[ -z "$OLD_CARGO" ]]; then
-  die "could not find version in $CARGO_TOML"
-fi
+[[ -n "$OLD_CARGO" ]] || die "could not find version in $CARGO_TOML"
 
 # Use awk to only replace the first matching line
 awk -v new="$VERSION" '
@@ -117,7 +118,6 @@ awk -v new="$VERSION" '
   { print }
 ' "$CARGO_TOML" > "$CARGO_TOML.tmp" && mv "$CARGO_TOML.tmp" "$CARGO_TOML"
 
-# Verify
 ACTUAL=$(grep -m1 '^version = "' "$CARGO_TOML" | sed 's/version = "\(.*\)"/\1/')
 [[ "$ACTUAL" == "$VERSION" ]] || die "Cargo.toml update failed (got '$ACTUAL')"
 echo "  Cargo.toml:            $OLD_CARGO → $VERSION"
@@ -125,18 +125,18 @@ echo "  Cargo.toml:            $OLD_CARGO → $VERSION"
 # ── update Cargo.lock ─────────────────────────────────────────────────────────
 
 if command -v cargo >/dev/null 2>&1; then
-  cargo generate-lockfile --manifest-path "$CARGO_TOML" 2>/dev/null \
-    || cargo check --manifest-path "$CARGO_TOML" --quiet 2>/dev/null \
-    || true
+  if ! cargo generate-lockfile --manifest-path "$CARGO_TOML" 2>/dev/null; then
+    if ! cargo check --manifest-path "$CARGO_TOML" 2>/dev/null; then
+      echo "Warning: could not regenerate Cargo.lock (cargo not available)" >&2
+    fi
+  fi
   echo "  Cargo.lock:            regenerated"
 fi
 
 # ── update npm/package.json ───────────────────────────────────────────────────
 
 OLD_NPM=$(jq -r '.version' "$PKG_JSON")
-if [[ -z "$OLD_NPM" || "$OLD_NPM" == "null" ]]; then
-  die "could not find version in $PKG_JSON"
-fi
+[[ -n "$OLD_NPM" && "$OLD_NPM" != "null" ]] || die "could not find version in $PKG_JSON"
 
 jq --arg v "$VERSION" '.version = $v' "$PKG_JSON" > "$PKG_JSON.tmp" && mv "$PKG_JSON.tmp" "$PKG_JSON"
 
@@ -148,9 +148,7 @@ echo "  npm/package.json:      $OLD_NPM → $VERSION"
 # Only update version under [project], not [build-system] or other sections.
 
 OLD_PY=$(awk '/^\[project\]/{in_proj=1} /^\[/{if(!/^\[project\]/)in_proj=0} in_proj && /^version = "/{gsub(/.*version = "|".*/,""); print; exit}' "$PYPROJECT")
-if [[ -z "$OLD_PY" ]]; then
-  die "could not find version in $PYPROJECT"
-fi
+[[ -n "$OLD_PY" ]] || die "could not find version in $PYPROJECT"
 
 awk -v new="$VERSION" '
   /^\[project\]/ { in_proj=1 }
@@ -166,10 +164,7 @@ ACTUAL=$(awk '/^\[project\]/{in_proj=1} /^\[/{if(!/^\[project\]/)in_proj=0} in_p
 [[ "$ACTUAL" == "$VERSION" ]] || die "python/pyproject.toml update failed (got '$ACTUAL')"
 echo "  python/pyproject.toml: $OLD_PY → $VERSION"
 
-# ── all updates succeeded — remove backups ────────────────────────────────────
-
-trap - ERR
-remove_backups
+# ── all updates succeeded — EXIT trap will clean up backups ──────────────────
 
 # ── show diff ────────────────────────────────────────────────────────────────
 
@@ -181,17 +176,16 @@ git -C "$REPO_ROOT" diff -- Cargo.toml Cargo.lock npm/package.json python/pyproj
 
 if [[ "$DO_COMMIT" == true ]]; then
   echo ""
-  COMMIT_MSG="chore: bump version to v$VERSION"
+  git -C "$REPO_ROOT" add Cargo.toml Cargo.lock npm/package.json python/pyproject.toml
 
   if command -v jj >/dev/null 2>&1 && [[ -d "$REPO_ROOT/.jj" ]]; then
-    # jj-colocated repo: stage files first (git add), then describe + new
-    git -C "$REPO_ROOT" add Cargo.toml Cargo.lock npm/package.json python/pyproject.toml
-    jj describe -m "$COMMIT_MSG"
-    jj new
+    jj --repository "$REPO_ROOT" describe -m "chore: bump version to v$VERSION"
+    jj --repository "$REPO_ROOT" new
   else
-    git -C "$REPO_ROOT" add Cargo.toml Cargo.lock npm/package.json python/pyproject.toml
-    git -C "$REPO_ROOT" commit -m "$COMMIT_MSG"
+    git -C "$REPO_ROOT" commit -m "chore: bump version to v$VERSION"
   fi
 
-  echo "Committed: $COMMIT_MSG"
+  echo "Committed: chore: bump version to v$VERSION"
 fi
+
+SUCCESS=true
