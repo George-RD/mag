@@ -46,7 +46,8 @@ pub enum ConfigWriteResult {
     /// The tool's config format is not supported for writing in this version.
     UnsupportedFormat { reason: String },
     /// The tool's config write is deferred because serialization support is
-    /// not yet implemented (e.g., TOML for Codex).
+    /// not yet implemented (reserved for future tool formats).
+    #[allow(dead_code)]
     Deferred { tool: AiTool },
     /// MAG was installed as a Claude Code plugin via the marketplace.
     Plugin,
@@ -95,7 +96,7 @@ pub enum ConfigStatus {
 /// - Writes atomically via temp file + rename.
 /// - Returns `AlreadyCurrent` if no changes needed.
 /// - Returns `UnsupportedFormat` for Zed (JSONC).
-/// - Returns `Deferred` for Codex (TOML not yet implemented).
+/// - Uses string-based TOML write for Codex (`~/.codex/config.toml`).
 pub fn write_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigWriteResult> {
     // Zed: always unsupported
     if tool.tool == AiTool::Zed {
@@ -104,9 +105,9 @@ pub fn write_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigWr
         });
     }
 
-    // Codex: TOML is deferred
+    // Codex: TOML write
     if tool.tool.config_format() == ConfigFormat::Toml {
-        return Ok(ConfigWriteResult::Deferred { tool: tool.tool });
+        return write_toml_config(tool, mode);
     }
 
     // Check idempotency first
@@ -124,8 +125,12 @@ pub fn write_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigWr
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("reading config at {}", path.display()))?;
         let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
-        let parsed: serde_json::Value = serde_json::from_str(content)
-            .with_context(|| format!("parsing config at {}", path.display()))?;
+        let parsed: serde_json::Value = if content.trim().is_empty() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            serde_json::from_str(content)
+                .with_context(|| format!("parsing config at {}", path.display()))?
+        };
         (parsed, true)
     } else {
         (serde_json::Value::Object(serde_json::Map::new()), false)
@@ -180,11 +185,9 @@ pub fn remove_config(tool: &DetectedTool) -> Result<RemoveResult> {
         });
     }
 
-    // Codex: also unsupported for now (TOML)
+    // Codex: TOML removal
     if tool.tool.config_format() == ConfigFormat::Toml {
-        return Ok(RemoveResult::UnsupportedFormat {
-            reason: "Codex TOML config removal is not yet supported".into(),
-        });
+        return remove_toml_config(tool);
     }
 
     let path = &tool.config_path;
@@ -625,6 +628,124 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// TOML write / remove (Codex)
+// ---------------------------------------------------------------------------
+
+/// Renders the MAG `[mcp_servers.mag]` TOML section for the given transport mode.
+fn build_mag_toml_block(mode: TransportMode) -> String {
+    match mode {
+        TransportMode::Http { port } => {
+            format!("[mcp_servers.mag]\ntype = \"http\"\nurl = \"http://127.0.0.1:{port}/mcp\"\n")
+        }
+        TransportMode::Command => {
+            "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n".to_string()
+        }
+        TransportMode::Stdio => {
+            "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\", \"--stdio\"]\n".to_string()
+        }
+    }
+}
+
+/// Returns `(start, end)` byte indices of the `[mcp_servers.mag]` TOML section
+/// in `content`, where `end` is the start of the next section header (or EOF).
+/// Returns `None` if the section is not present.
+fn find_toml_mag_section(content: &str) -> Option<(usize, usize)> {
+    let header = "[mcp_servers.mag]";
+    let start = content.find(header)?;
+    let after_header = start + header.len();
+    // The next section starts at a `[` that follows a newline
+    let end = content[after_header..]
+        .find("\n[")
+        .map(|i| after_header + i + 1) // point to the `[` of the next section
+        .unwrap_or(content.len());
+    Some((start, end))
+}
+
+/// Writes the MAG entry to a TOML config file (Codex). Reads the existing
+/// file, replaces or appends the `[mcp_servers.mag]` section, and writes
+/// back atomically. Returns `AlreadyCurrent` if nothing changed.
+fn write_toml_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigWriteResult> {
+    let path = &tool.config_path;
+    let new_block = build_mag_toml_block(mode);
+
+    let existing = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).context("reading Codex config"),
+    };
+
+    let new_content = if let Some((start, end)) = find_toml_mag_section(&existing) {
+        // Section already exists — check if content is identical
+        if existing[start..end].trim_end() == new_block.trim_end() {
+            return Ok(ConfigWriteResult::AlreadyCurrent);
+        }
+        // Replace the section; preserve a blank line before any following section
+        let after = &existing[end..];
+        let sep = if !after.is_empty() && !after.starts_with('\n') {
+            "\n"
+        } else {
+            ""
+        };
+        format!("{}{}{}{}", &existing[..start], new_block, sep, after)
+    } else {
+        // Append the section with a blank-line separator
+        if existing.is_empty() {
+            new_block.clone()
+        } else {
+            let sep = if existing.ends_with('\n') {
+                "\n"
+            } else {
+                "\n\n"
+            };
+            format!("{}{}{}", existing, sep, new_block)
+        }
+    };
+
+    // Backup before overwriting an existing file
+    let backup_path = if path.exists() {
+        let bak = backup_path_for(path);
+        std::fs::copy(path, &bak).with_context(|| format!("backing up {}", path.display()))?;
+        Some(bak)
+    } else {
+        None
+    };
+
+    atomic_write(path, new_content.as_bytes())?;
+    Ok(ConfigWriteResult::Written { backup_path })
+}
+
+/// Removes the `[mcp_servers.mag]` section from a TOML config file (Codex).
+fn remove_toml_config(tool: &DetectedTool) -> Result<RemoveResult> {
+    let path = &tool.config_path;
+
+    let existing = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(RemoveResult::NoConfigFile);
+        }
+        Err(e) => return Err(e).context("reading Codex config for removal"),
+    };
+
+    let Some((start, end)) = find_toml_mag_section(&existing) else {
+        return Ok(RemoveResult::NotPresent);
+    };
+
+    // Re-stitch content without the section; normalise surrounding blank lines
+    let before = existing[..start].trim_end_matches('\n');
+    let after = &existing[end..];
+    let new_content = match (before.is_empty(), after.is_empty()) {
+        (true, _) => after.to_string(),
+        (false, true) => format!("{}\n", before),
+        (false, false) => format!("{}\n\n{}", before, after),
+    };
+
+    let bak = backup_path_for(path);
+    std::fs::copy(path, &bak).with_context(|| format!("backing up {}", path.display()))?;
+    atomic_write(path, new_content.as_bytes())?;
+    Ok(RemoveResult::Removed)
 }
 
 // ---------------------------------------------------------------------------
@@ -1112,21 +1233,149 @@ mod tests {
         });
     }
 
+    // -----------------------------------------------------------------------
+    // Codex TOML write / remove
+    // -----------------------------------------------------------------------
+
     #[test]
     #[serial]
-    fn codex_write_returns_deferred() {
+    fn codex_write_creates_toml_config() {
         with_temp_home(|home| {
             let config_path = home.join(".codex/config.toml");
             let detected = DetectedTool {
                 tool: AiTool::Codex,
-                config_path,
+                config_path: config_path.clone(),
                 scope: ConfigScope::Global,
                 mag_status: MagConfigStatus::NotConfigured,
             };
 
             let result =
                 write_config(&detected, TransportMode::Command).expect("write should succeed");
-            assert!(matches!(result, ConfigWriteResult::Deferred { .. }));
+            assert!(matches!(result, ConfigWriteResult::Written { .. }));
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(content.contains("[mcp_servers.mag]"));
+            assert!(content.contains("command = \"mag\""));
+            assert!(content.contains("args = [\"serve\"]"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_write_is_idempotent() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+
+            write_config(&detected, TransportMode::Command).expect("first write");
+            let result = write_config(&detected, TransportMode::Command).expect("second write");
+            assert!(matches!(result, ConfigWriteResult::AlreadyCurrent));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_write_appends_to_existing_config() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(&config_path, "[user]\nname = \"test\"\n").unwrap();
+
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+
+            write_config(&detected, TransportMode::Command).expect("write should succeed");
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(content.contains("[user]"));
+            assert!(content.contains("[mcp_servers.mag]"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_write_replaces_existing_section() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &config_path,
+                "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n",
+            )
+            .unwrap();
+
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::Misconfigured("wrong mode".into()),
+            };
+
+            let result =
+                write_config(&detected, TransportMode::Stdio).expect("write should succeed");
+            assert!(matches!(result, ConfigWriteResult::Written { .. }));
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(content.contains("\"--stdio\""));
+            // Only one [mcp_servers.mag] section
+            assert_eq!(content.matches("[mcp_servers.mag]").count(), 1);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_remove_removes_section() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &config_path,
+                "[user]\nname = \"test\"\n\n[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n",
+            )
+            .unwrap();
+
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::Configured,
+            };
+
+            let result = remove_config(&detected).expect("remove should succeed");
+            assert_eq!(result, RemoveResult::Removed);
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            assert!(!content.contains("[mcp_servers.mag]"));
+            assert!(content.contains("[user]"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_remove_not_present() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(&config_path, "[user]\nname = \"test\"\n").unwrap();
+
+            let detected = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+
+            let result = remove_config(&detected).expect("remove should succeed");
+            assert_eq!(result, RemoveResult::NotPresent);
         });
     }
 
@@ -1158,6 +1407,40 @@ mod tests {
                 parsed["servers"]["mag"]["url"],
                 "http://127.0.0.1:19420/mcp"
             );
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Empty file handling
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[serial]
+    fn write_config_treats_empty_file_as_empty_object() {
+        with_temp_home(|home| {
+            // VS Code mcp.json exists but is empty (common when VS Code creates it)
+            let config_path = home.join("vscode/mcp.json");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            std::fs::write(&config_path, "").unwrap();
+
+            let detected = DetectedTool {
+                tool: AiTool::VSCodeCopilot,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::Unreadable("empty config file".into()),
+            };
+
+            let result = write_config(&detected, TransportMode::Command);
+            assert!(
+                result.is_ok(),
+                "should not error on empty file: {:?}",
+                result
+            );
+            assert!(matches!(result.unwrap(), ConfigWriteResult::Written { .. }));
+
+            let content = std::fs::read_to_string(&config_path).expect("read config");
+            let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
+            assert!(parsed.get("servers").is_some());
         });
     }
 

@@ -5,7 +5,7 @@
 //! `--configs-only` modes.
 
 use std::io::{self, BufRead, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -27,12 +27,14 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
     let mut choices = if configs_only {
         UninstallChoices {
             tool_configs: true,
+            binary: false,
             models: false,
             database: false,
         }
     } else if all || is_non_interactive() {
         UninstallChoices {
             tool_configs: true,
+            binary: all,
             models: true,
             database: all, // non-TTY without --all refuses database deletion
         }
@@ -49,6 +51,9 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
 
     if choices.tool_configs {
         summary.tool_configs = Some(remove_tool_configs());
+    }
+    if choices.binary {
+        summary.binary = Some(remove_binary_and_path(&paths.home_dir));
     }
     if choices.models {
         summary.models = Some(remove_directory(&paths.model_root));
@@ -110,6 +115,26 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
         }
     }
 
+    if let Some(ref br) = summary.binary {
+        print_remove_outcome("MAG binary", &br.removed);
+        for p in &br.profiles_cleaned {
+            println!("    \u{2713} Cleaned PATH entry from {p}");
+        }
+        for (profile, reason) in &br.profiles_failed {
+            println!("    \u{2717} {profile}: {reason}");
+        }
+        if br.cargo_hint {
+            println!(
+                "    \u{2139} Also installed via cargo \u{2014} run: cargo uninstall mag-memory"
+            );
+        }
+        if let Some(ref other) = br.other_binary {
+            println!(
+                "    \u{2139} Additional binary at {other} \u{2014} remove manually if desired"
+            );
+        }
+    }
+
     if let Some(ref r) = summary.models {
         print_remove_outcome("Models directory", r);
     }
@@ -127,6 +152,11 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
             paths.data_root.display()
         );
     }
+    if summary.binary.as_ref().is_some_and(|br| {
+        matches!(br.removed, RemoveOutcome::Removed { .. }) || !br.profiles_cleaned.is_empty()
+    }) {
+        println!("  Restart your shell for PATH changes to take effect.");
+    }
     println!("  To reinstall, run: cargo install mag-memory\n");
 
     Ok(())
@@ -138,6 +168,7 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
 
 struct UninstallChoices {
     tool_configs: bool,
+    binary: bool,
     models: bool,
     database: bool,
 }
@@ -145,9 +176,18 @@ struct UninstallChoices {
 #[derive(Default)]
 struct UninstallSummary {
     tool_configs: Option<ToolConfigResult>,
+    binary: Option<BinaryResult>,
     models: Option<RemoveOutcome>,
     database: Option<RemoveOutcome>,
     benchmarks: Option<RemoveOutcome>,
+}
+
+struct BinaryResult {
+    removed: RemoveOutcome,
+    profiles_cleaned: Vec<String>,
+    profiles_failed: Vec<(String, String)>,
+    cargo_hint: bool,
+    other_binary: Option<String>,
 }
 
 enum ToolConfigResult {
@@ -203,11 +243,14 @@ fn prompt_choices(paths: &app_paths::AppPaths) -> Result<UninstallChoices> {
 
     println!("    [1] Tool configurations (Claude Code, Cursor, VS Code, ...)");
 
+    let bin_label = binary_install_label(&paths.home_dir);
+    println!("    [2] Binary and PATH entries ({bin_label})");
+
     let models_label = path_size_label(&paths.model_root);
-    println!("    [2] Downloaded models (~/.mag/models/, {models_label})");
+    println!("    [3] Downloaded models (~/.mag/models/, {models_label})");
 
     let db_label = path_size_label(&paths.database_path);
-    println!("    [3] Database and all memories (~/.mag/memory.db, {db_label})");
+    println!("    [4] Database and all memories (~/.mag/memory.db, {db_label})");
     println!(
         "        \u{26a0}  This permanently deletes all stored memories, sessions, and relationships."
     );
@@ -225,6 +268,7 @@ fn prompt_choices(paths: &app_paths::AppPaths) -> Result<UninstallChoices> {
         println!("  No choices selected. Nothing to do.");
         return Ok(UninstallChoices {
             tool_configs: false,
+            binary: false,
             models: false,
             database: false,
         });
@@ -233,6 +277,7 @@ fn prompt_choices(paths: &app_paths::AppPaths) -> Result<UninstallChoices> {
     if trimmed == "a" || trimmed == "all" {
         return Ok(UninstallChoices {
             tool_configs: true,
+            binary: true,
             models: true,
             database: true,
         });
@@ -240,6 +285,7 @@ fn prompt_choices(paths: &app_paths::AppPaths) -> Result<UninstallChoices> {
 
     let mut choices = UninstallChoices {
         tool_configs: false,
+        binary: false,
         models: false,
         database: false,
     };
@@ -247,8 +293,9 @@ fn prompt_choices(paths: &app_paths::AppPaths) -> Result<UninstallChoices> {
     for part in trimmed.split(',') {
         match part.trim() {
             "1" => choices.tool_configs = true,
-            "2" => choices.models = true,
-            "3" => choices.database = true,
+            "2" => choices.binary = true,
+            "3" => choices.models = true,
+            "4" => choices.database = true,
             other => {
                 println!("  Unknown choice: {other}");
             }
@@ -477,6 +524,172 @@ fn is_dir_effectively_empty(path: &Path) -> bool {
         }
     }
     true
+}
+
+// ---------------------------------------------------------------------------
+// Binary & PATH removal
+// ---------------------------------------------------------------------------
+
+/// Returns the default MAG binary install directory, respecting `MAG_INSTALL_DIR`.
+fn default_install_dir(home: &Path) -> PathBuf {
+    std::env::var_os("MAG_INSTALL_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".mag").join("bin"))
+}
+
+/// Label for the binary install location shown in the interactive menu.
+fn binary_install_label(home: &Path) -> String {
+    let install_dir = default_install_dir(home);
+    let binary = install_dir.join("mag");
+    if binary.exists() {
+        format!("{}", install_dir.display())
+    } else {
+        format!("{}, not found", install_dir.display())
+    }
+}
+
+/// Removes the MAG binary and cleans PATH entries from shell profiles.
+fn remove_binary_and_path(home: &Path) -> BinaryResult {
+    let install_dir = default_install_dir(home);
+    let binary_path = install_dir.join("mag");
+
+    // Check for cargo-installed binary
+    let cargo_bin = home.join(".cargo").join("bin").join("mag");
+    let cargo_hint = cargo_bin.exists();
+
+    // Detect if the running binary is somewhere other than the default install dir
+    let other_binary = std::env::current_exe()
+        .ok()
+        .and_then(|p| std::fs::canonicalize(&p).ok())
+        .and_then(|exe| {
+            let canonical_default = std::fs::canonicalize(&binary_path).ok();
+            let canonical_cargo = std::fs::canonicalize(&cargo_bin).ok();
+            let is_known =
+                canonical_default.as_ref() == Some(&exe) || canonical_cargo.as_ref() == Some(&exe);
+            if is_known {
+                None
+            } else {
+                Some(exe.display().to_string())
+            }
+        });
+
+    // Remove binary from install dir
+    let removed = if binary_path.exists() {
+        let outcome = remove_file(&binary_path);
+        if matches!(outcome, RemoveOutcome::Removed { .. }) {
+            try_remove_empty_dir(&install_dir);
+        }
+        outcome
+    } else {
+        RemoveOutcome::NotFound
+    };
+
+    // Clean PATH from shell profiles
+    let install_dir_str = install_dir.to_string_lossy().to_string();
+    let mut profiles_cleaned = Vec::new();
+    let mut profiles_failed: Vec<(String, String)> = Vec::new();
+
+    for profile_path in shell_profiles(home) {
+        if !profile_path.exists() {
+            continue;
+        }
+        match clean_path_from_profile(&profile_path, &install_dir_str) {
+            Ok(true) => {
+                tracing::info!(profile = %profile_path.display(), "cleaned PATH entry");
+                profiles_cleaned.push(profile_path.display().to_string());
+            }
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(
+                    profile = %profile_path.display(),
+                    error = %e,
+                    "failed to clean PATH from profile"
+                );
+                profiles_failed.push((profile_path.display().to_string(), format!("{e:#}")));
+            }
+        }
+    }
+
+    BinaryResult {
+        removed,
+        profiles_cleaned,
+        profiles_failed,
+        cargo_hint,
+        other_binary,
+    }
+}
+
+/// Returns paths to common shell profile files.
+fn shell_profiles(home: &Path) -> Vec<PathBuf> {
+    vec![
+        home.join(".zshrc"),
+        home.join(".bash_profile"),
+        home.join(".bashrc"),
+        app_paths::xdg_config_home(home)
+            .join("fish")
+            .join("config.fish"),
+    ]
+}
+
+/// Removes the `# MAG` marker block written by the installer from a shell
+/// profile. The installer appends:
+///
+/// ```text
+/// (blank line)
+/// # MAG
+/// export PATH="$HOME/.mag/bin:$PATH"   # or fish_add_path equivalent
+/// ```
+///
+/// This function removes the `# MAG` line and the PATH line that immediately
+/// follows it. If no `# MAG` marker is found the file is left unchanged.
+/// Returns `Ok(true)` if the file was modified.
+fn clean_path_from_profile(profile: &Path, _install_dir: &str) -> Result<bool> {
+    let content = std::fs::read_to_string(profile)
+        .with_context(|| format!("reading {}", profile.display()))?;
+
+    if !content.lines().any(|l| l.trim() == "# MAG") {
+        return Ok(false);
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut out: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].trim() == "# MAG" {
+            // Skip the `# MAG` marker line and the PATH line that follows it.
+            i += 1; // skip marker
+            if i < lines.len() {
+                i += 1; // skip PATH line
+            }
+            // Also drop a preceding blank line that was written by the installer
+            // as a separator, but only if the last line we kept is blank.
+            if out
+                .last()
+                .map(|l: &&str| l.trim().is_empty())
+                .unwrap_or(false)
+            {
+                out.pop();
+            }
+        } else {
+            out.push(lines[i]);
+            i += 1;
+        }
+    }
+
+    let mut new_content = out.join("\n");
+    // Preserve trailing newline if the original had one
+    if content.ends_with('\n') && !new_content.is_empty() {
+        new_content.push('\n');
+    }
+
+    if new_content == content {
+        return Ok(false);
+    }
+
+    std::fs::write(profile, new_content)
+        .with_context(|| format!("writing cleaned {}", profile.display()))?;
+
+    Ok(true)
 }
 
 // ---------------------------------------------------------------------------
@@ -711,6 +924,80 @@ mod tests {
     // -----------------------------------------------------------------------
     // Integration: full uninstall with temp home
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // clean_path_from_profile
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn clean_path_removes_mag_lines() {
+        let dir = std::env::temp_dir().join(format!("mag-profile-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.join(".zshrc");
+        std::fs::write(
+            &profile,
+            "export PATH=\"/usr/bin:$PATH\"\n\n# MAG\nexport PATH=\"/home/user/.mag/bin:$PATH\"\n",
+        )
+        .unwrap();
+
+        assert!(clean_path_from_profile(&profile, "/home/user/.mag/bin").unwrap());
+
+        let content = std::fs::read_to_string(&profile).unwrap();
+        assert!(!content.contains("# MAG"));
+        assert!(!content.contains(".mag/bin"));
+        assert!(content.contains("/usr/bin"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clean_path_no_match_returns_false() {
+        let dir = std::env::temp_dir().join(format!("mag-profile-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.join(".zshrc");
+        std::fs::write(&profile, "export PATH=\"/usr/bin:$PATH\"\n").unwrap();
+
+        assert!(!clean_path_from_profile(&profile, "/home/user/.mag/bin").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_binary_and_path_removes_binary() {
+        // Unset MAG_INSTALL_DIR so default_install_dir uses the test home dir.
+        let saved_install_dir = std::env::var_os("MAG_INSTALL_DIR");
+        // SAFETY: single-threaded test; no other thread reads MAG_INSTALL_DIR concurrently.
+        unsafe { std::env::remove_var("MAG_INSTALL_DIR") };
+
+        let home = std::env::temp_dir().join(format!("mag-binrm-{}", uuid::Uuid::new_v4()));
+        let bin_dir = home.join(".mag").join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::write(bin_dir.join("mag"), "binary").unwrap();
+
+        // Create a shell profile with PATH entry
+        std::fs::write(
+            home.join(".zshrc"),
+            format!(
+                "# existing\n\n# MAG\nexport PATH=\"{}:$PATH\"\n",
+                bin_dir.display()
+            ),
+        )
+        .unwrap();
+
+        let result = remove_binary_and_path(&home);
+        assert!(matches!(result.removed, RemoveOutcome::Removed { .. }));
+        assert!(!bin_dir.join("mag").exists());
+        assert_eq!(result.profiles_cleaned.len(), 1);
+        assert!(!result.cargo_hint);
+
+        let profile = std::fs::read_to_string(home.join(".zshrc")).unwrap();
+        assert!(!profile.contains(".mag/bin"));
+        let _ = std::fs::remove_dir_all(&home);
+
+        // Restore MAG_INSTALL_DIR if it was set before the test.
+        // SAFETY: single-threaded test; no other thread reads MAG_INSTALL_DIR concurrently.
+        if let Some(val) = saved_install_dir {
+            unsafe { std::env::set_var("MAG_INSTALL_DIR", val) };
+        }
+    }
 
     #[test]
     fn integration_configs_only_preserves_data() {
