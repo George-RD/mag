@@ -1,9 +1,9 @@
 # Siege Stronghold — PR #233
 
 **PR**: https://github.com/George-RD/mag/pull/233
-**Status**: active
+**Status**: merged
 **Round**: 2 / 10 max
-**Action**: CONTINUE
+**Action**: STOP
 **Dispatch**: idle
 **CI_Fail_Streak**: 0
 

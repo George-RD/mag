@@ -30,13 +30,15 @@ MAG fixes this. It gives your AI tools persistent memory that survives across se
 curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
 ```
 
+That's it. The installer auto-detects your AI tools and wires MAG in automatically — no manual JSON editing needed. Open your coding tool and your assistant already has persistent memory.
+
+To store or search memories directly from the CLI:
+
 ```bash
 mag ingest "The retry logic should use exponential backoff with jitter"
 mag search "how should retries work?"
 # → "The retry logic should use exponential backoff with jitter" (score: 0.94)
 ```
-
-That's it. One command to install, one to store, one to recall. The installer auto-detects your AI tools and configures them — no manual JSON editing needed.
 
 ---
 
@@ -62,7 +64,7 @@ That's it. One command to install, one to store, one to recall. The installer au
 | Cline | ✅ | ✅ | `mag setup` |
 | Gemini CLI | ✅ | ✅ | `mag setup` |
 | Zed | ✅ | ✅ | Manual |
-| Codex (OpenAI) | ✅ | ✅ | Manual |
+| Codex (OpenAI) | ✅ | ✅ | `mag setup` |
 
 Any tool that supports MCP can connect to MAG. Windows is untested - [report your results](https://github.com/George-RD/mag/issues).
 

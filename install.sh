@@ -1,14 +1,17 @@
 #!/bin/sh
 # Install MAG — curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
+#                           (non-interactive: pipe to sh — TTY not required)
+# Or explicitly: curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh -s -- --non-interactive
 #
 # Environment variables:
 #   VERSION          — install a specific version (e.g. "0.1.0"); default: latest
 #   MAG_INSTALL_DIR  — destination directory; default: ~/.mag/bin
 #
 # Flags:
-#   --version <VER>  — install a specific version
-#   --uninstall      — remove MAG binary, configs, and optionally data
-#   --help           — show usage
+#   --version <VER>     — install a specific version
+#   --non-interactive   — skip all prompts; configure all detected tools automatically
+#   --uninstall         — remove MAG binary, configs, and optionally data
+#   --help              — show usage
 #
 # Requirements: curl or wget, tar, and optionally sha256sum/shasum for verification.
 
@@ -50,7 +53,14 @@ ${BOLD}Install MAG${RESET} — Local MCP memory server
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
-  ./install.sh [--version 0.1.0] [--uninstall] [--help]
+  curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh -s -- --non-interactive
+  ./install.sh [--version 0.1.0] [--non-interactive] [--uninstall] [--help]
+
+Flags:
+  --non-interactive   Skip all prompts; configure all detected tools automatically
+  --version <VER>     Install a specific version
+  --uninstall         Remove MAG binary, configs, and optionally data
+  --help              Show this message
 
 Environment variables:
   VERSION          Install a specific version (default: latest release)
@@ -69,6 +79,10 @@ parse_args() {
                 [ $# -ge 2 ] || die "--version requires a value"
                 VERSION="$2"
                 shift 2
+                ;;
+            --non-interactive)
+                NON_INTERACTIVE=1
+                shift
                 ;;
             --uninstall)
                 UNINSTALL=1
@@ -122,7 +136,7 @@ do_uninstall() {
     # Prompt to remove data directory if interactive
     MAG_DATA_DIR="${HOME}/.mag"
     if [ -d "$MAG_DATA_DIR" ]; then
-        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+        if [ "${NON_INTERACTIVE:-0}" != "1" ] && [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
             printf '\n  Remove MAG data directory (%s)? [y/N] ' "$MAG_DATA_DIR"
             REPLY=""
             read -r REPLY || true
@@ -381,12 +395,12 @@ run_setup() {
     MAG_BIN="${INSTALL_DIR}/mag"
 
     SETUP_EXIT=0
-    if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-        # Interactive: run setup wizard
-        "$MAG_BIN" setup || SETUP_EXIT=$?
-    else
+    if [ "${NON_INTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
         # Non-interactive: configure all tools silently
         "$MAG_BIN" setup --non-interactive || SETUP_EXIT=$?
+    else
+        # Interactive: run setup wizard
+        "$MAG_BIN" setup || SETUP_EXIT=$?
     fi
 
     case "$SETUP_EXIT" in
