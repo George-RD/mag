@@ -262,10 +262,15 @@ fn sigmoid(x: f32) -> f32 {
 }
 
 #[cfg(feature = "real-embeddings")]
-fn default_cross_encoder_dir() -> Result<PathBuf> {
+pub fn cross_encoder_model_dir() -> Result<PathBuf> {
     Ok(app_paths::resolve_app_paths()?
         .model_root
         .join(CROSS_ENCODER_MODEL_NAME))
+}
+
+#[cfg(feature = "real-embeddings")]
+fn default_cross_encoder_dir() -> Result<PathBuf> {
+    cross_encoder_model_dir()
 }
 
 #[cfg(feature = "real-embeddings")]
@@ -338,6 +343,20 @@ fn model_files_for_dir(model_dir: PathBuf) -> ModelFiles {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "real-embeddings")]
+    #[test]
+    fn cross_encoder_model_dir_returns_expected_path() {
+        crate::test_helpers::with_temp_home(|home| {
+            let expected = home
+                .join(".mag")
+                .join("models")
+                .join("ms-marco-MiniLM-L-6-v2");
+            let actual = cross_encoder_model_dir()
+                .expect("cross_encoder_model_dir() should succeed with a valid HOME");
+            assert_eq!(actual, expected);
+        });
+    }
 
     #[test]
     fn test_sigmoid_zero() {

@@ -1167,6 +1167,7 @@ impl CheckStatus {
 #[derive(Clone)]
 enum FixAction {
     DownloadModel,
+    DownloadCrossEncoder,
 }
 
 struct CheckResult {
@@ -1319,53 +1320,97 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
     // 3. Models check
     let mut models_ok = false;
     if let Some(ref p) = paths {
-        let model_onnx = p.model_root.join("model.onnx");
-        let tokenizer = p.model_root.join("tokenizer.json");
-        if model_onnx.exists() && tokenizer.exists() {
-            let model_size = std::fs::metadata(&model_onnx).map(|m| m.len()).unwrap_or(0);
-            #[allow(clippy::cast_precision_loss)]
-            let size_mb = model_size as f64 / (1024.0 * 1024.0);
-            results.push(CheckResult {
-                name: "Models",
-                status: CheckStatus::Ok,
-                detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
-                why: None,
-                fix_hint: None,
-                fix_action: None,
-            });
-            models_ok = true;
-        } else {
-            let mut missing = Vec::new();
-            if !model_onnx.exists() {
-                missing.push("model.onnx");
+        #[cfg(feature = "real-embeddings")]
+        let _ = p; // p is only used by the not(real-embeddings) branch below
+        #[cfg(feature = "real-embeddings")]
+        match memory_core::embedder::model_dir() {
+            Err(e) => {
+                results.push(CheckResult {
+                    name: "Models",
+                    status: CheckStatus::Fail,
+                    detail: format!("cannot resolve model path: {e}"),
+                    why: Some("MAG cannot locate the model directory. Check that HOME is set and ~/.mag is accessible."),
+                    fix_hint: None,
+                    fix_action: None,
+                });
+                // models_ok stays false; embedder check will show skipped
             }
-            if !tokenizer.exists() {
-                missing.push("tokenizer.json");
+            Ok(model_dir) => {
+                let model_onnx = model_dir.join("model.onnx");
+                let tokenizer = model_dir.join("tokenizer.json");
+                if model_onnx.exists() && tokenizer.exists() {
+                    let model_size = std::fs::metadata(&model_onnx).map(|m| m.len()).unwrap_or(0);
+                    #[allow(clippy::cast_precision_loss)]
+                    let size_mb = model_size as f64 / (1024.0 * 1024.0);
+                    results.push(CheckResult {
+                        name: "Models",
+                        status: CheckStatus::Ok,
+                        detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
+                        why: None,
+                        fix_hint: None,
+                        fix_action: None,
+                    });
+                    models_ok = true;
+                } else {
+                    let mut missing = Vec::new();
+                    if !model_onnx.exists() {
+                        missing.push("model.onnx");
+                    }
+                    if !tokenizer.exists() {
+                        missing.push("tokenizer.json");
+                    }
+                    results.push(CheckResult {
+                        name: "Models",
+                        status: CheckStatus::Fail,
+                        detail: format!("missing: {}", missing.join(", ")),
+                        why: Some(
+                            "MAG needs these files to embed text for semantic search. \
+                             Without them, recall and store commands will fail.",
+                        ),
+                        fix_hint: Some("mag download-model".to_string()),
+                        fix_action: Some(FixAction::DownloadModel),
+                    });
+                }
             }
-            #[cfg(feature = "real-embeddings")]
-            results.push(CheckResult {
-                name: "Models",
-                status: CheckStatus::Fail,
-                detail: format!("missing: {}", missing.join(", ")),
-                why: Some(
-                    "MAG needs these files to embed text for semantic search. \
-                     Without them, recall and store commands will fail.",
-                ),
-                fix_hint: Some("mag download-model".to_string()),
-                fix_action: Some(FixAction::DownloadModel),
-            });
-            #[cfg(not(feature = "real-embeddings"))]
-            results.push(CheckResult {
-                name: "Models",
-                status: CheckStatus::Warn,
-                detail: format!(
-                    "missing: {} (not required — real-embeddings feature disabled)",
-                    missing.join(", ")
-                ),
-                why: None,
-                fix_hint: None,
-                fix_action: None,
-            });
+        }
+        #[cfg(not(feature = "real-embeddings"))]
+        {
+            let model_dir = p.model_root.clone();
+            let model_onnx = model_dir.join("model.onnx");
+            let tokenizer = model_dir.join("tokenizer.json");
+            if model_onnx.exists() && tokenizer.exists() {
+                let model_size = std::fs::metadata(&model_onnx).map(|m| m.len()).unwrap_or(0);
+                #[allow(clippy::cast_precision_loss)]
+                let size_mb = model_size as f64 / (1024.0 * 1024.0);
+                results.push(CheckResult {
+                    name: "Models",
+                    status: CheckStatus::Ok,
+                    detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
+                    why: None,
+                    fix_hint: None,
+                    fix_action: None,
+                });
+                models_ok = true;
+            } else {
+                let mut missing = Vec::new();
+                if !model_onnx.exists() {
+                    missing.push("model.onnx");
+                }
+                if !tokenizer.exists() {
+                    missing.push("tokenizer.json");
+                }
+                results.push(CheckResult {
+                    name: "Models",
+                    status: CheckStatus::Warn,
+                    detail: format!(
+                        "missing: {} (not required — real-embeddings feature disabled)",
+                        missing.join(", ")
+                    ),
+                    why: None,
+                    fix_hint: None,
+                    fix_action: None,
+                });
+            }
         }
     } else {
         results.push(CheckResult {
@@ -1444,6 +1489,41 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
             fix_hint: None,
             fix_action: None,
         });
+    }
+
+    // 5. Cross-encoder model check (optional — only needed with --cross-encoder)
+    #[cfg(feature = "real-embeddings")]
+    match memory_core::reranker::cross_encoder_model_dir() {
+        Err(_) => {} // path resolution failed; omit row (cross-encoder is optional)
+        Ok(ce_dir) => {
+            let ce_model = ce_dir.join("model.onnx");
+            let ce_tokenizer = ce_dir.join("tokenizer.json");
+            if ce_model.exists() && ce_tokenizer.exists() {
+                #[allow(clippy::cast_precision_loss)]
+                let size_mb = std::fs::metadata(&ce_model).map(|m| m.len()).unwrap_or(0) as f64
+                    / (1024.0 * 1024.0);
+                results.push(CheckResult {
+                    name: "Cross-encoder",
+                    status: CheckStatus::Ok,
+                    detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
+                    why: None,
+                    fix_hint: None,
+                    fix_action: None,
+                });
+            } else {
+                results.push(CheckResult {
+                    name: "Cross-encoder",
+                    status: CheckStatus::Fail,
+                    detail: "not downloaded — reranking unavailable".to_string(),
+                    why: Some("cross-encoder model files are missing"),
+                    fix_hint: Some(
+                        "run 'mag download-cross-encoder' to enable reranking (optional)"
+                            .to_string(),
+                    ),
+                    fix_action: Some(FixAction::DownloadCrossEncoder),
+                });
+            }
+        }
     }
 
     // ── Print summary table ───────────────────────────────────────────────────
@@ -1564,6 +1644,23 @@ async fn apply_doctor_fixes(fixable: &[&CheckResult]) -> anyhow::Result<()> {
                         Err(e) => {
                             println!("  Failed: {e:#}");
                             errors.push(format!("download-model: {e:#}"));
+                        }
+                    }
+                    #[cfg(not(feature = "real-embeddings"))]
+                    {
+                        println!("  Skipped: real-embeddings feature not enabled in this build.");
+                    }
+                }
+                FixAction::DownloadCrossEncoder => {
+                    println!("Downloading cross-encoder model...");
+                    #[cfg(feature = "real-embeddings")]
+                    match memory_core::reranker::download_cross_encoder_model().await {
+                        Ok(model_path) => {
+                            println!("  Cross-encoder ready at {}", model_path.display());
+                        }
+                        Err(e) => {
+                            println!("  Failed: {e:#}");
+                            errors.push(format!("download-cross-encoder: {e:#}"));
                         }
                     }
                     #[cfg(not(feature = "real-embeddings"))]

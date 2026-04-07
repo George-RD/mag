@@ -56,17 +56,49 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     present_detection(&result);
 
     // Determine which tools to configure
+    let scoped_tools = invocation_scoped_tools(&result, &args);
     let tools_to_configure = select_tools(&result, &args)?;
 
     if tools_to_configure.is_empty() {
         println!("  No tools to configure.");
-        return Ok(());
+        // Still refresh connector content (AGENTS.md / SKILL.md) so that
+        // already-configured tools stay up to date even on subsequent runs.
+        let (connector_successes, connector_warnings) = install_connector_content(&scoped_tools);
+        if !connector_successes.is_empty() || !connector_warnings.is_empty() {
+            let summary = ConfigureSummary {
+                written: connector_successes,
+                errors: connector_warnings,
+                ..Default::default()
+            };
+            present_summary(&summary);
+        }
+    } else {
+        let summary = configure_tools(&tools_to_configure, args.transport, &scoped_tools)?;
+        present_summary(&summary);
     }
 
-    let summary = configure_tools(&tools_to_configure, args.transport, &tools_to_configure)?;
-    present_summary(&summary);
+    // Model download phase — always runs; daemon must start after models are ready.
+    #[cfg(feature = "real-embeddings")]
+    {
+        println!("\n  Downloading models (first run only)...\n");
+        match crate::memory_core::embedder::download_bge_small_model().await {
+            Ok(path) => println!("    \u{2713} Embedding model ready at {}", path.display()),
+            Err(e) => eprintln!(
+                "    \u{26a0} Embedding model download failed: {e}\n      Run 'mag download-model' to retry."
+            ),
+        }
+        match crate::memory_core::reranker::download_cross_encoder_model().await {
+            Ok(path) => println!(
+                "    \u{2713} Cross-encoder model ready at {}",
+                path.display()
+            ),
+            Err(e) => eprintln!(
+                "    \u{26a0} Cross-encoder model download failed: {e}\n      Run 'mag download-cross-encoder' to retry."
+            ),
+        }
+    }
 
-    // Daemon phase
+    // Daemon phase — starts after models are downloaded.
     #[cfg(feature = "daemon-http")]
     maybe_start_daemon(args.port, args.no_start)?;
 
