@@ -4,7 +4,7 @@ use crate::memory_core::{
     FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, PhraseSearcher,
     ProfileManager, Recents, ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher,
     SimilarFinder, StatsProvider, Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater,
-    VersionChainQuerier, WelcomeProvider, is_valid_event_type, parse_duration,
+    VersionChainQuerier, WelcomeOptions, WelcomeProvider, is_valid_event_type, parse_duration,
 };
 
 #[derive(Debug, Clone)]
@@ -4103,6 +4103,153 @@ async fn test_welcome_first_run_greeting() {
             .unwrap()
             .contains("first memory"),
         "first-run greeting should mention storing first memory"
+    );
+}
+
+// ── WelcomeProvider semantic search tests ────────────────────
+
+#[tokio::test]
+async fn test_welcome_scoped_semantic_search() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store memories with project and content containing project-related keywords.
+    // importance=0.1 means tier 4 (importance < 0.3) picks them up via SQL,
+    // AND semantic search should also find them via FTS keyword match on "alpha".
+    for i in 0..5 {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            &format!("sem-{i}"),
+            &format!("alpha project module {i} configuration and setup details"),
+            &MemoryInput {
+                project: Some("alpha".to_string()),
+                importance: 0.1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(
+        &storage,
+        &WelcomeOptions {
+            project: Some("alpha".to_string()),
+            budget_tokens: Some(5000),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // The result should contain memories from tiered queries and/or semantic search
+    let recent = result["recent_memories"].as_array().unwrap();
+    assert!(
+        !recent.is_empty(),
+        "welcome_scoped should return memories for the project"
+    );
+}
+
+#[tokio::test]
+async fn test_welcome_scoped_respects_budget() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store many memories to exceed a small budget
+    for i in 0..20 {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            &format!("budget-{i}"),
+            &format!(
+                "This is a somewhat long memory content for budget testing purposes, entry number {i} with extra words to consume tokens"
+            ),
+            &MemoryInput {
+                project: Some("budgetproj".to_string()),
+                importance: 0.5,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(
+        &storage,
+        &WelcomeOptions {
+            project: Some("budgetproj".to_string()),
+            budget_tokens: Some(100), // very small budget
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Count total tokens used in returned memories
+    let recent = result["recent_memories"].as_array().unwrap();
+    let user_ctx = result["user_context"].as_array().unwrap();
+    let total_tokens: usize = recent
+        .iter()
+        .chain(user_ctx.iter())
+        .map(|m| {
+            let content = m["content"].as_str().unwrap_or("");
+            content.len().div_ceil(4)
+        })
+        .sum();
+
+    // Budget is 100 tokens; overhead is 200. So effective budget is 0.
+    // No memories should fit.
+    assert!(
+        total_tokens <= 100,
+        "total tokens ({total_tokens}) should not exceed the budget of 100"
+    );
+}
+
+#[tokio::test]
+async fn test_welcome_scoped_deduplicates() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store memories with high importance (will appear in tiered SQL)
+    // and with keywords matching the project name (will also match semantic search)
+    for i in 0..3 {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            &format!("dedup-{i}"),
+            &format!("dedup project important configuration item {i} for dedup project"),
+            &MemoryInput {
+                project: Some("dedup".to_string()),
+                importance: 0.8,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(
+        &storage,
+        &WelcomeOptions {
+            project: Some("dedup".to_string()),
+            budget_tokens: Some(5000),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let recent = result["recent_memories"].as_array().unwrap();
+    let user_ctx = result["user_context"].as_array().unwrap();
+
+    // Collect all IDs and verify no duplicates
+    let mut all_ids: Vec<&str> = recent
+        .iter()
+        .chain(user_ctx.iter())
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    let total_count = all_ids.len();
+    all_ids.sort();
+    all_ids.dedup();
+    assert_eq!(
+        all_ids.len(),
+        total_count,
+        "there should be no duplicate memory IDs in welcome_scoped results"
     );
 }
 

@@ -898,6 +898,7 @@ impl WelcomeProvider for SqliteStorage {
     ) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
         let project = project.map(ToString::to_string);
+        let project_for_semantic = project.clone();
 
         let db_result = tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
@@ -966,7 +967,62 @@ impl WelcomeProvider for SqliteStorage {
         .await
         .context("spawn_blocking join error")??;
 
-        let (total, recent, user_context) = db_result;
+        let (total, mut recent, user_context) = db_result;
+
+        // ── Semantic search phase for welcome() ────────────────────────
+        // If a project is specified, supplement recent memories with
+        // semantically relevant results using a fixed ~1500-token budget.
+        if let Some(ref proj) = project_for_semantic {
+            const WELCOME_SEMANTIC_BUDGET: usize = 1500;
+            let used_tokens: usize = recent
+                .iter()
+                .map(|m| estimate_tokens(m.get("content").and_then(|v| v.as_str()).unwrap_or("")))
+                .sum();
+            let remaining = WELCOME_SEMANTIC_BUDGET.saturating_sub(used_tokens);
+
+            if remaining > 0 {
+                let search_opts = SearchOptions {
+                    project: Some(proj.clone()),
+                    ..SearchOptions::default()
+                };
+
+                let seen_ids: HashSet<String> = recent
+                    .iter()
+                    .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+                    .collect();
+
+                if let Ok(semantic_results) = <SqliteStorage as AdvancedSearcher>::advanced_search(
+                    self,
+                    proj,
+                    10,
+                    &search_opts,
+                )
+                .await
+                {
+                    let mut sem_remaining = remaining;
+                    for sr in semantic_results {
+                        if seen_ids.contains(&sr.id) {
+                            continue;
+                        }
+                        let truncated: String = sr.content.chars().take(200).collect();
+                        let tokens = estimate_tokens(&truncated);
+                        if tokens > sem_remaining {
+                            break;
+                        }
+                        sem_remaining = sem_remaining.saturating_sub(tokens);
+
+                        let et_str = sr.event_type.as_ref().map(|e| e.to_string());
+                        recent.push(serde_json::json!({
+                            "id": sr.id,
+                            "content": truncated,
+                            "event_type": et_str,
+                            "importance": sr.importance,
+                            "source": "semantic",
+                        }));
+                    }
+                }
+            }
+        }
 
         // Get profile and pending reminders via existing trait impls
         let profile = <Self as ProfileManager>::get_profile(self)
@@ -1149,7 +1205,69 @@ impl WelcomeProvider for SqliteStorage {
         .await
         .context("spawn_blocking join error")??;
 
-        let (total, all_memories) = db_result;
+        let (total, mut all_memories) = db_result;
+
+        // ── Semantic search phase ──────────────────────────────────────
+        // If a project is specified and we have remaining token budget,
+        // use AdvancedSearcher to find project-relevant memories that
+        // the tiered SQL queries may have missed.
+        if opts.project.is_some() {
+            let overhead_tokens: usize = 200;
+            let used_tokens: usize = all_memories
+                .iter()
+                .map(|m| estimate_tokens(m.get("content").and_then(|v| v.as_str()).unwrap_or("")))
+                .sum();
+            let remaining = budget
+                .saturating_sub(overhead_tokens)
+                .saturating_sub(used_tokens);
+
+            if remaining > 0 {
+                let search_opts = SearchOptions {
+                    project: opts.project.clone(),
+                    agent_type: opts.agent_type.clone(),
+                    entity_id: opts.entity_id.clone(),
+                    ..SearchOptions::default()
+                };
+
+                let query = opts.project.as_deref().unwrap_or("project context");
+
+                let seen_ids: HashSet<String> = all_memories
+                    .iter()
+                    .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+                    .collect();
+
+                if let Ok(semantic_results) = <SqliteStorage as AdvancedSearcher>::advanced_search(
+                    self,
+                    query,
+                    10,
+                    &search_opts,
+                )
+                .await
+                {
+                    let mut sem_remaining = remaining;
+                    for sr in semantic_results {
+                        if seen_ids.contains(&sr.id) {
+                            continue;
+                        }
+                        let truncated: String = sr.content.chars().take(200).collect();
+                        let tokens = estimate_tokens(&truncated);
+                        if tokens > sem_remaining {
+                            break;
+                        }
+                        sem_remaining = sem_remaining.saturating_sub(tokens);
+
+                        let et_str = sr.event_type.as_ref().map(|e| e.to_string());
+                        all_memories.push(serde_json::json!({
+                            "id": sr.id,
+                            "content": truncated,
+                            "event_type": et_str,
+                            "importance": sr.importance,
+                            "source": "semantic",
+                        }));
+                    }
+                }
+            }
+        }
 
         // Profile and reminders (same as welcome())
         let profile = <Self as ProfileManager>::get_profile(self)
