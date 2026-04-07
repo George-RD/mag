@@ -28,7 +28,7 @@ printf '%s compact_refresh project=%s session=%s\n' \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$SESSION_ID" >> "$LOG" 2>/dev/null || true
 
 # Re-inject top memories (full budget — context is smallest after compaction)
-mag welcome --project "$PROJECT" --session-id "$SESSION_ID" --budget-tokens 2000 2>/dev/null || true
+mag welcome --project "$PROJECT" --session-id "$SESSION_ID" --budget-tokens 2000 >/dev/null 2>/dev/null || true
 
 # Store compact summary as a memory if available
 if [ -n "$COMPACT_SUMMARY" ]; then
