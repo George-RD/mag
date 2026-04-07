@@ -18,9 +18,9 @@ use crate::tool_detection::{AiTool, ConfigFormat, DetectedTool};
 pub enum TransportMode {
     /// HTTP transport: `{ "type": "http", "url": "http://127.0.0.1:{port}/mcp" }`
     Http { port: u16 },
-    /// Command transport: `{ "command": "mag", "args": ["serve"] }`
+    /// Command transport: `{ "command": "/abs/path/to/mag", "args": ["serve"] }`
     Command,
-    /// Stdio transport: `{ "command": "mag", "args": ["serve", "--stdio"] }`
+    /// Stdio transport: `{ "command": "/abs/path/to/mag", "args": ["serve", "--stdio"] }`
     Stdio,
 }
 
@@ -302,14 +302,16 @@ pub fn build_mag_entry(tool: AiTool, mode: TransportMode) -> serde_json::Value {
             })
         }
         TransportMode::Command => {
+            let binary = resolve_mag_binary();
             serde_json::json!({
-                "command": "mag",
+                "command": binary,
                 "args": ["serve"]
             })
         }
         TransportMode::Stdio => {
+            let binary = resolve_mag_binary();
             serde_json::json!({
-                "command": "mag",
+                "command": binary,
                 "args": ["serve", "--stdio"]
             })
         }
@@ -478,13 +480,38 @@ fn find_claude_cli() -> Result<PathBuf> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Resolves the absolute path to the `mag` binary.
+///
+/// Resolution order:
+/// 1. `$MAG_INSTALL_DIR/mag` if `MAG_INSTALL_DIR` is set
+/// 2. `$HOME/.mag/bin/mag` via the standard home-dir lookup
+/// 3. Bare `"mag"` as a last resort (requires mag to be on PATH)
+fn resolve_mag_binary() -> String {
+    if let Some(dir) = std::env::var_os("MAG_INSTALL_DIR") {
+        return PathBuf::from(dir)
+            .join("mag")
+            .to_string_lossy()
+            .into_owned();
+    }
+    if let Ok(home) = crate::app_paths::home_dir() {
+        return home
+            .join(".mag")
+            .join("bin")
+            .join("mag")
+            .to_string_lossy()
+            .into_owned();
+    }
+    "mag".to_string()
+}
+
 /// Builds the Zed-specific context server entry for MAG.
 /// Zed always uses stdio with its specific structure.
 fn build_zed_entry() -> serde_json::Value {
+    let binary = resolve_mag_binary();
     serde_json::json!({
         "source": "custom",
         "command": {
-            "path": "mag",
+            "path": binary,
             "args": ["serve", "--stdio"]
         }
     })
@@ -605,7 +632,9 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             }
         }
         TransportMode::Command => {
-            if content.contains("command = \"mag\"")
+            if content
+                .lines()
+                .any(|l| l.trim().starts_with("command = ") && l.ends_with("mag\""))
                 && content.contains("args = [\"serve\"]")
                 && !content.contains("\"--stdio\"")
             {
@@ -618,7 +647,11 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             }
         }
         TransportMode::Stdio => {
-            if content.contains("command = \"mag\"") && content.contains("\"--stdio\"") {
+            if content
+                .lines()
+                .any(|l| l.trim().starts_with("command = ") && l.ends_with("mag\""))
+                && content.contains("\"--stdio\"")
+            {
                 Ok(ConfigStatus::Valid { mode })
             } else {
                 Ok(ConfigStatus::Stale {
@@ -641,10 +674,12 @@ fn build_mag_toml_block(mode: TransportMode) -> String {
             format!("[mcp_servers.mag]\ntype = \"http\"\nurl = \"http://127.0.0.1:{port}/mcp\"\n")
         }
         TransportMode::Command => {
-            "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\"]\n".to_string()
+            let binary = resolve_mag_binary();
+            format!("[mcp_servers.mag]\ncommand = \"{binary}\"\nargs = [\"serve\"]\n")
         }
         TransportMode::Stdio => {
-            "[mcp_servers.mag]\ncommand = \"mag\"\nargs = [\"serve\", \"--stdio\"]\n".to_string()
+            let binary = resolve_mag_binary();
+            format!("[mcp_servers.mag]\ncommand = \"{binary}\"\nargs = [\"serve\", \"--stdio\"]\n")
         }
     }
 }
@@ -783,14 +818,26 @@ mod tests {
     #[test]
     fn build_command_entry() {
         let entry = build_mag_entry(AiTool::Cursor, TransportMode::Command);
-        assert_eq!(entry["command"], "mag");
+        assert!(
+            entry["command"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
+            "command should be an absolute path to mag, got: {:?}",
+            entry["command"]
+        );
         assert_eq!(entry["args"], serde_json::json!(["serve"]));
     }
 
     #[test]
     fn build_stdio_entry() {
         let entry = build_mag_entry(AiTool::Windsurf, TransportMode::Stdio);
-        assert_eq!(entry["command"], "mag");
+        assert!(
+            entry["command"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
+            "command should be an absolute path to mag, got: {:?}",
+            entry["command"]
+        );
         assert_eq!(entry["args"], serde_json::json!(["serve", "--stdio"]));
     }
 
@@ -798,7 +845,13 @@ mod tests {
     fn build_zed_entry_is_custom() {
         let entry = build_mag_entry(AiTool::Zed, TransportMode::Stdio);
         assert_eq!(entry["source"], "custom");
-        assert_eq!(entry["command"]["path"], "mag");
+        assert!(
+            entry["command"]["path"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
+            "path should be an absolute path to mag, got: {:?}",
+            entry["command"]["path"]
+        );
         assert_eq!(
             entry["command"]["args"],
             serde_json::json!(["serve", "--stdio"])
@@ -844,7 +897,11 @@ mod tests {
             let content = std::fs::read_to_string(&config_path).expect("read config");
             let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
             let mag = &parsed["mcpServers"]["mag"];
-            assert_eq!(mag["command"], "mag");
+            assert!(
+                mag["command"].as_str().is_some_and(|s| s.ends_with("mag")),
+                "command should be absolute path to mag, got: {:?}",
+                mag["command"]
+            );
             assert_eq!(mag["args"], serde_json::json!(["serve"]));
         });
     }
@@ -870,7 +927,12 @@ mod tests {
             let content = std::fs::read_to_string(&config_path).expect("read config");
             let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
             assert_eq!(parsed["mcpServers"]["other-tool"]["command"], "other");
-            assert_eq!(parsed["mcpServers"]["mag"]["command"], "mag");
+            assert!(
+                parsed["mcpServers"]["mag"]["command"]
+                    .as_str()
+                    .is_some_and(|s| s.ends_with("mag")),
+                "mag command should be absolute path"
+            );
         });
     }
 
@@ -1055,7 +1117,12 @@ mod tests {
             assert!(config_path.exists());
             let content = std::fs::read_to_string(&config_path).expect("read config");
             let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-            assert_eq!(parsed["mcpServers"]["mag"]["command"], "mag");
+            assert!(
+                parsed["mcpServers"]["mag"]["command"]
+                    .as_str()
+                    .is_some_and(|s| s.ends_with("mag")),
+                "mag command should be absolute path"
+            );
         });
     }
 
@@ -1255,7 +1322,12 @@ mod tests {
 
             let content = std::fs::read_to_string(&config_path).expect("read config");
             assert!(content.contains("[mcp_servers.mag]"));
-            assert!(content.contains("command = \"mag\""));
+            assert!(
+                content
+                    .lines()
+                    .any(|l| l.starts_with("command = \"") && l.ends_with("mag\"")),
+                "expected a command line ending with mag, content:\n{content}"
+            );
             assert!(content.contains("args = [\"serve\"]"));
         });
     }
@@ -1522,7 +1594,12 @@ mod tests {
 
             let content = std::fs::read_to_string(&config_path).expect("read config");
             let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-            assert_eq!(parsed["mcpServers"]["mag"]["command"], "mag");
+            assert!(
+                parsed["mcpServers"]["mag"]["command"]
+                    .as_str()
+                    .is_some_and(|s| s.ends_with("mag")),
+                "mag command should be absolute path"
+            );
             assert_eq!(
                 parsed["mcpServers"]["mag"]["args"],
                 serde_json::json!(["serve", "--stdio"])

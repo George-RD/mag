@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "mag": {
-      "type": "http",
-      "url": "http://127.0.0.1:19420/mcp"
+      "command": "sh",
+      "args": ["-c", "exec \"${MAG_INSTALL_DIR:-$HOME/.mag/bin}/mag\" serve"]
     }
   }
 }
