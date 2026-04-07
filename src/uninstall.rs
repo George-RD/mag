@@ -574,12 +574,12 @@ fn install_method_hint(exe: &Path) -> Option<&'static str> {
 }
 
 /// Label for the binary install location shown in the interactive menu.
-fn binary_install_label(_home: &Path) -> String {
+fn binary_install_label(home: &Path) -> String {
     if let Some(exe) = current_exe_path() {
         return format!("{}", exe.display());
     }
     // Fallback when current_exe() is unavailable (should be rare).
-    "(unknown location)".to_owned()
+    default_install_dir(home).join("mag").display().to_string()
 }
 
 /// Removes the MAG binary and cleans PATH entries from shell profiles.
