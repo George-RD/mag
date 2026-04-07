@@ -60,13 +60,33 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
 
     if tools_to_configure.is_empty() {
         println!("  No tools to configure.");
-        return Ok(());
+    } else {
+        let summary = configure_tools(&tools_to_configure, args.transport, &tools_to_configure)?;
+        present_summary(&summary);
     }
 
-    let summary = configure_tools(&tools_to_configure, args.transport, &tools_to_configure)?;
-    present_summary(&summary);
+    // Model download phase — always runs; daemon must start after models are ready.
+    #[cfg(feature = "real-embeddings")]
+    {
+        println!("\n  Downloading models (first run only)...\n");
+        match crate::memory_core::embedder::download_bge_small_model().await {
+            Ok(path) => println!("    \u{2713} Embedding model ready at {}", path.display()),
+            Err(e) => eprintln!(
+                "    \u{26a0} Embedding model download failed: {e}\n      Run 'mag download-model' to retry."
+            ),
+        }
+        match crate::memory_core::reranker::download_cross_encoder_model().await {
+            Ok(path) => println!(
+                "    \u{2713} Cross-encoder model ready at {}",
+                path.display()
+            ),
+            Err(e) => eprintln!(
+                "    \u{26a0} Cross-encoder model download failed: {e}\n      Run 'mag download-cross-encoder' to retry."
+            ),
+        }
+    }
 
-    // Daemon phase
+    // Daemon phase — starts after models are downloaded.
     #[cfg(feature = "daemon-http")]
     maybe_start_daemon(args.port, args.no_start)?;
 

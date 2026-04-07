@@ -11,6 +11,8 @@
 #   --version <VER>     — install a specific version
 #   --non-interactive   — skip all prompts; configure all detected tools automatically
 #   --uninstall         — remove MAG binary, configs, and optionally data
+#   --from-source       — build and install from source (requires Rust/cargo)
+#   --branch <BRANCH>   — branch to build from (default: main, only with --from-source)
 #   --help              — show usage
 #
 # Requirements: curl or wget, tar, and optionally sha256sum/shasum for verification.
@@ -60,6 +62,8 @@ Flags:
   --non-interactive   Skip all prompts; configure all detected tools automatically
   --version <VER>     Install a specific version
   --uninstall         Remove MAG binary, configs, and optionally data
+  --from-source       Build from source via cargo (requires Rust); use with --branch
+  --branch <BRANCH>   Git branch to build from (default: main, only with --from-source)
   --help              Show this message
 
 Environment variables:
@@ -87,6 +91,18 @@ parse_args() {
             --uninstall)
                 UNINSTALL=1
                 shift
+                ;;
+            --from-source)
+                FROM_SOURCE=1
+                shift
+                ;;
+            --branch)
+                [ $# -ge 2 ] || die "--branch requires a value"
+                case "$2" in
+                    --*) die "--branch requires a value (got another flag: $2)" ;;
+                esac
+                SOURCE_BRANCH="$2"
+                shift 2
                 ;;
             --help|-h)
                 usage
@@ -334,6 +350,44 @@ install_binary() {
 }
 
 # ---------------------------------------------------------------------------
+# Install from source via cargo
+# ---------------------------------------------------------------------------
+install_from_source() {
+    INSTALL_DIR="${MAG_INSTALL_DIR:-${HOME}/.mag/bin}"
+    BRANCH="${SOURCE_BRANCH:-main}"
+
+    if ! command -v cargo >/dev/null 2>&1; then
+        die "--from-source requires Rust/cargo. Install from https://rustup.rs"
+    fi
+
+    info "Building MAG from source (branch: ${BOLD}${BRANCH}${RESET})..."
+    info "This may take a few minutes..."
+
+    mkdir -p "$INSTALL_DIR" || die "Failed to create directory: ${INSTALL_DIR}"
+
+    # Use a temporary staging root so cargo places the binary at
+    # <STAGING>/bin/mag regardless of the INSTALL_DIR layout.  We then move
+    # the binary to the user-specified INSTALL_DIR.  This is necessary because
+    # `cargo install --root <dir>` always writes to <dir>/bin/mag, which breaks
+    # when INSTALL_DIR is not a conventional <root>/bin path (e.g. /opt/mag).
+    CARGO_STAGING="$(mktemp -d)" || die "Failed to create staging directory"
+    cargo install \
+        --git https://github.com/George-RD/mag.git \
+        --branch "$BRANCH" \
+        --root "$CARGO_STAGING" \
+        --bin mag \
+        --quiet || die "cargo install failed. Ensure Rust is up to date: rustup update"
+
+    mv "${CARGO_STAGING}/bin/mag" "${INSTALL_DIR}/mag" \
+        || die "Failed to move binary from ${CARGO_STAGING}/bin/mag to ${INSTALL_DIR}/mag"
+    rm -rf "$CARGO_STAGING"
+
+    chmod +x "${INSTALL_DIR}/mag"
+    VERSION="$("${INSTALL_DIR}/mag" --version 2>/dev/null | awk '{print $NF}' || echo 'dev')"
+    ok "Built and installed ${BOLD}mag ${VERSION}${RESET} to ${INSTALL_DIR}/mag"
+}
+
+# ---------------------------------------------------------------------------
 # Post-install guidance (PATH setup)
 # ---------------------------------------------------------------------------
 post_install_path() {
@@ -419,31 +473,28 @@ run_setup() {
 }
 
 # ---------------------------------------------------------------------------
-# Post-install: download embedding model (first run)
-# ---------------------------------------------------------------------------
-run_download_model() {
-    info "Downloading embedding model (first run)..."
-    "${INSTALL_DIR}/mag" --help > /dev/null 2>&1 || true
-    ok "Model download initiated"
-}
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
     setup_colours
     parse_args "$@"
     [ "${UNINSTALL:-0}" = "1" ] && do_uninstall
-    detect_platform
-    resolve_version
-    download_and_verify
-    install_binary
+    if [ -n "${SOURCE_BRANCH:-}" ] && [ "${FROM_SOURCE:-0}" != "1" ]; then
+        warn "--branch '${SOURCE_BRANCH}' has no effect without --from-source; ignoring."
+    fi
+    if [ "${FROM_SOURCE:-0}" = "1" ]; then
+        install_from_source
+    else
+        detect_platform
+        resolve_version
+        download_and_verify
+        install_binary
+    fi
     post_install_path
-    run_setup
-    run_download_model
+    run_setup  # configures tools and downloads models
 
     printf '\n'
-    ok "${BOLD}MAG v${VERSION}${RESET} installed successfully!"
+    ok "${BOLD}MAG v${VERSION:-dev}${RESET} installed successfully!"
     info "Run 'mag setup' to reconfigure at any time."
 }
 

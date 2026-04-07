@@ -691,8 +691,13 @@ pub async fn download_bge_small_model() -> Result<PathBuf> {
 }
 
 #[cfg(feature = "real-embeddings")]
-fn default_model_dir() -> Result<PathBuf> {
+pub fn model_dir() -> Result<PathBuf> {
     Ok(app_paths::resolve_app_paths()?.model_root.join(MODEL_NAME))
+}
+
+#[cfg(feature = "real-embeddings")]
+fn default_model_dir() -> Result<PathBuf> {
+    model_dir()
 }
 
 #[cfg(feature = "real-embeddings")]
@@ -944,5 +949,19 @@ mod tests {
         let first = embedder.embed_batch(&["a", "b"]).unwrap();
         let second = embedder.embed_batch(&["a", "b"]).unwrap();
         assert_eq!(first, second);
+    }
+
+    #[cfg(feature = "real-embeddings")]
+    #[test]
+    fn model_dir_returns_expected_path() {
+        crate::test_helpers::with_temp_home(|home| {
+            let expected = home
+                .join(".mag")
+                .join("models")
+                .join("bge-small-en-v1.5-int8");
+            let actual = crate::memory_core::embedder::model_dir()
+                .expect("model_dir() should succeed with a valid HOME");
+            assert_eq!(actual, expected);
+        });
     }
 }
