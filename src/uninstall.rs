@@ -123,15 +123,8 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
         for (profile, reason) in &br.profiles_failed {
             println!("    \u{2717} {profile}: {reason}");
         }
-        if br.cargo_hint {
-            println!(
-                "    \u{2139} Also installed via cargo \u{2014} run: cargo uninstall mag-memory"
-            );
-        }
-        if let Some(ref other) = br.other_binary {
-            println!(
-                "    \u{2139} Additional binary at {other} \u{2014} remove manually if desired"
-            );
+        for hint in &br.install_hints {
+            println!("    \u{2139} {hint}");
         }
     }
 
@@ -186,8 +179,8 @@ struct BinaryResult {
     removed: RemoveOutcome,
     profiles_cleaned: Vec<String>,
     profiles_failed: Vec<(String, String)>,
-    cargo_hint: bool,
-    other_binary: Option<String>,
+    /// Package-manager hints to show after removal (e.g. "run: cargo uninstall …").
+    install_hints: Vec<String>,
 }
 
 enum ToolConfigResult {
@@ -537,54 +530,129 @@ fn default_install_dir(home: &Path) -> PathBuf {
         .unwrap_or_else(|| home.join(".mag").join("bin"))
 }
 
+/// Returns the path of the currently running `mag` binary.
+///
+/// On Linux, `/proc/self/exe` may be suffixed with ` (deleted)` if the
+/// binary was replaced after startup — that suffix is stripped so path
+/// matching and display work correctly.
+///
+/// The path is intentionally **not** canonicalized: canonicalization follows
+/// symlinks, which would resolve Homebrew keg paths, Nix store paths, or
+/// stow-managed symlinks to locations that don't match the install method.
+fn current_exe_path() -> Option<PathBuf> {
+    std::env::current_exe().ok().map(|p| {
+        let s = p.to_string_lossy();
+        if let Some(stripped) = s.strip_suffix(" (deleted)") {
+            PathBuf::from(stripped)
+        } else {
+            p
+        }
+    })
+}
+
+/// Returns a hint string telling the user which package manager command to run
+/// for full metadata cleanup, inferred from the binary path.
+///
+/// This is advisory only — the binary is always removed directly regardless of
+/// install method.  The path is not canonicalized, so the patterns match the
+/// path the user put the binary at, not a resolved symlink target.
+fn install_method_hint(exe: &Path) -> Option<&'static str> {
+    let s = exe.to_string_lossy();
+    if s.contains("/.cargo/bin/") {
+        Some("Installed via Cargo — run: cargo uninstall mag-memory")
+    } else if s.contains("/homebrew/") || s.contains("/Cellar/") || s.contains("/linuxbrew/") {
+        Some("Installed via Homebrew — run: brew uninstall mag  (to clean up Homebrew metadata)")
+    } else if s.contains("/.local/share/uv/tools/") || s.contains("/.uv/tools/") {
+        Some("Installed via uv — run: uv tool uninstall mag-memory")
+    } else if s.contains("/site-packages/") || s.contains("/dist-packages/") {
+        Some("Installed via pip — run: pip uninstall -y mag-memory")
+    } else if s.contains("/node_modules/") {
+        Some("Installed via npm — run: npm uninstall -g mag-memory")
+    } else {
+        None
+    }
+}
+
 /// Label for the binary install location shown in the interactive menu.
 fn binary_install_label(home: &Path) -> String {
-    let install_dir = default_install_dir(home);
-    let binary = install_dir.join("mag");
-    if binary.exists() {
-        format!("{}", install_dir.display())
-    } else {
-        format!("{}, not found", install_dir.display())
+    if let Some(exe) = current_exe_path() {
+        return format!("{}", exe.display());
     }
+    // Fallback when current_exe() is unavailable (should be rare).
+    default_install_dir(home).join("mag").display().to_string()
 }
 
 /// Removes the MAG binary and cleans PATH entries from shell profiles.
 fn remove_binary_and_path(home: &Path) -> BinaryResult {
+    let exe = if let Some(p) = current_exe_path() {
+        p
+    } else {
+        let fallback = default_install_dir(home).join("mag");
+        tracing::warn!(
+            fallback = %fallback.display(),
+            "current_exe() unavailable; falling back to default install directory"
+        );
+        fallback
+    };
+    remove_binary_and_path_impl(home, exe)
+}
+
+/// Inner implementation; accepts the exe path explicitly so tests can inject a
+/// controlled path without depending on `current_exe()`.
+fn remove_binary_and_path_impl(home: &Path, binary_path: PathBuf) -> BinaryResult {
     let install_dir = default_install_dir(home);
-    let binary_path = install_dir.join("mag");
 
-    // Check for cargo-installed binary
+    // Safety guard: refuse to delete anything that isn't named "mag" (or
+    // "mag.exe" on Windows) to prevent accidental deletion of an unrelated
+    // binary if current_exe() or a caller supplies an unexpected path.
+    let expected_name = if cfg!(windows) { "mag.exe" } else { "mag" };
+    let actual_name = binary_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if actual_name != expected_name {
+        tracing::warn!(
+            path = %binary_path.display(),
+            expected = expected_name,
+            actual = actual_name,
+            "refusing to delete binary: filename does not match expected 'mag'"
+        );
+        return BinaryResult {
+            removed: RemoveOutcome::NotFound,
+            profiles_cleaned: vec![],
+            profiles_failed: vec![],
+            install_hints: vec![],
+        };
+    }
+
+    // Build package-manager hints.
+    let mut install_hints: Vec<String> = Vec::new();
+    if let Some(hint) = install_method_hint(&binary_path) {
+        install_hints.push(hint.to_owned());
+    }
+    // If the running binary is NOT in ~/.cargo/bin but a cargo binary exists
+    // there as well (e.g. shell-installer + cargo both present), surface that.
     let cargo_bin = home.join(".cargo").join("bin").join("mag");
-    let cargo_hint = cargo_bin.exists();
+    let running_from_cargo = binary_path.to_string_lossy().contains("/.cargo/bin/");
+    if !running_from_cargo && cargo_bin.symlink_metadata().is_ok() {
+        install_hints.push("Also installed via Cargo — run: cargo uninstall mag-memory".to_owned());
+    }
 
-    // Detect if the running binary is somewhere other than the default install dir
-    let other_binary = std::env::current_exe()
-        .ok()
-        .and_then(|p| std::fs::canonicalize(&p).ok())
-        .and_then(|exe| {
-            let canonical_default = std::fs::canonicalize(&binary_path).ok();
-            let canonical_cargo = std::fs::canonicalize(&cargo_bin).ok();
-            let is_known =
-                canonical_default.as_ref() == Some(&exe) || canonical_cargo.as_ref() == Some(&exe);
-            if is_known {
-                None
-            } else {
-                Some(exe.display().to_string())
-            }
-        });
-
-    // Remove binary from install dir
+    // Remove the binary.
     let removed = if binary_path.exists() {
         let outcome = remove_file(&binary_path);
         if matches!(outcome, RemoveOutcome::Removed { .. }) {
-            try_remove_empty_dir(&install_dir);
+            // Clean up the parent dir only if it's the MAG install dir.
+            if binary_path.parent() == Some(install_dir.as_path()) {
+                try_remove_empty_dir(&install_dir);
+            }
         }
         outcome
     } else {
         RemoveOutcome::NotFound
     };
 
-    // Clean PATH from shell profiles
+    // Clean PATH from shell profiles (always attempt, regardless of install method).
     let install_dir_str = install_dir.to_string_lossy().to_string();
     let mut profiles_cleaned = Vec::new();
     let mut profiles_failed: Vec<(String, String)> = Vec::new();
@@ -610,12 +678,49 @@ fn remove_binary_and_path(home: &Path) -> BinaryResult {
         }
     }
 
+    // Also clean the binary's actual parent dir from shell profiles if it
+    // differs from the default install dir (e.g. ~/.cargo/bin, Homebrew prefix).
+    if let Some(binary_dir) = binary_path.parent()
+        && binary_dir != install_dir.as_path()
+    {
+        let binary_dir_str = binary_dir.to_string_lossy().to_string();
+        for profile_path in shell_profiles(home) {
+            if !profile_path.exists() {
+                continue;
+            }
+            match clean_path_from_profile(&profile_path, &binary_dir_str) {
+                Ok(true) => {
+                    tracing::info!(
+                        profile = %profile_path.display(),
+                        dir = %binary_dir_str,
+                        "cleaned alternate PATH entry"
+                    );
+                    let display = profile_path.display().to_string();
+                    if !profiles_cleaned.contains(&display) {
+                        profiles_cleaned.push(display);
+                    }
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        profile = %profile_path.display(),
+                        error = %e,
+                        "failed to clean alternate PATH from profile"
+                    );
+                    let display = profile_path.display().to_string();
+                    if !profiles_failed.iter().any(|(p, _)| p == &display) {
+                        profiles_failed.push((display, format!("{e:#}")));
+                    }
+                }
+            }
+        }
+    }
+
     BinaryResult {
         removed,
         profiles_cleaned,
         profiles_failed,
-        cargo_hint,
-        other_binary,
+        install_hints,
     }
 }
 
@@ -982,11 +1087,12 @@ mod tests {
         )
         .unwrap();
 
-        let result = remove_binary_and_path(&home);
+        // Use _impl to inject a controlled binary path rather than current_exe().
+        let result = remove_binary_and_path_impl(&home, bin_dir.join("mag"));
         assert!(matches!(result.removed, RemoveOutcome::Removed { .. }));
         assert!(!bin_dir.join("mag").exists());
         assert_eq!(result.profiles_cleaned.len(), 1);
-        assert!(!result.cargo_hint);
+        assert!(result.install_hints.is_empty());
 
         let profile = std::fs::read_to_string(home.join(".zshrc")).unwrap();
         assert!(!profile.contains(".mag/bin"));
@@ -1029,5 +1135,231 @@ mod tests {
             let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
             assert!(parsed["mcpServers"]["mag"].is_null());
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // current_exe_path — suffix-stripping logic
+    // -----------------------------------------------------------------------
+
+    /// Mirrors the stripping logic inside `current_exe_path()` so it can be
+    /// tested without calling `std::env::current_exe()`.
+    fn strip_deleted_suffix(p: PathBuf) -> PathBuf {
+        let s = p.to_string_lossy();
+        if let Some(stripped) = s.strip_suffix(" (deleted)") {
+            PathBuf::from(stripped)
+        } else {
+            p
+        }
+    }
+
+    #[test]
+    fn current_exe_path_strips_deleted_suffix() {
+        let input = PathBuf::from("/home/user/.mag/bin/mag (deleted)");
+        assert_eq!(
+            strip_deleted_suffix(input),
+            PathBuf::from("/home/user/.mag/bin/mag")
+        );
+    }
+
+    #[test]
+    fn current_exe_path_unchanged_without_suffix() {
+        let input = PathBuf::from("/home/user/.mag/bin/mag");
+        assert_eq!(strip_deleted_suffix(input.clone()), input);
+    }
+
+    // -----------------------------------------------------------------------
+    // install_method_hint
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn install_method_hint_cargo() {
+        let p = PathBuf::from("/home/user/.cargo/bin/mag");
+        assert_eq!(
+            install_method_hint(&p),
+            Some("Installed via Cargo — run: cargo uninstall mag-memory")
+        );
+    }
+
+    #[test]
+    fn install_method_hint_homebrew_cellar() {
+        let p = PathBuf::from("/usr/local/Cellar/mag/1.0.0/bin/mag");
+        assert_eq!(
+            install_method_hint(&p),
+            Some(
+                "Installed via Homebrew — run: brew uninstall mag  (to clean up Homebrew metadata)"
+            )
+        );
+    }
+
+    #[test]
+    fn install_method_hint_homebrew_prefix() {
+        let p = PathBuf::from("/opt/homebrew/bin/mag");
+        assert_eq!(
+            install_method_hint(&p),
+            Some(
+                "Installed via Homebrew — run: brew uninstall mag  (to clean up Homebrew metadata)"
+            )
+        );
+    }
+
+    #[test]
+    fn install_method_hint_uv_local_share() {
+        let p = PathBuf::from("/home/user/.local/share/uv/tools/mag-memory/bin/mag");
+        assert_eq!(
+            install_method_hint(&p),
+            Some("Installed via uv — run: uv tool uninstall mag-memory")
+        );
+    }
+
+    #[test]
+    fn install_method_hint_uv_dot() {
+        let p = PathBuf::from("/home/user/.uv/tools/mag-memory/bin/mag");
+        assert_eq!(
+            install_method_hint(&p),
+            Some("Installed via uv — run: uv tool uninstall mag-memory")
+        );
+    }
+
+    #[test]
+    fn install_method_hint_pip_site_packages() {
+        let p = PathBuf::from("/usr/lib/python3/site-packages/mag_memory/bin/mag");
+        assert_eq!(
+            install_method_hint(&p),
+            Some("Installed via pip — run: pip uninstall -y mag-memory")
+        );
+    }
+
+    #[test]
+    fn install_method_hint_npm_node_modules() {
+        let p =
+            PathBuf::from("/home/user/.nvm/versions/node/v20/lib/node_modules/mag-memory/bin/mag");
+        assert_eq!(
+            install_method_hint(&p),
+            Some("Installed via npm — run: npm uninstall -g mag-memory")
+        );
+    }
+
+    #[test]
+    fn install_method_hint_none_for_default_install() {
+        let p = PathBuf::from("/home/user/.mag/bin/mag");
+        assert_eq!(install_method_hint(&p), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // remove_binary_and_path_impl — extended cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn remove_binary_impl_cargo_path_produces_hint() {
+        let home = std::env::temp_dir().join(format!("mag-hint-cargo-{}", uuid::Uuid::new_v4()));
+        let cargo_bin = home.join(".cargo").join("bin");
+        std::fs::create_dir_all(&cargo_bin).unwrap();
+        std::fs::write(cargo_bin.join("mag"), "binary").unwrap();
+
+        let result = remove_binary_and_path_impl(&home, cargo_bin.join("mag"));
+        assert!(matches!(result.removed, RemoveOutcome::Removed { .. }));
+        assert!(
+            result
+                .install_hints
+                .iter()
+                .any(|h| h.contains("Installed via Cargo")),
+            "expected Cargo hint, got: {:?}",
+            result.install_hints
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn remove_binary_impl_not_found_returns_not_found() {
+        let home = std::env::temp_dir().join(format!("mag-notfound-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).unwrap();
+        let missing = home.join(".mag").join("bin").join("mag");
+        let result = remove_binary_and_path_impl(&home, missing);
+        assert!(matches!(result.removed, RemoveOutcome::NotFound));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn remove_binary_impl_dual_install_secondary_hint() {
+        let home = std::env::temp_dir().join(format!("mag-dual-{}", uuid::Uuid::new_v4()));
+        let bin_dir = home.join(".mag").join("bin");
+        let cargo_bin = home.join(".cargo").join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&cargo_bin).unwrap();
+        std::fs::write(bin_dir.join("mag"), "binary").unwrap();
+        std::fs::write(cargo_bin.join("mag"), "cargo binary").unwrap();
+
+        let result = remove_binary_and_path_impl(&home, bin_dir.join("mag"));
+        assert!(matches!(result.removed, RemoveOutcome::Removed { .. }));
+        assert!(
+            result
+                .install_hints
+                .iter()
+                .any(|h| h.contains("Also installed via Cargo")),
+            "expected secondary Cargo hint, got: {:?}",
+            result.install_hints
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn remove_binary_impl_wrong_filename_guard() {
+        let home = std::env::temp_dir().join(format!("mag-guard-{}", uuid::Uuid::new_v4()));
+        let bin_dir = home.join(".mag").join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let wrong = bin_dir.join("not-mag");
+        std::fs::write(&wrong, "should not be deleted").unwrap();
+
+        let result = remove_binary_and_path_impl(&home, wrong.clone());
+        assert!(
+            matches!(result.removed, RemoveOutcome::NotFound),
+            "expected NotFound from filename guard"
+        );
+        assert!(
+            wrong.exists(),
+            "guard must not delete a file with wrong name"
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // -----------------------------------------------------------------------
+    // clean_path_from_profile — edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn clean_path_mag_marker_as_last_line_no_panic() {
+        let dir =
+            std::env::temp_dir().join(format!("mag-profile-lastline-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.join(".zshrc");
+        // # MAG is the last line with no following PATH line
+        std::fs::write(&profile, "export FOO=bar\n# MAG").unwrap();
+
+        let result = clean_path_from_profile(&profile, "/home/user/.mag/bin");
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(&profile).unwrap();
+        assert!(!content.contains("# MAG"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clean_path_no_trailing_newline() {
+        let dir =
+            std::env::temp_dir().join(format!("mag-profile-nonewline-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.join(".zshrc");
+        std::fs::write(
+            &profile,
+            "export PATH=\"/usr/bin:$PATH\"\n\n# MAG\nexport PATH=\"/home/user/.mag/bin:$PATH\"",
+        )
+        .unwrap();
+
+        let result = clean_path_from_profile(&profile, "/home/user/.mag/bin");
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(&profile).unwrap();
+        assert!(!content.contains("# MAG"));
+        assert!(!content.contains(".mag/bin"));
+        assert!(content.contains("/usr/bin"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
