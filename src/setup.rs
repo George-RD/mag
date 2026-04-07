@@ -101,16 +101,10 @@ fn present_detection(result: &DetectionResult) {
             MagConfigStatus::Misconfigured(_) => "\u{26a0}", // warning
             MagConfigStatus::Unreadable(_) => "\u{26a0}", // warning
         };
-        let status_label = match &dt.mag_status {
-            MagConfigStatus::Configured => "configured",
-            MagConfigStatus::InstalledAsPlugin => "installed as plugin",
-            MagConfigStatus::NotConfigured => "not configured",
-            MagConfigStatus::Misconfigured(reason) => reason.as_str(),
-            MagConfigStatus::Unreadable(reason) => reason.as_str(),
-        };
         println!(
             "    {status_icon} {name:<20} {status_label}",
             name = dt.tool.display_name(),
+            status_label = status_short_label(&dt.mag_status),
         );
         tracing::debug!(
             tool = %dt.tool.display_name(),
@@ -218,26 +212,73 @@ fn select_tools<'a>(
     select_tools_interactive(&actionable)
 }
 
+fn status_short_label(status: &MagConfigStatus) -> &str {
+    match status {
+        MagConfigStatus::Configured => "configured",
+        MagConfigStatus::InstalledAsPlugin => "installed as plugin",
+        MagConfigStatus::NotConfigured => "not configured",
+        MagConfigStatus::Misconfigured(r) => r.as_str(),
+        MagConfigStatus::Unreadable(r) => r.as_str(),
+    }
+}
+
 fn select_tools_interactive<'a>(tools: &[&'a DetectedTool]) -> Result<Vec<&'a DetectedTool>> {
-    println!(
-        "  Configure {} tool{}? [Y/n] ",
-        tools.len(),
-        if tools.len() == 1 { "" } else { "s" }
-    );
+    if tools.len() == 1 {
+        let tool = tools[0];
+        print!(
+            "  Configure {} ({})? [Y/n] ",
+            tool.tool.display_name(),
+            status_short_label(&tool.mag_status),
+        );
+        io::stdout().flush().context("flushing stdout")?;
+        let mut line = String::new();
+        io::stdin()
+            .lock()
+            .read_line(&mut line)
+            .context("reading user input")?;
+        let trimmed = line.trim().to_lowercase();
+        return if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+            Ok(tools.to_vec())
+        } else {
+            Ok(vec![])
+        };
+    }
+
+    // Multiple tools: show numbered list and accept Y/n or a selection like "1,3"
+    println!("  Tools to configure:");
+    for (i, dt) in tools.iter().enumerate() {
+        println!(
+            "    {}. {:<20} ({})",
+            i + 1,
+            dt.tool.display_name(),
+            status_short_label(&dt.mag_status),
+        );
+    }
+    println!();
+    print!("  Configure all {}? [Y/n or e.g. 1,3] ", tools.len());
     io::stdout().flush().context("flushing stdout")?;
 
-    let stdin = io::stdin();
     let mut line = String::new();
-    stdin
+    io::stdin()
         .lock()
         .read_line(&mut line)
         .context("reading user input")?;
-
     let trimmed = line.trim().to_lowercase();
+
     if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
         Ok(tools.to_vec())
-    } else {
+    } else if trimmed == "n" || trimmed == "no" {
         Ok(vec![])
+    } else {
+        // Parse comma/space-separated numbers like "1,3" or "1 3"
+        let selected: Vec<&DetectedTool> = trimmed
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse::<usize>().ok())
+            .filter(|&n| n >= 1 && n <= tools.len())
+            .map(|n| tools[n - 1])
+            .collect();
+        Ok(selected)
     }
 }
 
@@ -353,8 +394,14 @@ const MAG_SENTINEL_START: &str = "<!-- MAG_MEMORY_START -->";
 /// Sentinel marking the end of the MAG section in AGENTS.md files.
 const MAG_SENTINEL_END: &str = "<!-- MAG_MEMORY_END -->";
 
-const CODEX_AGENTS_MD: &str = include_str!("../connectors/codex/AGENTS.md");
-const GEMINI_AGENTS_MD: &str = include_str!("../connectors/gemini/AGENTS.md");
+/// Shared AGENTS.md template for all AgentsMd-tier tools.
+/// The `{{MAG_VERSION}}` placeholder is replaced at install time with the
+/// running binary's version so stale installs can be detected after upgrades.
+const AGENTS_MD_TEMPLATE: &str = include_str!("../connectors/shared/AGENTS.md");
+
+fn agents_md_content() -> String {
+    AGENTS_MD_TEMPLATE.replace("{{MAG_VERSION}}", env!("CARGO_PKG_VERSION"))
+}
 
 /// OpenCode skill definitions: (directory name, embedded content).
 const OPENCODE_SKILLS: &[(&str, &str)] = &[
@@ -434,15 +481,16 @@ fn install_connector_content(tools: &[&DetectedTool]) -> (Vec<String>, Vec<(Stri
     (successes, warnings)
 }
 
-/// Returns the embedded content and target path for a tool's AGENTS.md, if applicable.
+/// Returns the raw template and target path for a tool's AGENTS.md, if applicable.
+/// The template contains a `{{MAG_VERSION}}` placeholder replaced at install time.
 pub(crate) fn agents_md_target(
     tool: tool_detection::AiTool,
     home: &Path,
 ) -> Option<(&'static str, PathBuf)> {
     match tool {
-        tool_detection::AiTool::Codex => Some((CODEX_AGENTS_MD, home.join(".codex/AGENTS.md"))),
+        tool_detection::AiTool::Codex => Some((AGENTS_MD_TEMPLATE, home.join(".codex/AGENTS.md"))),
         tool_detection::AiTool::GeminiCli => {
-            Some((GEMINI_AGENTS_MD, home.join(".gemini/AGENTS.md")))
+            Some((AGENTS_MD_TEMPLATE, home.join(".gemini/AGENTS.md")))
         }
         _ => None,
     }
@@ -472,9 +520,12 @@ fn install_agents_md_append(existing: &str, content: &str, path: &Path) -> Resul
 /// Returns `Ok(true)` if the file was created or updated, `Ok(false)` if already
 /// up-to-date (identical content).
 pub(crate) fn install_agents_md(tool: tool_detection::AiTool, home: &Path) -> Result<bool> {
-    let Some((content, target_path)) = agents_md_target(tool, home) else {
+    let Some((_, target_path)) = agents_md_target(tool, home) else {
         return Ok(false);
     };
+    // Substitute {{MAG_VERSION}} so stale installs are detectable after upgrades.
+    let content_owned = agents_md_content();
+    let content = content_owned.as_str();
 
     if let Some(parent) = target_path.parent() {
         std::fs::create_dir_all(parent)
@@ -1058,18 +1109,29 @@ mod tests {
     }
 
     #[test]
-    fn configure_tools_codex_deferred() {
-        let dt = DetectedTool {
-            tool: AiTool::Codex,
-            config_path: PathBuf::from("/fake/codex/config.toml"),
-            scope: ConfigScope::Global,
-            mag_status: MagConfigStatus::NotConfigured,
-        };
+    fn configure_tools_codex_writes_toml() {
+        with_temp_home(|home| {
+            let config_path = home.join(".codex/config.toml");
+            let dt = DetectedTool {
+                tool: AiTool::Codex,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
 
-        let tools: Vec<&DetectedTool> = vec![&dt];
-        let summary = configure_tools(&tools, TransportMode::Command, &tools).unwrap();
+            let tools: Vec<&DetectedTool> = vec![&dt];
+            let summary = configure_tools(&tools, TransportMode::Command, &tools).unwrap();
 
-        assert_eq!(summary.deferred.len(), 1);
+            assert!(summary.deferred.is_empty());
+            // At least the TOML config is written; connector content (AGENTS.md)
+            // may add additional entries to summary.written.
+            assert!(
+                summary.written.iter().any(|s| s.contains("Codex")),
+                "expected Codex to appear in written entries, got: {:?}",
+                summary.written
+            );
+            assert!(config_path.exists(), "expected config.toml to be created");
+        });
     }
 
     // -----------------------------------------------------------------------

@@ -93,8 +93,8 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if let Commands::Doctor { verbose } = &cli.command {
-        return run_doctor(*verbose).await;
+    if let Commands::Doctor { fix } = &cli.command {
+        return run_doctor(*fix).await;
     }
 
     if let Commands::Setup {
@@ -1145,87 +1145,195 @@ fn format_time_filter(dt: DateTime<FixedOffset>) -> String {
         .to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-async fn run_doctor(_verbose: bool) -> anyhow::Result<()> {
-    println!("Checking MAG setup...\n");
+// ── doctor helpers ───────────────────────────────────────────────────────────
 
-    let mut passed = 0u32;
-    let mut total = 0u32;
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CheckStatus {
+    Ok,
+    Warn,
+    Fail,
+}
+
+impl CheckStatus {
+    fn label(self) -> &'static str {
+        match self {
+            CheckStatus::Ok => "ok  ",
+            CheckStatus::Warn => "!!  ",
+            CheckStatus::Fail => "FAIL",
+        }
+    }
+}
+
+#[derive(Clone)]
+enum FixAction {
+    DownloadModel,
+}
+
+struct CheckResult {
+    name: &'static str,
+    status: CheckStatus,
+    detail: String,
+    why: Option<&'static str>,
+    fix_hint: Option<String>,
+    fix_action: Option<FixAction>,
+}
+
+async fn run_doctor(fix: bool) -> anyhow::Result<()> {
+    let mut results: Vec<CheckResult> = Vec::new();
 
     // 1. Paths check
-    total += 1;
     let paths = match app_paths::resolve_app_paths() {
         Ok(p) => {
-            let writable = is_dir_writable(&p.data_root);
-            if writable {
-                println!("[ok] Paths: {} (writable)", p.data_root.display());
-                passed += 1;
-            } else if p.data_root.exists() {
-                println!("[FAIL] Paths: {} (not writable)", p.data_root.display());
-                println!("       Ensure the directory has write permissions.");
-            } else {
-                println!(
-                    "[ok] Paths: {} (will be created on first use)",
-                    p.data_root.display()
-                );
-                passed += 1;
+            match is_dir_writable(&p.data_root) {
+                Ok(()) => {
+                    results.push(CheckResult {
+                        name: "Paths",
+                        status: CheckStatus::Ok,
+                        detail: format!("{} (writable)", p.data_root.display()),
+                        why: None,
+                        fix_hint: None,
+                        fix_action: None,
+                    });
+                }
+                Err(reason) if reason == "directory does not exist" => {
+                    results.push(CheckResult {
+                        name: "Paths",
+                        status: CheckStatus::Ok,
+                        detail: format!("{} (will be created on first use)", p.data_root.display()),
+                        why: None,
+                        fix_hint: None,
+                        fix_action: None,
+                    });
+                }
+                Err(reason) => {
+                    results.push(CheckResult {
+                        name: "Paths",
+                        status: CheckStatus::Fail,
+                        detail: format!("{}: {reason}", p.data_root.display()),
+                        why: Some(
+                            "MAG stores all memories here. Without write access, nothing can be saved.",
+                        ),
+                        fix_hint: Some(format!("chmod u+w {}", p.data_root.display())),
+                        fix_action: None,
+                    });
+                }
             }
             Some(p)
         }
         Err(e) => {
-            println!("[FAIL] Paths: {e}");
-            println!("       Ensure HOME or USERPROFILE is set.");
+            results.push(CheckResult {
+                name: "Paths",
+                status: CheckStatus::Fail,
+                detail: e.to_string(),
+                why: Some("MAG needs a home directory to store memories and models."),
+                fix_hint: Some(
+                    "Ensure HOME or USERPROFILE is set in your environment.".to_string(),
+                ),
+                fix_action: None,
+            });
             None
         }
     };
 
     // 2. Database check
-    total += 1;
-    if let Some(ref paths) = paths {
-        if paths.database_path.exists() {
-            match check_db_integrity(&paths.database_path) {
-                Ok((ok, count)) => {
-                    if ok {
-                        println!(
-                            "[ok] Database: {} (valid, {count} memories)",
-                            paths.database_path.display()
-                        );
-                        passed += 1;
-                    } else {
-                        println!(
-                            "[FAIL] Database: {} (integrity check failed)",
-                            paths.database_path.display()
-                        );
-                        println!("       Run: mag maintain --action health");
-                    }
+    if let Some(ref p) = paths {
+        if p.database_path.exists() {
+            let db_path = p.database_path.clone();
+            let db_file_name = p
+                .database_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let integrity_result =
+                tokio::task::spawn_blocking(move || check_db_integrity(&db_path)).await;
+            match integrity_result {
+                Ok(Ok((true, count))) => {
+                    results.push(CheckResult {
+                        name: "Database",
+                        status: CheckStatus::Ok,
+                        detail: format!("{db_file_name} ({count} memories)"),
+                        why: None,
+                        fix_hint: None,
+                        fix_action: None,
+                    });
                 }
-                Err(e) => {
-                    println!("[FAIL] Database: {} ({e})", paths.database_path.display());
-                    println!("       Run: mag maintain --action health");
+                Ok(Ok((false, _))) => {
+                    results.push(CheckResult {
+                        name: "Database",
+                        status: CheckStatus::Fail,
+                        detail: format!("{db_file_name} (integrity check failed)"),
+                        why: Some(
+                            "A corrupted database can cause silent data loss or crashes on recall.",
+                        ),
+                        fix_hint: Some("mag maintain --action health".to_string()),
+                        fix_action: None,
+                    });
+                }
+                Ok(Err(e)) => {
+                    results.push(CheckResult {
+                        name: "Database",
+                        status: CheckStatus::Fail,
+                        detail: format!("{db_file_name}: {e:#}"),
+                        why: Some(
+                            "A corrupted database can cause silent data loss or crashes on recall.",
+                        ),
+                        fix_hint: Some("mag maintain --action health".to_string()),
+                        fix_action: None,
+                    });
+                }
+                Err(join_err) => {
+                    results.push(CheckResult {
+                        name: "Database",
+                        status: CheckStatus::Fail,
+                        detail: format!("{db_file_name}: check panicked ({join_err})"),
+                        why: Some(
+                            "A corrupted database can cause silent data loss or crashes on recall.",
+                        ),
+                        fix_hint: Some("mag maintain --action health".to_string()),
+                        fix_action: None,
+                    });
                 }
             }
         } else {
-            println!(
-                "[!!] Database: not found at {}",
-                paths.database_path.display()
-            );
-            println!("       Database will be created on first use.");
-            passed += 1; // warning, not failure
+            results.push(CheckResult {
+                name: "Database",
+                status: CheckStatus::Warn,
+                detail: "not found — will be created on first use".to_string(),
+                why: None,
+                fix_hint: None,
+                fix_action: None,
+            });
         }
     } else {
-        println!("[FAIL] Database: cannot check (paths unavailable)");
+        results.push(CheckResult {
+            name: "Database",
+            status: CheckStatus::Fail,
+            detail: "cannot check (paths unavailable)".to_string(),
+            why: None,
+            fix_hint: None,
+            fix_action: None,
+        });
     }
 
     // 3. Models check
-    total += 1;
-    if let Some(ref paths) = paths {
-        let model_onnx = paths.model_root.join("model.onnx");
-        let tokenizer = paths.model_root.join("tokenizer.json");
+    let mut models_ok = false;
+    if let Some(ref p) = paths {
+        let model_onnx = p.model_root.join("model.onnx");
+        let tokenizer = p.model_root.join("tokenizer.json");
         if model_onnx.exists() && tokenizer.exists() {
             let model_size = std::fs::metadata(&model_onnx).map(|m| m.len()).unwrap_or(0);
             #[allow(clippy::cast_precision_loss)]
             let size_mb = model_size as f64 / (1024.0 * 1024.0);
-            println!("[ok] Models: model.onnx ({size_mb:.0} MB), tokenizer.json");
-            passed += 1;
+            results.push(CheckResult {
+                name: "Models",
+                status: CheckStatus::Ok,
+                detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
+                why: None,
+                fix_hint: None,
+                fix_action: None,
+            });
+            models_ok = true;
         } else {
             let mut missing = Vec::new();
             if !model_onnx.exists() {
@@ -1234,85 +1342,278 @@ async fn run_doctor(_verbose: bool) -> anyhow::Result<()> {
             if !tokenizer.exists() {
                 missing.push("tokenizer.json");
             }
-            println!(
-                "[FAIL] Models: missing {} in {}",
-                missing.join(", "),
-                paths.model_root.display()
-            );
-            println!("       Run: mag download-model");
+            #[cfg(feature = "real-embeddings")]
+            results.push(CheckResult {
+                name: "Models",
+                status: CheckStatus::Fail,
+                detail: format!("missing: {}", missing.join(", ")),
+                why: Some(
+                    "MAG needs these files to embed text for semantic search. \
+                     Without them, recall and store commands will fail.",
+                ),
+                fix_hint: Some("mag download-model".to_string()),
+                fix_action: Some(FixAction::DownloadModel),
+            });
+            #[cfg(not(feature = "real-embeddings"))]
+            results.push(CheckResult {
+                name: "Models",
+                status: CheckStatus::Warn,
+                detail: format!(
+                    "missing: {} (not required — real-embeddings feature disabled)",
+                    missing.join(", ")
+                ),
+                why: None,
+                fix_hint: None,
+                fix_action: None,
+            });
         }
     } else {
-        println!("[FAIL] Models: cannot check (paths unavailable)");
+        results.push(CheckResult {
+            name: "Models",
+            status: CheckStatus::Fail,
+            detail: "cannot check (paths unavailable)".to_string(),
+            why: None,
+            fix_hint: None,
+            fix_action: None,
+        });
     }
 
-    // 4. Embedder warmup check (only if models present)
-    total += 1;
+    // 4. Embedder warmup check
     #[cfg(feature = "real-embeddings")]
-    {
+    if models_ok {
         let start = std::time::Instant::now();
         match memory_core::OnnxEmbedder::new() {
             Ok(embedder) => {
                 let embedder = std::sync::Arc::new(embedder);
                 match embedder.warmup().await {
                     Ok(()) => {
-                        let elapsed = start.elapsed();
-                        println!("[ok] Embedder: warmup OK ({elapsed:.0?})");
-                        passed += 1;
+                        results.push(CheckResult {
+                            name: "Embedder",
+                            status: CheckStatus::Ok,
+                            detail: format!("warmup OK ({:.0?})", start.elapsed()),
+                            why: None,
+                            fix_hint: None,
+                            fix_action: None,
+                        });
                     }
                     Err(e) => {
-                        println!("[FAIL] Embedder: warmup failed ({e})");
-                        println!("       Run: mag download-model");
+                        results.push(CheckResult {
+                            name: "Embedder",
+                            status: CheckStatus::Fail,
+                            detail: format!("warmup failed: {e}"),
+                            why: Some(
+                                "The embedding model failed to load. Recall quality will be degraded.",
+                            ),
+                            fix_hint: Some("mag download-model".to_string()),
+                            fix_action: Some(FixAction::DownloadModel),
+                        });
                     }
                 }
             }
             Err(e) => {
-                println!("[FAIL] Embedder: initialization failed ({e})");
-                println!("       Run: mag download-model");
+                results.push(CheckResult {
+                    name: "Embedder",
+                    status: CheckStatus::Fail,
+                    detail: format!("init failed: {e}"),
+                    why: Some(
+                        "The embedding model failed to load. Recall quality will be degraded.",
+                    ),
+                    fix_hint: Some("mag download-model".to_string()),
+                    fix_action: Some(FixAction::DownloadModel),
+                });
             }
         }
+    } else if !models_ok {
+        results.push(CheckResult {
+            name: "Embedder",
+            status: CheckStatus::Warn,
+            detail: "skipped (models not present)".to_string(),
+            why: None,
+            fix_hint: None,
+            fix_action: None,
+        });
     }
     #[cfg(not(feature = "real-embeddings"))]
     {
-        println!("[!!] Embedder: real-embeddings feature not enabled (using placeholder)");
-        passed += 1; // warning, not failure
+        let _ = models_ok;
+        results.push(CheckResult {
+            name: "Embedder",
+            status: CheckStatus::Warn,
+            detail: "real-embeddings feature not enabled (using placeholder)".to_string(),
+            why: None,
+            fix_hint: None,
+            fix_action: None,
+        });
+    }
+
+    // ── Print summary table ───────────────────────────────────────────────────
+    println!("Checking MAG setup...\n");
+    let name_width = results.iter().map(|r| r.name.len()).max().unwrap_or(8);
+    for r in &results {
+        println!(
+            "  {:<width$}  [{}]  {}",
+            r.name,
+            r.status.label(),
+            r.detail,
+            width = name_width
+        );
+    }
+
+    let failures: Vec<&CheckResult> = results
+        .iter()
+        .filter(|r| r.status == CheckStatus::Fail)
+        .collect();
+    let ok_count = results
+        .iter()
+        .filter(|r| r.status == CheckStatus::Ok)
+        .count();
+    let warn_count = results
+        .iter()
+        .filter(|r| r.status == CheckStatus::Warn)
+        .count();
+    let total = results.len();
+
+    let warn_suffix = if warn_count > 0 {
+        format!(", {warn_count} warning(s)")
+    } else {
+        String::new()
+    };
+
+    if failures.is_empty() {
+        println!("\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
+        return Ok(());
     }
 
     println!(
-        "\n{passed}/{total} checks passed.{}",
-        if passed == total {
-            " MAG is ready."
-        } else {
-            ""
-        }
+        "\n{ok_count}/{total} checks passed{warn_suffix} — {} issue{} found.\n",
+        failures.len(),
+        if failures.len() == 1 { "" } else { "s" }
     );
+
+    // ── Issues section ────────────────────────────────────────────────────────
+    for (i, r) in failures.iter().enumerate() {
+        println!("  {}. {}", i + 1, r.name);
+        if let Some(why) = r.why {
+            println!("     Why: {why}");
+        }
+        if let Some(hint) = &r.fix_hint {
+            if r.fix_action.is_some() {
+                println!("     Fix: {hint}  ✓ auto-fixable");
+            } else {
+                println!("     Fix: {hint}");
+            }
+        }
+        println!();
+    }
+
+    let auto_fixable: Vec<&CheckResult> = failures
+        .iter()
+        .copied()
+        .filter(|r| r.fix_action.is_some())
+        .collect();
+
+    if auto_fixable.is_empty() {
+        return Ok(());
+    }
+
+    // ── Fix prompt ────────────────────────────────────────────────────────────
+    if fix {
+        println!("Applying fixes (--fix)...");
+        apply_doctor_fixes(&auto_fixable).await?;
+    } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        let count = auto_fixable.len();
+        print!(
+            "Fix {} auto-fixable issue{}? [Y/n] ",
+            count,
+            if count == 1 { "" } else { "s" }
+        );
+        use std::io::Write as _;
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let answer = input.trim().to_ascii_lowercase();
+        if answer.is_empty() || answer == "y" || answer == "yes" {
+            apply_doctor_fixes(&auto_fixable).await?;
+        } else {
+            println!("Skipped. Run `mag doctor --fix` to apply automatically.");
+        }
+    } else {
+        let count = auto_fixable.len();
+        println!(
+            "Run `mag doctor --fix` to apply {} auto-fixable issue{} automatically.",
+            count,
+            if count == 1 { "" } else { "s" }
+        );
+    }
+
     Ok(())
 }
 
-fn is_dir_writable(path: &std::path::Path) -> bool {
+async fn apply_doctor_fixes(fixable: &[&CheckResult]) -> anyhow::Result<()> {
+    let mut errors: Vec<String> = Vec::new();
+    for r in fixable {
+        if let Some(action) = &r.fix_action {
+            match action {
+                FixAction::DownloadModel => {
+                    println!("Downloading embedding model...");
+                    #[cfg(feature = "real-embeddings")]
+                    match memory_core::embedder::download_bge_small_model().await {
+                        Ok(model_path) => {
+                            println!("  Model ready at {}", model_path.display());
+                        }
+                        Err(e) => {
+                            println!("  Failed: {e:#}");
+                            errors.push(format!("download-model: {e:#}"));
+                        }
+                    }
+                    #[cfg(not(feature = "real-embeddings"))]
+                    {
+                        println!("  Skipped: real-embeddings feature not enabled in this build.");
+                    }
+                }
+            }
+        }
+    }
+    if !errors.is_empty() {
+        anyhow::bail!("doctor --fix failed:\n  {}", errors.join("\n  "));
+    }
+    Ok(())
+}
+
+fn is_dir_writable(path: &std::path::Path) -> Result<(), String> {
     if !path.exists() {
-        return false;
+        return Err("directory does not exist".to_string());
     }
     let probe = path.join(".mag_doctor_probe");
-    match std::fs::write(&probe, b"ok") {
-        Ok(()) => {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(_) => {
             let _ = std::fs::remove_file(&probe);
-            true
+            Ok(())
         }
-        Err(_) => false,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // File exists but we didn't create it — directory is still writable
+            Ok(())
+        }
+        Err(e) => Err(e.to_string()),
     }
 }
 
 fn check_db_integrity(db_path: &std::path::Path) -> anyhow::Result<(bool, i64)> {
+    use anyhow::Context as _;
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let integrity: String = conn
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-        .unwrap_or_else(|_| "error".to_string());
+        .context("running PRAGMA integrity_check")?;
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
-        .unwrap_or(0);
+        .context("querying memory count (table may be missing)")?;
     Ok((integrity == "ok", count))
 }
 

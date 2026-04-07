@@ -50,8 +50,10 @@ jobs:
           done
           CARGO_VER=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])")
           NPM_VER=$(python3 -c "import json; print(json.load(open('npm/package.json'))['version'])")
-          PYPI_VER=$(python3 -c "import tomllib; print(tomllib.load(open('python/pyproject.toml','rb'))['project']['version'])")
-          echo "Cargo: $CARGO_VER | npm: $NPM_VER | PyPI: $PYPI_VER"
+          PYPI_VER_RAW=$(python3 -c "import tomllib; print(tomllib.load(open('python/pyproject.toml','rb'))['project']['version'])")
+          # Normalise PEP 440 dev versions: 0.1.6.dev0 → 0.1.6-dev
+          PYPI_VER=$(echo "$PYPI_VER_RAW" | sed 's/\.dev[0-9]*$/-dev/')
+          echo "Cargo: $CARGO_VER | npm: $NPM_VER | PyPI: $PYPI_VER (raw: $PYPI_VER_RAW)"
           if [ "$CARGO_VER" != "$NPM_VER" ] || [ "$CARGO_VER" != "$PYPI_VER" ]; then
             echo "::error::Version mismatch: Cargo=$CARGO_VER npm=$NPM_VER PyPI=$PYPI_VER"
             exit 1

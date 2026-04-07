@@ -13,7 +13,15 @@
       "WebFetch(domain:index.crates.io)",
       "WebFetch(domain:registry.npmjs.org)",
       "WebFetch(domain:api.openai.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(jj git:*)",
+      "Bash(jj restore:*)",
+      "Bash(jj workspace:*)",
+      "Bash(jj status:*)",
+      "Bash(jj bookmark:*)",
+      "Skill(ide-of-sauron:siege-tick)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(wait)"
     ]
   },
   "hooks": {

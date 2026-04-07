@@ -344,9 +344,9 @@ pub enum Commands {
     },
     /// Check MAG setup and report diagnostics.
     Doctor {
-        /// Show verbose output.
+        /// Apply auto-fixable issues without prompting.
         #[arg(long)]
-        verbose: bool,
+        fix: bool,
     },
     /// Downloads the ONNX model and tokenizer used for embeddings.
     DownloadModel,
@@ -1057,20 +1057,8 @@ mod tests {
         let args = vec!["mag", "doctor"];
         let cli = Cli::parse_from(args);
         match cli.command {
-            Commands::Doctor { verbose } => {
-                assert!(!verbose);
-            }
-            _ => panic!("Expected Doctor command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_doctor_verbose_command() {
-        let args = vec!["mag", "doctor", "--verbose"];
-        let cli = Cli::parse_from(args);
-        match cli.command {
-            Commands::Doctor { verbose } => {
-                assert!(verbose);
+            Commands::Doctor { fix } => {
+                assert!(!fix);
             }
             _ => panic!("Expected Doctor command"),
         }
