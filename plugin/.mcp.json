@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "mag": {
-      "command": "sh",
-      "args": ["-c", "exec \"${MAG_INSTALL_DIR:-$HOME/.mag/bin}/mag\" serve"]
+      "command": "mag",
+      "args": ["serve"]
     }
   }
 }
