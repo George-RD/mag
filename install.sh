@@ -480,7 +480,7 @@ main() {
     parse_args "$@"
     [ "${UNINSTALL:-0}" = "1" ] && do_uninstall
     if [ -n "${SOURCE_BRANCH:-}" ] && [ "${FROM_SOURCE:-0}" != "1" ]; then
-        warn "--branch '${SOURCE_BRANCH}' has no effect without --from-source; ignoring."
+        die "--branch requires --from-source"
     fi
     if [ "${FROM_SOURCE:-0}" = "1" ]; then
         install_from_source
