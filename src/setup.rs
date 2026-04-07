@@ -56,12 +56,24 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     present_detection(&result);
 
     // Determine which tools to configure
+    let scoped_tools = invocation_scoped_tools(&result, &args);
     let tools_to_configure = select_tools(&result, &args)?;
 
     if tools_to_configure.is_empty() {
         println!("  No tools to configure.");
+        // Still refresh connector content (AGENTS.md / SKILL.md) so that
+        // already-configured tools stay up to date even on subsequent runs.
+        let (connector_successes, connector_warnings) = install_connector_content(&scoped_tools);
+        if !connector_successes.is_empty() || !connector_warnings.is_empty() {
+            let summary = ConfigureSummary {
+                written: connector_successes,
+                errors: connector_warnings,
+                ..Default::default()
+            };
+            present_summary(&summary);
+        }
     } else {
-        let summary = configure_tools(&tools_to_configure, args.transport, &tools_to_configure)?;
+        let summary = configure_tools(&tools_to_configure, args.transport, &scoped_tools)?;
         present_summary(&summary);
     }
 
