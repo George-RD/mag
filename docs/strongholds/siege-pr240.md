@@ -8,7 +8,7 @@
 **Status:** active
 **Round:** 3 / 10 max
 **Action:** CONTINUE
-**Dispatch:** active-round-3 (claimed: 2026-04-07T11:48:30Z)
+**Dispatch:** idle
 **CI_Fail_Streak:** 0
 
 ### Siege Round 1 — 2026-04-07T11:41:00Z
@@ -34,16 +34,13 @@ Notes: Verified all 5 fixes in code; posted detailed replies confirming location
 **Action taken:** Incrementing to Round 3, dispatching Siege Commander.
 
 ### Siege Round 3 — 2026-04-07T11:48:30Z
-**Status:** in-progress
-**Dispatch:** active-round-3
-
-Threads (6 unresolved non-outdated):
-1. docs/strongholds/forge-pr-status.md:24 — MD022: blank lines below each phase heading (Minor)
-2. plugin/hooks/hooks.json:35 — stdin delivery config missing for PreCompact/PostCompact hooks (Major)
-3. plugin/scripts/compact-refresh.sh:31 — redirect mag welcome stdout → /dev/null to prevent JSON pollution (Major)
-4. plugin/scripts/pre-compact.sh:40 — VCS state must run in captured $CWD not script cwd (Major)
-5. plugin/scripts/pre-compact.sh:66 — use mag checkpoint/resume-task instead of bespoke JSON snapshot (Major)
-6. src/setup.rs:66 — connector-content refresh skipped when tools_to_configure is empty (Major)
+**Status:** complete
+**Dispatch:** idle
+Fixes applied: 4 (MD022 blank lines, stdout pollution, VCS cwd, connector-content refresh)
+Walls held: 2 (Thread 2: no stdin field in Claude Code hook API; Thread 5: mag checkpoint incompatible with compact restore flow)
+Commits: 104ba529 (MD022), a8e42da5 (stdout), d75bf38c (VCS cwd), 330b1d44 (connector-content)
+Replies sent: 6 (3044799124, 3044800021, 3044800771, 3044801609, 3044802830, 3044804098)
+Deferred: 0
 
 ### Tick 2026-04-07T11:52:00Z — Round 3
 **State:** WAITING (dispatch guard — Round 3 commander claimed 3.5m ago, within 5m window)
@@ -56,3 +53,9 @@ Threads (6 unresolved non-outdated):
 **CI:** pass
 **Unresolved threads:** 6 non-outdated, 1 outdated
 **Action taken:** 5-min window expired but agent confirmed active. Polling — next tick in ~3m.
+
+### Tick 2026-04-07T11:58:00Z — Round 3
+**State:** WAITING (commander alive — last activity 11:55:43Z, posting replies)
+**CI:** pending (new run 24079958371 — Test job still running; confirms Round 3 push landed)
+**Unresolved threads:** 4 non-outdated (was 6 — 2 fixed by R3 push), 3 outdated
+**Action taken:** Commander still active within 5m window. Polling — next tick in ~3m.
