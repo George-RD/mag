@@ -32,12 +32,12 @@ PROJECT="$(basename "$CWD")"
 printf '%s pre_compact project=%s session=%s trigger=%s\n' \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$SESSION_ID" "$TRIGGER" >> "$LOG" 2>/dev/null || true
 
-# Collect VCS state
+# Collect VCS state (run in the project CWD parsed from the hook payload)
 VCS_STATE=""
-if command -v jj >/dev/null 2>&1 && jj root >/dev/null 2>&1; then
-  VCS_STATE=$(jj log --no-graph -r '@' -T 'change_id.shortest(8) ++ " " ++ description.first_line()' 2>/dev/null) || VCS_STATE=""
-elif command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-  VCS_STATE=$(git log --oneline -1 2>/dev/null) || VCS_STATE=""
+if [ -d "$CWD" ] && command -v jj >/dev/null 2>&1 && (cd "$CWD" && jj root >/dev/null 2>&1); then
+  VCS_STATE=$(cd "$CWD" && jj log --no-graph -r '@' -T 'change_id.shortest(8) ++ " " ++ description.first_line()' 2>/dev/null) || VCS_STATE=""
+elif [ -d "$CWD" ] && command -v git >/dev/null 2>&1 && (cd "$CWD" && git rev-parse --git-dir >/dev/null 2>&1); then
+  VCS_STATE=$(cd "$CWD" && git log --oneline -1 2>/dev/null) || VCS_STATE=""
 fi
 
 # Collect recent file from transcript
