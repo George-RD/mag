@@ -1,6 +1,6 @@
 {
   "name": "mag",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Persistent local memory for AI coding assistants — store decisions, patterns, and context across sessions",
   "author": {
     "name": "MAG",
