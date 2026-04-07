@@ -1423,7 +1423,7 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
                 });
             }
         }
-    } else if !models_ok {
+    } else {
         results.push(CheckResult {
             name: "Embedder",
             status: CheckStatus::Warn,
