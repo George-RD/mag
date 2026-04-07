@@ -632,7 +632,9 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             }
         }
         TransportMode::Command => {
-            if content.contains("command = ")
+            if content
+                .lines()
+                .any(|l| l.trim().starts_with("command = ") && l.ends_with("mag\""))
                 && content.contains("args = [\"serve\"]")
                 && !content.contains("\"--stdio\"")
             {
@@ -645,7 +647,11 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             }
         }
         TransportMode::Stdio => {
-            if content.contains("command = ") && content.contains("\"--stdio\"") {
+            if content
+                .lines()
+                .any(|l| l.trim().starts_with("command = ") && l.ends_with("mag\""))
+                && content.contains("\"--stdio\"")
+            {
                 Ok(ConfigStatus::Valid { mode })
             } else {
                 Ok(ConfigStatus::Stale {
@@ -681,16 +687,39 @@ fn build_mag_toml_block(mode: TransportMode) -> String {
 /// Returns `(start, end)` byte indices of the `[mcp_servers.mag]` TOML section
 /// in `content`, where `end` is the start of the next section header (or EOF).
 /// Returns `None` if the section is not present.
+///
+/// Handles both table-header form (`[mcp_servers.mag]`) and dotted-key form
+/// (`mcp_servers.mag.key = value`), because `verify_toml_config` accepts both.
 fn find_toml_mag_section(content: &str) -> Option<(usize, usize)> {
+    // Prefer the explicit table-header form first.
     let header = "[mcp_servers.mag]";
-    let start = content.find(header)?;
-    let after_header = start + header.len();
-    // The next section starts at a `[` that follows a newline
-    let end = content[after_header..]
-        .find("\n[")
-        .map(|i| after_header + i + 1) // point to the `[` of the next section
-        .unwrap_or(content.len());
-    Some((start, end))
+    if let Some(start) = content.find(header) {
+        let after_header = start + header.len();
+        // The next section starts at a `[` that follows a newline
+        let end = content[after_header..]
+            .find("\n[")
+            .map(|i| after_header + i + 1) // point to the `[` of the next section
+            .unwrap_or(content.len());
+        return Some((start, end));
+    }
+
+    // Fall back to dotted-key form: find contiguous lines that start with
+    // `mcp_servers.mag` (e.g. `mcp_servers.mag.command = "mag"`).
+    let prefix = "mcp_servers.mag";
+    let mut section_start: Option<usize> = None;
+    let mut section_end = 0usize;
+    let mut byte_offset = 0usize;
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(prefix) {
+            if section_start.is_none() {
+                section_start = Some(byte_offset);
+            }
+            section_end = byte_offset + line.len();
+        }
+        byte_offset += line.len();
+    }
+    section_start.map(|start| (start, section_end))
 }
 
 /// Writes the MAG entry to a TOML config file (Codex). Reads the existing
@@ -773,7 +802,14 @@ fn remove_toml_config(tool: &DetectedTool) -> Result<RemoveResult> {
 
     let bak = backup_path_for(path);
     std::fs::copy(path, &bak).with_context(|| format!("backing up {}", path.display()))?;
-    atomic_write(path, new_content.as_bytes())?;
+    if new_content.is_empty() {
+        // The section was the entire file — remove it so the next detect/setup
+        // pass sees a clean state rather than an empty-but-existing config.
+        std::fs::remove_file(path)
+            .with_context(|| format!("removing empty config {}", path.display()))?;
+    } else {
+        atomic_write(path, new_content.as_bytes())?;
+    }
     Ok(RemoveResult::Removed)
 }
 
@@ -813,7 +849,9 @@ mod tests {
     fn build_command_entry() {
         let entry = build_mag_entry(AiTool::Cursor, TransportMode::Command);
         assert!(
-            entry["command"].as_str().is_some_and(|s| s.ends_with("mag")),
+            entry["command"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
             "command should be an absolute path to mag, got: {:?}",
             entry["command"]
         );
@@ -824,7 +862,9 @@ mod tests {
     fn build_stdio_entry() {
         let entry = build_mag_entry(AiTool::Windsurf, TransportMode::Stdio);
         assert!(
-            entry["command"].as_str().is_some_and(|s| s.ends_with("mag")),
+            entry["command"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
             "command should be an absolute path to mag, got: {:?}",
             entry["command"]
         );
@@ -836,7 +876,9 @@ mod tests {
         let entry = build_mag_entry(AiTool::Zed, TransportMode::Stdio);
         assert_eq!(entry["source"], "custom");
         assert!(
-            entry["command"]["path"].as_str().is_some_and(|s| s.ends_with("mag")),
+            entry["command"]["path"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
             "path should be an absolute path to mag, got: {:?}",
             entry["command"]["path"]
         );
@@ -1311,7 +1353,9 @@ mod tests {
             let content = std::fs::read_to_string(&config_path).expect("read config");
             assert!(content.contains("[mcp_servers.mag]"));
             assert!(
-                content.lines().any(|l| l.starts_with("command = \"") && l.ends_with("mag\"")),
+                content
+                    .lines()
+                    .any(|l| l.starts_with("command = \"") && l.ends_with("mag\"")),
                 "expected a command line ending with mag, content:\n{content}"
             );
             assert!(content.contains("args = [\"serve\"]"));

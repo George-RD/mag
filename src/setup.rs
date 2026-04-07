@@ -63,8 +63,7 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
         return Ok(());
     }
 
-    let invocation_scope: Vec<&DetectedTool> = invocation_scoped_tools(&result, &args);
-    let summary = configure_tools(&tools_to_configure, args.transport, &invocation_scope)?;
+    let summary = configure_tools(&tools_to_configure, args.transport, &tools_to_configure)?;
     present_summary(&summary);
 
     // Daemon phase
