@@ -297,7 +297,9 @@ fn configure_tools(
         let name = tool.tool.display_name().to_string();
 
         // For Claude Code, prefer the plugin marketplace install.
-        // Fall back to MCP config if `claude` CLI is not available.
+        // The plugin's .mcp.json uses sh -c to resolve the binary via
+        // $MAG_INSTALL_DIR or $HOME/.mag/bin without needing mag on PATH.
+        // Fall back to writing .claude.json only when the plugin install fails.
         if tool.tool == tool_detection::AiTool::ClaudeCode {
             match config_writer::install_claude_plugin() {
                 Ok(ConfigWriteResult::Plugin) => {
@@ -1069,14 +1071,16 @@ mod tests {
     #[test]
     fn configure_tools_idempotent() {
         with_temp_home(|home| {
-            // Create a config that already has MAG configured
+            // Create a config that already has MAG configured with the absolute binary path
+            // that resolve_mag_binary() produces for this temp HOME.
             let config_path = home.join(".cursor/mcp.json");
             std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-            std::fs::write(
-                &config_path,
-                r#"{"mcpServers":{"mag":{"command":"mag","args":["serve"]}}}"#,
-            )
-            .unwrap();
+            let mag_binary = home.join(".mag").join("bin").join("mag");
+            let mag_binary_str = mag_binary.to_string_lossy();
+            let initial = format!(
+                r#"{{"mcpServers":{{"mag":{{"command":"{mag_binary_str}","args":["serve"]}}}}}}"#
+            );
+            std::fs::write(&config_path, &initial).unwrap();
 
             let dt = DetectedTool {
                 tool: AiTool::Cursor,
