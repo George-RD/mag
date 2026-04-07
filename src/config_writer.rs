@@ -632,7 +632,9 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             }
         }
         TransportMode::Command => {
-            if content.contains("command = ")
+            if content
+                .lines()
+                .any(|l| l.trim().starts_with("command = ") && l.ends_with("mag\""))
                 && content.contains("args = [\"serve\"]")
                 && !content.contains("\"--stdio\"")
             {
@@ -645,7 +647,11 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             }
         }
         TransportMode::Stdio => {
-            if content.contains("command = ") && content.contains("\"--stdio\"") {
+            if content
+                .lines()
+                .any(|l| l.trim().starts_with("command = ") && l.ends_with("mag\""))
+                && content.contains("\"--stdio\"")
+            {
                 Ok(ConfigStatus::Valid { mode })
             } else {
                 Ok(ConfigStatus::Stale {
@@ -813,7 +819,9 @@ mod tests {
     fn build_command_entry() {
         let entry = build_mag_entry(AiTool::Cursor, TransportMode::Command);
         assert!(
-            entry["command"].as_str().is_some_and(|s| s.ends_with("mag")),
+            entry["command"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
             "command should be an absolute path to mag, got: {:?}",
             entry["command"]
         );
@@ -824,7 +832,9 @@ mod tests {
     fn build_stdio_entry() {
         let entry = build_mag_entry(AiTool::Windsurf, TransportMode::Stdio);
         assert!(
-            entry["command"].as_str().is_some_and(|s| s.ends_with("mag")),
+            entry["command"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
             "command should be an absolute path to mag, got: {:?}",
             entry["command"]
         );
@@ -836,7 +846,9 @@ mod tests {
         let entry = build_mag_entry(AiTool::Zed, TransportMode::Stdio);
         assert_eq!(entry["source"], "custom");
         assert!(
-            entry["command"]["path"].as_str().is_some_and(|s| s.ends_with("mag")),
+            entry["command"]["path"]
+                .as_str()
+                .is_some_and(|s| s.ends_with("mag")),
             "path should be an absolute path to mag, got: {:?}",
             entry["command"]["path"]
         );
@@ -1311,7 +1323,9 @@ mod tests {
             let content = std::fs::read_to_string(&config_path).expect("read config");
             assert!(content.contains("[mcp_servers.mag]"));
             assert!(
-                content.lines().any(|l| l.starts_with("command = \"") && l.ends_with("mag\"")),
+                content
+                    .lines()
+                    .any(|l| l.starts_with("command = \"") && l.ends_with("mag\"")),
                 "expected a command line ending with mag, content:\n{content}"
             );
             assert!(content.contains("args = [\"serve\"]"));
