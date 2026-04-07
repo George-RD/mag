@@ -29,7 +29,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -83,7 +83,7 @@ jobs:
     name: Test suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -115,7 +115,7 @@ jobs:
             os: windows-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.tag }}
 
@@ -186,7 +186,7 @@ jobs:
     if: needs.preflight.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
@@ -201,7 +201,7 @@ jobs:
     if: needs.preflight.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.tag }}
       - uses: actions/setup-node@v6
@@ -222,7 +222,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.tag }}
       - uses: actions/setup-python@v6
@@ -262,7 +262,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout Homebrew tap
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: George-RD/homebrew-mag
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
