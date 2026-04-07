@@ -120,7 +120,7 @@ Every mode: zero third-party data access, full data portability, MIT licensed.
 | **pip** | `pip install mag-memory` |
 | **Cargo** | `cargo install mag-memory` |
 
-**From source:** `git clone https://github.com/George-RD/mag.git && cd mag && cargo build --release`
+**From source (latest main):** `cargo install --git https://github.com/George-RD/mag.git`
 
 **Prebuilt binaries:** macOS (x64, ARM), Linux (x64, ARM), Windows (x64) on the [Releases page](https://github.com/George-RD/mag/releases).
 
