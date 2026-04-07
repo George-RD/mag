@@ -1,6 +1,6 @@
 [package]
 name = "mag-memory"
-version = "0.1.5"
+version = "0.1.6-dev"
 edition = "2024"
 autobenches = false
 license = "MIT"
