@@ -4112,10 +4112,11 @@ async fn test_welcome_first_run_greeting() {
 async fn test_welcome_scoped_semantic_search() {
     let storage = SqliteStorage::new_in_memory().unwrap();
 
-    // Store memories with project and content containing project-related keywords.
-    // importance=0.1 means tier 4 (importance < 0.3) picks them up via SQL,
-    // AND semantic search should also find them via FTS keyword match on "alpha".
-    for i in 0..5 {
+    // Store more than 50 memories so the tier-4 SQL query (LIMIT 50) cannot
+    // return all of them.  The semantic search phase (AdvancedSearcher) will
+    // then surface the overflow entries, giving us at least one item with
+    // source == "semantic".
+    for i in 0..55 {
         <SqliteStorage as Storage>::store(
             &storage,
             &format!("sem-{i}"),
@@ -4134,7 +4135,7 @@ async fn test_welcome_scoped_semantic_search() {
         &storage,
         &WelcomeOptions {
             project: Some("alpha".to_string()),
-            budget_tokens: Some(5000),
+            budget_tokens: Some(10000),
             ..Default::default()
         },
     )
@@ -4146,6 +4147,26 @@ async fn test_welcome_scoped_semantic_search() {
     assert!(
         !recent.is_empty(),
         "welcome_scoped should return memories for the project"
+    );
+
+    // Every item should have a source field ("tiered" or "semantic")
+    for item in recent {
+        let source = item.get("source").and_then(|v| v.as_str());
+        assert!(
+            source == Some("tiered") || source == Some("semantic"),
+            "expected source field to be 'tiered' or 'semantic', got {:?} in {:?}",
+            source,
+            item
+        );
+    }
+
+    // At least one item should come from the semantic search phase
+    let has_semantic = recent
+        .iter()
+        .any(|m| m.get("source").and_then(|v| v.as_str()) == Some("semantic"));
+    assert!(
+        has_semantic,
+        "welcome_scoped should include at least one semantic-sourced memory"
     );
 }
 

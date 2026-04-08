@@ -986,39 +986,52 @@ impl WelcomeProvider for SqliteStorage {
                     ..SearchOptions::default()
                 };
 
-                let seen_ids: HashSet<String> = recent
+                let mut seen_ids: HashSet<String> = recent
                     .iter()
                     .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
                     .collect();
 
-                if let Ok(semantic_results) = <SqliteStorage as AdvancedSearcher>::advanced_search(
+                let candidate_count = 10usize;
+                match <SqliteStorage as AdvancedSearcher>::advanced_search(
                     self,
                     proj,
-                    10,
+                    candidate_count,
                     &search_opts,
                 )
                 .await
                 {
-                    let mut sem_remaining = remaining;
-                    for sr in semantic_results {
-                        if seen_ids.contains(&sr.id) {
-                            continue;
-                        }
-                        let truncated: String = sr.content.chars().take(200).collect();
-                        let tokens = estimate_tokens(&truncated);
-                        if tokens > sem_remaining {
-                            break;
-                        }
-                        sem_remaining = sem_remaining.saturating_sub(tokens);
+                    Ok(semantic_results) => {
+                        let mut sem_remaining = remaining;
+                        for sr in semantic_results {
+                            if seen_ids.contains(&sr.id) {
+                                continue;
+                            }
+                            let truncated: String = sr.content.chars().take(200).collect();
+                            let tokens = estimate_tokens(&truncated);
+                            if tokens > sem_remaining {
+                                break;
+                            }
+                            sem_remaining = sem_remaining.saturating_sub(tokens);
+                            seen_ids.insert(sr.id.clone());
 
-                        let et_str = sr.event_type.as_ref().map(|e| e.to_string());
-                        recent.push(serde_json::json!({
-                            "id": sr.id,
-                            "content": truncated,
-                            "event_type": et_str,
-                            "importance": sr.importance,
-                            "source": "semantic",
-                        }));
+                            let et_str = sr.event_type.as_ref().map(|e| e.to_string());
+                            recent.push(serde_json::json!({
+                                "id": sr.id,
+                                "content": truncated,
+                                "event_type": et_str,
+                                "importance": sr.importance,
+                                "source": "semantic",
+                            }));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            project = proj.as_str(),
+                            query_len = proj.len(),
+                            candidate_count,
+                            error_kind = %e.root_cause(),
+                            "semantic search failed in welcome()"
+                        );
                     }
                 }
             }
@@ -1192,6 +1205,7 @@ impl WelcomeProvider for SqliteStorage {
                         "importance": importance,
                         "priority": priority,
                         "created_at": created_at,
+                        "source": "tiered",
                     }));
 
                     if remaining == 0 {
@@ -1231,39 +1245,52 @@ impl WelcomeProvider for SqliteStorage {
 
                 let query = opts.project.as_deref().unwrap_or("project context");
 
-                let seen_ids: HashSet<String> = all_memories
+                let mut seen_ids: HashSet<String> = all_memories
                     .iter()
                     .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
                     .collect();
 
-                if let Ok(semantic_results) = <SqliteStorage as AdvancedSearcher>::advanced_search(
+                let candidate_count = 10usize;
+                match <SqliteStorage as AdvancedSearcher>::advanced_search(
                     self,
                     query,
-                    10,
+                    candidate_count,
                     &search_opts,
                 )
                 .await
                 {
-                    let mut sem_remaining = remaining;
-                    for sr in semantic_results {
-                        if seen_ids.contains(&sr.id) {
-                            continue;
-                        }
-                        let truncated: String = sr.content.chars().take(200).collect();
-                        let tokens = estimate_tokens(&truncated);
-                        if tokens > sem_remaining {
-                            break;
-                        }
-                        sem_remaining = sem_remaining.saturating_sub(tokens);
+                    Ok(semantic_results) => {
+                        let mut sem_remaining = remaining;
+                        for sr in semantic_results {
+                            if seen_ids.contains(&sr.id) {
+                                continue;
+                            }
+                            let truncated: String = sr.content.chars().take(200).collect();
+                            let tokens = estimate_tokens(&truncated);
+                            if tokens > sem_remaining {
+                                break;
+                            }
+                            sem_remaining = sem_remaining.saturating_sub(tokens);
+                            seen_ids.insert(sr.id.clone());
 
-                        let et_str = sr.event_type.as_ref().map(|e| e.to_string());
-                        all_memories.push(serde_json::json!({
-                            "id": sr.id,
-                            "content": truncated,
-                            "event_type": et_str,
-                            "importance": sr.importance,
-                            "source": "semantic",
-                        }));
+                            let et_str = sr.event_type.as_ref().map(|e| e.to_string());
+                            all_memories.push(serde_json::json!({
+                                "id": sr.id,
+                                "content": truncated,
+                                "event_type": et_str,
+                                "importance": sr.importance,
+                                "source": "semantic",
+                            }));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            project = query,
+                            query_len = query.len(),
+                            candidate_count,
+                            error_kind = %e.root_cause(),
+                            "semantic search failed in welcome_scoped()"
+                        );
                     }
                 }
             }
