@@ -53,9 +53,9 @@ fi
 # Strip leading 'v' if present
 VERSION="${VERSION#v}"
 
-# Validate semver X.Y.Z
-if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  die "invalid version '$VERSION' — expected X.Y.Z (e.g. 0.1.6)"
+# Validate semver X.Y.Z or X.Y.Z-prerelease (e.g. 0.1.7-dev, 0.1.6-rc.1)
+if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+  die "invalid version '$VERSION' — expected X.Y.Z or X.Y.Z-suffix (e.g. 0.1.6, 0.1.7-dev)"
 fi
 
 # ── require jq ───────────────────────────────────────────────────────────────
@@ -111,8 +111,8 @@ OLD_CARGO=$(grep -m1 '^version = "' "$CARGO_TOML" | sed 's/version = "\(.*\)"/\1
 
 # Use awk to only replace the first matching line
 awk -v new="$VERSION" '
-  !done && /^version = "[0-9]+\.[0-9]+\.[0-9]+"/ {
-    sub(/"[0-9]+\.[0-9]+\.[0-9]+"/, "\"" new "\"")
+  !done && /^version = "/ {
+    sub(/"[^"]*"/, "\"" new "\"")
     done=1
   }
   { print }
@@ -153,8 +153,8 @@ OLD_PY=$(awk '/^\[project\]/{in_proj=1} /^\[/{if(!/^\[project\]/)in_proj=0} in_p
 awk -v new="$VERSION" '
   /^\[project\]/ { in_proj=1 }
   /^\[/ { if (!/^\[project\]/) in_proj=0 }
-  in_proj && !done && /^version = "[0-9]+\.[0-9]+\.[0-9]+"/ {
-    sub(/"[0-9]+\.[0-9]+\.[0-9]+"/, "\"" new "\"")
+  in_proj && !done && /^version = "/ {
+    sub(/"[^"]*"/, "\"" new "\"")
     done=1
   }
   { print }
