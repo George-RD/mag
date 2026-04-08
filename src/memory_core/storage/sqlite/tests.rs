@@ -4203,23 +4203,16 @@ async fn test_welcome_scoped_respects_budget() {
     .await
     .unwrap();
 
-    // Count total tokens used in returned memories
+    // Budget is 100 tokens but overhead is 200, so effective budget is 0.
+    // No memories should fit at all.
     let recent = result["recent_memories"].as_array().unwrap();
     let user_ctx = result["user_context"].as_array().unwrap();
-    let total_tokens: usize = recent
-        .iter()
-        .chain(user_ctx.iter())
-        .map(|m| {
-            let content = m["content"].as_str().unwrap_or("");
-            content.len().div_ceil(4)
-        })
-        .sum();
-
-    // Budget is 100 tokens; overhead is 200. So effective budget is 0.
-    // No memories should fit.
     assert!(
-        total_tokens <= 100,
-        "total tokens ({total_tokens}) should not exceed the budget of 100"
+        recent.is_empty() && user_ctx.is_empty(),
+        "expected empty results when budget ({}) < overhead (200), got {} recent + {} user_context",
+        100,
+        recent.len(),
+        user_ctx.len(),
     );
 }
 
@@ -4257,6 +4250,12 @@ async fn test_welcome_scoped_deduplicates() {
 
     let recent = result["recent_memories"].as_array().unwrap();
     let user_ctx = result["user_context"].as_array().unwrap();
+
+    // Must have results before we can check for duplicates
+    assert!(
+        !recent.is_empty() || !user_ctx.is_empty(),
+        "expected non-empty results from welcome_scoped to validate dedup"
+    );
 
     // Collect all IDs and verify no duplicates
     let mut all_ids: Vec<&str> = recent

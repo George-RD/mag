@@ -934,6 +934,7 @@ impl WelcomeProvider for SqliteStorage {
                         "event_type": row.get::<_, Option<String>>(2)?,
                         "priority": row.get::<_, Option<i64>>(3)?,
                         "created_at": row.get::<_, String>(4)?,
+                        "source": "tiered",
                     }))
                 })
                 .context("failed to query recent memories")?;
@@ -957,6 +958,7 @@ impl WelcomeProvider for SqliteStorage {
                         "event_type": row.get::<_, Option<String>>(2)?,
                         "importance": row.get::<_, f64>(3)?,
                         "created_at": row.get::<_, String>(4)?,
+                        "source": "tiered",
                     }))
                 })
                 .context("failed to query user preferences")?;
@@ -991,10 +993,31 @@ impl WelcomeProvider for SqliteStorage {
                     .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
                     .collect();
 
+                // Build a meaningful semantic query from tiered results rather
+                // than using the raw project label (which is unlikely to appear
+                // verbatim in memory content).
+                let semantic_query: String = {
+                    let snippets: Vec<&str> = recent
+                        .iter()
+                        .filter_map(|m| m.get("content").and_then(|v| v.as_str()))
+                        .take(5)
+                        .collect();
+                    if snippets.is_empty() {
+                        "recent important memories".to_string()
+                    } else {
+                        let joined: String = snippets
+                            .iter()
+                            .map(|s| s.chars().take(100).collect::<String>())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        format!("recent context: {joined}")
+                    }
+                };
+
                 let candidate_count = 10usize;
                 match <SqliteStorage as AdvancedSearcher>::advanced_search(
                     self,
-                    proj,
+                    &semantic_query,
                     candidate_count,
                     &search_opts,
                 )
@@ -1027,7 +1050,7 @@ impl WelcomeProvider for SqliteStorage {
                     Err(e) => {
                         tracing::debug!(
                             project = proj.as_str(),
-                            query_len = proj.len(),
+                            query_len = semantic_query.len(),
                             candidate_count,
                             error_kind = %e.root_cause(),
                             "semantic search failed in welcome()"
@@ -1243,7 +1266,25 @@ impl WelcomeProvider for SqliteStorage {
                     ..SearchOptions::default()
                 };
 
-                let query = opts.project.as_deref().unwrap_or("project context");
+                // Build a meaningful semantic query from tiered result snippets
+                // rather than using the raw project label.
+                let semantic_query: String = {
+                    let snippets: Vec<&str> = all_memories
+                        .iter()
+                        .filter_map(|m| m.get("content").and_then(|v| v.as_str()))
+                        .take(5)
+                        .collect();
+                    if snippets.is_empty() {
+                        "recent important memories".to_string()
+                    } else {
+                        let joined: String = snippets
+                            .iter()
+                            .map(|s| s.chars().take(100).collect::<String>())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        format!("recent context: {joined}")
+                    }
+                };
 
                 let mut seen_ids: HashSet<String> = all_memories
                     .iter()
@@ -1253,7 +1294,7 @@ impl WelcomeProvider for SqliteStorage {
                 let candidate_count = 10usize;
                 match <SqliteStorage as AdvancedSearcher>::advanced_search(
                     self,
-                    query,
+                    &semantic_query,
                     candidate_count,
                     &search_opts,
                 )
@@ -1285,8 +1326,8 @@ impl WelcomeProvider for SqliteStorage {
                     }
                     Err(e) => {
                         tracing::debug!(
-                            project = query,
-                            query_len = query.len(),
+                            query = semantic_query.as_str(),
+                            query_len = semantic_query.len(),
                             candidate_count,
                             error_kind = %e.root_cause(),
                             "semantic search failed in welcome_scoped()"
