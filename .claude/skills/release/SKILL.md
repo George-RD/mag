@@ -134,6 +134,29 @@ gh release view vX.Y.Z --repo George-RD/mag
 brew update && brew info George-RD/mag/mag
 ```
 
+### Step 9: Post-release dev bump
+
+After verifying the release, bump `main` to the next development version so in-progress work is clearly marked as pre-release:
+
+```bash
+./scripts/bump-version.sh vX.Y.(Z+1)-dev --commit
+jj git push
+```
+
+Example: after releasing v0.1.6, bump to v0.1.7-dev.
+
+If the repo requires a PR for main (branch protection), open a quick PR instead of pushing directly:
+
+```bash
+jj bookmark set chore/dev-bump-vX.Y.(Z+1) -r @-
+jj git push --bookmark chore/dev-bump-vX.Y.(Z+1) --allow-new
+gh pr create --head chore/dev-bump-vX.Y.(Z+1) --base main \
+  --title "chore: bump to vX.Y.(Z+1)-dev" \
+  --body "Post-release dev bump."
+```
+
+Merge immediately once CI passes.
+
 ## Tag conventions
 
 | Tag pattern | Effect |
