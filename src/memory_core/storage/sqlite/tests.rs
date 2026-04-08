@@ -4,7 +4,7 @@ use crate::memory_core::{
     FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, PhraseSearcher,
     ProfileManager, Recents, ReminderManager, Retriever, SearchOptions, Searcher, SemanticSearcher,
     SimilarFinder, StatsProvider, Storage, TTL_EPHEMERAL, TTL_LONG_TERM, TTL_SHORT_TERM, Updater,
-    VersionChainQuerier, WelcomeProvider, is_valid_event_type, parse_duration,
+    VersionChainQuerier, WelcomeOptions, WelcomeProvider, is_valid_event_type, parse_duration,
 };
 
 #[derive(Debug, Clone)]
@@ -4103,6 +4103,177 @@ async fn test_welcome_first_run_greeting() {
             .unwrap()
             .contains("first memory"),
         "first-run greeting should mention storing first memory"
+    );
+}
+
+// ── WelcomeProvider semantic search tests ────────────────────
+
+#[tokio::test]
+async fn test_welcome_scoped_semantic_search() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store more than 50 memories so the tier-4 SQL query (LIMIT 50) cannot
+    // return all of them.  The semantic search phase (AdvancedSearcher) will
+    // then surface the overflow entries, giving us at least one item with
+    // source == "semantic".
+    for i in 0..55 {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            &format!("sem-{i}"),
+            &format!("alpha project module {i} configuration and setup details"),
+            &MemoryInput {
+                project: Some("alpha".to_string()),
+                importance: 0.1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(
+        &storage,
+        &WelcomeOptions {
+            project: Some("alpha".to_string()),
+            budget_tokens: Some(10000),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // The result should contain memories from tiered queries and/or semantic search
+    let recent = result["recent_memories"].as_array().unwrap();
+    assert!(
+        !recent.is_empty(),
+        "welcome_scoped should return memories for the project"
+    );
+
+    // Every item should have a source field ("tiered" or "semantic")
+    for item in recent {
+        let source = item.get("source").and_then(|v| v.as_str());
+        assert!(
+            source == Some("tiered") || source == Some("semantic"),
+            "expected source field to be 'tiered' or 'semantic', got {:?} in {:?}",
+            source,
+            item
+        );
+    }
+
+    // At least one item should come from the semantic search phase
+    let has_semantic = recent
+        .iter()
+        .any(|m| m.get("source").and_then(|v| v.as_str()) == Some("semantic"));
+    assert!(
+        has_semantic,
+        "welcome_scoped should include at least one semantic-sourced memory"
+    );
+}
+
+#[tokio::test]
+async fn test_welcome_scoped_respects_budget() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store many memories to exceed a small budget
+    for i in 0..20 {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            &format!("budget-{i}"),
+            &format!(
+                "This is a somewhat long memory content for budget testing purposes, entry number {i} with extra words to consume tokens"
+            ),
+            &MemoryInput {
+                project: Some("budgetproj".to_string()),
+                importance: 0.5,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(
+        &storage,
+        &WelcomeOptions {
+            project: Some("budgetproj".to_string()),
+            budget_tokens: Some(100), // very small budget
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Budget is 100 tokens but overhead is 200, so effective budget is 0.
+    // No memories should fit at all.
+    let recent = result["recent_memories"].as_array().unwrap();
+    let user_ctx = result["user_context"].as_array().unwrap();
+    assert!(
+        recent.is_empty() && user_ctx.is_empty(),
+        "expected empty results when budget ({}) < overhead (200), got {} recent + {} user_context",
+        100,
+        recent.len(),
+        user_ctx.len(),
+    );
+}
+
+#[tokio::test]
+async fn test_welcome_scoped_deduplicates() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+
+    // Store memories with high importance (will appear in tiered SQL)
+    // and with keywords matching the project name (will also match semantic search)
+    for i in 0..3 {
+        <SqliteStorage as Storage>::store(
+            &storage,
+            &format!("dedup-{i}"),
+            &format!("dedup project important configuration item {i} for dedup project"),
+            &MemoryInput {
+                project: Some("dedup".to_string()),
+                importance: 0.8,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let result = <SqliteStorage as WelcomeProvider>::welcome_scoped(
+        &storage,
+        &WelcomeOptions {
+            project: Some("dedup".to_string()),
+            budget_tokens: Some(5000),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let recent = result["recent_memories"].as_array().unwrap();
+    let user_ctx = result["user_context"].as_array().unwrap();
+
+    // Must have results before we can check for duplicates
+    assert!(
+        !recent.is_empty() || !user_ctx.is_empty(),
+        "expected non-empty results from welcome_scoped to validate dedup"
+    );
+
+    // Collect all IDs and verify no duplicates
+    let mut all_ids: Vec<&str> = recent
+        .iter()
+        .chain(user_ctx.iter())
+        .map(|m| {
+            m["id"]
+                .as_str()
+                .expect("every welcome_scoped item must have an 'id' field")
+        })
+        .collect();
+    let total_count = all_ids.len();
+    all_ids.sort();
+    all_ids.dedup();
+    assert_eq!(
+        all_ids.len(),
+        total_count,
+        "there should be no duplicate memory IDs in welcome_scoped results"
     );
 }
 

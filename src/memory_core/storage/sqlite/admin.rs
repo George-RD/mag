@@ -898,6 +898,7 @@ impl WelcomeProvider for SqliteStorage {
     ) -> Result<serde_json::Value> {
         let pool = Arc::clone(&self.pool);
         let project = project.map(ToString::to_string);
+        let project_for_semantic = project.clone();
 
         let db_result = tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
@@ -933,6 +934,7 @@ impl WelcomeProvider for SqliteStorage {
                         "event_type": row.get::<_, Option<String>>(2)?,
                         "priority": row.get::<_, Option<i64>>(3)?,
                         "created_at": row.get::<_, String>(4)?,
+                        "source": "tiered",
                     }))
                 })
                 .context("failed to query recent memories")?;
@@ -956,6 +958,7 @@ impl WelcomeProvider for SqliteStorage {
                         "event_type": row.get::<_, Option<String>>(2)?,
                         "importance": row.get::<_, f64>(3)?,
                         "created_at": row.get::<_, String>(4)?,
+                        "source": "tiered",
                     }))
                 })
                 .context("failed to query user preferences")?;
@@ -966,7 +969,96 @@ impl WelcomeProvider for SqliteStorage {
         .await
         .context("spawn_blocking join error")??;
 
-        let (total, recent, user_context) = db_result;
+        let (total, mut recent, user_context) = db_result;
+
+        // ── Semantic search phase for welcome() ────────────────────────
+        // If a project is specified, supplement recent memories with
+        // semantically relevant results using a fixed ~1500-token budget.
+        if let Some(ref proj) = project_for_semantic {
+            const WELCOME_SEMANTIC_BUDGET: usize = 1500;
+            let used_tokens: usize = recent
+                .iter()
+                .map(|m| estimate_tokens(m.get("content").and_then(|v| v.as_str()).unwrap_or("")))
+                .sum();
+            let remaining = WELCOME_SEMANTIC_BUDGET.saturating_sub(used_tokens);
+
+            if remaining > 0 {
+                let search_opts = SearchOptions {
+                    project: Some(proj.clone()),
+                    ..SearchOptions::default()
+                };
+
+                let mut seen_ids: HashSet<String> = recent
+                    .iter()
+                    .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+                    .collect();
+
+                // Build a meaningful semantic query from tiered results rather
+                // than using the raw project label (which is unlikely to appear
+                // verbatim in memory content).
+                let semantic_query: String = {
+                    let snippets: Vec<&str> = recent
+                        .iter()
+                        .filter_map(|m| m.get("content").and_then(|v| v.as_str()))
+                        .take(5)
+                        .collect();
+                    if snippets.is_empty() {
+                        "recent important memories".to_string()
+                    } else {
+                        let joined: String = snippets
+                            .iter()
+                            .map(|s| s.chars().take(100).collect::<String>())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        format!("recent context: {joined}")
+                    }
+                };
+
+                let candidate_count = 10usize;
+                match <SqliteStorage as AdvancedSearcher>::advanced_search(
+                    self,
+                    &semantic_query,
+                    candidate_count,
+                    &search_opts,
+                )
+                .await
+                {
+                    Ok(semantic_results) => {
+                        let mut sem_remaining = remaining;
+                        for sr in semantic_results {
+                            if seen_ids.contains(&sr.id) {
+                                continue;
+                            }
+                            let truncated: String = sr.content.chars().take(200).collect();
+                            let tokens = estimate_tokens(&truncated);
+                            if tokens > sem_remaining {
+                                break;
+                            }
+                            sem_remaining = sem_remaining.saturating_sub(tokens);
+                            seen_ids.insert(sr.id.clone());
+
+                            let et_str = sr.event_type.as_ref().map(|e| e.to_string());
+                            recent.push(serde_json::json!({
+                                "id": sr.id,
+                                "content": truncated,
+                                "event_type": et_str,
+                                "importance": sr.importance,
+                                "source": "semantic",
+                            }));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            project = proj.as_str(),
+                            query_len = semantic_query.len(),
+                            candidate_count,
+                            error_kind = %e.root_cause(),
+                            "semantic search failed in welcome()"
+                        );
+                    }
+                }
+            }
+        }
 
         // Get profile and pending reminders via existing trait impls
         let profile = <Self as ProfileManager>::get_profile(self)
@@ -1004,6 +1096,12 @@ impl WelcomeProvider for SqliteStorage {
         }
 
         let budget = opts.budget_tokens.unwrap_or(usize::MAX);
+
+        // Reserve ~200 tokens for greeting/profile/reminders overhead.
+        // Used by both the tiered-SQL phase (inside spawn_blocking) and
+        // the semantic-search phase (outside it).
+        const OVERHEAD_TOKENS: usize = 200;
+
         let pool = Arc::clone(&self.pool);
         let project = opts.project.clone();
         let agent_type = opts.agent_type.clone();
@@ -1078,8 +1176,6 @@ impl WelcomeProvider for SqliteStorage {
                 },
             ];
 
-            // Reserve ~200 tokens for greeting/profile/reminders overhead.
-            const OVERHEAD_TOKENS: usize = 200;
             let mut remaining = budget.saturating_sub(OVERHEAD_TOKENS);
 
             let mut all_memories: Vec<serde_json::Value> = Vec::new();
@@ -1136,6 +1232,7 @@ impl WelcomeProvider for SqliteStorage {
                         "importance": importance,
                         "priority": priority,
                         "created_at": created_at,
+                        "source": "tiered",
                     }));
 
                     if remaining == 0 {
@@ -1149,7 +1246,99 @@ impl WelcomeProvider for SqliteStorage {
         .await
         .context("spawn_blocking join error")??;
 
-        let (total, all_memories) = db_result;
+        let (total, mut all_memories) = db_result;
+
+        // ── Semantic search phase ──────────────────────────────────────
+        // If a project is specified and we have remaining token budget,
+        // use AdvancedSearcher to find project-relevant memories that
+        // the tiered SQL queries may have missed.
+        if opts.project.is_some() {
+            let used_tokens: usize = all_memories
+                .iter()
+                .map(|m| estimate_tokens(m.get("content").and_then(|v| v.as_str()).unwrap_or("")))
+                .sum();
+            let remaining = budget
+                .saturating_sub(OVERHEAD_TOKENS)
+                .saturating_sub(used_tokens);
+
+            if remaining > 0 {
+                let search_opts = SearchOptions {
+                    project: opts.project.clone(),
+                    agent_type: opts.agent_type.clone(),
+                    entity_id: opts.entity_id.clone(),
+                    ..SearchOptions::default()
+                };
+
+                // Build a meaningful semantic query from tiered result snippets
+                // rather than using the raw project label.
+                let semantic_query: String = {
+                    let snippets: Vec<&str> = all_memories
+                        .iter()
+                        .filter_map(|m| m.get("content").and_then(|v| v.as_str()))
+                        .take(5)
+                        .collect();
+                    if snippets.is_empty() {
+                        "recent important memories".to_string()
+                    } else {
+                        let joined: String = snippets
+                            .iter()
+                            .map(|s| s.chars().take(100).collect::<String>())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        format!("recent context: {joined}")
+                    }
+                };
+
+                let mut seen_ids: HashSet<String> = all_memories
+                    .iter()
+                    .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+                    .collect();
+
+                let candidate_count = 10usize;
+                match <SqliteStorage as AdvancedSearcher>::advanced_search(
+                    self,
+                    &semantic_query,
+                    candidate_count,
+                    &search_opts,
+                )
+                .await
+                {
+                    Ok(semantic_results) => {
+                        let mut sem_remaining = remaining;
+                        for sr in semantic_results {
+                            if seen_ids.contains(&sr.id) {
+                                continue;
+                            }
+                            let truncated: String = sr.content.chars().take(200).collect();
+                            let tokens = estimate_tokens(&truncated);
+                            if tokens > sem_remaining {
+                                break;
+                            }
+                            sem_remaining = sem_remaining.saturating_sub(tokens);
+                            seen_ids.insert(sr.id.clone());
+
+                            let et_str = sr.event_type.as_ref().map(|e| e.to_string());
+                            all_memories.push(serde_json::json!({
+                                "id": sr.id,
+                                "content": truncated,
+                                "event_type": et_str,
+                                "importance": sr.importance,
+                                "source": "semantic",
+                            }));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            project = opts.project.as_deref().unwrap_or(""),
+                            query_len = semantic_query.len(),
+                            candidate_count,
+                            error_kind = %e.root_cause(),
+                            "semantic search failed in welcome_scoped()"
+                        );
+                    }
+                }
+            }
+        }
 
         // Profile and reminders (same as welcome())
         let profile = <Self as ProfileManager>::get_profile(self)
