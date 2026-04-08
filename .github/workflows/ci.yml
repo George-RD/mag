@@ -101,3 +101,35 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Run smoke test
         run: bash scripts/smoke-test.sh
+
+  npm-install-test:
+    name: npm Install Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Node 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release
+      - name: Test npm install
+        run: |
+          cd npm
+          # Pack and install globally using the local binary
+          MAG_BINARY_PATH="$GITHUB_WORKSPACE/target/release/mag" npm install -g "$(npm pack -q)"
+          # Verify the wrapper exists and works
+          mag --version
+          INSTALLED_VER=$(mag --version | awk '{print $2}')
+          CARGO_VER=$(python3 -c "import tomllib; print(tomllib.load(open('../Cargo.toml','rb'))['package']['version'])")
+          echo "Installed=$INSTALLED_VER  Expected=$CARGO_VER"
+          if [ "$INSTALLED_VER" != "$CARGO_VER" ]; then
+            echo "::error::npm install test: version mismatch ($INSTALLED_VER != $CARGO_VER)"
+            exit 1
+          fi
+          echo "npm install test passed: mag $INSTALLED_VER"

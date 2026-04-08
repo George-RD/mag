@@ -196,35 +196,32 @@ async function main() {
 
     await download(archiveUrl, archivePath);
 
+    // Extract into a separate temp directory so we never overwrite the
+    // Node.js wrapper script at bin/mag.
+    var extractDir = path.join(tmpDir, "extracted");
     console.log("Extracting...");
-    fs.mkdirSync(binDir, { recursive: true });
 
     if (isWindows) {
-      extractZip(archivePath, binDir);
+      extractZip(archivePath, extractDir);
     } else {
-      extractTarGz(archivePath, binDir);
+      extractTarGz(archivePath, extractDir);
     }
 
-    // The archive contains a binary named "mag" (or "mag.exe" on Windows).
-    // We rename it to "mag-binary" (or "mag.exe") so it doesn't overwrite
-    // the Node.js wrapper script at bin/mag.
     var archiveBinaryName = isWindows ? "mag.exe" : "mag";
     var finalBinaryName = isWindows ? "mag.exe" : "mag-binary";
-    var extractedPath = path.join(binDir, archiveBinaryName);
-    var expectedPath = path.join(binDir, finalBinaryName);
+    var extractedPath = path.join(extractDir, archiveBinaryName);
 
     // Find the extracted binary (may be in a subdirectory)
     if (!fs.existsSync(extractedPath)) {
-      var entries = fs.readdirSync(binDir);
+      var entries = fs.readdirSync(extractDir);
       for (var i = 0; i < entries.length; i++) {
-        var candidateDir = path.join(binDir, entries[i]);
+        var candidateDir = path.join(extractDir, entries[i]);
         var candidateBin = path.join(candidateDir, archiveBinaryName);
         if (
           fs.statSync(candidateDir).isDirectory() &&
           fs.existsSync(candidateBin)
         ) {
-          fs.renameSync(candidateBin, extractedPath);
-          fs.rmSync(candidateDir, { recursive: true, force: true });
+          extractedPath = candidateBin;
           break;
         }
       }
@@ -232,14 +229,16 @@ async function main() {
 
     if (!fs.existsSync(extractedPath)) {
       throw new Error(
-        "Binary not found after extraction. Expected: " + extractedPath
+        "Binary not found after extraction. Expected: " +
+          path.join(extractDir, archiveBinaryName)
       );
     }
 
-    // Rename to final name (mag -> mag-binary on Unix to avoid overwriting wrapper)
-    if (extractedPath !== expectedPath) {
-      fs.renameSync(extractedPath, expectedPath);
-    }
+    // Move the binary into bin/ as mag-binary (or mag.exe on Windows),
+    // preserving the Node.js wrapper at bin/mag.
+    fs.mkdirSync(binDir, { recursive: true });
+    var expectedPath = path.join(binDir, finalBinaryName);
+    fs.renameSync(extractedPath, expectedPath);
 
     // Make executable on Unix
     if (!isWindows) {

@@ -335,3 +335,35 @@ jobs:
             exit 1
           fi
           echo "Smoke test passed: mag $INSTALLED_VER"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install mag from npm (with retry)
+        run: |
+          EXPECTED_VER="${{ needs.preflight.outputs.tag }}"
+          EXPECTED_VER="${EXPECTED_VER#v}"
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i: trying npm install -g mag-memory@$EXPECTED_VER..."
+            npm install -g "mag-memory@$EXPECTED_VER" && break
+            echo "Attempt $i failed. Waiting 30s before retry..."
+            sleep 30
+          done
+
+      - name: Verify npm install
+        run: |
+          NPM_MAG=$(npm root -g)/mag-memory/bin/mag
+          if [ ! -f "$NPM_MAG" ]; then
+            echo "::error::npm smoke test: bin/mag wrapper missing after install"
+            exit 1
+          fi
+          INSTALLED_VER=$(node "$NPM_MAG" --version | awk '{print $2}')
+          EXPECTED_VER="${{ needs.preflight.outputs.tag }}"
+          EXPECTED_VER="${EXPECTED_VER#v}"
+          echo "npm install: Installed=$INSTALLED_VER  Expected=$EXPECTED_VER"
+          if [ "$INSTALLED_VER" != "$EXPECTED_VER" ]; then
+            echo "::error::npm smoke test: version mismatch ($INSTALLED_VER != $EXPECTED_VER)"
+            exit 1
+          fi
+          echo "npm smoke test passed: mag $INSTALLED_VER"
