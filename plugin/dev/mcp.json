@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mag-dev": {
+      "command": "mag",
+      "args": ["serve"],
+      "env": {"MAG_DATA_ROOT": "${HOME}/.dev-mag"}
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "mag-dev",
+  "version": "0.1.0-dev",
+  "description": "MAG development plugin — isolated testing environment with JSONL telemetry",
+  "author": {"name": "MAG", "url": "https://github.com/George-RD/mag"},
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json"
+}

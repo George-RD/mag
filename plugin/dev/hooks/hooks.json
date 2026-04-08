@@ -17,7 +17,7 @@
         {
           "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/scripts/prompt-gate.sh",
-          "timeout": 50
+          "timeout": 1000
         }
       ]
     }
@@ -57,6 +57,17 @@
           "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/scripts/error-capture.sh",
           "timeout": 4000
+        }
+      ]
+    }
+  ],
+  "SubagentStop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/subagent-end.sh",
+          "timeout": 5000
         }
       ]
     }
