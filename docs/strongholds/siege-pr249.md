@@ -6,9 +6,9 @@
 
 ## Loop Control
 - **Status:** active
-- **Round:** 4 / 10 max
+- **Round:** 5 / 10 max
 - **Action:** CONTINUE
-- **Dispatch:** active-round-4 (claimed: 2026-04-08T07:10:00Z)
+- **Dispatch:** idle
 - **CI_Fail_Streak:** 0
 
 ---
@@ -67,3 +67,41 @@ All 3 threads replied and resolved. CodeRabbit CHANGES_REQUESTED review dismisse
 
 ### Review to Dismiss
 - **ReviewID:** `PRR_kwDORlN5NM7yyMh3` (DBID: `4073244791`) — coderabbitai CHANGES_REQUESTED
+
+---
+
+### Siege Round 4 -- 2026-04-08T07:11:00Z
+**Status:** complete
+**Dispatch:** idle
+Fixes applied: 4
+Commits: 69c0365e4829140e8bea5182f6a5e13c194b2e5f
+Deferred: 0
+Blocked: none
+
+**Fix 1 (SearchOptions construction):** Kept struct init with `..SearchOptions::default()` at both call sites -- clippy's `field_reassign_with_default` lint rejects the `default() + field mutation` pattern, so the struct init form is the idiomatic Rust approach. Replied explaining clippy constraint.
+
+**Fix 2 (semantic query):** Replaced raw project label as semantic query with content-derived snippets from tiered results. Takes first 5 tiered result contents (~100 chars each), concatenates into "recent context: <snippets>". Falls back to "recent important memories" when tiered results are empty. Applied at both welcome() and welcome_scoped() call sites.
+
+**Fix 3 (source tagging):** Added `"source": "tiered"` to both SQL-tier result constructions in welcome() -- the recent memories query and the user preferences query. Response shape now consistent across welcome() and welcome_scoped().
+
+**Fix 4 (test assertions):** Budget test now asserts results are completely empty when budget < overhead. Dedup test asserts non-empty before checking IDs.
+
+All 4 threads replied and resolved. CodeRabbit CHANGES_REQUESTED review dismissed. Quality gates pass (fmt, clippy, 462 unit tests). CLI smoke test fails due to HuggingFace 500 -- unrelated external service issue.
+
+---
+
+### Siege Round 5 -- 2026-04-08T07:35:00Z
+**Status:** complete
+**Dispatch:** idle
+Fixes applied: 3
+Commits: dad505f55037cb57dad772ccaa4916289ebdf426
+Deferred: 0
+Blocked: none
+
+**Fix 1 (OVERHEAD_TOKENS constant):** Moved `const OVERHEAD_TOKENS: usize = 200` from inside `spawn_blocking` closure to `welcome_scoped()` function scope. Removed duplicate `let overhead_tokens: usize = 200` local variable in semantic search phase; now uses the shared constant.
+
+**Fix 2 (sanitize log):** Replaced `query = semantic_query.as_str()` with `project = opts.project.as_deref().unwrap_or("")` in `tracing::debug!` error path of `welcome_scoped()`. Now matches `welcome()` pattern: logs project + query_len, no user content.
+
+**Fix 3 (strict dedup test):** Changed `filter_map(|m| m["id"].as_str())` to `map(|m| m["id"].as_str().expect(...))` so missing `id` fields cause immediate test failure instead of being silently dropped.
+
+All 3 threads replied and resolved. CodeRabbit CHANGES_REQUESTED review dismissed. Quality gates pass (fmt, clippy, all tests green).

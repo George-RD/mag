@@ -4261,7 +4261,11 @@ async fn test_welcome_scoped_deduplicates() {
     let mut all_ids: Vec<&str> = recent
         .iter()
         .chain(user_ctx.iter())
-        .filter_map(|m| m["id"].as_str())
+        .map(|m| {
+            m["id"]
+                .as_str()
+                .expect("every welcome_scoped item must have an 'id' field")
+        })
         .collect();
     let total_count = all_ids.len();
     all_ids.sort();

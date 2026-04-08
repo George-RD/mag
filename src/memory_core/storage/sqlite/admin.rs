@@ -1096,6 +1096,12 @@ impl WelcomeProvider for SqliteStorage {
         }
 
         let budget = opts.budget_tokens.unwrap_or(usize::MAX);
+
+        // Reserve ~200 tokens for greeting/profile/reminders overhead.
+        // Used by both the tiered-SQL phase (inside spawn_blocking) and
+        // the semantic-search phase (outside it).
+        const OVERHEAD_TOKENS: usize = 200;
+
         let pool = Arc::clone(&self.pool);
         let project = opts.project.clone();
         let agent_type = opts.agent_type.clone();
@@ -1170,8 +1176,6 @@ impl WelcomeProvider for SqliteStorage {
                 },
             ];
 
-            // Reserve ~200 tokens for greeting/profile/reminders overhead.
-            const OVERHEAD_TOKENS: usize = 200;
             let mut remaining = budget.saturating_sub(OVERHEAD_TOKENS);
 
             let mut all_memories: Vec<serde_json::Value> = Vec::new();
@@ -1249,13 +1253,12 @@ impl WelcomeProvider for SqliteStorage {
         // use AdvancedSearcher to find project-relevant memories that
         // the tiered SQL queries may have missed.
         if opts.project.is_some() {
-            let overhead_tokens: usize = 200;
             let used_tokens: usize = all_memories
                 .iter()
                 .map(|m| estimate_tokens(m.get("content").and_then(|v| v.as_str()).unwrap_or("")))
                 .sum();
             let remaining = budget
-                .saturating_sub(overhead_tokens)
+                .saturating_sub(OVERHEAD_TOKENS)
                 .saturating_sub(used_tokens);
 
             if remaining > 0 {
@@ -1326,7 +1329,7 @@ impl WelcomeProvider for SqliteStorage {
                     }
                     Err(e) => {
                         tracing::debug!(
-                            query = semantic_query.as_str(),
+                            project = opts.project.as_deref().unwrap_or(""),
                             query_len = semantic_query.len(),
                             candidate_count,
                             error_kind = %e.root_cause(),
