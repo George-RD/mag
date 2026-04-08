@@ -55,6 +55,17 @@ Check each registry within ~30 minutes of the workflow completing:
 | Homebrew | `brew info george-rd/mag/mag` |
 | GitHub Releases | Check [Releases page](https://github.com/George-RD/mag/releases) |
 
+### 6. Post-release dev bump
+
+After verifying the release, bump `main` to the next development version:
+
+```bash
+./scripts/bump-version.sh vX.Y.(Z+1)-dev --commit
+jj git push
+```
+
+Example: after releasing v0.1.6, bump to v0.1.7-dev.
+
 ---
 
 ## When to Rollback
