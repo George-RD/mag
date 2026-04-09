@@ -54,7 +54,7 @@ PROJECT="$(basename "$PWD")"
 PROMPT_PREVIEW="$(printf '%.80s' "$PROMPT")"
 if command -v jq >/dev/null 2>&1; then
   # Use --arg for session_id (not --argjson) so special chars in session IDs are safe
-  jq -n \
+  jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg session_id "$SESSION_ID" \
     --arg proj "$PROJECT" \

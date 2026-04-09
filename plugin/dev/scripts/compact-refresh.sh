@@ -87,7 +87,7 @@ DURATION_MS=$(( END_TS - START_TS ))
 if command -v jq >/dev/null 2>&1; then
   SUMMARY_PREVIEW="$(printf '%.200s' "$COMPACT_SUMMARY")"
   if [ -n "$SESSION_ID" ]; then SID_JSON="\"$SESSION_ID\""; else SID_JSON="null"; fi
-  jq -n \
+  jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson session_id "$SID_JSON" \
     --arg proj "$PROJECT" \
