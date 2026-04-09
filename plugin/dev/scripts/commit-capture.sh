@@ -77,7 +77,7 @@ if command -v jq >/dev/null 2>&1; then
     MEM_BLOCK="$(jq -n --arg proj "$PROJECT" --arg exit_code "$MAG_EXIT" \
       '{stored:false,project:$proj,event_type:"git_commit",error:("mag exited " + $exit_code)}' 2>/dev/null || printf 'null')"
   fi
-  jq -n \
+  jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson session_id "$SID_JSON" \
     --arg proj "$PROJECT" \

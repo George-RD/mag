@@ -5,9 +5,9 @@
 - **Branch**: feat/jsonl-dev-plugin → main
 - **Title**: feat(plugin): dev plugin with JSONL telemetry + hooks.json fix
 - **Repo**: George-RD/mag (origin) — note: local dir is romega-memory
-- **Status**: active
+- **Status**: merged
 - **Round**: 2 complete / 10 max
-- **Action**: CONTINUE
+- **Action**: STOP
 - **Dispatch**: idle
 - **CI_Fail_Streak**: 0
 
@@ -23,7 +23,8 @@
 - **Reviewer**: coderabbitai[bot] (no human reviewers)
 - **Decision**: CHANGES_REQUESTED (stale — all from pre-fix rounds)
 - **Reviews**: 4 rounds of CHANGES_REQUESTED, all pre-dating fix commit bb252d74
-- **Pending**: CodeRabbit re-review of fix commit (status: PENDING)
+- **Threads**: 0 unresolved (all 32 resolved as of tick 5)
+- **Next**: Dismiss stale reviews once CI passes → CLEAN → merge
 
 ## Comment Retry Ledger
 

@@ -45,7 +45,7 @@ fi
 # Emit JSONL
 if command -v jq >/dev/null 2>&1; then
   if [ -n "$SESSION_ID" ]; then SID_JSON="\"$SESSION_ID\""; else SID_JSON="null"; fi
-  jq -n \
+  jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson session_id "$SID_JSON" \
     --arg proj "$PROJECT" \
