@@ -63,6 +63,7 @@ if command -v jq >/dev/null 2>&1; then
     '{v:0,ts:$ts,event:"hook.prompt_gate",session_id:($session_id | if . == "" then null else . end),project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"prompt-gate",duration_ms:0,status:"ok",error:null},memory:null,context:{prompt_preview:$prompt_preview,hint_type:$hint_type}}' \
     >> "$LOG" 2>/dev/null || true
 else
+  # Degraded output: jq unavailable. Some fields omitted. Install jq for full telemetry.
   printf '{"v":0,"ts":"%s","event":"hook.prompt_gate","session_id":null,"project":"%s","hook":{"name":"prompt-gate","duration_ms":0,"status":"ok","error":null}}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" \
     >> "$LOG" 2>/dev/null || true

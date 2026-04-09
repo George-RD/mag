@@ -9,8 +9,9 @@ export MAG_DATA_ROOT
 
 LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
 # Millisecond-precision timestamp (perl is POSIX-portable; date +%s%N is Linux-only)
-now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
-START_TS=$(now_ms)
+now_ms() {
+  perl -MTime::HiRes=time -e 'printf "%d\n", time*1000' 2>/dev/null || printf '%s000' "$(date +%s)"
+}
 
 # Fast-path: only process build/test commands
 TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
@@ -31,6 +32,8 @@ case "$TOOL_OUTPUT" in
     exit 0
     ;;
 esac
+
+START_TS=$(now_ms)
 
 # Extract first error line (Rust-style: starts with "error[E0XXX]:" or "error: ")
 ERROR_LINE=$(printf '%s' "$TOOL_OUTPUT" | grep -m1 -E '^error(\[E[0-9]+\])?: ' 2>/dev/null || true)
@@ -81,20 +84,20 @@ fi
 
 # Emit JSONL
 if command -v jq >/dev/null 2>&1; then
-  if [ -n "$SESSION_ID" ]; then SID_JSON="\"$SESSION_ID\""; else SID_JSON="null"; fi
   jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --argjson session_id "$SID_JSON" \
+    --arg session_id "$SESSION_ID" \
     --arg proj "$PROJECT" \
     --arg dur "$DURATION_MS" \
     --arg status "$HOOK_STATUS" \
     --argjson err "$HOOK_ERROR" \
     --arg error_line "$ERROR_LINE" \
     --arg cmd_preview "$CMD_PREVIEW" \
-    '{v:0,ts:$ts,event:"hook.error_capture",session_id:$session_id,project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"error-capture",duration_ms:($dur|tonumber),status:$status,error:$err},memory:null,context:{error_line:$error_line,command_preview:$cmd_preview}}' \
+    '{v:0,ts:$ts,event:"hook.error_capture",session_id:($session_id | if . == "" then null else . end),project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"error-capture",duration_ms:($dur|tonumber),status:$status,error:$err},memory:null,context:{error_line:$error_line,command_preview:$cmd_preview}}' \
     >> "$LOG" 2>/dev/null || true
 else
-  SAFE_ERROR=$(printf '%s' "$HOOK_ERROR" | tr -d '"\\')
+  # Degraded output: jq unavailable. Some fields omitted. Install jq for full telemetry.
+  SAFE_ERROR=$(printf '%s' "$HOOK_ERROR" | sed 's/\\/\\\\/g; s/"/\\"/g')
   if [ "$HOOK_STATUS" = "error" ]; then
     printf '{"v":0,"ts":"%s","event":"hook.error_capture","session_id":null,"project":"%s","hook":{"name":"error-capture","duration_ms":%s,"status":"%s","error":"%s"}}\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$DURATION_MS" "$HOOK_STATUS" "$SAFE_ERROR" \
