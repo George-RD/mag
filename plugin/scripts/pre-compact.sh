@@ -3,9 +3,17 @@
 # Fire-and-forget: no stdout contract, output is ignored by Claude Code
 set -eu
 
-STATE_DIR="$HOME/.mag/state"
-LOG="$HOME/.mag/auto-capture.log"
-mkdir -p "$STATE_DIR" "$HOME/.mag"
+MAG_DATA_ROOT="${MAG_DATA_ROOT:-$HOME/.mag}"
+export MAG_DATA_ROOT
+
+STATE_DIR="$MAG_DATA_ROOT/state"
+LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
+# Millisecond-precision timestamp (perl is POSIX-portable; date +%s%N is Linux-only)
+now_ms() {
+  perl -MTime::HiRes=time -e 'printf "%d\n", time*1000' 2>/dev/null || printf '%s000' "$(date +%s)"
+}
+START_TS=$(now_ms)
+mkdir -p "$MAG_DATA_ROOT" "$STATE_DIR"
 
 # Read stdin JSON for session context
 INPUT=$(cat 2>/dev/null) || INPUT=""
@@ -17,27 +25,25 @@ if command -v jq >/dev/null 2>&1 && [ -n "$INPUT" ]; then
   TRIGGER=$(printf '%s' "$INPUT" | jq -r '.trigger // empty' 2>/dev/null) || TRIGGER=""
 else
   # Graceful degradation without jq
-  SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+  SESSION_ID="${CLAUDE_SESSION_ID:-}"
   TRANSCRIPT_PATH=""
   CWD="$PWD"
   TRIGGER=""
 fi
 
-# Fallbacks
-SESSION_ID="${SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}"
+# Fallbacks — explicit defaults for all variables used under set -u
+SESSION_ID="${SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
 CWD="${CWD:-$PWD}"
+TRIGGER="${TRIGGER:-}"
+TRANSCRIPT_PATH="${TRANSCRIPT_PATH:-}"
 PROJECT="$(basename "$CWD")"
-
-# Log the event
-printf '%s pre_compact project=%s session=%s trigger=%s\n' \
-  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$SESSION_ID" "$TRIGGER" >> "$LOG" 2>/dev/null || true
 
 # Collect VCS state (run in the project CWD parsed from the hook payload)
 VCS_STATE=""
 if [ -d "$CWD" ] && command -v jj >/dev/null 2>&1 && (cd "$CWD" && jj root >/dev/null 2>&1); then
   VCS_STATE=$(cd "$CWD" && jj log --no-graph -r '@' -T 'change_id.shortest(8) ++ " " ++ description.first_line()' 2>/dev/null) || VCS_STATE=""
-elif [ -d "$CWD" ] && command -v git >/dev/null 2>&1 && (cd "$CWD" && git rev-parse --git-dir >/dev/null 2>&1); then
-  VCS_STATE=$(cd "$CWD" && git log --oneline -1 2>/dev/null) || VCS_STATE=""
+elif [ -d "$CWD" ] && command -v jj >/dev/null 2>&1; then
+  VCS_STATE=$(cd "$CWD" && jj log --oneline -1 2>/dev/null) || VCS_STATE=""
 fi
 
 # Collect recent file from transcript
@@ -59,24 +65,37 @@ if command -v jq >/dev/null 2>&1; then
     --arg vcs "$VCS_STATE" \
     --arg rf "$RECENT_FILE" \
     '{session_id: $sid, timestamp: $ts, project: $proj, working_directory: $cwd, trigger: $trigger, vcs_state: $vcs, recent_file: $rf}' \
-    > "$STATE_DIR/pre-compact-$SESSION_ID.json" 2>/dev/null || {
-    printf '%s pre_compact_write_failed session=%s\n' \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SESSION_ID" >> "$LOG" 2>/dev/null || true
-  }
+    > "$STATE_DIR/pre-compact-$SESSION_ID.json" 2>/dev/null || true
 else
-  # Minimal fallback without jq — only safe fields (UUIDs, dirnames, timestamps)
-  # vcs_state and recent_file are omitted: they can contain arbitrary characters unsafe for printf JSON
-  # Sanitize CWD for safe printf JSON (remove double-quotes and backslashes)
-  SAFE_CWD=$(printf '%s' "$CWD" | tr -d '"\\')
+  # Minimal fallback without jq
+  SAFE_CWD=$(printf '%s' "$CWD" | sed 's/\\/\\\\/g; s/"/\\"/g')
   printf '{"session_id":"%s","timestamp":"%s","project":"%s","working_directory":"%s","trigger":"%s"}\n' \
     "$SESSION_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$SAFE_CWD" "$TRIGGER" \
-    > "$STATE_DIR/pre-compact-$SESSION_ID.json" 2>/dev/null || {
-    printf '%s pre_compact_write_failed session=%s\n' \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SESSION_ID" >> "$LOG" 2>/dev/null || true
-  }
+    > "$STATE_DIR/pre-compact-$SESSION_ID.json" 2>/dev/null || true
 fi
 
-# Reap stale snapshots older than ~1 day
-find "$STATE_DIR" -name 'pre-compact-*.json' -mtime +1 -delete 2>/dev/null || true
+END_TS=$(now_ms)
+DURATION_MS=$(( END_TS - START_TS ))
+
+# Emit JSONL — schema v:0 (campaign decision D1)
+if command -v jq >/dev/null 2>&1; then
+  jq -nc \
+    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg session_id "$SESSION_ID" \
+    --arg proj "$PROJECT" \
+    --arg dur "$DURATION_MS" \
+    --arg vcs "${VCS_STATE:-}" \
+    --arg rf "${RECENT_FILE:-}" \
+    --arg trigger "${TRIGGER:-}" \
+    --arg transcript "${TRANSCRIPT_PATH:-}" \
+    '{v:0,ts:$ts,event:"hook.pre_compact",session_id:($session_id | if . == "" then null else . end),project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"pre-compact",duration_ms:($dur|tonumber),status:"ok",error:null},memory:null,context:{vcs_state:$vcs,recent_file:$rf,trigger:$trigger,transcript_path:$transcript}}' \
+    >> "$LOG" 2>/dev/null || true
+else
+  # Degraded output: jq unavailable. Some fields omitted. Install jq for full telemetry.
+  printf '{"v":0,"ts":"%s","event":"hook.pre_compact","session_id":null,"project":"%s","hook":{"name":"pre-compact","duration_ms":%s,"status":"ok","error":null}}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$DURATION_MS" \
+    >> "$LOG" 2>/dev/null || true
+fi
+
 
 exit 0

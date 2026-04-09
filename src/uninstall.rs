@@ -74,6 +74,23 @@ pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()> {
         summary.benchmarks = Some(remove_directory(&paths.benchmark_root));
     }
 
+    // Clean up telemetry log files so the data_root directory can be removed
+    if choices.database {
+        for name in &["auto-capture.jsonl", "auto-capture.log"] {
+            let p = paths.data_root.join(name);
+            if let Err(e) = std::fs::remove_file(&p)
+                && e.kind() != io::ErrorKind::NotFound
+            {
+                tracing::warn!(path = %p.display(), err = %e, "failed to remove telemetry log");
+            }
+        }
+        // Remove state directory used by pre-compact snapshots
+        let state_dir = paths.data_root.join("state");
+        if state_dir.exists() {
+            let _ = std::fs::remove_dir_all(&state_dir);
+        }
+    }
+
     let data_root_removed = if choices.models || choices.database {
         try_remove_empty_dir(&paths.data_root)
     } else {
