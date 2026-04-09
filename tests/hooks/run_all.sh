@@ -63,11 +63,13 @@ for _test in $ALL_TESTS; do
       ;;
     77)
       # skip convention (automake / prove compatible)
+      # Pattern matches helpers/common.sh skip_test() output: "SKIP — <name>: <reason>"
       _skip_reason="$(printf '%s' "$_out" | grep '^SKIP' | head -1 | sed 's/^SKIP — [^:]*: //')"
       printf 'ok %d — %s # SKIP %s\n' "$_n" "$_name" "${_skip_reason:-skipped}"
       _skip=$(( _skip + 1 ))
       ;;
     *)
+      # Pattern matches helpers/common.sh fail() output: "FAIL — <name>: <reason>"
       _fail_reason="$(printf '%s' "$_out" | grep '^FAIL' | head -1 | sed 's/^FAIL — [^:]*: //')"
       printf 'not ok %d — %s\n' "$_n" "$_name"
       printf '  # FAILED: %s\n' "${_fail_reason:-exit code $_rc}"
