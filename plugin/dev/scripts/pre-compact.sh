@@ -9,7 +9,9 @@ export MAG_DATA_ROOT
 STATE_DIR="$MAG_DATA_ROOT/state"
 LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
 # Millisecond-precision timestamp (perl is POSIX-portable; date +%s%N is Linux-only)
-now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
+now_ms() {
+  perl -MTime::HiRes=time -e 'printf "%d\n", time*1000' 2>/dev/null || printf '%s000' "$(date +%s)"
+}
 START_TS=$(now_ms)
 mkdir -p "$MAG_DATA_ROOT" "$STATE_DIR"
 
@@ -66,7 +68,7 @@ if command -v jq >/dev/null 2>&1; then
     > "$STATE_DIR/pre-compact-$SESSION_ID.json" 2>/dev/null || true
 else
   # Minimal fallback without jq
-  SAFE_CWD=$(printf '%s' "$CWD" | tr -d '"\\')
+  SAFE_CWD=$(printf '%s' "$CWD" | sed 's/\\/\\\\/g; s/"/\\"/g')
   printf '{"session_id":"%s","timestamp":"%s","project":"%s","working_directory":"%s","trigger":"%s"}\n' \
     "$SESSION_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$SAFE_CWD" "$TRIGGER" \
     > "$STATE_DIR/pre-compact-$SESSION_ID.json" 2>/dev/null || true
@@ -77,26 +79,23 @@ DURATION_MS=$(( END_TS - START_TS ))
 
 # Emit JSONL — schema v:0 (campaign decision D1)
 if command -v jq >/dev/null 2>&1; then
-  if [ -n "$SESSION_ID" ]; then SID_JSON="\"$SESSION_ID\""; else SID_JSON="null"; fi
   jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --argjson session_id "$SID_JSON" \
+    --arg session_id "$SESSION_ID" \
     --arg proj "$PROJECT" \
     --arg dur "$DURATION_MS" \
     --arg vcs "${VCS_STATE:-}" \
     --arg rf "${RECENT_FILE:-}" \
     --arg trigger "${TRIGGER:-}" \
     --arg transcript "${TRANSCRIPT_PATH:-}" \
-    '{v:0,ts:$ts,event:"hook.pre_compact",session_id:$session_id,project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"pre-compact",duration_ms:($dur|tonumber),status:"ok",error:null},memory:null,context:{vcs_state:$vcs,recent_file:$rf,trigger:$trigger,transcript_path:$transcript}}' \
+    '{v:0,ts:$ts,event:"hook.pre_compact",session_id:($session_id | if . == "" then null else . end),project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"pre-compact",duration_ms:($dur|tonumber),status:"ok",error:null},memory:null,context:{vcs_state:$vcs,recent_file:$rf,trigger:$trigger,transcript_path:$transcript}}' \
     >> "$LOG" 2>/dev/null || true
 else
-  # Fallback — also v:0 for schema consistency
+  # Degraded output: jq unavailable. Some fields omitted. Install jq for full telemetry.
   printf '{"v":0,"ts":"%s","event":"hook.pre_compact","session_id":null,"project":"%s","hook":{"name":"pre-compact","duration_ms":%s,"status":"ok","error":null}}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$DURATION_MS" \
     >> "$LOG" 2>/dev/null || true
 fi
 
-# Reap stale snapshots older than ~1 day
-find "$STATE_DIR" -name 'pre-compact-*.json' -mtime +1 -delete 2>/dev/null || true
 
 exit 0

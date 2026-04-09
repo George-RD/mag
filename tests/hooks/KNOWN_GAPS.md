@@ -24,6 +24,14 @@ Whether a model spawns a subagent in response to "Use a subagent to calculate
 models (e.g. Haiku) may answer inline without spawning an agent. `t06` handles
 this by skipping when `hook.subagent_end` is not fired, rather than failing.
 
+## jq dependency
+
+All hook scripts require `jq` for full JSONL telemetry output. Without jq, hooks
+fall back to printf-based output that omits several fields: `agent`, context
+sub-fields (e.g. `commit_message`, `vcs_tool`, `error_line`), and `memory` blocks.
+The fallback output is valid JSON but structurally incomplete. Install jq for
+production use: https://jqlang.github.io/jq/download/
+
 ## Other limitations
 
 - **JSONL log location**: The current production hooks write plain-text lines to

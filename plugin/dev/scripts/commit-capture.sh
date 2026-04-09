@@ -9,8 +9,9 @@ export MAG_DATA_ROOT
 
 LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
 # Millisecond-precision timestamp (perl is POSIX-portable; date +%s%N is Linux-only)
-now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
-START_TS=$(now_ms)
+now_ms() {
+  perl -MTime::HiRes=time -e 'printf "%d\n", time*1000' 2>/dev/null || printf '%s000' "$(date +%s)"
+}
 
 # Fast-path rejection — plain string check before any process forks.
 # CLAUDE_TOOL_INPUT is JSON like {"command":"jj commit -m ..."}, so a substring
@@ -20,6 +21,8 @@ case "$INPUT" in
   *"jj commit"*|*"jj describe"*|*"git commit"*) ;;
   *) exit 0 ;;
 esac
+
+START_TS=$(now_ms)
 
 COMMAND="$(printf '%s' "$INPUT" | jq -r '.command // empty' 2>/dev/null || true)"
 
@@ -68,7 +71,6 @@ fi
 
 # Emit JSONL
 if command -v jq >/dev/null 2>&1; then
-  if [ -n "$SESSION_ID" ]; then SID_JSON="\"$SESSION_ID\""; else SID_JSON="null"; fi
   # Reflect actual store result: stored:true only when mag exited successfully
   if [ "$MAG_EXIT" -eq 0 ]; then
     MEM_BLOCK="$(jq -n --arg content "Commit: $MSG" --arg proj "$PROJECT" \
@@ -79,7 +81,7 @@ if command -v jq >/dev/null 2>&1; then
   fi
   jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --argjson session_id "$SID_JSON" \
+    --arg session_id "$SESSION_ID" \
     --arg proj "$PROJECT" \
     --arg dur "$DURATION_MS" \
     --arg status "$HOOK_STATUS" \
@@ -87,10 +89,11 @@ if command -v jq >/dev/null 2>&1; then
     --argjson mem "$MEM_BLOCK" \
     --arg commit_msg "$MSG" \
     --arg vcs "$VCS_TOOL" \
-    '{v:0,ts:$ts,event:"hook.commit_capture",session_id:$session_id,project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"commit-capture",duration_ms:($dur|tonumber),status:$status,error:$err},memory:$mem,context:{commit_message:$commit_msg,vcs_tool:$vcs}}' \
+    '{v:0,ts:$ts,event:"hook.commit_capture",session_id:($session_id | if . == "" then null else . end),project:$proj,agent:{id:null,type:null,tool:"claude_code"},hook:{name:"commit-capture",duration_ms:($dur|tonumber),status:$status,error:$err},memory:$mem,context:{commit_message:$commit_msg,vcs_tool:$vcs}}' \
     >> "$LOG" 2>/dev/null || true
 else
-  SAFE_ERROR=$(printf '%s' "$HOOK_ERROR" | tr -d '"\\')
+  # Degraded output: jq unavailable. Some fields omitted. Install jq for full telemetry.
+  SAFE_ERROR=$(printf '%s' "$HOOK_ERROR" | sed 's/\\/\\\\/g; s/"/\\"/g')
   if [ "$HOOK_STATUS" = "error" ]; then
     printf '{"v":0,"ts":"%s","event":"hook.commit_capture","session_id":null,"project":"%s","hook":{"name":"commit-capture","duration_ms":%s,"status":"%s","error":"%s"}}\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$DURATION_MS" "$HOOK_STATUS" "$SAFE_ERROR" \

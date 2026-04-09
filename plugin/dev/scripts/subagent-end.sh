@@ -8,7 +8,9 @@ export MAG_DATA_ROOT
 
 LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
 # Millisecond-precision timestamp (perl is POSIX-portable; date +%s%N is Linux-only)
-now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
+now_ms() {
+  perl -MTime::HiRes=time -e 'printf "%d\n", time*1000' 2>/dev/null || printf '%s000' "$(date +%s)"
+}
 START_TS=$(now_ms)
 
 # Read stdin JSON (SubagentStop provides session_id, agent_id, agent_type, etc.)
@@ -66,10 +68,9 @@ fi
 
 # Emit JSONL
 if command -v jq >/dev/null 2>&1; then
-  if [ -n "$SESSION_ID" ]; then SID_JSON="\"$SESSION_ID\""; else SID_JSON="null"; fi
   jq -nc \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --argjson session_id "$SID_JSON" \
+    --arg session_id "$SESSION_ID" \
     --arg proj "$PROJECT" \
     --arg agent_id "$AGENT_ID" \
     --arg agent_type "$AGENT_TYPE" \
@@ -77,13 +78,14 @@ if command -v jq >/dev/null 2>&1; then
     --arg status "$HOOK_STATUS" \
     --argjson err "$HOOK_ERROR" \
     --arg msg_preview "${MSG_PREVIEW:-}" \
-    '{v:0,ts:$ts,event:"hook.subagent_end",session_id:$session_id,project:$proj,agent:{id:$agent_id,type:$agent_type,tool:"claude_code"},hook:{name:"subagent-end",duration_ms:($dur|tonumber),status:$status,error:$err},memory:null,context:{last_assistant_message:$msg_preview}}' \
+    '{v:0,ts:$ts,event:"hook.subagent_end",session_id:($session_id | if . == "" then null else . end),project:$proj,agent:{id:$agent_id,type:$agent_type,tool:"claude_code"},hook:{name:"subagent-end",duration_ms:($dur|tonumber),status:$status,error:$err},memory:null,context:{last_assistant_message:$msg_preview}}' \
     >> "$LOG" 2>/dev/null || true
 else
-  SAFE_AGENT_ID=$(printf '%s' "$AGENT_ID" | tr -d '"\\')
-  SAFE_AGENT_TYPE=$(printf '%s' "$AGENT_TYPE" | tr -d '"\\')
-  SAFE_MSG_PREVIEW=$(printf '%s' "${MSG_PREVIEW:-}" | tr -d '"\\' | head -c 200)
-  SAFE_ERROR=$(printf '%s' "$HOOK_ERROR" | tr -d '"\\')
+  # Degraded output: jq unavailable. Some fields omitted. Install jq for full telemetry.
+  SAFE_AGENT_ID=$(printf '%s' "$AGENT_ID" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  SAFE_AGENT_TYPE=$(printf '%s' "$AGENT_TYPE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  SAFE_MSG_PREVIEW=$(printf '%s' "${MSG_PREVIEW:-}" | sed 's/\\/\\\\/g; s/"/\\"/g' | head -c 200)
+  SAFE_ERROR=$(printf '%s' "$HOOK_ERROR" | sed 's/\\/\\\\/g; s/"/\\"/g')
   if [ "$HOOK_STATUS" = "error" ]; then
     printf '{"v":0,"ts":"%s","event":"hook.subagent_end","session_id":null,"project":"%s","agent":{"id":"%s","type":"%s","tool":"claude_code"},"hook":{"name":"subagent-end","duration_ms":%s,"status":"%s","error":"%s"},"memory":null,"context":{"last_assistant_message":"%s"}}\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" "$SAFE_AGENT_ID" "$SAFE_AGENT_TYPE" "$DURATION_MS" "$HOOK_STATUS" "$SAFE_ERROR" "$SAFE_MSG_PREVIEW" \

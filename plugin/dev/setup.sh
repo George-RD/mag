@@ -64,11 +64,13 @@ MAG_VERSION=$(mag --version 2>/dev/null | head -1 || echo "unknown")
 echo "    Found: $MAG_VERSION"
 
 # 4. Verify jq is available (needed for JSONL output)
-echo "--> Checking jq ..."
+echo "--> Checking jq (required for full telemetry) ..."
 if command -v jq >/dev/null 2>&1; then
   echo "    Found: $(jq --version)"
 else
-  echo "    WARNING: jq not found — JSONL output will be degraded (no structured telemetry)"
+  echo "    WARNING: jq not found — JSONL telemetry will run in degraded mode."
+  echo "             Some fields (agent, context sub-fields, memory block) will be omitted."
+  echo "             Install jq for full telemetry: https://jqlang.github.io/jq/download/"
 fi
 
 # 5. Make all hook scripts executable
