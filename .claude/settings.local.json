@@ -21,7 +21,8 @@
       "Bash(jj bookmark:*)",
       "Skill(ide-of-sauron:siege-tick)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(wait)"
+      "Bash(wait)",
+      "Skill(ide-of-sauron:forge-pr)"
     ]
   },
   "hooks": {
