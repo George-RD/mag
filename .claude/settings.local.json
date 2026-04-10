@@ -22,7 +22,8 @@
       "Skill(ide-of-sauron:siege-tick)",
       "Bash(echo \"EXIT:$?\")",
       "Bash(wait)",
-      "Skill(ide-of-sauron:forge-pr)"
+      "Skill(ide-of-sauron:forge-pr)",
+      "WebFetch(domain:static.crates.io)"
     ]
   },
   "hooks": {

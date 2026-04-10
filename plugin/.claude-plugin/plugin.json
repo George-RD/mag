@@ -7,6 +7,5 @@
     "url": "https://github.com/George-RD/mag"
   },
   "license": "MIT",
-  "keywords": ["memory", "mcp", "persistence", "local", "semantic-search"],
-  "hooks": "./hooks/hooks.json"
+  "keywords": ["memory", "mcp", "persistence", "local", "semantic-search"]
 }

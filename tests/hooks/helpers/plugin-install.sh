@@ -13,8 +13,19 @@ CONFIG_DIR="${1:?Usage: plugin-install.sh <CONFIG_DIR>}"
 # Resolve the repo root from this script's location:
 #   this file lives at <repo>/tests/hooks/helpers/plugin-install.sh
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-SCRIPTS_DIR="$REPO_ROOT/plugin/scripts"
+REPO_ROOT_LOCAL="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# MAG_PLUGIN_SCRIPTS_OVERRIDE takes top priority (set by run-tests.sh).
+# PLUGIN_SCRIPTS_DIR is exported by common.sh (respects HOOKS_TARGET).
+# Fall back to production scripts when running standalone.
+SCRIPTS_DIR="${MAG_PLUGIN_SCRIPTS_OVERRIDE:-${PLUGIN_SCRIPTS_DIR:-$REPO_ROOT_LOCAL/plugin/scripts}}"
+
+# SubagentStop hook: only dev scripts include subagent-end.sh.
+# Detect presence rather than hardcoding the target name.
+HAS_SUBAGENT_END=0
+if [ -f "$SCRIPTS_DIR/subagent-end.sh" ]; then
+  HAS_SUBAGENT_END=1
+fi
 
 # Sanity-check that the scripts directory exists
 if [ ! -d "$SCRIPTS_DIR" ]; then
@@ -26,6 +37,25 @@ mkdir -p "$CONFIG_DIR"
 
 # JSON-escape SCRIPTS_DIR in case the path contains quotes or backslashes
 SCRIPTS_DIR_JSON="$(printf '%s' "$SCRIPTS_DIR" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+
+# Build the optional SubagentStop block (dev scripts only).
+SUBAGENT_BLOCK=""
+if [ "$HAS_SUBAGENT_END" = "1" ]; then
+  SUBAGENT_BLOCK="$(cat <<SUBEOF
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$SCRIPTS_DIR_JSON/subagent-end.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+SUBEOF
+)"
+fi
 
 # Write settings.json with hooks using absolute paths (no CLAUDE_PLUGIN_ROOT needed)
 cat > "$CONFIG_DIR/settings.json" <<EOF
@@ -92,17 +122,7 @@ cat > "$CONFIG_DIR/settings.json" <<EOF
         ]
       }
     ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$SCRIPTS_DIR_JSON/subagent-end.sh",
-            "timeout": 5000
-          }
-        ]
-      }
-    ],
+$SUBAGENT_BLOCK
     "Stop": [
       {
         "matcher": "*",
