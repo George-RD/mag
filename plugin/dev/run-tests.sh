@@ -100,6 +100,7 @@ if [ -n "$FILTER" ]; then
 fi
 printf '\n'
 
+export HOOKS_TARGET="dev"
 export MAG_DATA_ROOT="$DEV_ROOT"
 export CLAUDE_MODEL="$MODEL"
 export MAG_PLUGIN_SCRIPTS_OVERRIDE="$SCRIPT_DIR/scripts"
