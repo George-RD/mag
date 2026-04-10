@@ -13,7 +13,7 @@ mkdir -p "$TESTREPO"
 
 # Claude is instructed to initialise the repo and make a commit.
 # The commit message contains a distinctive token so we can confirm capture.
-run_claude "Run: cd $TESTREPO && git init && git config user.email 'test@example.com' && git config user.name 'Test User' && echo test > file.txt && git add . && git commit -m 'HOOKTEST_COMMIT_42'"
+run_claude "Run: cd $TESTREPO && git init && git config user.email 'test@example.com' && git config user.name 'Test User' && echo test > file.txt && git add . && git commit -m 'HOOKTEST_COMMIT_42'" --max-turns 6
 
 # 1. The commit-capture event must appear in the JSONL log
 assert_event_fired "hook.commit_capture"
