@@ -19,7 +19,7 @@ impl Embedder for KeywordEmbedder {
         if text.contains("alpha") {
             Ok(vec![1.0, 0.0, 0.0, 0.0])
         } else if text.contains("beta") {
-            Ok(vec![0.9, 0.1, 0.0, 0.0])
+            Ok(vec![0.993_883_7, 0.110_431_53, 0.0, 0.0]) // L2-normalized [0.9, 0.1, 0, 0]
         } else {
             Ok(vec![0.0, 0.0, 1.0, 0.0])
         }
