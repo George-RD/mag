@@ -14,7 +14,7 @@ CONFIG_DIR="${1:?Usage: plugin-install.sh <CONFIG_DIR>}"
 #   this file lives at <repo>/tests/hooks/helpers/plugin-install.sh
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-SCRIPTS_DIR="$REPO_ROOT/plugin/scripts"
+SCRIPTS_DIR="${MAG_PLUGIN_SCRIPTS_OVERRIDE:-$REPO_ROOT/plugin/scripts}"
 
 # Sanity-check that the scripts directory exists
 if [ ! -d "$SCRIPTS_DIR" ]; then
