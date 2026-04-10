@@ -5,6 +5,12 @@ set -eu
 MAG_DATA_ROOT="$HOME/.dev-mag"
 export MAG_DATA_ROOT
 
+MAG_BIN="$HOME/.dev-mag/bin/mag"
+if [ ! -x "$MAG_BIN" ]; then
+  echo "mag-dev: ERROR: dev binary not found at $MAG_BIN — run setup.sh --build" >&2
+  exit 1
+fi
+
 LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
 STATE_DIR="$MAG_DATA_ROOT/state"
 # Millisecond-precision timestamp (perl is POSIX-portable; date +%s%N is Linux-only)
@@ -34,11 +40,11 @@ PROJECT="$(basename "$CWD")"
 # Re-inject top memories (full budget — context is smallest after compaction)
 # Capture output: PostCompact hooks return additionalContext to Claude via stdout
 WELCOME_OUTPUT=""
-WELCOME_OUTPUT=$(mag welcome --project "$PROJECT" --session-id "$SESSION_ID" --budget-tokens 2000 2>/dev/null) || true
+WELCOME_OUTPUT=$("$MAG_BIN" welcome --project "$PROJECT" --session-id "$SESSION_ID" --budget-tokens 2000 2>/dev/null) || true
 
 # Store compact summary as a memory if available
 if [ -n "$COMPACT_SUMMARY" ]; then
-  mag process "$COMPACT_SUMMARY" \
+  "$MAG_BIN" process "$COMPACT_SUMMARY" \
     --event-type session_end \
     --project "$PROJECT" \
     --session-id "$SESSION_ID" \

@@ -3,10 +3,12 @@
 # Creates an isolated MAG dev plugin test environment.
 #
 # Usage:
-#   ./test-env.sh [--clone] [--no-session] [--teardown]
+#   ./test-env.sh [--clone] [--build] [--no-build] [--no-session] [--teardown]
 #
 # Flags:
 #   --clone       Sync production ~/.mag/memory.db to ~/.dev-mag/ before setup
+#   --build       Compile MAG from source and install to ~/.dev-mag/bin/mag (default: on)
+#   --no-build    Skip compilation (use when you only want to test hooks, not rebuild)
 #   --no-session  Skip launching the terminal session (just set up the repo)
 #   --teardown    Destroy the test repo and ~/.dev-mag, kill the session
 
@@ -18,12 +20,17 @@ DEV_ROOT="$HOME/.dev-mag"
 SESSION_NAME="mag-test"
 
 CLONE=0
+BUILD=1
+FORCE=0
 NO_SESSION=0
 TEARDOWN=0
 
 for _arg in "$@"; do
   case "$_arg" in
     --clone)      CLONE=1 ;;
+    --build)      BUILD=1 ;;
+    --no-build)   BUILD=0 ;;
+    --force)      FORCE=1 ;;
     --no-session) NO_SESSION=1 ;;
     --teardown)   TEARDOWN=1 ;;
     *) printf 'test-env.sh: unknown argument: %s\n' "$_arg" >&2; exit 1 ;;
@@ -92,11 +99,12 @@ fi
 
 # 2. Run setup.sh (creates ~/.dev-mag, verifies deps, renders .mcp.json)
 printf -- '--> Running setup.sh ...\n'
-if [ "$CLONE" -eq 1 ]; then
-  sh "$SCRIPT_DIR/setup.sh" --clone
-else
-  sh "$SCRIPT_DIR/setup.sh"
-fi
+SETUP_ARGS=""
+[ "$CLONE" -eq 1 ] && SETUP_ARGS="$SETUP_ARGS --clone"
+[ "$BUILD" -eq 1 ] && SETUP_ARGS="$SETUP_ARGS --build"
+[ "$FORCE" -eq 1 ] && SETUP_ARGS="$SETUP_ARGS --force"
+# shellcheck disable=SC2086
+sh "$SCRIPT_DIR/setup.sh" $SETUP_ARGS
 
 # 3. Write per-repo settings.local.json scoping dev plugin to this test repo only
 printf -- '--> Writing %s/.claude/settings.local.json ...\n' "$TEST_REPO"

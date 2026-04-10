@@ -7,6 +7,12 @@ set -eu
 MAG_DATA_ROOT="$HOME/.dev-mag"
 export MAG_DATA_ROOT
 
+MAG_BIN="$HOME/.dev-mag/bin/mag"
+if [ ! -x "$MAG_BIN" ]; then
+  echo "mag-dev: ERROR: dev binary not found at $MAG_BIN — run setup.sh --build" >&2
+  exit 1
+fi
+
 LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
 # Millisecond-precision timestamp (perl is POSIX-portable; date +%s%N is Linux-only)
 now_ms() {
@@ -53,7 +59,7 @@ mkdir -p "$MAG_DATA_ROOT"
 
 # Invoke mag and capture exit code
 MAG_EXIT=0
-mag process "Commit: $MSG" \
+"$MAG_BIN" process "Commit: $MSG" \
   --event-type git_commit \
   --project "$PROJECT" \
   --session-id "$SESSION_ID" \
