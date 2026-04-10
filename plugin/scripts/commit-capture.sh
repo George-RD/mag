@@ -1,7 +1,7 @@
 #!/bin/sh
 # MAG commit-capture — auto-capture jj/git commit messages as Decision memories
 # PostToolUse(Bash) hook. MUST exit fast (<50ms) for non-matching commands.
-# Receives: $CLAUDE_TOOL_INPUT (JSON), $CLAUDE_TOOL_OUTPUT (JSON)
+# Receives: event JSON via stdin (tool_input.command, tool_response.stdout)
 set -eu
 
 MAG_DATA_ROOT="${MAG_DATA_ROOT:-$HOME/.mag}"
@@ -13,10 +13,21 @@ now_ms() {
   perl -MTime::HiRes=time -e 'printf "%d\n", time*1000' 2>/dev/null || printf '%s000' "$(date +%s)"
 }
 
-# Fast-path rejection — plain string check before any process forks.
-# CLAUDE_TOOL_INPUT is JSON like {"command":"jj commit -m ..."}, so a substring
-# match on the raw string is safe and avoids the cost of jq for ~95% of calls.
-INPUT="${CLAUDE_TOOL_INPUT:-}"
+# PostToolUse hooks receive the event payload via stdin (JSON), not env vars.
+# CLAUDE_TOOL_INPUT / CLAUDE_TOOL_OUTPUT are legacy env vars that may be empty.
+# Always read stdin for reliable cross-version behavior.
+STDIN_PAYLOAD="$(cat 2>/dev/null)" || STDIN_PAYLOAD=""
+
+# Extract command from stdin payload (preferred) or legacy env var.
+if [ -n "$STDIN_PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
+  INPUT="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
+else
+  INPUT="${CLAUDE_TOOL_INPUT:-}"
+  if command -v jq >/dev/null 2>&1; then
+    INPUT="$(printf '%s' "$INPUT" | jq -r '.command // empty' 2>/dev/null || true)"
+  fi
+fi
+
 case "$INPUT" in
   *"jj commit"*|*"jj describe"*|*"git commit"*) ;;
   *) exit 0 ;;
@@ -24,7 +35,7 @@ esac
 
 START_TS=$(now_ms)
 
-COMMAND="$(printf '%s' "$INPUT" | jq -r '.command // empty' 2>/dev/null || true)"
+COMMAND="$INPUT"
 
 # Detect VCS tool
 VCS_TOOL="git"
@@ -40,14 +51,24 @@ fi
 
 # Fallback: parse jj output for "Working copy now at: <hash> <message>"
 if [ -z "$MSG" ]; then
-  OUTPUT="$(printf '%s' "${CLAUDE_TOOL_OUTPUT:-}" | jq -r '.output // empty' 2>/dev/null || true)"
+  # Extract stdout from stdin payload (preferred) or legacy env var
+  if [ -n "$STDIN_PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
+    OUTPUT="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.tool_response.stdout // .tool_response.output // empty' 2>/dev/null || true)"
+  else
+    OUTPUT="$(printf '%s' "${CLAUDE_TOOL_OUTPUT:-}" | jq -r '.output // empty' 2>/dev/null || true)"
+  fi
   MSG="$(printf '%s' "$OUTPUT" | sed -n 's/Working copy now at: [a-z0-9]* //p' | head -1 | head -c 200 || true)"
 fi
 
 [ -n "$MSG" ] || exit 0
 
 PROJECT="$(basename "$PWD")"
-SESSION_ID="${CLAUDE_SESSION_ID:-}"
+# session_id comes from stdin payload (not env var)
+SESSION_ID=""
+if [ -n "$STDIN_PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
+  SESSION_ID="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)"
+fi
+SESSION_ID="${SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
 
 mkdir -p "$MAG_DATA_ROOT"
 

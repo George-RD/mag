@@ -1,6 +1,12 @@
 #!/bin/sh
 # tests/hooks/t04_error_capture.sh
-# Verify the PostToolUse/error-capture hook fires when cargo check fails.
+# Verify the PostToolUse/error-capture hook fires when a build command fails.
+#
+# Strategy: ask Claude to run "cargo check" in an empty directory (no Cargo.toml).
+# Cargo exits immediately with "error: could not find Cargo.toml" — no compilation
+# or target/ writes needed, so the sandbox does not block it.
+# "cargo check" matches error-capture.sh's fast-path; "error: " matches its output
+# filter. cargo is required — test skips if not in PATH.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/helpers/common.sh"
@@ -12,27 +18,14 @@ if ! command -v cargo >/dev/null 2>&1; then
   skip_test "cargo not in PATH"
 fi
 
-# Create a minimal Rust crate with a deliberate type error
-BADCRATE="$TEST_TMPDIR/badcrate"
-mkdir -p "$BADCRATE/src"
-
-cat > "$BADCRATE/Cargo.toml" <<'TOML'
-[package]
-name = "badcrate"
-version = "0.1.0"
-edition = "2021"
-TOML
-
-# Deliberate type error: assign string to integer variable
-cat > "$BADCRATE/src/main.rs" <<'RUST'
-fn main() {
-    let x: i32 = "this is not an integer";
-    println!("{}", x);
-}
-RUST
-
-# Ask Claude to run cargo check — the output will contain "error[E..."
-run_claude "Run: cargo check --manifest-path $BADCRATE/Cargo.toml 2>&1"
+# Ask Claude to run cargo check in its working dir (no Cargo.toml present).
+# Cargo will immediately output:
+#   "error: could not find `Cargo.toml` in ..."
+# which satisfies:
+#   - fast-path filter: *"cargo check"*
+#   - output filter:    *"error: "*
+# No target/ dir is written, so no sandbox permission issues.
+run_claude "Run: cargo check 2>&1" --max-turns 2
 
 # 1. error_capture event must be in the JSONL log
 assert_event_fired "hook.error_capture"

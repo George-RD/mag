@@ -1,7 +1,7 @@
 #!/bin/sh
 # MAG error-capture — auto-capture build/test failures as error_pattern memories
 # PostToolUse(Bash) hook. MUST exit fast (<50ms) for non-matching commands.
-# Receives: $CLAUDE_TOOL_INPUT (command JSON), $CLAUDE_TOOL_OUTPUT (output JSON)
+# Receives: event JSON via stdin (tool_input.command, tool_response.stdout)
 set -eu
 
 MAG_DATA_ROOT="${MAG_DATA_ROOT:-$HOME/.mag}"
@@ -13,8 +13,28 @@ now_ms() {
   perl -MTime::HiRes=time -e 'printf "%d\n", time*1000' 2>/dev/null || printf '%s000' "$(date +%s)"
 }
 
+# PostToolUse hooks receive the event payload via stdin (JSON), not env vars.
+# CLAUDE_TOOL_INPUT / CLAUDE_TOOL_OUTPUT are legacy env vars that may be empty.
+# Always read stdin for reliable cross-version behavior.
+STDIN_PAYLOAD="$(cat 2>/dev/null)" || STDIN_PAYLOAD=""
+
+# Extract command and output from stdin payload (preferred) or legacy env vars.
+if [ -n "$STDIN_PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
+  TOOL_INPUT="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
+  TOOL_OUTPUT="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.tool_response.stdout // .tool_response.output // empty' 2>/dev/null || true)"
+else
+  # Legacy env var fallback: extract command from JSON envelope
+  TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
+  if command -v jq >/dev/null 2>&1; then
+    TOOL_INPUT="$(printf '%s' "$TOOL_INPUT" | jq -r '.command // empty' 2>/dev/null || true)"
+  fi
+  TOOL_OUTPUT="${CLAUDE_TOOL_OUTPUT:-}"
+  if command -v jq >/dev/null 2>&1; then
+    TOOL_OUTPUT="$(printf '%s' "$TOOL_OUTPUT" | jq -r '.output // empty' 2>/dev/null || true)"
+  fi
+fi
+
 # Fast-path: only process build/test commands
-TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
 case "$TOOL_INPUT" in
   *"cargo test"*|*"cargo build"*|*"cargo check"*|*"cargo clippy"*|*"npm test"*|*"npm run"*|*"prek run"*)
     ;; # fall through to failure detection
@@ -23,8 +43,7 @@ case "$TOOL_INPUT" in
     ;;
 esac
 
-# Check output for failure signals
-TOOL_OUTPUT="${CLAUDE_TOOL_OUTPUT:-}"
+# Check output for failure signals (searching the actual output text, not JSON envelope)
 case "$TOOL_OUTPUT" in
   *"FAILED"*|*"error["*|*"error: "*|*"npm ERR!"*)
     ;; # fall through to error extraction
@@ -56,10 +75,15 @@ ERROR_LINE="$(printf '%.200s' "$ERROR_LINE")"
 
 # Derive project and session (after fast-path so non-build commands skip this)
 PROJECT="$(basename "$PWD")"
-SESSION_ID="${CLAUDE_SESSION_ID:-}"
+# session_id comes from stdin payload (not env var)
+SESSION_ID=""
+if [ -n "$STDIN_PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
+  SESSION_ID="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)"
+fi
+SESSION_ID="${SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
 
-# Extract command preview for context
-CMD_PREVIEW="$(printf '%s' "$TOOL_INPUT" | jq -r '.command // empty' 2>/dev/null | head -c 100 || true)"
+# TOOL_INPUT is already the plain command string (extracted above)
+CMD_PREVIEW="$(printf '%.100s' "$TOOL_INPUT")"
 
 mkdir -p "$MAG_DATA_ROOT"
 
