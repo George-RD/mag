@@ -1,5 +1,31 @@
 # Known Gaps — Hook Integration Tests
 
+## Dual-target mode (`HOOKS_TARGET`)
+
+The test harness supports two plugin targets via the `HOOKS_TARGET` environment
+variable:
+
+| Value | Scripts dir | `MAG_DATA_ROOT` | Default? |
+|---|---|---|---|
+| `production` | `plugin/scripts/` | `~/.mag` | yes |
+| `dev` | `plugin/dev/scripts/` | `~/.dev-mag` | no |
+
+### Running in dev mode
+
+```sh
+HOOKS_TARGET=dev sh tests/hooks/run_all.sh
+```
+
+All six tests (t01–t06) work in both modes. `run_all.sh` prints the active
+target at the start of output so it's visible in CI logs.
+
+### SubagentStop is dev-only
+
+`subagent-end.sh` is only present in `plugin/dev/scripts/`. In **production**
+mode, `plugin-install.sh` detects the missing script and omits the
+`SubagentStop` hook block from the generated `settings.json`, so t06 will
+always skip rather than error in production mode.
+
 ## Hooks not testable via `claude -p`
 
 ### PreCompact / PostCompact

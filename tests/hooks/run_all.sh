@@ -9,6 +9,11 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Print the active target so the user knows which plugin is under test.
+# HOOKS_TARGET is read by helpers/common.sh; default is "production".
+_target="${HOOKS_TARGET:-production}"
+printf '# hooks target: %s\n' "$_target"
+
 FILTER=""
 if [ "${1:-}" = "--filter" ]; then
   if [ -z "${2:-}" ]; then

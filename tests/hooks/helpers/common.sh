@@ -6,8 +6,6 @@
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DEV_MAG_ROOT="${DEV_MAG_ROOT:-$HOME/.dev-mag}"
-JSONL_LOG="$DEV_MAG_ROOT/auto-capture.jsonl"
 CLAUDE_MODEL="${CLAUDE_MODEL:-haiku}"
 
 # Absolute path to the plugin scripts directory in this repo.
@@ -19,10 +17,37 @@ if [ -z "$_HELPERS_DIR" ]; then
 fi
 # Walk up two levels from helpers/ to repo root
 REPO_ROOT="$(cd "$_HELPERS_DIR/../../.." && pwd)"
-PLUGIN_SCRIPTS_DIR="$REPO_ROOT/plugin/scripts"
 
-export DEV_MAG_ROOT JSONL_LOG CLAUDE_MODEL PLUGIN_SCRIPTS_DIR REPO_ROOT
-export MAG_DATA_ROOT="${DEV_MAG_ROOT}"
+# ---------------------------------------------------------------------------
+# HOOKS_TARGET — select production (default) or dev plugin
+#
+# Usage:
+#   HOOKS_TARGET=dev sh tests/hooks/run_all.sh   # use plugin/dev/scripts/
+#   sh tests/hooks/run_all.sh                    # use plugin/scripts/ (default)
+#
+# Dev mode also sets MAG_DATA_ROOT=~/.dev-mag so hooks write to the dev store.
+# ---------------------------------------------------------------------------
+HOOKS_TARGET="${HOOKS_TARGET:-production}"
+
+case "$HOOKS_TARGET" in
+  dev)
+    MAG_DATA_ROOT="${MAG_DATA_ROOT:-$HOME/.dev-mag}"
+    PLUGIN_SCRIPTS_DIR="$REPO_ROOT/plugin/dev/scripts"
+    ;;
+  production)
+    MAG_DATA_ROOT="${MAG_DATA_ROOT:-$HOME/.mag}"
+    PLUGIN_SCRIPTS_DIR="$REPO_ROOT/plugin/scripts"
+    ;;
+  *)
+    printf 'common.sh: unknown HOOKS_TARGET=%s (must be "production" or "dev")\n' \
+      "$HOOKS_TARGET" >&2
+    exit 2
+    ;;
+esac
+
+JSONL_LOG="$MAG_DATA_ROOT/auto-capture.jsonl"
+
+export HOOKS_TARGET MAG_DATA_ROOT JSONL_LOG CLAUDE_MODEL PLUGIN_SCRIPTS_DIR REPO_ROOT
 
 # ---------------------------------------------------------------------------
 # State tracking (set by setup_test)
@@ -42,7 +67,7 @@ setup_test() {
   export TEST_TMPDIR
 
   # Snapshot current line count in the JSONL log (may not exist yet)
-  mkdir -p "$DEV_MAG_ROOT"
+  mkdir -p "$MAG_DATA_ROOT"
   if [ -f "$JSONL_LOG" ]; then
     JSONL_MARK="$(wc -l < "$JSONL_LOG" | tr -d ' ')"
   else
