@@ -105,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         no_start,
         uninstall,
         force,
+        fix_sandbox,
     } = cli.command
     {
         let transport_mode = mag::setup::parse_transport(&transport, port)?;
@@ -116,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
             no_start,
             uninstall,
             force,
+            fix_sandbox,
         })
         .await;
     }

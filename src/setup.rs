@@ -25,6 +25,8 @@ pub struct SetupArgs {
     pub no_start: bool,
     pub uninstall: bool,
     pub force: bool,
+    /// Only patch `~/.claude/settings.json` sandbox allowlist; skip full setup.
+    pub fix_sandbox: bool,
 }
 
 /// Summary of a configuration run.
@@ -45,6 +47,11 @@ struct ConfigureSummary {
 pub async fn run_setup(args: SetupArgs) -> Result<()> {
     if args.uninstall {
         return crate::uninstall::run_uninstall(false, true).await;
+    }
+
+    // --fix-sandbox: only patch the sandbox allowlist, then exit.
+    if args.fix_sandbox {
+        return run_fix_sandbox();
     }
 
     // Detect phase
@@ -77,6 +84,10 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
         present_summary(&summary);
     }
 
+    // Sandbox allowlist patch — always runs on normal setup so that ~/.mag is
+    // writable even when Claude Code's sandbox is active.
+    patch_sandbox_allowlist_with_feedback();
+
     // Model download phase — always runs; daemon must start after models are ready.
     #[cfg(feature = "real-embeddings")]
     {
@@ -102,6 +113,61 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     #[cfg(feature = "daemon-http")]
     maybe_start_daemon(args.port, args.no_start)?;
 
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Sandbox allowlist helpers
+// ---------------------------------------------------------------------------
+
+/// Patches `~/.claude/settings.json` sandbox allowlist and prints feedback.
+fn patch_sandbox_allowlist_with_feedback() {
+    match config_writer::patch_sandbox_allowlist() {
+        Ok(config_writer::SandboxPatchResult::Patched) => {
+            println!("    \u{2713} sandbox — added ~/.mag to sandbox.filesystem.allowWrite");
+        }
+        Ok(config_writer::SandboxPatchResult::Created) => {
+            println!(
+                "    \u{2713} sandbox — created ~/.claude/settings.json with ~/.mag in sandbox.filesystem.allowWrite"
+            );
+        }
+        Ok(config_writer::SandboxPatchResult::AlreadyPresent) => {
+            tracing::debug!("sandbox allowlist already contains ~/.mag — skipping");
+        }
+        Err(e) => {
+            eprintln!(
+                "    \u{26a0} sandbox — could not patch sandbox allowlist: {e}\n      \
+                 You can fix this manually: add ~/.mag to sandbox.filesystem.allowWrite in ~/.claude/settings.json"
+            );
+        }
+    }
+}
+
+/// Entry point for `mag setup --fix-sandbox`.
+fn run_fix_sandbox() -> Result<()> {
+    println!("\n  Patching Claude Code sandbox allowlist...\n");
+    match config_writer::patch_sandbox_allowlist() {
+        Ok(config_writer::SandboxPatchResult::Patched) => {
+            println!(
+                "    \u{2713} Added ~/.mag to sandbox.filesystem.allowWrite in ~/.claude/settings.json"
+            );
+        }
+        Ok(config_writer::SandboxPatchResult::Created) => {
+            println!(
+                "    \u{2713} Created ~/.claude/settings.json with ~/.mag in sandbox.filesystem.allowWrite"
+            );
+        }
+        Ok(config_writer::SandboxPatchResult::AlreadyPresent) => {
+            println!(
+                "    \u{2713} ~/.mag is already in sandbox.filesystem.allowWrite — nothing to do"
+            );
+        }
+        Err(e) => {
+            eprintln!("    \u{2717} Failed to patch sandbox allowlist: {e}");
+            return Err(e);
+        }
+    }
+    println!("\n  Restart Claude Code for the sandbox change to take effect.\n");
     Ok(())
 }
 
@@ -890,6 +956,7 @@ mod tests {
             no_start: false,
             uninstall: false,
             force: false,
+            fix_sandbox: false,
         };
         assert!(!args.non_interactive);
         assert!(args.tools.is_none());
@@ -927,6 +994,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: false,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();
@@ -953,6 +1021,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: false,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();
@@ -977,6 +1046,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: true,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();
@@ -1000,6 +1070,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: false,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();
@@ -1197,6 +1268,7 @@ mod tests {
                 no_start: true,
                 uninstall: false,
                 force: false,
+                fix_sandbox: false,
             };
 
             let selected = select_tools(&result, &args).unwrap();
@@ -1271,6 +1343,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: false,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();
@@ -1296,6 +1369,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: false,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();
@@ -1326,6 +1400,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: false,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();
@@ -1350,6 +1425,7 @@ mod tests {
             no_start: true,
             uninstall: false,
             force: true,
+            fix_sandbox: false,
         };
 
         let selected = select_tools(&result, &args).unwrap();

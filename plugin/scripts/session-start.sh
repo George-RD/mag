@@ -28,7 +28,11 @@ SESSION_ID="${SESSION_ID:-}"
 CWD="${CWD:-$PWD}"
 PROJECT="$(basename "$CWD")"
 
-mkdir -p "$MAG_DATA_ROOT"
+# Sandbox compatibility check
+if ! mkdir -p "$MAG_DATA_ROOT" 2>/dev/null; then
+  printf '{"additionalContext":"⚠ MAG: Cannot write to %s (sandbox restriction). Add %s to sandbox.filesystem.allowWrite in ~/.claude/settings.json or run: mag setup --fix-sandbox"}\n' "$MAG_DATA_ROOT" "$MAG_DATA_ROOT"
+  exit 0
+fi
 
 # Reap stale pre-compact snapshots (moved here from pre-compact.sh where timing is critical)
 STATE_DIR="$MAG_DATA_ROOT/state"
