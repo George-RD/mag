@@ -1,6 +1,6 @@
 {
   "name": "mag-memory",
-  "version": "0.1.8",
+  "version": "0.1.8-dev",
   "description": "MAG — Memory Augmented Generation. Local MCP memory server with ONNX embeddings.",
   "license": "MIT",
   "repository": {
