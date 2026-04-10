@@ -814,6 +814,108 @@ fn remove_toml_config(tool: &DetectedTool) -> Result<RemoveResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Sandbox allowlist patcher
+// ---------------------------------------------------------------------------
+
+/// Outcome of a sandbox patch operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SandboxPatchResult {
+    /// `~/.mag` was added to `sandbox.filesystem.allowWrite`.
+    Patched,
+    /// `~/.mag` was already present; no change needed.
+    AlreadyPresent,
+    /// `~/.claude/settings.json` does not exist yet; created it with the entry.
+    Created,
+}
+
+/// Patches `~/.claude/settings.json` to add `~/.mag` (or the current
+/// `MAG_DATA_ROOT`) to `sandbox.filesystem.allowWrite`.
+///
+/// - Reads the file if it exists, or starts from `{}`.
+/// - Navigates / creates the path `sandbox` → `filesystem` → `allowWrite` (array).
+/// - Appends `~/.mag` only if it is not already present.
+/// - Writes back with 2-space indent via [`atomic_write`].
+pub fn patch_sandbox_allowlist() -> Result<SandboxPatchResult> {
+    let home = crate::app_paths::home_dir()?;
+    let settings_path = home.join(".claude/settings.json");
+
+    // Resolve the entry to add: use MAG_DATA_ROOT env var if set, otherwise ~/.mag
+    let entry_to_add = if let Ok(data_root) = std::env::var("MAG_DATA_ROOT") {
+        data_root
+    } else {
+        home.join(".mag").to_string_lossy().into_owned()
+    };
+
+    let file_existed = settings_path.exists();
+
+    // Read existing settings or start from empty object
+    let mut root: serde_json::Value = if file_existed {
+        let content = std::fs::read_to_string(&settings_path)
+            .with_context(|| format!("reading {}", settings_path.display()))?;
+        let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
+        if content.trim().is_empty() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            serde_json::from_str(content)
+                .with_context(|| format!("parsing {}", settings_path.display()))?
+        }
+    } else {
+        serde_json::Value::Object(serde_json::Map::new())
+    };
+
+    // Navigate / create: root → sandbox → filesystem → allowWrite (array)
+    let root_obj = root
+        .as_object_mut()
+        .context("settings.json root is not an object")?;
+
+    root_obj
+        .entry("sandbox")
+        .or_insert_with(|| serde_json::json!({}));
+
+    let sandbox_obj = root_obj["sandbox"]
+        .as_object_mut()
+        .context("sandbox key is not an object")?;
+
+    sandbox_obj
+        .entry("filesystem")
+        .or_insert_with(|| serde_json::json!({}));
+
+    let fs_obj = sandbox_obj["filesystem"]
+        .as_object_mut()
+        .context("sandbox.filesystem is not an object")?;
+
+    fs_obj
+        .entry("allowWrite")
+        .or_insert_with(|| serde_json::Value::Array(vec![]));
+
+    let allow_write = fs_obj["allowWrite"]
+        .as_array_mut()
+        .context("sandbox.filesystem.allowWrite is not an array")?;
+
+    // Check if already present
+    let already_present = allow_write
+        .iter()
+        .any(|v| v.as_str() == Some(&entry_to_add));
+
+    if already_present {
+        return Ok(SandboxPatchResult::AlreadyPresent);
+    }
+
+    // Append the entry
+    allow_write.push(serde_json::Value::String(entry_to_add));
+
+    // Serialize and write back
+    let serialized = serialize_json(&root)?;
+    atomic_write(&settings_path, serialized.as_bytes())?;
+
+    if file_existed {
+        Ok(SandboxPatchResult::Patched)
+    } else {
+        Ok(SandboxPatchResult::Created)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

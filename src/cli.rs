@@ -395,6 +395,10 @@ pub enum Commands {
         /// Force reconfiguration even if already configured.
         #[arg(long)]
         force: bool,
+        /// Only patch ~/.claude/settings.json to add ~/.mag to the sandbox
+        /// filesystem allowlist. Skips all other setup steps.
+        #[arg(long)]
+        fix_sandbox: bool,
     },
 }
 
