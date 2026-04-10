@@ -4,7 +4,7 @@
 #
 # Creates a minimal Claude Code configuration directory with hooks pointing
 # to the repo's plugin/scripts/ directory using absolute paths.
-# The generated settings.json is suitable for passing to `claude --config-dir`.
+# The generated settings.json is suitable for passing to `claude --settings`.
 
 set -eu
 

@@ -51,7 +51,7 @@ fi
 # Store with lower importance than main session (D4: 0.3)
 MAG_EXIT=0
 mag process "$SUMMARY" \
-  --event-type subagent_end \
+  --event-type task_completion \
   --project "$PROJECT" \
   --session-id "$SESSION_ID" \
   --importance 0.3 2>/dev/null || MAG_EXIT=$?

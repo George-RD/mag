@@ -209,20 +209,29 @@ run_claude() {
   _prompt="$1"
   shift || true
 
-  # Build config dir pointing to our plugin hooks
-  _cfg_dir="$(mktemp -d)"
-  "$REPO_ROOT/tests/hooks/helpers/plugin-install.sh" "$_cfg_dir"
+  # Claude Code loads hooks from <cwd>/.claude/settings.json (project settings),
+  # NOT from --settings <file>. The --settings flag merges extra config but does
+  # NOT trigger hook discovery. We must place hooks in .claude/settings.json
+  # inside the working directory we pass to claude.
+  #
+  # Additionally, --max-budget-usd causes claude to exit with a non-zero error
+  # status ("Exceeded USD budget") before the Stop hook fires. Remove it so
+  # the Stop/SubagentStop events are always captured.
+  _run_dir="$(mktemp -d)"
+  mkdir -p "$_run_dir/.claude"
+  "$REPO_ROOT/tests/hooks/helpers/plugin-install.sh" "$_run_dir/.claude"
 
-  claude \
-    --config-dir "$_cfg_dir" \
+  # Rename the generated file to settings.json inside .claude/
+  # plugin-install.sh writes to <DIR>/settings.json, so it's already there.
+
+  ( cd "$_run_dir" && claude \
     -p "$_prompt" \
     --model "$CLAUDE_MODEL" \
     --dangerously-skip-permissions \
     --max-turns 3 \
-    --max-budget-usd 0.05 \
-    "$@" 2>/dev/null || true
+    "$@" 2>/dev/null ) || true
 
-  rm -rf "$_cfg_dir"
+  rm -rf "$_run_dir"
 }
 
 # ---------------------------------------------------------------------------
