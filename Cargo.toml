@@ -42,7 +42,7 @@ schemars = "1.2.1"
 serde_json = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rmcp = { version = "0.16.0", features = ["server", "client", "transport-io", "transport-child-process", "transport-streamable-http-server", "macros"] }
-ort = { version = "=2.0.0-rc.11", optional = true }
+ort = { version = "=2.0.0-rc.12", optional = true }
 tokenizers = { version = "0.22", optional = true, default-features = false, features = ["onig"] }
 ndarray = { version = "0.16", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
