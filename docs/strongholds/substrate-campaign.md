@@ -1,6 +1,6 @@
 # MAG Experimentation Substrate Campaign
 
-**Status**: Planning complete, ready for Phase 1 implementation
+**Status**: Phase 1 DONE, Phase 2 in progress (2a+2b merged, 2c next)
 **Campaign Workspace**: `../mag-substrate` (jj workspace `substrate-campaign`)
 **Generated**: 2026-04-14
 
@@ -26,6 +26,36 @@ MAG v0.2 is a Rust core exposing stable traits for Storage, Retrieval, Fusion, S
 | Dead Code Audit | `docs/strongholds/recon-dead-code.md` | Complete |
 | Test Infrastructure | `docs/strongholds/recon-test-infra.md` | Complete |
 | Existing Docs | `docs/strongholds/recon-existing-docs.md` | Inline (not persisted) |
+
+## Completed PRs
+
+| PR | Title | Merged | Benchmark |
+|----|-------|--------|-----------|
+| #289 | docs: substrate campaign specs & strongholds | 2026-04-14 | N/A |
+| #290 | docs: update MCP tool count 16→19 | 2026-04-14 | N/A |
+| #291 | perf: parallelize sub-query fan-out with JoinSet (#121) | 2026-04-14 | 91.5% PASS |
+| #292 | refactor: split admin.rs into admin/ subdirectory | 2026-04-14 | N/A |
+| #293 | feat: wire McpToolMode::Minimal to filter tool list | 2026-04-14 | N/A |
+| #294 | fix: address review comments on #291, #293 | 2026-04-14 | N/A |
+| #295 | style: fix rustfmt in advanced.rs | 2026-04-14 | 91.5% PASS |
+| #296 | refactor: extract ScoringStrategy trait (PR-2a) | 2026-04-14 | N/A (additive) |
+| #297 | refactor: extract Reranker trait boundary (PR-2b, #119) | 2026-04-14 | 91.5% PASS |
+
+## Next Up: PR-2c
+
+**sqlite/mod.rs structural extraction** — Split 1,281-line mod.rs into 5 focused files:
+- `storage.rs` — SqliteStorage struct, constructors, builder
+- `cache.rs` — CachedQuery, QueryCache, invalidation
+- `hot_cache_mgmt.rs` — hot cache refresh orchestration
+- `relationships.rs` — add_relationship, graph_edge_stats
+- `io.rs` — stats, bulk-read helpers
+
+CRITICAL: Add `pub use storage::SqliteStorage;` to mod.rs FIRST (Risk #6 — visibility cascade).
+Execute in 6 sequential steps, `prek run` after each. Pure moves, no logic changes.
+Bookmark: `refactor/sqlite-extraction`. Benchmark gate required.
+
+Blocked by: nothing (2a+2b both merged).
+Blocks: PR-2d (inject ScoringStrategy into SqliteStorage).
 
 ## Key Corrections from Source Inspection
 
