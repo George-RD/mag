@@ -1543,18 +1543,19 @@ impl AdvancedSearcher for SqliteStorage {
                 // Each sub-query internally runs vector + FTS in try_join!,
                 // consuming 2 readers simultaneously, so effective parallelism
                 // is ~2 sub-queries at a time; additional queries queue on the
-                // reader mutexes without deadlock.  Results are merged with
-                // dedup after all tasks complete.
-                let mut join_set: tokio::task::JoinSet<Result<Vec<SemanticResult>>> =
+                // reader mutexes without deadlock.  Results are collected with
+                // their original index and sorted before merging to preserve
+                // deterministic dedup ordering.
+                let mut join_set: tokio::task::JoinSet<(usize, Result<Vec<SemanticResult>>)> =
                     tokio::task::JoinSet::new();
-                for sub_query in sub_queries.iter().skip(1) {
+                for (idx, sub_query) in sub_queries.iter().skip(1).enumerate() {
                     let pool = Arc::clone(&decomp_pool);
                     let embedder = Arc::clone(&decomp_embedder);
                     let sq = sub_query.clone();
                     let opts = decomp_opts.clone();
                     let sp = decomp_sp.clone();
                     join_set.spawn(async move {
-                        run_single_query_pipeline(
+                        let res = run_single_query_pipeline(
                             &pool,
                             &embedder,
                             &sq,
@@ -1565,11 +1566,20 @@ impl AdvancedSearcher for SqliteStorage {
                             include_superseded,
                             explain_enabled,
                         )
-                        .await
+                        .await;
+                        (idx, res)
                     });
                 }
+                // Collect all results, then sort by original sub-query index
+                // so merge order is deterministic (same as the old sequential loop).
+                let mut indexed_results: Vec<(usize, Vec<SemanticResult>)> = Vec::new();
                 while let Some(task_result) = join_set.join_next().await {
-                    let sub_results = task_result.context("sub-query task panicked")??;
+                    let (idx, sub_results) =
+                        task_result.context("sub-query task panicked")?;
+                    indexed_results.push((idx, sub_results?));
+                }
+                indexed_results.sort_by_key(|(idx, _)| *idx);
+                for (_idx, sub_results) in indexed_results {
                     for result in sub_results {
                         if seen_ids.insert(result.id.clone()) {
                             all_results.push(result);

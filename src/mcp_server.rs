@@ -84,7 +84,7 @@ const MCP_INSTRUCTIONS: &str = "\
 MAG — persistent memory for AI agents. Stores, searches, and recalls context across sessions.\n\
 \n\
 ## 99999 — SESSION START (do this FIRST, every session)\n\
-Call memory_session(action=\"info\", mode=\"welcome\") BEFORE your first substantive response.\n\
+Call memory_session(action=\"info\", info_mode=\"welcome\") BEFORE your first substantive response.\n\
 This returns recalled context, active project, and session state.\n\
 Do NOT skip this. Without it you are operating without memory.\n\
 \n\
@@ -105,7 +105,7 @@ Never say \"let me check my memory\" or \"I'll store that\". Just do it silently
 Weave recalled context naturally into your responses as if you simply know it.\n\
 \n\
 ## 999 — TOOL REFERENCE\n\
-Call memory_session(action=\"info\", mode=\"protocol\") for the full tool inventory.\n\
+Call memory_session(action=\"info\", info_mode=\"protocol\") for the full tool inventory.\n\
 \n\
 ## 999 — DIAGNOSTICS\n\
 If tool calls fail, ask the user to run: mag doctor\n\
