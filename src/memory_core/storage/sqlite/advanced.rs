@@ -1574,8 +1574,7 @@ impl AdvancedSearcher for SqliteStorage {
                 // so merge order is deterministic (same as the old sequential loop).
                 let mut indexed_results: Vec<(usize, Vec<SemanticResult>)> = Vec::new();
                 while let Some(task_result) = join_set.join_next().await {
-                    let (idx, sub_results) =
-                        task_result.context("sub-query task panicked")?;
+                    let (idx, sub_results) = task_result.context("sub-query task panicked")?;
                     indexed_results.push((idx, sub_results?));
                 }
                 indexed_results.sort_by_key(|(idx, _)| *idx);
