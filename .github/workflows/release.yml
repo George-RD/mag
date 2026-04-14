@@ -316,12 +316,12 @@ jobs:
           EXPECTED_VER="${EXPECTED_VER#v}"
           # Retry up to 5 times with 30s gaps to allow crates.io index propagation
           for i in 1 2 3 4 5; do
-            echo "Attempt $i: trying cargo install mag --version $EXPECTED_VER..."
-            cargo install mag --version "$EXPECTED_VER" && exit 0
+            echo "Attempt $i: trying cargo install mag-memory --version $EXPECTED_VER..."
+            cargo install mag-memory --version "$EXPECTED_VER" && exit 0
             echo "Attempt $i failed. Waiting 30s before retry..."
             sleep 30
           done
-          echo "::error::mag failed to install from crates.io after 5 attempts"
+          echo "::error::mag-memory failed to install from crates.io after 5 attempts"
           exit 1
 
       - name: Verify version
