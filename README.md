@@ -179,7 +179,7 @@ Per-tool setup guides: [Claude Desktop](docs/setup/claude-desktop.md) | [Cursor]
 
 ## Learn More
 
-- [MCP Tools](docs/mcp-tools.md) - all 16 tools MAG exposes over MCP
+- [MCP Tools](docs/mcp-tools.md) - all 19 tools MAG exposes over MCP
 - [Architecture](docs/architecture.md) - search pipeline, scoring, modules
 - [Benchmarks](docs/benchmarks/) - full results, model comparisons, methodology
 - [Security](SECURITY.md) - data-flow audit, threat model

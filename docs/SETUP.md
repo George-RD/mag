@@ -102,7 +102,7 @@ claude mcp add mag -- mag serve
 After configuring, verify MAG is working:
 
 1. Open your AI tool
-2. Ask it: "What MCP tools are available?" — it should list MAG's 16 tools (memory_store, recall_memory, etc.)
+2. Ask it: "What MCP tools are available?" — it should list MAG's 19 tools (memory_store, recall_memory, etc.)
 3. Test a store and recall:
    - "Remember that I prefer dark mode in all my editors"
    - "What are my editor preferences?"
@@ -171,7 +171,7 @@ Before starting work, recall memories for the current project to load context.
 
 ## More Resources
 
-- [MCP Tools Reference](mcp-tools.md) — all 16 tools MAG exposes
+- [MCP Tools Reference](mcp-tools.md) — all 19 tools MAG exposes
 - [What to Store](what-to-store.md) — 10 system prompt patterns
 - [Architecture](architecture.md) — how the search pipeline works
 - [Security](../SECURITY.md) — data-flow audit
@@ -282,7 +282,7 @@ claude mcp add mag -- mag serve
 After configuring, verify MAG is working:
 
 1. Open your AI tool
-2. Ask it: "What MCP tools are available?" — it should list MAG's 16 tools (memory_store, memory_search, etc.)
+2. Ask it: "What MCP tools are available?" — it should list MAG's 19 tools (memory_store, memory_search, etc.)
 3. Test a store and recall:
    - "Remember that I prefer dark mode in all my editors"
    - "What are my editor preferences?"
@@ -351,7 +351,7 @@ Before starting work, recall memories for the current project to load context.
 
 ## More Resources
 
-- [MCP Tools Reference](mcp-tools.md) — all 16 tools MAG exposes
+- [MCP Tools Reference](mcp-tools.md) — all 19 tools MAG exposes
 - [What to Store](what-to-store.md) — 10 system prompt patterns
 - [Architecture](architecture.md) — how the search pipeline works
 - [Security](../SECURITY.md) — data-flow audit

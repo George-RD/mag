@@ -34,9 +34,9 @@ src/
 
 `ingest`, `process`, `retrieve`, `delete`, `update`, `list`, `relations`, `search`, `semantic-search`, `recent`, `stats`, `export`, `import`, `feedback`, `sweep`, `checkpoint`, `resume-task`, `profile`, `remind`, `lessons`, `download-model`, `advanced-search`, `similar`, `traverse`, `phrase-search`, `maintain`, `welcome`, `protocol`, `stats-extended`, `serve`
 
-### MCP Tools (16)
+### MCP Tools (19)
 
-`memory_store`, `memory_store_batch`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_list`, `memory_relations`, `memory_feedback`, `memory_lifecycle`, `memory_checkpoint`, `memory_remind`, `memory_lessons`, `memory_profile`, `memory_admin`, `memory_session_info`
+`memory_store`, `memory_store_batch`, `memory_retrieve`, `memory_delete`, `memory_update`, `memory_search`, `memory_list`, `memory_relations`, `memory_feedback`, `memory_lifecycle`, `memory_checkpoint`, `memory_remind`, `memory_lessons`, `memory_profile`, `memory_admin`, `memory_session_info`, `memory`, `memory_manage`, `memory_session`
 
 **Migration note (from pre-consolidation tool set):**
 Four tools were merged into the two consolidated tools above:
