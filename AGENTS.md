@@ -57,12 +57,12 @@ cargo run --release --bin locomo_bench -- --llm-judge --samples 2               
 
 ## Architecture
 
-Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. 16 MCP tools exposed via stdio protocol. No external services required.
+Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-small-en-v1.5, 384-dim) for semantic search. 19 MCP tools exposed via stdio protocol. No external services required.
 
 ### Key modules
 
 - `src/main.rs` — CLI dispatch via clap
-- `src/mcp_server.rs` — MCP stdio server (16 tools), `TOOL_REGISTRY` const array
+- `src/mcp_server.rs` — MCP stdio server (19 tools), `TOOL_REGISTRY` const array
 - `src/memory_core/mod.rs` — 27+ traits defining the pipeline interface
   - `domain.rs` — `EventType`, `MemoryKind`, TTL constants, relationship type constants
   - `traits.rs` — 27+ trait definitions for the pipeline interface
