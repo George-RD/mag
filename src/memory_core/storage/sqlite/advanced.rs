@@ -1538,26 +1538,38 @@ impl AdvancedSearcher for SqliteStorage {
                 let decomp_embedder = Arc::clone(&self.embedder);
                 let decomp_sp = self.scoring_params.clone();
                 let decomp_opts = opts_for_decomp.clone();
-                // TODO(#121): parallelize sub-queries when pool supports concurrent
-                // readers.  Currently sequential because: (1) SQLite is single-writer
-                // and the pool may not have multiple reader connections, (2) results
-                // are merged with dedup logic that accumulates seen_ids across
-                // iterations.  With a read-only connection pool, these could use
-                // futures::future::join_all and merge afterward.
+                // Parallel sub-query execution (resolves #121).
+                // ConnPool has 4 dedicated reader connections in WAL mode.
+                // Each sub-query internally runs vector + FTS in try_join!,
+                // consuming 2 readers simultaneously, so effective parallelism
+                // is ~2 sub-queries at a time; additional queries queue on the
+                // reader mutexes without deadlock.  Results are merged with
+                // dedup after all tasks complete.
+                let mut join_set: tokio::task::JoinSet<Result<Vec<SemanticResult>>> =
+                    tokio::task::JoinSet::new();
                 for sub_query in sub_queries.iter().skip(1) {
-                    let sub_results = run_single_query_pipeline(
-                        &decomp_pool,
-                        &decomp_embedder,
-                        sub_query,
-                        candidate_limit,
-                        limit,
-                        &decomp_opts,
-                        &decomp_sp,
-                        include_superseded,
-                        explain_enabled,
-                    )
-                    .await?;
-
+                    let pool = Arc::clone(&decomp_pool);
+                    let embedder = Arc::clone(&decomp_embedder);
+                    let sq = sub_query.clone();
+                    let opts = decomp_opts.clone();
+                    let sp = decomp_sp.clone();
+                    join_set.spawn(async move {
+                        run_single_query_pipeline(
+                            &pool,
+                            &embedder,
+                            &sq,
+                            candidate_limit,
+                            limit,
+                            &opts,
+                            &sp,
+                            include_superseded,
+                            explain_enabled,
+                        )
+                        .await
+                    });
+                }
+                while let Some(task_result) = join_set.join_next().await {
+                    let sub_results = task_result.context("sub-query task panicked")??;
                     for result in sub_results {
                         if seen_ids.insert(result.id.clone()) {
                             all_results.push(result);
