@@ -313,9 +313,12 @@ fn collect_fts_candidates(
 }
 
 /// Compute cross-encoder scores for the top candidates if a reranker is available.
-#[cfg(feature = "real-embeddings")]
+///
+/// Returns `None` when no reranker is configured or the candidate list is empty.
+/// Must be called from inside a `spawn_blocking` closure — `rerank` is synchronous
+/// and may block on ONNX inference.
 fn compute_cross_encoder_scores(
-    reranker: Option<&std::sync::Arc<crate::memory_core::reranker::CrossEncoderReranker>>,
+    reranker: Option<&std::sync::Arc<dyn crate::memory_core::reranker::Reranker>>,
     query: &str,
     vector_candidates: &[(String, f64, RankedSemanticCandidate)],
     fts_candidates: &[(String, f64, RankedSemanticCandidate)],
@@ -349,14 +352,13 @@ fn compute_cross_encoder_scores(
     if candidates_for_rerank.is_empty() {
         return None;
     }
-    let passages: Vec<&str> = candidates_for_rerank.iter().map(|(_, c)| *c).collect();
-    match reranker.score_batch(query, &passages) {
-        Ok(scores) => {
-            let mut map = HashMap::with_capacity(scores.len());
-            for (i, &(id, _)) in candidates_for_rerank.iter().enumerate() {
-                map.insert(id.to_owned(), scores[i]);
+    match reranker.rerank(query, &candidates_for_rerank) {
+        Ok(map) => {
+            if map.is_empty() {
+                None
+            } else {
+                Some(map)
             }
-            Some(map)
         }
         Err(e) => {
             tracing::warn!("cross-encoder reranking failed, skipping: {e}");
@@ -1487,13 +1489,11 @@ impl AdvancedSearcher for SqliteStorage {
 
         // Phases 3-6: RRF fusion, score refinement, graph enrichment,
         // abstention + dedup. Needs one reader for graph queries.
-        #[cfg(feature = "real-embeddings")]
         let reranker = self.reranker.clone();
         let results = tokio::task::spawn_blocking({
             let pool = Arc::clone(&pool);
             move || {
-                // Optional cross-encoder reranking
-                #[cfg(feature = "real-embeddings")]
+                // Optional cross-encoder reranking (sync, safe inside spawn_blocking)
                 let ce_scores = compute_cross_encoder_scores(
                     reranker.as_ref(),
                     &query,
@@ -1501,8 +1501,6 @@ impl AdvancedSearcher for SqliteStorage {
                     &fts_candidates,
                     &scoring_params,
                 );
-                #[cfg(not(feature = "real-embeddings"))]
-                let ce_scores: Option<HashMap<String, f32>> = None;
 
                 let conn = pool.reader()?;
                 fuse_refine_and_output(

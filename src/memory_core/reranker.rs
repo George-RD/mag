@@ -1,8 +1,36 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
 use crate::app_paths;
+
+/// Abstraction over relevance re-ranking strategies.
+///
+/// Implementors receive a query and a slice of (id, passage) pairs and return
+/// a map of memory-id → relevance score.  The trait is object-safe so
+/// `SqliteStorage` can hold `Arc<dyn Reranker>` and callers can swap in
+/// `NoOpReranker` for tests without pulling in ONNX dependencies.
+///
+/// The trait is intentionally **synchronous** — `CrossEncoderReranker::rerank`
+/// runs ONNX inference (CPU-bound) and is always called from inside a
+/// `tokio::task::spawn_blocking` closure in `advanced.rs`.
+pub trait Reranker: Send + Sync {
+    /// Re-rank `candidates` (each a `(memory_id, passage_text)` pair) against
+    /// `query`.  Returns a map from memory-id to a relevance score in [0, 1].
+    fn rerank(&self, query: &str, candidates: &[(&str, &str)]) -> Result<HashMap<String, f32>>;
+}
+
+/// A no-op reranker that returns an empty score map, leaving the existing
+/// fusion order unchanged.  Used in tests and feature-gated build targets.
+#[allow(dead_code)]
+pub struct NoOpReranker;
+
+impl Reranker for NoOpReranker {
+    fn rerank(&self, _query: &str, _candidates: &[(&str, &str)]) -> Result<HashMap<String, f32>> {
+        Ok(HashMap::new())
+    }
+}
 
 #[cfg(feature = "real-embeddings")]
 const CROSS_ENCODER_MODEL_NAME: &str = "ms-marco-MiniLM-L-6-v2";
@@ -254,6 +282,22 @@ impl CrossEncoderReranker {
 
         self.touch_last_used();
         Ok(scores)
+    }
+}
+
+#[cfg(feature = "real-embeddings")]
+impl Reranker for CrossEncoderReranker {
+    fn rerank(&self, query: &str, candidates: &[(&str, &str)]) -> Result<HashMap<String, f32>> {
+        if candidates.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let passages: Vec<&str> = candidates.iter().map(|(_, p)| *p).collect();
+        let scores = self.score_batch(query, &passages)?;
+        let mut map = HashMap::with_capacity(scores.len());
+        for (i, &(id, _)) in candidates.iter().enumerate() {
+            map.insert(id.to_owned(), scores[i]);
+        }
+        Ok(map)
     }
 }
 
