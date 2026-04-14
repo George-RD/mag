@@ -2,10 +2,14 @@ use std::fmt::Write as _;
 
 use anyhow::Result;
 use rmcp::{
-    ErrorData as McpError, ServerHandler, ServiceExt,
-    handler::server::{tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
-    tool, tool_handler, tool_router,
+    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
+    handler::server::{tool::ToolCallContext, tool::ToolRouter, wrapper::Parameters},
+    model::{
+        CallToolRequestParams, CallToolResult, Content, ListToolsResult, PaginatedRequestParams,
+        ServerCapabilities, ServerInfo, Tool,
+    },
+    service::RequestContext,
+    tool, tool_router,
     transport::stdio,
 };
 use schemars::JsonSchema;
@@ -50,16 +54,22 @@ fn require_finite(name: &str, value: f64) -> Result<(), McpError> {
 /// - `Minimal`: only the 4 unified facades (memory, memory_manage,
 ///   memory_session, memory_admin) — reduces tool-list noise for clients
 ///   that support action-based routing.
-///
-/// NOTE: Minimal mode filtering (list_tools override) is not yet wired —
-/// the mode is stored but rmcp's proc-macro-generated router needs a
-/// list_tools override to filter at runtime. This is tracked as follow-up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum McpToolMode {
     #[default]
     Full,
     Minimal,
 }
+
+/// Tools advertised in `McpToolMode::Minimal`.
+///
+/// The four unified facade tools replace the 15 legacy tools via `action`
+/// fields and are sufficient for all memory operations:
+/// - `memory`         — store / store_batch / retrieve / delete
+/// - `memory_manage`  — update / feedback / relations / lifecycle
+/// - `memory_session` — info / checkpoint / remind / lessons / profile
+/// - `memory_admin`   — health / list / export / import
+const MINIMAL_TOOL_NAMES: &[&str] = &["memory", "memory_manage", "memory_session", "memory_admin"];
 
 // ──────────────────────── MCP Instructions ────────────────────────
 
@@ -74,7 +84,7 @@ const MCP_INSTRUCTIONS: &str = "\
 MAG — persistent memory for AI agents. Stores, searches, and recalls context across sessions.\n\
 \n\
 ## 99999 — SESSION START (do this FIRST, every session)\n\
-Call memory_session_info(mode=\"welcome\") BEFORE your first substantive response.\n\
+Call memory_session(action=\"info\", mode=\"welcome\") BEFORE your first substantive response.\n\
 This returns recalled context, active project, and session state.\n\
 Do NOT skip this. Without it you are operating without memory.\n\
 \n\
@@ -95,7 +105,7 @@ Never say \"let me check my memory\" or \"I'll store that\". Just do it silently
 Weave recalled context naturally into your responses as if you simply know it.\n\
 \n\
 ## 999 — TOOL REFERENCE\n\
-Call memory_session_info(mode=\"protocol\") for the full tool inventory.\n\
+Call memory_session(action=\"info\", mode=\"protocol\") for the full tool inventory.\n\
 \n\
 ## 999 — DIAGNOSTICS\n\
 If tool calls fail, ask the user to run: mag doctor\n\
@@ -2627,7 +2637,6 @@ impl McpMemoryServer {
     }
 }
 
-#[tool_handler]
 impl ServerHandler for McpMemoryServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
@@ -2635,6 +2644,51 @@ impl ServerHandler for McpMemoryServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let tcc = ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
+    /// Returns the tool list filtered by the configured [`McpToolMode`].
+    ///
+    /// - [`McpToolMode::Full`]: all tools registered in the router.
+    /// - [`McpToolMode::Minimal`]: only the tools listed in [`MINIMAL_TOOL_NAMES`]
+    ///   (the four unified facades).
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        let all = self.tool_router.list_all();
+        let tools = match self.tool_mode {
+            McpToolMode::Full => all,
+            McpToolMode::Minimal => all
+                .into_iter()
+                .filter(|t| MINIMAL_TOOL_NAMES.contains(&t.name.as_ref()))
+                .collect(),
+        };
+        Ok(ListToolsResult {
+            tools,
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    fn get_tool(&self, name: &str) -> Option<Tool> {
+        let tool = self.tool_router.get(name)?;
+        // In Minimal mode, only return tools that are in the minimal set
+        if self.tool_mode == McpToolMode::Minimal
+            && !MINIMAL_TOOL_NAMES.contains(&tool.name.as_ref())
+        {
+            return None;
+        }
+        Some(tool.clone())
     }
 }
 
@@ -2703,6 +2757,63 @@ mod tests {
             assert_eq!(
                 tools[i].as_str().expect("tool name should be a string"),
                 tool.name
+            );
+        }
+    }
+
+    /// `MINIMAL_TOOL_NAMES` must be a strict subset of the names in the tool router.
+    #[test]
+    fn minimal_tool_names_are_valid_router_entries() {
+        let router = McpMemoryServer::tool_router();
+        let all_tools = router.list_all();
+        let all_names: std::collections::HashSet<&str> =
+            all_tools.iter().map(|t| t.name.as_ref()).collect();
+        for &name in MINIMAL_TOOL_NAMES {
+            assert!(
+                all_names.contains(name),
+                "MINIMAL_TOOL_NAMES entry '{name}' is not registered in the tool router"
+            );
+        }
+    }
+
+    /// `McpToolMode::Minimal` must return fewer tools than `McpToolMode::Full`.
+    #[test]
+    fn minimal_mode_returns_strict_subset_of_full_mode() {
+        let router = McpMemoryServer::tool_router();
+        let all = router.list_all();
+        let full_names: Vec<&str> = all.iter().map(|t| t.name.as_ref()).collect();
+        let minimal_names: Vec<&str> = all
+            .iter()
+            .filter(|t| MINIMAL_TOOL_NAMES.contains(&t.name.as_ref()))
+            .map(|t| t.name.as_ref())
+            .collect();
+        assert!(
+            minimal_names.len() < full_names.len(),
+            "Minimal mode ({} tools) must return fewer tools than Full mode ({} tools)",
+            minimal_names.len(),
+            full_names.len()
+        );
+        assert_eq!(
+            minimal_names.len(),
+            MINIMAL_TOOL_NAMES.len(),
+            "every MINIMAL_TOOL_NAMES entry must appear exactly once in the router"
+        );
+        for name in &minimal_names {
+            assert!(
+                full_names.contains(name),
+                "minimal tool '{name}' is missing from the full tool list"
+            );
+        }
+    }
+
+    /// `MINIMAL_TOOL_NAMES` must not contain duplicates.
+    #[test]
+    fn minimal_tool_names_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for &name in MINIMAL_TOOL_NAMES {
+            assert!(
+                seen.insert(name),
+                "duplicate entry in MINIMAL_TOOL_NAMES: {name}"
             );
         }
     }
