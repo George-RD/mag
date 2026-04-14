@@ -20,6 +20,8 @@ pub use embedder::OnnxEmbedder;
 #[allow(unused_imports)]
 pub use embedder::{Embedder, PlaceholderEmbedder};
 #[allow(unused_imports)]
+pub use reranker::{NoOpReranker, Reranker};
+#[allow(unused_imports)]
 pub use scoring::{
     ABSTENTION_MIN_TEXT, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, RRF_WEIGHT_FTS,
     RRF_WEIGHT_VEC, ScoringParams, feedback_factor, jaccard_pre, jaccard_similarity,

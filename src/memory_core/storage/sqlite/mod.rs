@@ -77,8 +77,7 @@ pub enum InitMode {
 /// Uses a connection pool with one writer and N readers (WAL mode) for
 /// concurrent read access. The pool is behind `Arc` so the struct can
 /// be cloned into both the `Storage` and `Retriever` roles of a [`Pipeline`].
-#[cfg(feature = "real-embeddings")]
-use crate::memory_core::reranker::CrossEncoderReranker;
+use crate::memory_core::reranker::Reranker;
 
 #[derive(Clone)]
 pub struct SqliteStorage {
@@ -90,8 +89,7 @@ pub struct SqliteStorage {
     hot_cache: Option<HotTierCache>,
     hot_cache_refresh_guard: Arc<()>,
     hot_cache_refresh_started: Arc<AtomicBool>,
-    #[cfg(feature = "real-embeddings")]
-    reranker: Option<Arc<CrossEncoderReranker>>,
+    reranker: Option<Arc<dyn Reranker>>,
 }
 
 #[cfg(feature = "sqlite-vec")]
@@ -159,22 +157,19 @@ impl SqliteStorage {
             )),
             hot_cache_refresh_guard: Arc::new(()),
             hot_cache_refresh_started: Arc::new(AtomicBool::new(false)),
-            #[cfg(feature = "real-embeddings")]
             reranker: None,
         })
     }
 
-    /// Sets the cross-encoder reranker for this storage instance.
-    #[cfg(feature = "real-embeddings")]
-    pub fn with_reranker(mut self, reranker: Arc<CrossEncoderReranker>) -> Self {
+    /// Sets the reranker for this storage instance.
+    pub fn with_reranker(mut self, reranker: Arc<dyn Reranker>) -> Self {
         self.reranker = Some(reranker);
         self
     }
 
     /// Returns a reference to the reranker, if configured.
-    #[cfg(feature = "real-embeddings")]
     #[allow(dead_code)]
-    pub fn reranker(&self) -> Option<&Arc<CrossEncoderReranker>> {
+    pub fn reranker(&self) -> Option<&Arc<dyn Reranker>> {
         self.reranker.as_ref()
     }
 
@@ -843,7 +838,6 @@ impl SqliteStorage {
             )),
             hot_cache_refresh_guard: Arc::new(()),
             hot_cache_refresh_started: Arc::new(AtomicBool::new(false)),
-            #[cfg(feature = "real-embeddings")]
             reranker: None,
         })
     }
