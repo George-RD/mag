@@ -103,9 +103,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04           # GLIBC 2.35 — matches ORT prebuilt floor
+            os: ubuntu-24.04           # ORT 1.23.2 prebuilts need glibc >= 2.38
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-22.04-arm       # GLIBC 2.35 — matches ORT prebuilt floor
+            os: ubuntu-24.04-arm       # ORT 1.23.2 prebuilts need glibc >= 2.38
           # x86_64-apple-darwin removed: ort (ONNX Runtime) has no prebuilt
           # binaries for Intel Mac, and Apple has discontinued Intel Macs.
           # Users on Intel Mac can build from source or use Rosetta.
