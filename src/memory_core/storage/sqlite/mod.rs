@@ -1223,23 +1223,23 @@ fn build_stats_paths_json(db_path: &Path) -> serde_json::Value {
 }
 
 #[derive(Debug, Clone)]
-struct RankedSemanticCandidate {
-    result: SemanticResult,
-    created_at: String,
+pub struct RankedSemanticCandidate {
+    pub result: SemanticResult,
+    pub created_at: String,
     /// The `event_at` timestamp for temporal filtering (may differ from `created_at`).
-    event_at: String,
-    score: f64,
+    pub event_at: String,
+    pub score: f64,
     /// Resolved priority (from stored value or event-type default), for explain mode.
-    priority_value: u8,
+    pub priority_value: u8,
     #[allow(dead_code)] // Stored for diagnostics; abstention uses collection-level text_overlap
-    vec_sim: Option<f64>,
-    text_overlap: f64,
+    pub vec_sim: Option<f64>,
+    pub text_overlap: f64,
     /// Stored for in-memory filtering and kept in sync with `SemanticResult`.
-    entity_id: Option<String>,
+    pub entity_id: Option<String>,
     /// Stored for in-memory filtering and kept in sync with `SemanticResult`.
-    agent_type: Option<String>,
+    pub agent_type: Option<String>,
     /// Component scores for explain mode; populated only when `SearchOptions.explain` is true.
-    explain: Option<serde_json::Value>,
+    pub explain: Option<serde_json::Value>,
 }
 
 mod admin;

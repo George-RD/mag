@@ -11,6 +11,7 @@ pub use traits::*;
 pub mod embedder;
 pub mod reranker;
 pub mod scoring;
+pub mod scoring_strategy;
 pub mod storage;
 
 #[cfg(feature = "real-embeddings")]
@@ -26,6 +27,8 @@ pub use scoring::{
 };
 #[allow(unused_imports)]
 pub(crate) use scoring::{is_stopword, simple_stem, token_set};
+#[allow(unused_imports)]
+pub use scoring_strategy::{DefaultScoringStrategy, ScoringStrategy};
 
 /// Orchestrates the memory pipeline by coordinating ingestors, processors, and storage.
 pub struct Pipeline {
