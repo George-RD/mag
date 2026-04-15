@@ -7,9 +7,6 @@ use crate::memory_core::storage::sqlite::RankedSemanticCandidate;
 /// pipeline. `DefaultScoringStrategy` wraps the existing multi-factor
 /// scoring logic; future implementations (e.g., `KeywordOnlyStrategy`)
 /// can replace it without modifying storage.
-// The binary does not yet call this trait (PR-2d will wire it); suppress the
-// dead-code lint that fires when compiling the binary target.
-#[allow(dead_code)]
 pub trait ScoringStrategy: Send + Sync {
     fn score(
         &self,
@@ -24,10 +21,8 @@ pub trait ScoringStrategy: Send + Sync {
 /// This is a thin wrapper that preserves the pre-computed score from the
 /// multi-factor pipeline. The actual delegation into `fuse_refine_and_output`
 /// is wired in PR-2d.
-#[allow(dead_code)]
 pub struct DefaultScoringStrategy;
 
-#[allow(dead_code)]
 impl DefaultScoringStrategy {
     pub fn new() -> Self {
         Self

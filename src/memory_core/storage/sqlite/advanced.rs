@@ -10,6 +10,7 @@ use crate::memory_core::domain::{
     REL_PARALLEL_CONTEXT, REL_PRECEDED_BY, REL_RELATES_TO, REL_SHARES_THEME, REL_SIMILAR_TO,
 };
 use crate::memory_core::scoring::query_coverage_boost;
+use crate::memory_core::scoring_strategy::ScoringStrategy;
 
 const ADVANCED_FTS_CANDIDATE_MULTIPLIER: usize = 20;
 const ADVANCED_FTS_CANDIDATE_MIN: usize = 100;
@@ -881,6 +882,7 @@ fn fuse_refine_and_output(
     explain_enabled: bool,
     scoring_params: &ScoringParams,
     cross_encoder_scores: Option<&HashMap<String, f32>>,
+    scoring_strategy: &dyn ScoringStrategy,
 ) -> Result<Vec<SemanticResult>> {
     // Phase 3: Weighted RRF fusion -- vector similarity weighted higher
     // for semantic discrimination (Oracle recommendation)
@@ -1060,6 +1062,11 @@ fn fuse_refine_and_output(
         return Ok(Vec::new());
     }
 
+    // Apply the pluggable scoring strategy as a final pass.
+    for candidate in &mut deduped {
+        candidate.score = scoring_strategy.score(candidate, query, scoring_params);
+    }
+
     deduped.sort_by(|a, b| b.score.total_cmp(&a.score));
     let max_score = deduped.first().map(|c| c.score).unwrap_or(0.0);
     let mut out = Vec::new();
@@ -1185,6 +1192,7 @@ async fn run_single_query_pipeline(
     scoring_params: &ScoringParams,
     include_superseded: bool,
     explain_enabled: bool,
+    scoring_strategy: &Arc<dyn ScoringStrategy>,
 ) -> Result<Vec<SemanticResult>> {
     let intent = classify_query_intent(query);
     let keyword_only = intent == QueryIntent::Keyword;
@@ -1274,6 +1282,7 @@ async fn run_single_query_pipeline(
     let emb = query_embedding;
     let o = opts.clone();
     let sp = scoring_params.clone();
+    let strat = Arc::clone(scoring_strategy);
     tokio::task::spawn_blocking(move || {
         let conn = pool_for_fuse.reader()?;
         fuse_refine_and_output(
@@ -1288,6 +1297,7 @@ async fn run_single_query_pipeline(
             explain_enabled,
             &sp,
             ce_scores.as_ref(),
+            strat.as_ref(),
         )
     })
     .await
@@ -1490,6 +1500,7 @@ impl AdvancedSearcher for SqliteStorage {
         // Phases 3-6: RRF fusion, score refinement, graph enrichment,
         // abstention + dedup. Needs one reader for graph queries.
         let reranker = self.reranker.clone();
+        let scoring_strategy = Arc::clone(&self.scoring_strategy);
         let results = tokio::task::spawn_blocking({
             let pool = Arc::clone(&pool);
             move || {
@@ -1515,6 +1526,7 @@ impl AdvancedSearcher for SqliteStorage {
                     explain_enabled,
                     &scoring_params,
                     ce_scores.as_ref(),
+                    scoring_strategy.as_ref(),
                 )
             }
         })
@@ -1536,6 +1548,7 @@ impl AdvancedSearcher for SqliteStorage {
                 let decomp_embedder = Arc::clone(&self.embedder);
                 let decomp_sp = self.scoring_params.clone();
                 let decomp_opts = opts_for_decomp.clone();
+                let decomp_strat = Arc::clone(&self.scoring_strategy);
                 // Parallel sub-query execution (resolves #121).
                 // ConnPool has 4 dedicated reader connections in WAL mode.
                 // Each sub-query internally runs vector + FTS in try_join!,
@@ -1552,6 +1565,7 @@ impl AdvancedSearcher for SqliteStorage {
                     let sq = sub_query.clone();
                     let opts = decomp_opts.clone();
                     let sp = decomp_sp.clone();
+                    let strat = Arc::clone(&decomp_strat);
                     join_set.spawn(async move {
                         let res = run_single_query_pipeline(
                             &pool,
@@ -1563,6 +1577,7 @@ impl AdvancedSearcher for SqliteStorage {
                             &sp,
                             include_superseded,
                             explain_enabled,
+                            &strat,
                         )
                         .await;
                         (idx, res)

@@ -8,8 +8,10 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::memory_core::{
-    MemoryInput, MemoryUpdate, ScoringParams, SemanticResult, Storage, Updater, embedder::Embedder,
+    MemoryInput, MemoryUpdate, ScoringParams, SemanticResult, Storage, Updater,
+    embedder::Embedder,
     reranker::Reranker,
+    scoring_strategy::{DefaultScoringStrategy, ScoringStrategy},
 };
 
 use super::cache::{QueryCache, new_query_cache};
@@ -46,6 +48,7 @@ pub struct SqliteStorage {
     pub(super) hot_cache_refresh_guard: Arc<()>,
     pub(super) hot_cache_refresh_started: Arc<AtomicBool>,
     pub(super) reranker: Option<Arc<dyn Reranker>>,
+    pub(super) scoring_strategy: Arc<dyn ScoringStrategy>,
 }
 
 #[cfg(feature = "sqlite-vec")]
@@ -108,6 +111,7 @@ impl SqliteStorage {
             hot_cache_refresh_guard: Arc::new(()),
             hot_cache_refresh_started: Arc::new(AtomicBool::new(false)),
             reranker: None,
+            scoring_strategy: Arc::new(DefaultScoringStrategy::new()),
         })
     }
 
@@ -121,6 +125,13 @@ impl SqliteStorage {
     #[allow(dead_code)]
     pub fn reranker(&self) -> Option<&Arc<dyn Reranker>> {
         self.reranker.as_ref()
+    }
+
+    /// Sets the scoring strategy for this storage instance.
+    #[allow(dead_code)]
+    pub fn with_scoring_strategy(mut self, strategy: Arc<dyn ScoringStrategy>) -> Self {
+        self.scoring_strategy = strategy;
+        self
     }
 
     /// Runs `PRAGMA optimize` to update SQLite query planner statistics.
@@ -197,6 +208,7 @@ impl SqliteStorage {
             hot_cache_refresh_guard: Arc::new(()),
             hot_cache_refresh_started: Arc::new(AtomicBool::new(false)),
             reranker: None,
+            scoring_strategy: Arc::new(DefaultScoringStrategy::new()),
         })
     }
 
