@@ -8,7 +8,17 @@
 src/
 ├── main.rs               # Process entrypoint and command dispatch
 ├── cli.rs                # Clap command surface
-├── mcp_server.rs         # MCP stdio server + tool handlers
+├── mcp/                  # MCP stdio server + tool handlers
+│   ├── mod.rs            # Server struct, #[tool_router] delegation, TOOL_REGISTRY
+│   ├── request_types.rs  # All request/response structs
+│   ├── validation.rs     # Validation constants + require_finite
+│   └── tools/            # Tool handler implementations by concern
+│       ├── storage.rs    # store/retrieve/delete + memory facade
+│       ├── search.rs     # search, list
+│       ├── relations.rs  # relations (list/add/traverse/version_chain)
+│       ├── lifecycle.rs  # update, feedback, lifecycle
+│       ├── session.rs    # checkpoint/remind/lessons/profile/session_info
+│       └── facades.rs    # memory_manage, memory_session, memory_admin
 └── memory_core/
     ├── mod.rs            # Core traits + Pipeline orchestration
     ├── embedder.rs       # Embedder trait + PlaceholderEmbedder + OnnxEmbedder
@@ -22,7 +32,7 @@ src/
 | Task | File | Notes |
 |---|---|---|
 | Add CLI command | `src/cli.rs` + `src/main.rs` | Keep parser and runtime match in sync |
-| Add MCP tool | `src/mcp_server.rs` | Register via `#[tool]` in `#[tool_router]` block |
+| Add MCP tool | `src/mcp/mod.rs` + `src/mcp/tools/*.rs` | Add handler in `tools/`, register via `#[tool]` in `mod.rs` `#[tool_router]` block |
 | Change storage behavior | `src/memory_core/storage/sqlite.rs` | Ensure async-safe DB access |
 | Introduce new core stage | `src/memory_core/mod.rs` | Implement trait, then wire Pipeline |
 | Embedding behavior | `src/memory_core/embedder.rs` | `Embedder` trait, `OnnxEmbedder` (feature-gated), `PlaceholderEmbedder` |
