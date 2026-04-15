@@ -1,6 +1,6 @@
 # MAG Experimentation Substrate Campaign
 
-**Status**: Phase 1 DONE, Phase 2 in progress (2a+2b merged, 2c next)
+**Status**: Phase 1 DONE, Phase 2 DONE, Phase 3 DONE, Phase 4 in progress
 **Campaign Workspace**: `../mag-substrate` (jj workspace `substrate-campaign`)
 **Generated**: 2026-04-14
 
@@ -12,7 +12,7 @@ MAG v0.2 is a Rust core exposing stable traits for Storage, Retrieval, Fusion, S
 
 | Spec | Path | Status |
 |------|------|--------|
-| Module Decomposition | `docs/specs/module-decomposition.md` | Draft |
+| Module Decomposition | `docs/specs/module-decomposition.md` | Validated (Phase 2+3 confirmed design) |
 | Trait Surface Design | `docs/specs/trait-surface.md` | Draft |
 | Benchmark Harness | `docs/specs/benchmark-harness.md` | Draft |
 | Execution Roadmap | `docs/specs/execution-roadmap.md` | Approved (3 Palantir rounds) |
@@ -40,22 +40,17 @@ MAG v0.2 is a Rust core exposing stable traits for Storage, Retrieval, Fusion, S
 | #295 | style: fix rustfmt in advanced.rs | 2026-04-14 | 91.5% PASS |
 | #296 | refactor: extract ScoringStrategy trait (PR-2a) | 2026-04-14 | N/A (additive) |
 | #297 | refactor: extract Reranker trait boundary (PR-2b, #119) | 2026-04-14 | 91.5% PASS |
+| #299 | refactor: sqlite/mod.rs structural extraction (PR-2c) | 2026-04-14 | PASS |
+| #300 | refactor: inject ScoringStrategy into SqliteStorage (PR-2d) | 2026-04-14 | PASS |
+| #301 | feat: strategy comparison benchmark harness (PR-3a) | 2026-04-14 | N/A |
+| #302 | feat: in-memory HashMap backend MemoryStorage (PR-3b) | 2026-04-14 | N/A |
+| #303 | test: shared backend conformance suite (PR-3c) | 2026-04-14 | N/A |
 
-## Next Up: PR-2c
+## Phase 4 Status
 
-**sqlite/mod.rs structural extraction** — Split 1,281-line mod.rs into 5 focused files:
-- `storage.rs` — SqliteStorage struct, constructors, builder
-- `cache.rs` — CachedQuery, QueryCache, invalidation
-- `hot_cache_mgmt.rs` — hot cache refresh orchestration
-- `relationships.rs` — add_relationship, graph_edge_stats
-- `io.rs` — stats, bulk-read helpers
-
-CRITICAL: Add `pub use storage::SqliteStorage;` to mod.rs FIRST (Risk #6 — visibility cascade).
-Execute in 6 sequential steps, `prek run` after each. Pure moves, no logic changes.
-Bookmark: `refactor/sqlite-extraction`. Benchmark gate required.
-
-Blocked by: nothing (2a+2b both merged).
-Blocks: PR-2d (inject ScoringStrategy into SqliteStorage).
+Phase 4 in progress -- two parallel chains:
+- **4a-i + 4a-ii** (RetrievalStrategy trait + KeywordOnlyStrategy dispatch)
+- **4b + 4c** (split mcp_server.rs -> mcp/ module, then advanced.rs -> pipeline/)
 
 ## Key Corrections from Source Inspection
 
