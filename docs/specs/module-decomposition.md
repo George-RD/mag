@@ -1,5 +1,5 @@
 # Module Decomposition Spec
-<!-- Status: DRAFT | Verified against source: 2026-04-14 | Target: v0.2.x -->
+<!-- Status: VALIDATED | Verified against source: 2026-04-14 | Target: v0.2.x | Phase 2+3 confirmed design; Phase 4 (mcp/ and pipeline/ splits) in progress -->
 
 ## 0. Recon Corrections
 

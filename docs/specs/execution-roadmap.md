@@ -289,7 +289,7 @@ PR-3b (depends on PR-2d) ──> PR-3c
 
 ---
 
-## Phase 4 — Exercise & Decompose (target: v0.2.2)
+## Phase 4 — Exercise & Decompose (target: v0.2.2) -- IN PROGRESS
 
 Four PRs. PR-4a-i depends on PR-2a/PR-2d and can be opened after Phase 2 merges. PR-4b can be opened any time after Phase 1 — it has no dependency on Phases 2 or 3. PR-4a-ii depends on PR-4a-i. PR-4c depends on PR-4b.
 
@@ -455,18 +455,18 @@ Phase 4
 - [ ] PR-1d merged: `admin.rs` split into `admin/` subdirectory (4 files + mod.rs)
 
 ### v0.2.0 checkpoint
-- [ ] PR-2a merged: `ScoringStrategy` trait and `DefaultScoringStrategy` in place
-- [ ] PR-2b merged: `Reranker` trait in place; `CrossEncoderReranker` implements it; no benchmark regression
-- [ ] PR-2c merged: `sqlite/mod.rs` reduced to re-export facade; `storage.rs`, `cache.rs`, `hot_cache_mgmt.rs`, `relationships.rs`, `io.rs` all exist and pass tests; benchmark gate passes
-- [ ] PR-2d merged: `ScoringStrategy` injected into `SqliteStorage`; 10-sample benchmark gate passes
+- [x] PR-2a merged (#296): `ScoringStrategy` trait and `DefaultScoringStrategy` in place
+- [x] PR-2b merged (#297): `Reranker` trait in place; `CrossEncoderReranker` implements it; no benchmark regression
+- [x] PR-2c merged (#299): `sqlite/mod.rs` reduced to re-export facade; `storage.rs`, `cache.rs`, `hot_cache_mgmt.rs`, `relationships.rs`, `io.rs` all exist and pass tests; benchmark gate passes
+- [x] PR-2d merged (#300): `ScoringStrategy` injected into `SqliteStorage`; 10-sample benchmark gate passes
 
 ### v0.2.1 checkpoint
 
 Prerequisite: v0.2.0 checkpoint must be fully complete (all Phase 2 PRs merged) before PR-3b implementation begins. PR-3b depends on PR-2d's `ScoringStrategy` injection.
 
-- [ ] PR-3a merged: strategy comparison harness with `--strategy` flag on `locomo_bench`
-- [ ] PR-3b merged: `MemoryStorage` backend with 10+ unit tests
-- [ ] PR-3c merged: conformance suite passes for both backends
+- [x] PR-3a merged (#301): strategy comparison harness with `--strategy` flag on `locomo_bench`
+- [x] PR-3b merged (#302): `MemoryStorage` backend with 10+ unit tests
+- [x] PR-3c merged (#303): conformance suite passes for both backends
 
 ### v0.2.2 checkpoint
 - [ ] PR-4a-i merged: `RetrievalStrategy` trait defined (aligned with `trait-surface.md` §3.2); `FullPipelineStrategy` reference impl in place
