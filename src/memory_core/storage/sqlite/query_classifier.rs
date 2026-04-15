@@ -12,9 +12,26 @@ pub(super) fn is_keyword_query(query: &str) -> bool {
         return false;
     }
 
-    // Contains backtick-wrapped code
-    if trimmed.matches('`').count() >= 2 {
-        return true;
+    // Contains a backtick-wrapped single-token code identifier (no spaces
+    // inside the backticks) AND the rest of the query is at most a few
+    // surrounding words — e.g. "`my_func`" or "`SqliteStorage`" or
+    // "find `my_func`".  Queries like "how does `foo` work compared to `bar`"
+    // are natural language with inline code and must NOT be classified as
+    // keyword queries so that the full pipeline handles them.
+    if let (Some(open), Some(close)) = (trimmed.find('`'), trimmed.rfind('`'))
+        && open < close
+    {
+        let inner = &trimmed[open + 1..close];
+        // Inner must be a single token (no spaces, non-empty).
+        let inner_is_single_token = !inner.is_empty() && !inner.contains(' ');
+        // Outer text (everything outside the backticks) must be short —
+        // at most 3 words — so that "find `foo`" qualifies but
+        // "explain how `foo` relates to `bar`" does not.
+        let outer: String = format!("{}{}", &trimmed[..open], &trimmed[close + 1..]);
+        let outer_word_count = outer.split_whitespace().count();
+        if inner_is_single_token && outer_word_count <= 3 {
+            return true;
+        }
     }
 
     // Looks like a file path (contains `/` or `\` with no spaces)
