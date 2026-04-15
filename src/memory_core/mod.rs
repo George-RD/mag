@@ -10,6 +10,7 @@ pub use traits::*;
 
 pub mod embedder;
 pub mod reranker;
+pub mod retrieval_strategy;
 pub mod scoring;
 pub mod scoring_strategy;
 pub mod storage;
@@ -21,6 +22,8 @@ pub use embedder::OnnxEmbedder;
 pub use embedder::{Embedder, PlaceholderEmbedder};
 #[allow(unused_imports)]
 pub use reranker::{NoOpReranker, Reranker};
+#[allow(unused_imports)]
+pub use retrieval_strategy::{CandidateSet, FullPipelineStrategy, QueryContext, RetrievalStrategy};
 #[allow(unused_imports)]
 pub use scoring::{
     ABSTENTION_MIN_TEXT, GRAPH_MIN_EDGE_WEIGHT, GRAPH_NEIGHBOR_FACTOR, RRF_WEIGHT_FTS,
