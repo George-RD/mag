@@ -30,3 +30,4 @@ date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_scor
 2026-03-23,7602de9,HEAD,,word-overlap,10,onnx-bge-small,90.1,86.9,85.0,56.2,95.7,92.6,92.0,5.1,v0.1.1 full validation - incumbent default
 2026-03-23,7602de9,HEAD,,word-overlap,10,all-MiniLM-L6-v2-int8,90.0,86.8,84.8,57.2,95.3,92.8,90.8,8.9,v0.1.1 full validation - lightweight challenger
 2026-04-01,847eaff,HEAD,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,90.9,4.9,post-Wave-2 quality gates (PRs #172-#180)
+2026-04-15,3866bc4,HEAD,,word-overlap,10,onnx-bge-small,90.1,86.9,85.0,56.2,95.7,92.6,92.0,7.3,PR-4a-ii pre-merge strategy=sqlite-v1

@@ -14,7 +14,6 @@ use crate::memory_core::{AdvancedSearcher, ScoringParams, SearchOptions, Semanti
 /// signal-native (cosine similarity for vector, raw BM25 for FTS).
 ///
 /// Aligned with `trait-surface.md` §3.2.
-#[allow(dead_code)]
 pub type CandidateSet = Vec<(String, f64, RankedSemanticCandidate)>;
 
 /// Read-path context passed through the retrieval pipeline.
@@ -24,7 +23,7 @@ pub type CandidateSet = Vec<(String, f64, RankedSemanticCandidate)>;
 ///
 /// Aligned with `trait-surface.md` §2.3.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Consumed by RetrievalStrategy impls in v0.3.x pipeline composition
 pub struct QueryContext {
     /// Raw query string from the caller.
     pub query: String,
@@ -36,6 +35,7 @@ pub struct QueryContext {
     pub scoring_params: ScoringParams,
     /// Pre-computed query embedding. `None` until the embedding stage
     /// populates it; strategies that do not need embeddings ignore it.
+    #[allow(dead_code)] // Consumed by vector strategy in v0.3.x pipeline composition
     pub query_embedding: Option<Vec<f32>>,
     /// Whether superseded memories should be included in candidate sets.
     pub include_superseded: bool,
@@ -52,7 +52,7 @@ pub struct QueryContext {
 ///
 /// Aligned with `trait-surface.md` §3.2.
 #[async_trait]
-#[allow(dead_code)]
+#[allow(dead_code)] // Consumed by downstream pipeline composition (v0.3.x)
 pub trait RetrievalStrategy: Send + Sync {
     /// Human-readable name used for logging and as the key in fusion dispatch.
     fn name(&self) -> &str;
@@ -74,12 +74,12 @@ pub trait RetrievalStrategy: Send + Sync {
 ///
 /// Construction requires an `Arc<dyn AdvancedSearcher>` which in practice
 /// is the `SqliteStorage` instance.
-#[allow(dead_code)]
+#[allow(dead_code)] // Consumed by downstream pipeline composition (v0.3.x)
 pub struct FullPipelineStrategy {
     searcher: Arc<dyn AdvancedSearcher>,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Consumed by downstream pipeline composition (v0.3.x)
 impl FullPipelineStrategy {
     /// Create a new `FullPipelineStrategy` wrapping the given searcher.
     pub fn new(searcher: Arc<dyn AdvancedSearcher>) -> Self {
@@ -133,6 +133,79 @@ impl RetrievalStrategy for FullPipelineStrategy {
             .collect();
 
         Ok(candidates)
+    }
+}
+
+// ── FtsSearcher trait ───────────────────────────────────────────────────
+
+/// Pure FTS5 BM25 search — no embeddings, no reranker.
+///
+/// Returns raw FTS candidates as a `CandidateSet` where `raw_score` is
+/// the BM25 rank value (more-negative = better match). Implementors wrap
+/// the existing `collect_fts_candidates` infrastructure.
+///
+/// This trait exists to decouple `KeywordOnlyStrategy` from direct
+/// `SqliteStorage` internals, following the same `Arc<dyn Trait>` pattern
+/// used by `FullPipelineStrategy` with `AdvancedSearcher`.
+#[async_trait]
+pub trait FtsSearcher: Send + Sync {
+    /// Collect FTS5 BM25 candidates for the given query.
+    ///
+    /// `limit` is the maximum number of candidates to return.
+    /// `opts` controls filters (event_type, project, session, etc.).
+    /// `include_superseded` controls whether superseded memories appear.
+    /// `scoring_params` provides scoring knobs for initial score computation.
+    async fn fts_search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+        include_superseded: bool,
+        scoring_params: &ScoringParams,
+    ) -> Result<CandidateSet>;
+}
+
+// ── KeywordOnlyStrategy ────────────────────────────────────────────────
+
+/// FTS5-only retrieval strategy for keyword-intent queries.
+///
+/// When the query classifier identifies a query as `QueryIntent::Keyword`
+/// (code identifiers, file paths, snake_case/CamelCase tokens), this
+/// strategy skips embedding computation and vector search entirely,
+/// returning only FTS5 BM25 candidates.
+///
+/// This reduces latency (~8ms embedding savings) while maintaining
+/// retrieval quality for keyword lookups where exact term matching
+/// outperforms semantic similarity.
+#[allow(dead_code)] // Strategy wired via FtsSearcher dispatch; trait-based dispatch in v0.3.x
+pub struct KeywordOnlyStrategy {
+    fts_searcher: Arc<dyn FtsSearcher>,
+}
+
+#[allow(dead_code)] // Strategy wired via FtsSearcher dispatch; trait-based dispatch in v0.3.x
+impl KeywordOnlyStrategy {
+    /// Create a new `KeywordOnlyStrategy` wrapping the given FTS searcher.
+    pub fn new(fts_searcher: Arc<dyn FtsSearcher>) -> Self {
+        Self { fts_searcher }
+    }
+}
+
+#[async_trait]
+impl RetrievalStrategy for KeywordOnlyStrategy {
+    fn name(&self) -> &str {
+        "keyword-only"
+    }
+
+    async fn collect(&self, ctx: &QueryContext) -> Result<CandidateSet> {
+        self.fts_searcher
+            .fts_search(
+                &ctx.query,
+                ctx.limit,
+                &ctx.opts,
+                ctx.include_superseded,
+                &ctx.scoring_params,
+            )
+            .await
     }
 }
 
@@ -240,5 +313,155 @@ mod tests {
 
         let candidates = strategy.collect(&ctx).await.unwrap();
         assert!(candidates.is_empty());
+    }
+
+    // ── KeywordOnlyStrategy tests ──────────────────────────────────────
+
+    /// Stub FTS searcher that returns a fixed candidate set.
+    struct StubFtsSearcher {
+        candidates: CandidateSet,
+    }
+
+    #[async_trait]
+    impl FtsSearcher for StubFtsSearcher {
+        async fn fts_search(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _opts: &SearchOptions,
+            _include_superseded: bool,
+            _scoring_params: &ScoringParams,
+        ) -> Result<CandidateSet> {
+            Ok(self.candidates.clone())
+        }
+    }
+
+    fn make_fts_candidate(id: &str, bm25_score: f64) -> (String, f64, RankedSemanticCandidate) {
+        (
+            id.to_string(),
+            bm25_score,
+            RankedSemanticCandidate {
+                created_at: String::new(),
+                event_at: String::new(),
+                score: 1.0,
+                priority_value: 1,
+                vec_sim: None,
+                text_overlap: 0.0,
+                entity_id: None,
+                agent_type: None,
+                explain: None,
+                result: SemanticResult {
+                    id: id.to_string(),
+                    content: format!("fts content for {id}"),
+                    tags: vec![],
+                    importance: 0.5,
+                    metadata: serde_json::json!({}),
+                    event_type: None,
+                    session_id: None,
+                    project: None,
+                    entity_id: None,
+                    agent_type: None,
+                    score: 0.0,
+                },
+            },
+        )
+    }
+
+    #[test]
+    fn keyword_only_strategy_name() {
+        let fts = Arc::new(StubFtsSearcher { candidates: vec![] });
+        let strategy = KeywordOnlyStrategy::new(fts);
+        assert_eq!(strategy.name(), "keyword-only");
+    }
+
+    #[test]
+    fn keyword_only_strategy_construction() {
+        let fts = Arc::new(StubFtsSearcher {
+            candidates: vec![make_fts_candidate("k1", -5.0)],
+        });
+        let strategy = KeywordOnlyStrategy::new(fts);
+        // Verify the strategy implements the trait via dynamic dispatch.
+        let _boxed: Box<dyn RetrievalStrategy> = Box::new(strategy);
+    }
+
+    #[test]
+    fn keyword_only_strategy_is_object_safe() {
+        let fts = Arc::new(StubFtsSearcher { candidates: vec![] });
+        let strategy = KeywordOnlyStrategy::new(fts);
+        let _arc: Arc<dyn RetrievalStrategy> = Arc::new(strategy);
+    }
+
+    #[tokio::test]
+    async fn keyword_only_collect_delegates_to_fts_searcher() {
+        let fts = Arc::new(StubFtsSearcher {
+            candidates: vec![
+                make_fts_candidate("kw-1", -8.5),
+                make_fts_candidate("kw-2", -3.2),
+            ],
+        });
+        let strategy = KeywordOnlyStrategy::new(fts);
+        let ctx = make_query_context("SqliteStorage");
+
+        let candidates = strategy.collect(&ctx).await.unwrap();
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].0, "kw-1");
+        assert!((candidates[0].1 - (-8.5_f64)).abs() < 0.01);
+        assert_eq!(candidates[1].0, "kw-2");
+        assert!((candidates[1].1 - (-3.2_f64)).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn keyword_only_collect_empty_results() {
+        let fts = Arc::new(StubFtsSearcher { candidates: vec![] });
+        let strategy = KeywordOnlyStrategy::new(fts);
+        let ctx = make_query_context("nonexistent_function");
+
+        let candidates = strategy.collect(&ctx).await.unwrap();
+        assert!(candidates.is_empty());
+    }
+
+    #[tokio::test]
+    async fn keyword_only_passes_context_fields() {
+        // Verify that QueryContext fields are correctly threaded through.
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct CapturingFtsSearcher {
+            called: AtomicBool,
+        }
+
+        #[async_trait]
+        impl FtsSearcher for CapturingFtsSearcher {
+            async fn fts_search(
+                &self,
+                query: &str,
+                limit: usize,
+                _opts: &SearchOptions,
+                include_superseded: bool,
+                _scoring_params: &ScoringParams,
+            ) -> Result<CandidateSet> {
+                self.called.store(true, Ordering::SeqCst);
+                assert_eq!(query, "my_func");
+                assert_eq!(limit, 5);
+                assert!(!include_superseded);
+                Ok(vec![])
+            }
+        }
+
+        let fts = Arc::new(CapturingFtsSearcher {
+            called: AtomicBool::new(false),
+        });
+        let strategy = KeywordOnlyStrategy::new(fts.clone());
+        let ctx = QueryContext {
+            query: "my_func".to_string(),
+            limit: 5,
+            opts: SearchOptions::default(),
+            scoring_params: ScoringParams::default(),
+            query_embedding: None,
+            include_superseded: false,
+        };
+
+        let _ = strategy.collect(&ctx).await.unwrap();
+        assert!(fts.called.load(Ordering::SeqCst));
     }
 }

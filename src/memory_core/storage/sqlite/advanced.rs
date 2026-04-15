@@ -9,6 +9,7 @@ use super::*;
 use crate::memory_core::domain::{
     REL_PARALLEL_CONTEXT, REL_PRECEDED_BY, REL_RELATES_TO, REL_SHARES_THEME, REL_SIMILAR_TO,
 };
+use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher};
 use crate::memory_core::scoring::query_coverage_boost;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 
@@ -1304,6 +1305,141 @@ async fn run_single_query_pipeline(
     .context("spawn_blocking join error")?
 }
 
+/// Convert a `CandidateSet` from `KeywordOnlyStrategy` into `Vec<SemanticResult>`.
+///
+/// Applies word-overlap and time-decay scoring to produce final scores.
+/// Applies the abstention gate: if the best text-overlap across all candidates
+/// is below `scoring_params.abstention_min_text`, returns an empty vec (same
+/// behaviour as the full pipeline's abstention gate).
+/// Uses `ScoringStrategy` for the final score computation. Candidates are
+/// sorted by final score descending and truncated to `limit`.
+///
+/// This function runs synchronously and is intended for use inside
+/// `spawn_blocking`.
+fn keyword_candidates_to_results(
+    candidates: CandidateSet,
+    query: &str,
+    limit: usize,
+    scoring_params: &ScoringParams,
+    scoring_strategy: &dyn ScoringStrategy,
+    explain_enabled: bool,
+) -> Vec<SemanticResult> {
+    let query_tokens = token_set(query, 3);
+
+    // Score all candidates, keeping them as RankedSemanticCandidate so we
+    // can read text_overlap for the abstention gate before converting.
+    let mut ranked: Vec<(f64, RankedSemanticCandidate)> = candidates
+        .into_iter()
+        .map(|(_id, bm25_raw, mut candidate)| {
+            // Compute word overlap for keyword scoring.
+            let content_tokens = token_set(&candidate.result.content, 3);
+            let overlap = word_overlap_pre(&query_tokens, &content_tokens);
+            candidate.text_overlap = overlap;
+
+            // Build a keyword-specific score: base score (from type weight
+            // and priority, already set during FTS collection) boosted by
+            // word overlap and importance.
+            let base = candidate.score; // type_weight * priority_factor
+            let overlap_boost = overlap * scoring_params.word_overlap_weight;
+            let importance_factor = scoring_params.importance_floor
+                + candidate.result.importance * scoring_params.importance_scale;
+            let et = candidate
+                .result
+                .event_type
+                .as_ref()
+                .unwrap_or(&EventType::Memory);
+            let time_decay = time_decay_et(&candidate.created_at, et, scoring_params);
+            let keyword_score = base * (1.0 + overlap_boost) * importance_factor * time_decay;
+            candidate.score = keyword_score;
+
+            // Let the scoring strategy have the final say.
+            let final_score = scoring_strategy.score(&candidate, query, scoring_params);
+            candidate.score = final_score;
+
+            if explain_enabled {
+                candidate.explain = Some(serde_json::json!({
+                    "strategy": "keyword-only",
+                    "bm25_raw": bm25_raw,
+                    "word_overlap": overlap,
+                    "base_score": base,
+                    "importance_factor": importance_factor,
+                    "time_decay": time_decay,
+                    "final_score": final_score,
+                    "skipped_phases": [
+                        "vector_search",
+                        "rrf_fusion",
+                        "cross_encoder",
+                        "graph_enrichment",
+                        "entity_expansion",
+                    ],
+                }));
+            }
+
+            (final_score, candidate)
+        })
+        .collect();
+
+    // Abstention gate: mirror the full pipeline's behaviour. If no candidate
+    // has enough text overlap with the query, treat the result set as a miss.
+    if !query_tokens.is_empty() {
+        let max_text_overlap = ranked
+            .iter()
+            .map(|(_, c)| c.text_overlap)
+            .fold(0.0f64, f64::max);
+        if max_text_overlap < scoring_params.abstention_min_text {
+            return Vec::new();
+        }
+    }
+
+    ranked.sort_by(|(a, _), (b, _)| b.total_cmp(a));
+    ranked.truncate(limit);
+
+    ranked
+        .into_iter()
+        .map(|(final_score, mut candidate)| {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                candidate.result.score = final_score as f32;
+            }
+            candidate.result
+        })
+        .collect()
+}
+
+#[async_trait]
+impl FtsSearcher for SqliteStorage {
+    async fn fts_search(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+        include_superseded: bool,
+        scoring_params: &ScoringParams,
+    ) -> Result<CandidateSet> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let pool = Arc::clone(&self.pool);
+        let query = query.to_string();
+        let opts = opts.clone();
+        let scoring_params = scoring_params.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+            collect_fts_candidates(
+                &conn,
+                &query,
+                limit,
+                &opts,
+                include_superseded,
+                &scoring_params,
+            )
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
 #[async_trait]
 impl AdvancedSearcher for SqliteStorage {
     async fn advanced_search(
@@ -1332,7 +1468,6 @@ impl AdvancedSearcher for SqliteStorage {
             opts.event_before = Some(before);
         }
         let intent = classify_query_intent(&query);
-        let keyword_only = intent == QueryIntent::Keyword;
         let intent_profile = IntentProfile::for_intent(intent);
         let cache_key = query_cache_key(&query, limit, &opts);
 
@@ -1367,13 +1502,67 @@ impl AdvancedSearcher for SqliteStorage {
                 .is_some_and(|overlap| overlap >= scoring_params.abstention_min_text)
         });
 
+        // ── KeywordOnlyStrategy dispatch ────────────────────────────────
+        // For keyword-intent queries, skip embedding, vector search,
+        // RRF fusion, reranker, and graph enrichment. Use FTS5 BM25 only.
+        if intent == QueryIntent::Keyword {
+            tracing::debug!(query = %query, "dispatching to KeywordOnlyStrategy");
+            let include_superseded = opts.include_superseded.unwrap_or(false);
+            let explain_enabled = opts.explain.unwrap_or(false);
+            let candidates: CandidateSet = self
+                .fts_search(&query, limit, &opts, include_superseded, &scoring_params)
+                .await?;
+
+            let scoring_strategy = Arc::clone(&self.scoring_strategy);
+            let query_owned = query.clone();
+            let sp = scoring_params.clone();
+            let results = tokio::task::spawn_blocking(move || {
+                keyword_candidates_to_results(
+                    candidates,
+                    &query_owned,
+                    limit,
+                    &sp,
+                    scoring_strategy.as_ref(),
+                    explain_enabled,
+                )
+            })
+            .await
+            .context("spawn_blocking join error")?;
+
+            let results = if hot_has_confident_match {
+                merge_hot_cache_results(hot_results, results, limit)
+            } else {
+                results
+            };
+
+            // ── Cache store ──────────────────────────────────────────────
+            let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
+            let cache_project_filter = opts.project.clone();
+            let cache_session_id_filter = opts.session_id.clone();
+            if let Ok(mut cache) = self.query_cache.lock() {
+                cache.put(
+                    cache_key,
+                    super::CachedQuery {
+                        inserted_at: std::time::Instant::now(),
+                        results: results.clone(),
+                        event_type_filter: cache_event_type_filter,
+                        project_filter: cache_project_filter,
+                        session_id_filter: cache_session_id_filter,
+                    },
+                );
+            }
+
+            return Ok(results);
+        }
+
         // Phase 0: Embedding computation (blocking).
-        // For keyword queries, skip the ONNX embedding (~8ms savings).
+        // Keyword queries have already returned above via KeywordOnlyStrategy,
+        // so all remaining queries require an embedding.
         let query_embedding = tokio::task::spawn_blocking({
             let embedder = Arc::clone(&embedder);
             let query = query.clone();
             move || {
-                let emb = if keyword_only || query.is_empty() {
+                let emb = if query.is_empty() {
                     Vec::new()
                 } else {
                     embedder
@@ -1399,26 +1588,12 @@ impl AdvancedSearcher for SqliteStorage {
         let candidate_limit =
             ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
 
-        // Phases 1+2: Vector search and FTS5 search.
-        // Keyword queries skip vector search entirely (FTS5 only).
+        // Phases 1+2: Vector search and FTS5 search (non-keyword queries).
+        // Keyword queries were dispatched via KeywordOnlyStrategy above.
         // When the pool has dedicated readers, run them on separate
         // connections in parallel. In-memory mode (no readers) falls
         // back to sequential execution on the single writer connection.
-        let (vector_candidates, fts_candidates) = if keyword_only {
-            let fts_result = tokio::task::spawn_blocking({
-                let pool = Arc::clone(&pool);
-                let q = query.clone();
-                let o = opts.clone();
-                let sp = scoring_params.clone();
-                move || {
-                    let conn = pool.reader()?;
-                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
-                }
-            })
-            .await
-            .context("spawn_blocking join error")??;
-            (Vec::new(), fts_result)
-        } else if pool.has_readers() {
+        let (vector_candidates, fts_candidates) = if pool.has_readers() {
             let (vec_result, fts_result) = tokio::try_join!(
                 tokio::task::spawn_blocking({
                     let pool = Arc::clone(&pool);
@@ -1769,5 +1944,84 @@ mod tests {
 
         assert_eq!(recent_candidates.len(), 1);
         assert_eq!(recent_candidates[0].0, "recent-event-match");
+    }
+
+    /// Integration test: keyword-intent queries go through KeywordOnlyStrategy
+    /// dispatch and still return relevant FTS5 results.
+    #[tokio::test]
+    async fn keyword_dispatch_returns_fts_results() {
+        use crate::memory_core::AdvancedSearcher;
+
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        // Store memories with identifiable content.
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "func-1",
+            "SqliteStorage implementation details",
+            &MemoryInput {
+                content: "SqliteStorage implementation details".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "func-2",
+            "McpMemoryServer handles tool routing",
+            &MemoryInput {
+                content: "McpMemoryServer handles tool routing".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        // CamelCase query triggers keyword intent -> KeywordOnlyStrategy.
+        let results = storage
+            .advanced_search("SqliteStorage", 10, &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert!(!results.is_empty(), "keyword query should return results");
+        assert!(
+            results.iter().any(|r| r.content.contains("SqliteStorage")),
+            "should find the SqliteStorage memory"
+        );
+    }
+
+    /// Integration test: non-keyword queries still go through the full pipeline.
+    #[tokio::test]
+    async fn non_keyword_query_uses_full_pipeline() {
+        use crate::memory_core::AdvancedSearcher;
+
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "mem-1",
+            "The database uses SQLite for storage",
+            &MemoryInput {
+                content: "The database uses SQLite for storage".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        // Natural language query -> NOT keyword intent -> full pipeline.
+        let results = storage
+            .advanced_search(
+                "What database does the project use?",
+                10,
+                &SearchOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Should still return results through the full pipeline.
+        assert!(!results.is_empty(), "full pipeline should return results");
     }
 }
