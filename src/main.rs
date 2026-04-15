@@ -32,13 +32,13 @@ mod daemon;
 #[cfg(feature = "daemon-http")]
 #[allow(dead_code)]
 mod idle_timer;
-mod mcp_server;
+mod mcp;
 mod memory_core;
 #[cfg(test)]
 #[allow(dead_code)]
 mod test_helpers;
 
-use mcp_server::McpMemoryServer;
+use mcp::McpMemoryServer;
 
 #[derive(Clone, Copy)]
 struct SearchTimeFilters<'a> {
@@ -923,7 +923,7 @@ async fn main() -> anyhow::Result<()> {
             println!("{result}");
         }
         Commands::Protocol { section: _ } => {
-            let protocol = mcp_server::tool_registry_json();
+            let protocol = mcp::tool_registry_json();
             println!("{protocol}");
         }
         Commands::StatsExtended { action, days } => match action.as_str() {
@@ -1022,9 +1022,9 @@ async fn main() -> anyhow::Result<()> {
             }
 
             let tool_mode = if mcp_tools == "minimal" {
-                mcp_server::McpToolMode::Minimal
+                mcp::McpToolMode::Minimal
             } else {
-                mcp_server::McpToolMode::Full
+                mcp::McpToolMode::Full
             };
             McpMemoryServer::new(mcp_storage)
                 .with_tool_mode(tool_mode)

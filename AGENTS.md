@@ -62,7 +62,16 @@ Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-s
 ### Key modules
 
 - `src/main.rs` — CLI dispatch via clap
-- `src/mcp_server.rs` — MCP stdio server (19 tools), `TOOL_REGISTRY` const array
+- `src/mcp/mod.rs` — MCP stdio server (19 tools), `TOOL_REGISTRY`, thin `#[tool_router]` delegation
+  - `request_types.rs` — all MCP request/response structs
+  - `validation.rs` — `require_finite`, `MAX_RESULT_LIMIT`, `MAX_BATCH_SIZE`
+  - `tools/` — tool handler implementations by concern:
+    - `storage.rs` — store/store_batch/retrieve/delete + `memory` facade
+    - `search.rs` — memory_search, memory_list
+    - `relations.rs` — memory_relations (list/add/traverse/version_chain)
+    - `lifecycle.rs` — memory_update, memory_feedback, memory_lifecycle
+    - `session.rs` — checkpoint/remind/lessons/profile/session_info
+    - `facades.rs` — memory_manage, memory_session, memory_admin unified facades
 - `src/memory_core/mod.rs` — 27+ traits defining the pipeline interface
   - `domain.rs` — `EventType`, `MemoryKind`, TTL constants, relationship type constants
   - `traits.rs` — 27+ trait definitions for the pipeline interface
