@@ -30,6 +30,10 @@ SAMPLES=2
 SCORING_MODE="word-overlap"
 NOTES=""
 GATE=false        # --gate: compare against 10-sample baseline, fail on regression
+STRATEGY="sqlite-v1"
+COMPARE_A=""
+COMPARE_B=""
+UPDATE_BASELINE=false
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -40,6 +44,9 @@ while [[ $# -gt 0 ]]; do
         --scoring-mode) SCORING_MODE="$2"; shift 2 ;;
         --notes)        NOTES="$2";        shift 2 ;;
         --gate)         GATE=true;         shift ;;
+        --strategy)     STRATEGY="$2";     shift 2 ;;
+        --compare)      COMPARE_A="$2"; COMPARE_B="$3"; shift 3 ;;
+        --update-baseline) UPDATE_BASELINE=true; shift ;;
         *) echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
 done
@@ -48,63 +55,63 @@ done
 case "$MODEL" in
     bge-small)
         EMBEDDING_MODEL="onnx-bge-small"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     voyage-nano-int8)
         EMBEDDING_MODEL="voyage-nano-int8"
         DIM_ARG="${DIM:-1024}"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant int8 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant int8 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     voyage-nano-fp16)
         EMBEDDING_MODEL="voyage-nano-fp16"
         DIM_ARG="${DIM:-1024}"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp16 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp16 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     voyage-nano-fp32)
         EMBEDDING_MODEL="voyage-nano-fp32"
         DIM_ARG="${DIM:-1024}"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp32 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant fp32 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     voyage-nano-q4)
         EMBEDDING_MODEL="voyage-nano-q4"
         DIM_ARG="${DIM:-1024}"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant q4 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --voyage-onnx --voyage-quant q4 --embedder-dim "${DIM_ARG}" --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     granite)
         EMBEDDING_MODEL="granite-embedding-30m-english"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --granite --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --granite --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     minilm-l6)
         EMBEDDING_MODEL="all-MiniLM-L6-v2-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l6 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l6 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     minilm-l12)
         EMBEDDING_MODEL="all-MiniLM-L12-v2-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l12 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --minilm-l12 --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     e5-small)
         EMBEDDING_MODEL="e5-small-v2-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --e5-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --e5-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     bge-base)
         EMBEDDING_MODEL="bge-base-en-v1.5-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --bge-base --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --bge-base --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     nomic)
         EMBEDDING_MODEL="nomic-embed-text-v1.5-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --nomic --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --nomic --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     arctic-xs)
         EMBEDDING_MODEL="snowflake-arctic-embed-xs-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-xs --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-xs --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     arctic-s)
         EMBEDDING_MODEL="snowflake-arctic-embed-s-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-s --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --arctic-s --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     gte-small)
         EMBEDDING_MODEL="gte-small-int8"
-        CARGO_FLAGS=(--release --bin locomo_bench -- --gte-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}")
+        CARGO_FLAGS=(--release --bin locomo_bench -- --gte-small --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${STRATEGY}")
         ;;
     *)
         echo "Unknown model: ${MODEL}" >&2
@@ -173,7 +180,8 @@ COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo '')"
 BRANCH="$(git -C "${REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
 
 # ── Append CSV row ────────────────────────────────────────────────────────────
-CSV_ROW="${DATE_STR},${COMMIT},${BRANCH},,${SCORING_MODE},${SAMPLES},${EMBEDDING_MODEL},${overall_score},${single_hop},${temporal},${multi_hop},${open_domain},${adversarial},${evidence_recall},${avg_embed_ms},${NOTES}"
+FULL_NOTES="${NOTES:+${NOTES} }strategy=${STRATEGY}"
+CSV_ROW="${DATE_STR},${COMMIT},${BRANCH},,${SCORING_MODE},${SAMPLES},${EMBEDDING_MODEL},${overall_score},${single_hop},${temporal},${multi_hop},${open_domain},${adversarial},${evidence_recall},${avg_embed_ms},${FULL_NOTES}"
 echo "${CSV_ROW}" >> "${RESULTS_CSV}"
 echo "Appended result to ${RESULTS_CSV}"
 
@@ -207,6 +215,66 @@ mkdir -p "$(dirname "${LATEST_MD}")"
 } > "${LATEST_MD}"
 echo "Updated ${LATEST_MD}"
 
+# ── Compare mode: run two strategies head-to-head ────────────────────────────
+if [[ -n "${COMPARE_A}" && -n "${COMPARE_B}" ]]; then
+    echo ""
+    echo "=== Strategy Comparison: ${COMPARE_A} vs ${COMPARE_B} ==="
+    echo ""
+
+    COMPARE_TMP_DIR="$(mktemp -d)"
+    trap "rm -rf '${COMPARE_TMP_DIR}'" EXIT
+
+    # Run strategy A
+    # Note: compare mode uses default (bge-small) model flags; --model flags are not forwarded.
+    echo "Running strategy A: ${COMPARE_A}..."
+    A_FLAGS=(--release --bin locomo_bench -- --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${COMPARE_A}" --json)
+    cargo run "${A_FLAGS[@]}" 2>/dev/null > "${COMPARE_TMP_DIR}/a.json"
+    echo "Strategy A complete."
+
+    # Run strategy B
+    echo "Running strategy B: ${COMPARE_B}..."
+    B_FLAGS=(--release --bin locomo_bench -- --scoring-mode "${SCORING_MODE}" --samples "${SAMPLES}" --strategy "${COMPARE_B}" --json)
+    cargo run "${B_FLAGS[@]}" 2>/dev/null > "${COMPARE_TMP_DIR}/b.json"
+    echo "Strategy B complete."
+
+    # Generate comparison report
+    COMPARE_SCRIPT="${REPO_DIR}/scripts/compare_strategies.py"
+    BASELINES_JSON="${REPO_DIR}/docs/benchmarks/baselines.json"
+    COMPARE_OUTPUT_DIR="${REPO_DIR}/docs/benchmarks/comparisons"
+
+    COMPARE_CMD=(python3 "${COMPARE_SCRIPT}"
+        --a-json "${COMPARE_TMP_DIR}/a.json"
+        --b-json "${COMPARE_TMP_DIR}/b.json"
+        --output-dir "${COMPARE_OUTPUT_DIR}")
+
+    if [[ -f "${BASELINES_JSON}" ]]; then
+        COMPARE_CMD+=(--baselines "${BASELINES_JSON}")
+    fi
+
+    if [[ "${UPDATE_BASELINE}" == true ]]; then
+        COMPARE_CMD+=(--update-baseline)
+    fi
+
+    "${COMPARE_CMD[@]}"
+
+    # Append CSV rows for both strategies
+    for STRAT_FILE in a b; do
+        STRAT_JSON="${COMPARE_TMP_DIR}/${STRAT_FILE}.json"
+        STRAT_ID=$(python3 -c "import json; print(json.load(open('${STRAT_JSON}')).get('strategy', 'unknown'))")
+        STRAT_OVERALL=$(python3 -c "import json; d=json.load(open('${STRAT_JSON}')); print(f'{d.get(\"mean_f1\", 0)*100:.1f}')")
+        OTHER_STRAT="${COMPARE_B}"
+        if [[ "${STRAT_FILE}" == "b" ]]; then OTHER_STRAT="${COMPARE_A}"; fi
+        STRAT_NOTES="strategy=${STRAT_ID} compare_with=${OTHER_STRAT}"
+        STRAT_ROW="${DATE_STR},${COMMIT},${BRANCH},,${SCORING_MODE},${SAMPLES},${EMBEDDING_MODEL},${STRAT_OVERALL},,,,,,,,${STRAT_NOTES}"
+        echo "${STRAT_ROW}" >> "${RESULTS_CSV}"
+    done
+    echo "Appended comparison CSV rows to ${RESULTS_CSV}"
+
+    echo ""
+    echo "=== Comparison complete ==="
+    exit 0
+fi
+
 # ── Gate mode: compare against 10-sample baseline ────────────────────────────
 if [[ "${GATE}" == true ]]; then
     echo ""
@@ -215,7 +283,25 @@ if [[ "${GATE}" == true ]]; then
     WARN_THRESHOLD=2.0   # suggest 10-sample confirmation
     FAIL_THRESHOLD=5.0   # hard fail — too large for variance
 
-    BASELINE=$(grep ",10," "${RESULTS_CSV}" | grep "bge-small" | tail -1 | cut -d',' -f8)
+    BASELINES_JSON="${REPO_DIR}/docs/benchmarks/baselines.json"
+    BASELINE=""
+    if [[ -f "${BASELINES_JSON}" ]]; then
+        BASELINE=$(python3 -c "
+import json, sys
+with open('${BASELINES_JSON}') as f:
+    db = json.load(f)
+strategy = '${STRATEGY}'
+mode = '${SCORING_MODE}'
+try:
+    print(db[strategy][mode]['overall'])
+except KeyError:
+    print('')
+" 2>/dev/null || echo "")
+    fi
+    # Fallback to CSV grep if baselines.json lookup failed.
+    if [ -z "$BASELINE" ]; then
+        BASELINE=$(grep ",10," "${RESULTS_CSV}" | grep "bge-small" | tail -1 | cut -d',' -f8)
+    fi
     if [ -z "$BASELINE" ]; then
         echo "WARNING: No 10-sample baseline found — skipping gate"
     else

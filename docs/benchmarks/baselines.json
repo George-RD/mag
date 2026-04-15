@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "sqlite-v1": {
+    "word-overlap": {
+      "samples": 10,
+      "overall": 90.1,
+      "single_hop": 86.9,
+      "temporal": 85.0,
+      "multi_hop": 56.2,
+      "open_domain": 95.7,
+      "adversarial": 92.6,
+      "evidence_recall": 92.0,
+      "avg_query_ms": 7.0,
+      "p95_query_ms": null,
+      "embedder": "bge-small-en-v1.5 (onnx, 384-dim)",
+      "commit": "83abccf",
+      "date": "2026-03-28",
+      "notes": "validated 10-sample; source: methodology.md"
+    },
+    "e2e-word-overlap": {
+      "samples": 2,
+      "overall": 91.2,
+      "single_hop": 87.1,
+      "temporal": 91.5,
+      "multi_hop": 75.6,
+      "open_domain": 94.3,
+      "adversarial": 91.3,
+      "evidence_recall": 90.9,
+      "avg_query_ms": null,
+      "p95_query_ms": null,
+      "embedder": "bge-small-en-v1.5 (onnx, 384-dim)",
+      "commit": "83abccf",
+      "date": "2026-03-28",
+      "notes": "gpt-5.4, 2-sample; source: methodology.md"
+    }
+  }
+}

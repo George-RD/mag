@@ -145,11 +145,17 @@ pub(crate) struct LoCoMoSummary {
     pub metadata: mag::benchmarking::BenchmarkMetadata,
     pub dataset: String,
     pub scoring_mode: String,
+    /// Strategy identifier used for this run (e.g. "sqlite-v1").
+    #[serde(default)]
+    pub strategy: String,
     pub samples_evaluated: usize,
     pub questions_evaluated: usize,
     pub total_memories_ingested: usize,
     pub total_duration_seconds: f64,
     pub avg_query_ms: f64,
+    /// 95th-percentile per-question query latency in milliseconds.
+    #[serde(default)]
+    pub p95_query_ms: f64,
     pub peak_rss_kb: u64,
     pub raw_correct: usize,
     pub raw_percentage: f64,

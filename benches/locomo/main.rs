@@ -48,6 +48,7 @@ mod llm;
 mod openai_embedder;
 mod scoring;
 mod seeding;
+mod strategies;
 mod types;
 mod voyage_embedder;
 
@@ -168,12 +169,29 @@ struct Args {
     /// Enable cross-encoder reranking in advanced search.
     #[arg(long)]
     cross_encoder: bool,
+    /// Retrieval strategy to use. Defaults to "sqlite-v1".
+    /// Use --list-strategies to see all available options.
+    #[arg(long, default_value = "sqlite-v1")]
+    strategy: String,
+    /// List all available strategies and exit.
+    #[arg(long)]
+    list_strategies: bool,
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    if args.list_strategies {
+        strategies::list_strategies();
+        return Ok(());
+    }
+    let strategy_cfg = strategies::find_strategy(&args.strategy).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown strategy '{}'. Use --list-strategies to see available options.",
+            args.strategy
+        )
+    })?;
     if args.top_k == Some(0) {
         bail!("--top-k must be greater than 0");
     }
@@ -518,6 +536,7 @@ fn main() -> Result<()> {
     let mut total_queries = 0usize;
     let mut total_query_ms = 0u128;
     let mut total_seed_ms = 0u128;
+    let mut query_durations: Vec<u128> = Vec::new();
     let mut total_correct = 0usize;
     let mut total_f1_sum = 0.0f64;
     let mut total_evidence_recall_sum = 0.0f64;
@@ -557,24 +576,20 @@ fn main() -> Result<()> {
         }
 
         // Fresh database per sample -- isolates conversations.
-        let mut storage = SqliteStorage::new_in_memory_with_embedder(embedder.clone())?;
+        let mut storage =
+            strategies::build_storage(strategy_cfg, embedder.clone(), args.graph_factor)?;
 
-        // Attach reranker if --cross-encoder was passed.
+        // Attach reranker if --cross-encoder was passed and strategy allows it.
         #[cfg(feature = "real-embeddings")]
-        if let Some(ref r) = reranker {
+        if let Some(ref r) = reranker
+            && !strategy_cfg.no_rerank
+        {
             storage = storage.with_reranker(r.clone());
         }
 
-        // Apply CLI overrides to scoring params.
-        if let Some(gf) = args.graph_factor {
-            let mut params = storage.scoring_params().clone();
-            params.graph_neighbor_factor = gf;
-            storage.set_scoring_params(params);
-        }
-
         let seed_start = Instant::now();
-        let seeded =
-            runtime.block_on(seeding::seed_sample(&storage, sample, !args.no_entity_tags))?;
+        let use_entity_tags = !args.no_entity_tags && !strategy_cfg.no_entity_tags;
+        let seeded = runtime.block_on(seeding::seed_sample(&storage, sample, use_entity_tags))?;
         total_seed_ms += seed_start.elapsed().as_millis();
         total_memories += seeded;
         samples_evaluated += 1;
@@ -633,6 +648,7 @@ fn main() -> Result<()> {
             };
             let query_ms = query_start.elapsed().as_millis();
             total_query_ms += query_ms;
+            query_durations.push(query_ms);
             total_queries += 1;
             rss.sample();
 
@@ -859,15 +875,19 @@ fn main() -> Result<()> {
     #[allow(clippy::cast_possible_truncation)]
     let total_seed_ms_u64 = total_seed_ms as u64;
 
+    let p95_query_ms = bench_utils::stats::percentile_ms(&query_durations, 95.0);
+
     let summary = types::LoCoMoSummary {
         metadata,
         dataset: "LoCoMo10".to_string(),
         scoring_mode: scoring_label.to_string(),
+        strategy: args.strategy.clone(),
         samples_evaluated,
         questions_evaluated: total_queries,
         total_memories_ingested: total_memories,
         total_duration_seconds,
         avg_query_ms,
+        p95_query_ms,
         peak_rss_kb: rss.peak_kb,
         raw_correct: total_correct,
         raw_percentage: pct(total_correct, total_queries),
