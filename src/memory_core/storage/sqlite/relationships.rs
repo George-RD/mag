@@ -259,27 +259,35 @@ impl super::SqliteStorage {
             let entity_tags_json = serde_json::to_string(&entity_tags)
                 .context("failed to serialize entity_tags to JSON")?;
 
+            // DISTINCT on (m.id, je.value, m.created_at) prevents duplicate tag
+            // values inside a memory's tags array from consuming multiple rn<=3
+            // slots per partition — preserving the one-memory-per-tag semantics
+            // that the previous EXISTS(...) form guaranteed.
             let mut stmt = conn
                 .prepare(
                     "SELECT target_id, entity_tag FROM (
-                        SELECT m.id as target_id, je.value as entity_tag,
-                               ROW_NUMBER() OVER(PARTITION BY je.value ORDER BY m.created_at DESC) as rn
-                        FROM memories m
-                        CROSS JOIN json_each(m.tags) as je
-                        WHERE json_valid(m.tags)
-                          AND je.value IN (SELECT value FROM json_each(?1))
-                          AND m.id != ?2
-                          AND m.superseded_by_id IS NULL
-                          AND NOT EXISTS (
-                              SELECT 1 FROM relationships r
-                              WHERE r.source_id = ?2 AND r.target_id = m.id AND r.rel_type = 'RELATES_TO'
-                          )
+                        SELECT target_id, entity_tag,
+                               ROW_NUMBER() OVER(PARTITION BY entity_tag ORDER BY created_at DESC) as rn
+                        FROM (
+                            SELECT DISTINCT m.id as target_id, je.value as entity_tag, m.created_at
+                            FROM memories m
+                            CROSS JOIN json_each(m.tags) as je
+                            WHERE json_valid(m.tags)
+                              AND je.value IN (SELECT value FROM json_each(?1))
+                              AND m.id != ?2
+                              AND m.superseded_by_id IS NULL
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM relationships r
+                                  WHERE r.source_id = ?2 AND r.target_id = m.id AND r.rel_type = ?3
+                              )
+                        )
                     )
                     WHERE rn <= 3",
                 )
                 .context("failed to prepare entity co-occurrence query")?;
 
-            let mut rows = stmt.query(params![entity_tags_json, memory_id_owned])
+            let mut rows = stmt
+                .query(params![entity_tags_json, memory_id_owned, REL_RELATES_TO])
                 .context("failed to execute entity co-occurrence query")?;
 
             while let Some(row) = rows.next()? {
