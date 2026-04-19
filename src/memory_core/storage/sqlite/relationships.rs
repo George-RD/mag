@@ -258,24 +258,33 @@ impl super::SqliteStorage {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT m.id FROM memories m
-                     WHERE json_valid(m.tags)
-                       AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = ?1)
-                       AND m.id != ?2
-                       AND m.superseded_by_id IS NULL
-                       AND NOT EXISTS (
-                           SELECT 1 FROM relationships r
-                           WHERE r.source_id = ?2 AND r.target_id = m.id AND r.rel_type = 'RELATES_TO'
-                       )
-                     ORDER BY m.created_at DESC LIMIT 3",
+                    "SELECT target_id FROM (
+                        SELECT target_id,
+                               ROW_NUMBER() OVER(ORDER BY created_at DESC) as rn
+                        FROM (
+                            SELECT DISTINCT m.id as target_id, m.created_at
+                            FROM memories m
+                            CROSS JOIN json_each(m.tags) as je
+                            WHERE json_valid(m.tags)
+                              AND je.value = ?1
+                              AND m.id != ?2
+                              AND m.superseded_by_id IS NULL
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM relationships r
+                                  WHERE r.source_id = ?2 AND r.target_id = m.id AND r.rel_type = ?3
+                              )
+                        )
+                    )
+                    WHERE rn <= 3",
                 )
                 .context("failed to prepare entity co-occurrence query")?;
 
             for entity_tag in &entity_tags {
                 let rows = stmt
-                    .query_map(params![entity_tag, memory_id_owned], |row| {
-                        row.get::<_, String>(0)
-                    })
+                    .query_map(
+                        params![entity_tag, memory_id_owned, REL_RELATES_TO],
+                        |row| row.get::<_, String>(0),
+                    )
                     .context("failed to execute entity co-occurrence query")?;
 
                 for row in rows {
