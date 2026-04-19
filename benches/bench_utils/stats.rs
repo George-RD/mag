@@ -7,6 +7,7 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
+#[allow(dead_code)]
 pub fn percentile_ms(samples: &[u128], percentile: f64) -> f64 {
     if samples.is_empty() || !(0.0..=100.0).contains(&percentile) {
         return 0.0;
