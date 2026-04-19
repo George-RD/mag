@@ -250,38 +250,42 @@ impl super::SqliteStorage {
         let pool = Arc::clone(&self.pool);
         let memory_id_owned = memory_id.to_string();
 
-        // Fetch candidate targets and filter out existing relationships in one
-        // spawn_blocking call, avoiding N separate relationship_exists round-trips.
+        // Fetch candidate targets in a single batched query using json_each
+        // and window functions to limit to 3 targets per entity tag.
         let targets = tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
             let mut targets: Vec<(String, String)> = Vec::new(); // (target_id, entity_tag)
 
+            let entity_tags_json = serde_json::to_string(&entity_tags)
+                .context("failed to serialize entity_tags to JSON")?;
+
             let mut stmt = conn
                 .prepare(
-                    "SELECT m.id FROM memories m
-                     WHERE json_valid(m.tags)
-                       AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = ?1)
-                       AND m.id != ?2
-                       AND m.superseded_by_id IS NULL
-                       AND NOT EXISTS (
-                           SELECT 1 FROM relationships r
-                           WHERE r.source_id = ?2 AND r.target_id = m.id AND r.rel_type = 'RELATES_TO'
-                       )
-                     ORDER BY m.created_at DESC LIMIT 3",
+                    "SELECT target_id, entity_tag FROM (
+                        SELECT m.id as target_id, je.value as entity_tag,
+                               ROW_NUMBER() OVER(PARTITION BY je.value ORDER BY m.created_at DESC) as rn
+                        FROM memories m
+                        CROSS JOIN json_each(m.tags) as je
+                        WHERE json_valid(m.tags)
+                          AND je.value IN (SELECT value FROM json_each(?1))
+                          AND m.id != ?2
+                          AND m.superseded_by_id IS NULL
+                          AND NOT EXISTS (
+                              SELECT 1 FROM relationships r
+                              WHERE r.source_id = ?2 AND r.target_id = m.id AND r.rel_type = 'RELATES_TO'
+                          )
+                    )
+                    WHERE rn <= 3",
                 )
                 .context("failed to prepare entity co-occurrence query")?;
 
-            for entity_tag in &entity_tags {
-                let rows = stmt
-                    .query_map(params![entity_tag, memory_id_owned], |row| {
-                        row.get::<_, String>(0)
-                    })
-                    .context("failed to execute entity co-occurrence query")?;
+            let mut rows = stmt.query(params![entity_tags_json, memory_id_owned])
+                .context("failed to execute entity co-occurrence query")?;
 
-                for row in rows {
-                    let target_id = row.context("failed to decode entity co-occurrence row")?;
-                    targets.push((target_id, entity_tag.clone()));
-                }
+            while let Some(row) = rows.next()? {
+                let target_id: String = row.get(0)?;
+                let entity_tag: String = row.get(1)?;
+                targets.push((target_id, entity_tag));
             }
 
             Ok::<_, anyhow::Error>(targets)
