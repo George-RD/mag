@@ -2,11 +2,15 @@
 /// `percentile` must be in [0.0, 100.0]. Returns 0.0 for empty slices.
 ///
 /// Uses the nearest-rank method (sorted, index = ceil(p/100 * n) - 1).
+// `#[allow(dead_code)]` is required because `bench_utils` is included as a
+// module in each bench binary; `percentile_ms` is only called from
+// `locomo_bench`, so it looks dead when compiling the other bins.
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
+#[allow(dead_code)]
 pub fn percentile_ms(samples: &[u128], percentile: f64) -> f64 {
     if samples.is_empty() || !(0.0..=100.0).contains(&percentile) {
         return 0.0;

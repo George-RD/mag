@@ -536,7 +536,7 @@ impl StatsProvider for MemoryStorage {
 
         // Sort by count descending, take top 20.
         let mut sorted: Vec<_> = session_counts.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
         sorted.truncate(20);
 
         let sessions: Vec<serde_json::Value> = sorted
