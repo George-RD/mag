@@ -69,7 +69,7 @@ jobs:
 
       - name: Detect scoring/search changes
         id: filter
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@v3
         with:
           filters: |
             scoring:
