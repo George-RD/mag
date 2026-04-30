@@ -39,7 +39,7 @@ pub(super) fn advanced_fts_candidate_limit(limit: usize) -> usize {
 // Phase functions are declared `pub(super)` inside their respective
 // sub-modules (visible only within `pipeline/`). Re-exporting them here as
 // `pub(super) use` makes them visible to the parent `sqlite/` module so
-// `advanced.rs` can call them as `pipeline::collect_vector_candidates`, etc.
+// `advanced.rs` can call them as e.g. `pipeline::collect_dual_candidates`.
 
 pub(super) use abstention::merge_hot_cache_results;
 pub(super) use decomp::enrich_with_decomposition;
