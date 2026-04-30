@@ -101,179 +101,150 @@ impl AdvancedSearcher for SqliteStorage {
                 .is_some_and(|overlap| overlap >= scoring_params.abstention_min_text)
         });
 
+        // Capture filter dimensions for cache metadata before opts moves
+        // into closures further down. Both branches (keyword-only and full
+        // pipeline) share the cache-write tail at the bottom of the fn.
+        let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
+        let cache_project_filter = opts.project.clone();
+        let cache_session_id_filter = opts.session_id.clone();
+
         // ── KeywordOnlyStrategy dispatch ────────────────────────────────
         // For keyword-intent queries (and empty / whitespace-only queries,
         // which can't produce a meaningful embedding), skip embedding, vector
         // search, RRF fusion, reranker, and graph enrichment. Use FTS5 BM25
         // only.
-        if intent == QueryIntent::Keyword || query.trim().is_empty() {
+        let results = if intent == QueryIntent::Keyword || query.trim().is_empty() {
             tracing::debug!(query = %query, "dispatching to KeywordOnlyStrategy");
-            let include_superseded = opts.include_superseded.unwrap_or(false);
-            let explain_enabled = opts.explain.unwrap_or(false);
-            let candidates: CandidateSet = self
-                .fts_search(&query, limit, &opts, include_superseded, &scoring_params)
-                .await?;
-
-            let scoring_strategy = Arc::clone(&self.scoring_strategy);
-            let query_owned = query.clone();
-            let sp = scoring_params.clone();
-            let results = tokio::task::spawn_blocking(move || {
-                pipeline::keyword_candidates_to_results(
-                    candidates,
-                    &query_owned,
-                    limit,
-                    &sp,
-                    scoring_strategy.as_ref(),
-                    explain_enabled,
-                )
+            pipeline::run_keyword_only_search(
+                self,
+                &query,
+                limit,
+                &opts,
+                &scoring_params,
+                hot_results,
+                hot_has_confident_match,
+            )
+            .await?
+        } else {
+            // Phase 0: Embedding computation (blocking).
+            // Keyword queries have already been handled above via
+            // KeywordOnlyStrategy, so all remaining queries require an
+            // embedding.
+            let query_embedding = tokio::task::spawn_blocking({
+                let embedder = Arc::clone(&embedder);
+                let query = query.clone();
+                move || {
+                    let emb = if query.is_empty() {
+                        Vec::new()
+                    } else {
+                        embedder
+                            .embed(&query)
+                            .context("failed to compute query embedding")?
+                    };
+                    Ok::<_, anyhow::Error>(emb)
+                }
             })
             .await
-            .context("spawn_blocking join error")?;
+            .context("spawn_blocking join error")??;
 
-            let results = if hot_has_confident_match {
+            let include_superseded = opts.include_superseded.unwrap_or(false);
+            let explain_enabled = opts.explain.unwrap_or(false);
+
+            // Apply top_k_mult: scale candidate oversampling while keeping final limit intact.
+            let dynamic_mult = detect_dynamic_limit_mult(&query);
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
+            let candidate_limit =
+                ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
+
+            // Phases 1+2: Vector search and FTS5 search (non-keyword queries).
+            // Keyword queries were dispatched via KeywordOnlyStrategy above.
+            // When the pool has dedicated readers, run them on separate
+            // connections in parallel. In-memory mode (no readers) falls
+            // back to sequential execution on the single writer connection.
+            let (vector_candidates, fts_candidates) = pipeline::collect_dual_candidates(
+                &pool,
+                &query,
+                &query_embedding,
+                candidate_limit,
+                include_superseded,
+                &opts,
+                &scoring_params,
+            )
+            .await?;
+
+            // Clone opts before it moves into the fuse closure so sub-queries can reuse it.
+            let opts_for_decomp = opts.clone();
+
+            // Phases 3-6: RRF fusion, score refinement, graph enrichment,
+            // abstention + dedup. Needs one reader for graph queries.
+            let reranker = self.reranker.clone();
+            let scoring_strategy = Arc::clone(&self.scoring_strategy);
+            let results = tokio::task::spawn_blocking({
+                let pool = Arc::clone(&pool);
+                let sp = scoring_params.clone();
+                let query = query.clone();
+                let query_embedding = query_embedding.clone();
+                let opts = opts_for_decomp.clone();
+                move || {
+                    // Optional cross-encoder reranking (sync, safe inside spawn_blocking)
+                    let ce_scores = pipeline::compute_cross_encoder_scores(
+                        reranker.as_ref(),
+                        &query,
+                        &vector_candidates,
+                        &fts_candidates,
+                        &sp,
+                    );
+
+                    let conn = pool.reader()?;
+                    // `fuse_and_score` orchestrates phases 3-6 internally
+                    // (RRF fusion -> refine -> graph enrichment -> entity expansion
+                    // -> abstention/dedup via `abstain_and_dedup`).
+                    pipeline::fuse_and_score(
+                        &conn,
+                        vector_candidates,
+                        fts_candidates,
+                        &query,
+                        &query_embedding,
+                        &opts,
+                        limit,
+                        include_superseded,
+                        explain_enabled,
+                        &sp,
+                        ce_scores.as_ref(),
+                        scoring_strategy.as_ref(),
+                    )
+                }
+            })
+            .await
+            .context("spawn_blocking join error")??;
+
+            // ── Query decomposition: enrich results for multi-entity queries ──
+            // Use the intent-adjusted scoring params so sub-queries inherit
+            // the same RRF / word-overlap weights as the main query.
+            let results = pipeline::enrich_with_decomposition(
+                &self.pool,
+                &self.embedder,
+                &self.scoring_strategy,
+                results,
+                &query_for_decomp,
+                candidate_limit,
+                limit,
+                &opts_for_decomp,
+                &scoring_params,
+                include_superseded,
+                explain_enabled,
+            )
+            .await?;
+
+            if hot_has_confident_match {
                 pipeline::merge_hot_cache_results(hot_results, results, limit)
             } else {
                 results
-            };
-
-            // ── Cache store ──────────────────────────────────────────────
-            let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
-            let cache_project_filter = opts.project.clone();
-            let cache_session_id_filter = opts.session_id.clone();
-            if let Ok(mut cache) = self.query_cache.lock() {
-                cache.put(
-                    cache_key,
-                    super::CachedQuery {
-                        inserted_at: std::time::Instant::now(),
-                        results: results.clone(),
-                        event_type_filter: cache_event_type_filter,
-                        project_filter: cache_project_filter,
-                        session_id_filter: cache_session_id_filter,
-                    },
-                );
             }
-
-            return Ok(results);
-        }
-
-        // Phase 0: Embedding computation (blocking).
-        // Keyword queries have already returned above via KeywordOnlyStrategy,
-        // so all remaining queries require an embedding.
-        let query_embedding = tokio::task::spawn_blocking({
-            let embedder = Arc::clone(&embedder);
-            let query = query.clone();
-            move || {
-                let emb = if query.is_empty() {
-                    Vec::new()
-                } else {
-                    embedder
-                        .embed(&query)
-                        .context("failed to compute query embedding")?
-                };
-                Ok::<_, anyhow::Error>(emb)
-            }
-        })
-        .await
-        .context("spawn_blocking join error")??;
-
-        let include_superseded = opts.include_superseded.unwrap_or(false);
-        let explain_enabled = opts.explain.unwrap_or(false);
-
-        // Apply top_k_mult: scale candidate oversampling while keeping final limit intact.
-        let dynamic_mult = detect_dynamic_limit_mult(&query);
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            clippy::cast_precision_loss
-        )]
-        let candidate_limit =
-            ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
-
-        // Phases 1+2: Vector search and FTS5 search (non-keyword queries).
-        // Keyword queries were dispatched via KeywordOnlyStrategy above.
-        // When the pool has dedicated readers, run them on separate
-        // connections in parallel. In-memory mode (no readers) falls
-        // back to sequential execution on the single writer connection.
-        let (vector_candidates, fts_candidates) = pipeline::collect_dual_candidates(
-            &pool,
-            &query,
-            &query_embedding,
-            candidate_limit,
-            include_superseded,
-            &opts,
-            &scoring_params,
-        )
-        .await?;
-
-        // Capture filter dimensions for cache metadata before opts moves into closure.
-        let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
-        let cache_project_filter = opts.project.clone();
-        let cache_session_id_filter = opts.session_id.clone();
-        // Clone opts before it moves into the fuse closure so sub-queries can reuse it.
-        let opts_for_decomp = opts.clone();
-
-        // Phases 3-6: RRF fusion, score refinement, graph enrichment,
-        // abstention + dedup. Needs one reader for graph queries.
-        let reranker = self.reranker.clone();
-        let scoring_strategy = Arc::clone(&self.scoring_strategy);
-        let results = tokio::task::spawn_blocking({
-            let pool = Arc::clone(&pool);
-            let sp = scoring_params.clone();
-            move || {
-                // Optional cross-encoder reranking (sync, safe inside spawn_blocking)
-                let ce_scores = pipeline::compute_cross_encoder_scores(
-                    reranker.as_ref(),
-                    &query,
-                    &vector_candidates,
-                    &fts_candidates,
-                    &sp,
-                );
-
-                let conn = pool.reader()?;
-                // `fuse_and_score` orchestrates phases 3-6 internally
-                // (RRF fusion -> refine -> graph enrichment -> entity expansion
-                // -> abstention/dedup via `abstain_and_dedup`).
-                pipeline::fuse_and_score(
-                    &conn,
-                    vector_candidates,
-                    fts_candidates,
-                    &query,
-                    &query_embedding,
-                    &opts,
-                    limit,
-                    include_superseded,
-                    explain_enabled,
-                    &sp,
-                    ce_scores.as_ref(),
-                    scoring_strategy.as_ref(),
-                )
-            }
-        })
-        .await
-        .context("spawn_blocking join error")??;
-
-        // ── Query decomposition: enrich results for multi-entity queries ──
-        // Use the intent-adjusted scoring params so sub-queries inherit
-        // the same RRF / word-overlap weights as the main query.
-        let results = pipeline::enrich_with_decomposition(
-            &self.pool,
-            &self.embedder,
-            &self.scoring_strategy,
-            results,
-            &query_for_decomp,
-            candidate_limit,
-            limit,
-            &opts_for_decomp,
-            &scoring_params,
-            include_superseded,
-            explain_enabled,
-        )
-        .await?;
-
-        let results = if hot_has_confident_match {
-            pipeline::merge_hot_cache_results(hot_results, results, limit)
-        } else {
-            results
         };
 
         // ── Cache store ──────────────────────────────────────────────────

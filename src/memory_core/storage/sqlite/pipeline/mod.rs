@@ -46,4 +46,4 @@ pub(super) use decomp::enrich_with_decomposition;
 pub(super) use fusion::fuse_and_score;
 pub(super) use rerank::compute_cross_encoder_scores;
 pub(super) use retrieval::{collect_dual_candidates, collect_fts_candidates};
-pub(super) use scoring::keyword_candidates_to_results;
+pub(super) use scoring::run_keyword_only_search;

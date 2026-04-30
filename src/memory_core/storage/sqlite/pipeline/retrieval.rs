@@ -404,8 +404,14 @@ pub(crate) async fn collect_dual_candidates(
                     &o,
                     &sp,
                 )?;
-                let fts_c =
-                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)?;
+                let fts_c = collect_fts_candidates(
+                    &conn,
+                    &q,
+                    candidate_limit,
+                    &o,
+                    include_superseded,
+                    &sp,
+                )?;
                 Ok::<_, anyhow::Error>((vec_c, fts_c))
             }
         })

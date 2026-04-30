@@ -5,9 +5,13 @@
 //! `KeywordOnlyStrategy` dispatch in `advanced_search`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use super::super::storage::RankedSemanticCandidate;
-use crate::memory_core::retrieval_strategy::CandidateSet;
+use anyhow::{Context, Result};
+
+use super::super::storage::{RankedSemanticCandidate, SqliteStorage};
+use super::abstention::merge_hot_cache_results;
+use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher};
 use crate::memory_core::scoring::query_coverage_boost;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{
@@ -196,4 +200,54 @@ pub(crate) fn keyword_candidates_to_results(
             candidate.result
         })
         .collect()
+}
+
+/// `KeywordOnlyStrategy` dispatch path for `advanced_search`.
+///
+/// For keyword-intent queries (and empty / whitespace-only queries, which
+/// can't produce a meaningful embedding), this skips embedding, vector
+/// search, RRF fusion, reranker, and graph enrichment, using FTS5 BM25
+/// only. Runs `keyword_candidates_to_results` inside `spawn_blocking` and
+/// merges hot-cache hits when the cache had a confident text match.
+///
+/// Cache writes are intentionally left to the caller so both keyword and
+/// full-pipeline branches share a single cache-write tail.
+pub(crate) async fn run_keyword_only_search(
+    storage: &SqliteStorage,
+    query: &str,
+    limit: usize,
+    opts: &SearchOptions,
+    scoring_params: &ScoringParams,
+    hot_results: Vec<SemanticResult>,
+    hot_has_confident_match: bool,
+) -> Result<Vec<SemanticResult>> {
+    let include_superseded = opts.include_superseded.unwrap_or(false);
+    let explain_enabled = opts.explain.unwrap_or(false);
+    let candidates: CandidateSet = storage
+        .fts_search(query, limit, opts, include_superseded, scoring_params)
+        .await?;
+
+    let scoring_strategy = Arc::clone(&storage.scoring_strategy);
+    let query_owned = query.to_string();
+    let sp = scoring_params.clone();
+    let results = tokio::task::spawn_blocking(move || {
+        keyword_candidates_to_results(
+            candidates,
+            &query_owned,
+            limit,
+            &sp,
+            scoring_strategy.as_ref(),
+            explain_enabled,
+        )
+    })
+    .await
+    .context("spawn_blocking join error")?;
+
+    let results = if hot_has_confident_match {
+        merge_hot_cache_results(hot_results, results, limit)
+    } else {
+        results
+    };
+
+    Ok(results)
 }
