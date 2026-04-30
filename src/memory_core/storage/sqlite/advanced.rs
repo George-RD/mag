@@ -80,7 +80,6 @@ impl AdvancedSearcher for SqliteStorage {
 
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
-        // Apply intent-based multipliers to scoring params.
         let mut scoring_params = self.scoring_params.clone();
         scoring_params.rrf_weight_vec *= intent_profile.vec_weight_mult;
         scoring_params.rrf_weight_fts *= intent_profile.fts_weight_mult;
@@ -101,18 +100,10 @@ impl AdvancedSearcher for SqliteStorage {
                 .is_some_and(|overlap| overlap >= scoring_params.abstention_min_text)
         });
 
-        // Capture filter dimensions for cache metadata before opts moves
-        // into closures further down. Both branches (keyword-only and full
-        // pipeline) share the cache-write tail at the bottom of the fn.
         let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
         let cache_project_filter = opts.project.clone();
         let cache_session_id_filter = opts.session_id.clone();
 
-        // ── KeywordOnlyStrategy dispatch ────────────────────────────────
-        // For keyword-intent queries (and empty / whitespace-only queries,
-        // which can't produce a meaningful embedding), skip embedding, vector
-        // search, RRF fusion, reranker, and graph enrichment. Use FTS5 BM25
-        // only.
         let results = if intent == QueryIntent::Keyword || query.trim().is_empty() {
             tracing::debug!(query = %query, "dispatching to KeywordOnlyStrategy");
             pipeline::run_keyword_only_search(
@@ -160,11 +151,6 @@ impl AdvancedSearcher for SqliteStorage {
             let candidate_limit =
                 ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
 
-            // Phases 1+2: Vector search and FTS5 search (non-keyword queries).
-            // Keyword queries were dispatched via KeywordOnlyStrategy above.
-            // When the pool has dedicated readers, run them on separate
-            // connections in parallel. In-memory mode (no readers) falls
-            // back to sequential execution on the single writer connection.
             let (vector_candidates, fts_candidates) = pipeline::collect_dual_candidates(
                 &pool,
                 &query,
@@ -176,7 +162,6 @@ impl AdvancedSearcher for SqliteStorage {
             )
             .await?;
 
-            // Clone opts before it moves into the fuse closure so sub-queries can reuse it.
             let opts_for_decomp = opts.clone();
 
             // Phases 3-6: RRF fusion, score refinement, graph enrichment,
@@ -186,8 +171,6 @@ impl AdvancedSearcher for SqliteStorage {
             let results = tokio::task::spawn_blocking({
                 let pool = Arc::clone(&pool);
                 let sp = scoring_params.clone();
-                let query = query.clone();
-                let query_embedding = query_embedding.clone();
                 let opts = opts_for_decomp.clone();
                 move || {
                     // Optional cross-encoder reranking (sync, safe inside spawn_blocking)

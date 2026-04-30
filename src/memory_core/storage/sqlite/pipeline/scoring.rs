@@ -207,11 +207,7 @@ pub(crate) fn keyword_candidates_to_results(
 /// For keyword-intent queries (and empty / whitespace-only queries, which
 /// can't produce a meaningful embedding), this skips embedding, vector
 /// search, RRF fusion, reranker, and graph enrichment, using FTS5 BM25
-/// only. Runs `keyword_candidates_to_results` inside `spawn_blocking` and
-/// merges hot-cache hits when the cache had a confident text match.
-///
-/// Cache writes are intentionally left to the caller so both keyword and
-/// full-pipeline branches share a single cache-write tail.
+/// only. Merges hot-cache hits when the cache had a confident text match.
 pub(crate) async fn run_keyword_only_search(
     storage: &SqliteStorage,
     query: &str,
