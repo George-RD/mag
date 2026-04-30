@@ -1,8 +1,8 @@
 # MAG Experimentation Substrate Campaign
 
-**Status**: Phase 1 DONE, Phase 2 DONE, Phase 3 DONE, Phase 4 in progress
+**Status**: Phase 1 DONE, Phase 2 DONE, Phase 3 DONE, Phase 4 DONE — campaign complete (all 15 PRs merged)
 **Campaign Workspace**: `../mag-substrate` (jj workspace `substrate-campaign`)
-**Generated**: 2026-04-14
+**Generated**: 2026-04-14 | **Completed**: 2026-04-30
 
 ## Vision
 
@@ -45,18 +45,23 @@ MAG v0.2 is a Rust core exposing stable traits for Storage, Retrieval, Fusion, S
 | #301 | feat: strategy comparison benchmark harness (PR-3a) | 2026-04-14 | N/A |
 | #302 | feat: in-memory HashMap backend MemoryStorage (PR-3b) | 2026-04-14 | N/A |
 | #303 | test: shared backend conformance suite (PR-3c) | 2026-04-14 | N/A |
+| #305 | docs: add field-level doc comments to QueryContext / FullPipelineStrategy (PR-4a-i) | 2026-04-15 | N/A (additive) |
+| #306 | refactor: split mcp_server.rs into mcp/ module directory (PR-4b) | 2026-04-15 | N/A |
+| #307 | feat: add KeywordOnlyStrategy + intent-based dispatch (PR-4a-ii) | 2026-04-15 | 10-sample PASS |
+| #317 | refactor: split advanced.rs into pipeline/ subdirectory (PR-4c) | 2026-04-30 | PASS |
+| #318 | fix(search): address eight deferred retrieval/lock bugs (post-roadmap) | 2026-04-30 | N/A |
 
 ## Phase 4 Status
 
-Phase 4 in progress -- two parallel chains:
-- **4a-i + 4a-ii** (RetrievalStrategy trait + KeywordOnlyStrategy dispatch)
-- **4b + 4c** (split mcp_server.rs -> mcp/ module, then advanced.rs -> pipeline/)
+DONE. Both parallel chains landed:
+- **4a-i + 4a-ii** (RetrievalStrategy trait + KeywordOnlyStrategy dispatch) — `src/memory_core/retrieval_strategy.rs` exposes `RetrievalStrategy`, `FullPipelineStrategy`, and `KeywordOnlyStrategy`; `advanced_search` dispatches via intent.
+- **4b + 4c** (mcp_server.rs → `src/mcp/`, advanced.rs → `src/memory_core/storage/sqlite/pipeline/`) — `mcp_server.rs` is gone; `advanced.rs` residual is 675 lines (orchestration body) that delegates to eight `pipeline/` modules.
 
 ## Key Corrections from Source Inspection
 
 1. **sqlite/mod.rs trait impls already distributed** — The 19 trait implementations are already in submodules (crud.rs, search.rs, etc.). mod.rs problem is mixed concerns (struct, cache, relationships, I/O), not trait monolith.
 2. **Tool count is 19, not 16** — 15 legacy + 4 Wave 2 facades in TOOL_REGISTRY.
-3. **McpToolMode::Minimal is stubbed but not wired** — src/mcp_server.rs:54-56 explicitly says so.
+3. **McpToolMode::Minimal is stubbed but not wired** — was at src/mcp_server.rs:54-56 in v0.1.8; fixed in #293 and the file was later split into `src/mcp/` (#306).
 4. **Codebase is clean** — Zero dead code, zero unused deps, only 1 TODO (#121).
 5. **28 existing traits** — More mature trait surface than assumed. Refactor extends, not rewrites.
 
