@@ -1,8 +1,11 @@
 //! Phase 1 (vector candidates) and Phase 2 (FTS candidates) retrieval.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+use super::super::conn_pool::ConnPool;
 #[cfg(not(feature = "sqlite-vec"))]
 use super::super::dot_product;
 #[cfg(not(feature = "sqlite-vec"))]
@@ -15,6 +18,7 @@ use super::super::helpers::{
 use super::super::helpers::{hydrate_memories_by_ids, vec_distance_to_similarity, vec_knn_search};
 use super::super::storage::RankedSemanticCandidate;
 use super::advanced_fts_candidate_limit;
+use crate::memory_core::retrieval_strategy::CandidateSet;
 use crate::memory_core::{
     EventType, ScoringParams, SearchOptions, SemanticResult, priority_factor, type_weight_et,
 };
@@ -332,4 +336,80 @@ pub(crate) fn collect_fts_candidates(
     // so sort ascending (most negative first = best rank for RRF)
     fts_candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
     Ok(fts_candidates)
+}
+
+/// Run Phase 1 (vector) and Phase 2 (FTS) candidate retrieval, in parallel
+/// when the connection pool has dedicated readers and sequentially otherwise.
+///
+/// In WAL-pooled mode the two scans run on independent reader connections
+/// via `try_join!`. In single-connection (in-memory / test) mode they share
+/// the writer connection, so we run them sequentially inside one
+/// `spawn_blocking` to keep the SQLite connection on a single thread.
+pub(crate) async fn collect_dual_candidates(
+    pool: &Arc<ConnPool>,
+    query: &str,
+    query_embedding: &[f32],
+    candidate_limit: usize,
+    include_superseded: bool,
+    opts: &SearchOptions,
+    scoring_params: &ScoringParams,
+) -> Result<(CandidateSet, CandidateSet)> {
+    if pool.has_readers() {
+        let (vec_result, fts_result) = tokio::try_join!(
+            tokio::task::spawn_blocking({
+                let pool = Arc::clone(pool);
+                let emb = query_embedding.to_vec();
+                let o = opts.clone();
+                let sp = scoring_params.clone();
+                move || {
+                    let conn = pool.reader()?;
+                    collect_vector_candidates(
+                        &conn,
+                        &emb,
+                        candidate_limit,
+                        include_superseded,
+                        &o,
+                        &sp,
+                    )
+                }
+            }),
+            tokio::task::spawn_blocking({
+                let pool = Arc::clone(pool);
+                let q = query.to_string();
+                let o = opts.clone();
+                let sp = scoring_params.clone();
+                move || {
+                    let conn = pool.reader()?;
+                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
+                }
+            }),
+        )
+        .context("parallel search join error")?;
+        Ok((vec_result?, fts_result?))
+    } else {
+        // Sequential: single connection (in-memory / test mode).
+        tokio::task::spawn_blocking({
+            let pool = Arc::clone(pool);
+            let emb = query_embedding.to_vec();
+            let q = query.to_string();
+            let o = opts.clone();
+            let sp = scoring_params.clone();
+            move || {
+                let conn = pool.reader()?;
+                let vec_c = collect_vector_candidates(
+                    &conn,
+                    &emb,
+                    candidate_limit,
+                    include_superseded,
+                    &o,
+                    &sp,
+                )?;
+                let fts_c =
+                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)?;
+                Ok::<_, anyhow::Error>((vec_c, fts_c))
+            }
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
 }

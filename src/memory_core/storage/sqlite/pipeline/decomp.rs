@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use super::super::conn_pool::ConnPool;
 use super::super::query_classifier::{QueryIntent, classify_query_intent};
 use super::fusion::fuse_and_score;
-use super::retrieval::{collect_fts_candidates, collect_vector_candidates};
+use super::retrieval::{collect_dual_candidates, collect_fts_candidates};
 use crate::memory_core::embedder::Embedder;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};
@@ -48,71 +48,28 @@ pub(crate) async fn run_single_query_pipeline(
     };
 
     let (vector_candidates, fts_candidates) = if fts_only {
-        let pool = Arc::clone(pool);
+        let pool_arc = Arc::clone(pool);
         let q = query.to_string();
         let o = opts.clone();
         let sp = scoring_params.clone();
         let fts_result = tokio::task::spawn_blocking(move || {
-            let conn = pool.reader()?;
+            let conn = pool_arc.reader()?;
             collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
         })
         .await
         .context("spawn_blocking join error")??;
         (Vec::new(), fts_result)
-    } else if pool.has_readers() {
-        let (vec_result, fts_result) = tokio::try_join!(
-            tokio::task::spawn_blocking({
-                let pool = Arc::clone(pool);
-                let emb = query_embedding.clone();
-                let o = opts.clone();
-                let sp = scoring_params.clone();
-                move || {
-                    let conn = pool.reader()?;
-                    collect_vector_candidates(
-                        &conn,
-                        &emb,
-                        candidate_limit,
-                        include_superseded,
-                        &o,
-                        &sp,
-                    )
-                }
-            }),
-            tokio::task::spawn_blocking({
-                let pool = Arc::clone(pool);
-                let q = query.to_string();
-                let o = opts.clone();
-                let sp = scoring_params.clone();
-                move || {
-                    let conn = pool.reader()?;
-                    collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
-                }
-            }),
-        )
-        .context("parallel search join error")?;
-        (vec_result?, fts_result?)
     } else {
-        let pool = Arc::clone(pool);
-        let emb = query_embedding.clone();
-        let q = query.to_string();
-        let o = opts.clone();
-        let sp = scoring_params.clone();
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.reader()?;
-            let vec_c = collect_vector_candidates(
-                &conn,
-                &emb,
-                candidate_limit,
-                include_superseded,
-                &o,
-                &sp,
-            )?;
-            let fts_c =
-                collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)?;
-            Ok::<_, anyhow::Error>((vec_c, fts_c))
-        })
-        .await
-        .context("spawn_blocking join error")??
+        collect_dual_candidates(
+            pool,
+            query,
+            &query_embedding,
+            candidate_limit,
+            include_superseded,
+            opts,
+            scoring_params,
+        )
+        .await?
     };
 
     let ce_scores: Option<HashMap<String, f32>> = None;

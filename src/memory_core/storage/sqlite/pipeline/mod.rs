@@ -45,5 +45,5 @@ pub(super) use abstention::merge_hot_cache_results;
 pub(super) use decomp::run_single_query_pipeline;
 pub(super) use fusion::fuse_and_score;
 pub(super) use rerank::compute_cross_encoder_scores;
-pub(super) use retrieval::{collect_fts_candidates, collect_vector_candidates};
+pub(super) use retrieval::{collect_dual_candidates, collect_fts_candidates};
 pub(super) use scoring::keyword_candidates_to_results;

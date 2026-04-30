@@ -197,77 +197,16 @@ impl AdvancedSearcher for SqliteStorage {
         // When the pool has dedicated readers, run them on separate
         // connections in parallel. In-memory mode (no readers) falls
         // back to sequential execution on the single writer connection.
-        let (vector_candidates, fts_candidates) = if pool.has_readers() {
-            let (vec_result, fts_result) = tokio::try_join!(
-                tokio::task::spawn_blocking({
-                    let pool = Arc::clone(&pool);
-                    let emb = query_embedding.clone();
-                    let o = opts.clone();
-                    let sp = scoring_params.clone();
-                    move || {
-                        let conn = pool.reader()?;
-                        pipeline::collect_vector_candidates(
-                            &conn,
-                            &emb,
-                            candidate_limit,
-                            include_superseded,
-                            &o,
-                            &sp,
-                        )
-                    }
-                }),
-                tokio::task::spawn_blocking({
-                    let pool = Arc::clone(&pool);
-                    let q = query.clone();
-                    let o = opts.clone();
-                    let sp = scoring_params.clone();
-                    move || {
-                        let conn = pool.reader()?;
-                        pipeline::collect_fts_candidates(
-                            &conn,
-                            &q,
-                            candidate_limit,
-                            &o,
-                            include_superseded,
-                            &sp,
-                        )
-                    }
-                }),
-            )
-            .context("parallel search join error")?;
-            (vec_result?, fts_result?)
-        } else {
-            // Sequential: single connection (in-memory / test mode).
-            tokio::task::spawn_blocking({
-                let pool = Arc::clone(&pool);
-                let emb = query_embedding.clone();
-                let q = query.clone();
-                let o = opts.clone();
-                let sp = scoring_params.clone();
-                move || {
-                    let conn = pool.reader()?;
-                    let vec_c = pipeline::collect_vector_candidates(
-                        &conn,
-                        &emb,
-                        candidate_limit,
-                        include_superseded,
-                        &o,
-                        &sp,
-                    )?;
-                    let fts_c = pipeline::collect_fts_candidates(
-                        &conn,
-                        &q,
-                        candidate_limit,
-                        &o,
-                        include_superseded,
-                        &sp,
-                    )?;
-                    Ok::<_, anyhow::Error>((vec_c, fts_c))
-                }
-            })
-            .await
-            .context("spawn_blocking join error")??
-        };
+        let (vector_candidates, fts_candidates) = pipeline::collect_dual_candidates(
+            &pool,
+            &query,
+            &query_embedding,
+            candidate_limit,
+            include_superseded,
+            &opts,
+            &scoring_params,
+        )
+        .await?;
 
         // Capture filter dimensions for cache metadata before opts moves into closure.
         let cache_event_type_filter = opts.event_type.as_ref().map(|et| et.to_string());
