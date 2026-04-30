@@ -637,10 +637,10 @@ mod tests {
 
     /// Empty and whitespace-only queries must take the FTS-only dispatch
     /// path; running vector search with an empty embedding produces no
-    /// useful signal. We assert via behavior: the call returns cleanly
-    /// (no panic from a zero-length embedding hitting downstream cosine
-    /// math) and respects `SearchOptions` filters supplied alongside the
-    /// blank query.
+    /// useful signal. The call must return cleanly (no panic from a
+    /// zero-length embedding hitting downstream cosine math) and yield
+    /// an empty result set, since FTS5 with a blank query matches
+    /// nothing.
     #[tokio::test]
     async fn blank_query_routes_to_fts_only() {
         use crate::memory_core::AdvancedSearcher;
@@ -653,7 +653,6 @@ mod tests {
             "alpha entry one",
             &MemoryInput {
                 content: "alpha entry one".to_string(),
-                project: Some("p1".to_string()),
                 ..Default::default()
             },
         )
