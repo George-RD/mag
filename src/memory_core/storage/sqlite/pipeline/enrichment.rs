@@ -156,6 +156,12 @@ pub(crate) fn enrich_graph_neighbors(
                     let neighbor_et = event_type_from_sql(event_type);
                     let neighbor_et_ref = neighbor_et.as_ref().unwrap_or(&EventType::Memory);
                     let neighbor_pv = resolve_priority(neighbor_et.as_ref(), priority);
+                    // Apply type weight + priority factor so graph-injected
+                    // candidates are normalized against direct-retrieval ones
+                    // (which apply these in `collect_vector_candidates` /
+                    // `collect_fts_candidates`).
+                    neighbor_score *= type_weight_et(neighbor_et_ref)
+                        * priority_factor(neighbor_pv, scoring_params);
                     neighbor_score *= time_decay_et(&created_at, neighbor_et_ref, scoring_params);
                     neighbor_score *= scoring_params.neighbor_importance_floor
                         + importance * scoring_params.neighbor_importance_scale;
@@ -281,7 +287,6 @@ pub(crate) fn expand_entity_tags(
 
     let expansion_limit = 25usize;
     let mut expanded_count = 0usize;
-    let existing_ids: HashSet<String> = ranked.keys().cloned().collect();
 
     let tag_sql = if include_superseded {
         "SELECT id, content, tags, importance, metadata, event_type, session_id, \
@@ -355,7 +360,11 @@ pub(crate) fn expand_entity_tags(
                         event_at,
                     ) = row;
 
-                    if existing_ids.contains(&id) {
+                    // Live check against `ranked` so candidates inserted earlier
+                    // in this expansion loop are also deduped (a snapshot taken
+                    // before the loop would let the same memory be added twice
+                    // when it matches multiple entity tags).
+                    if ranked.contains_key(&id) {
                         continue;
                     }
 

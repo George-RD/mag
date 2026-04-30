@@ -19,8 +19,9 @@ pub(super) fn is_lock_error(err: &rusqlite::Error) -> bool {
     )
 }
 
-/// Maximum number of retry attempts for lock contention.
-const RETRY_MAX_ATTEMPTS: u32 = 5;
+/// Maximum number of retries after the initial call (so total calls is
+/// `RETRY_MAX_RETRIES + 1`).
+const RETRY_MAX_RETRIES: u32 = 5;
 
 /// Base delay between retries (doubled each attempt).
 const RETRY_BASE_DELAY_MS: u64 = 10;
@@ -30,33 +31,34 @@ const RETRY_BASE_DELAY_MS: u64 = 10;
 /// This is a **synchronous** function intended to run inside `spawn_blocking`.
 /// Uses `std::thread::sleep` (not tokio) for delays.
 ///
-/// - Max attempts: 5
-/// - Backoff: 10ms, 20ms, 40ms, 80ms (+ random 0-50% jitter)
+/// - Max retries: 5 (so up to 6 calls including the initial attempt)
+/// - Backoff: 10ms, 20ms, 40ms, 80ms, 160ms (+ random 0-50% jitter)
 /// - Non-lock errors are returned immediately without retry.
 pub(super) fn retry_on_lock<T, F>(mut f: F) -> std::result::Result<T, rusqlite::Error>
 where
     F: FnMut() -> std::result::Result<T, rusqlite::Error>,
 {
-    let mut attempt = 0_u32;
+    let mut retries = 0_u32;
     loop {
         match f() {
             Ok(val) => return Ok(val),
-            Err(err) if is_lock_error(&err) && attempt + 1 < RETRY_MAX_ATTEMPTS => {
-                attempt += 1;
-                let base_ms = RETRY_BASE_DELAY_MS * 2_u64.pow(attempt - 1);
-                // Simple jitter: add 0-50% of base_ms using a cheap hash of the attempt
-                // counter and a timestamp nanos component to avoid pulling in a rand dependency.
+            Err(err) if is_lock_error(&err) && retries < RETRY_MAX_RETRIES => {
+                let base_ms = RETRY_BASE_DELAY_MS * 2_u64.pow(retries);
+                // Simple jitter: add 0-50% of base_ms using a cheap hash of the
+                // retry counter and a timestamp nanos component to avoid pulling
+                // in a rand dependency.
                 let jitter_ms = {
                     let nanos = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.subsec_nanos() as u64)
                         .unwrap_or(0);
-                    let seed = nanos.wrapping_mul(u64::from(attempt).wrapping_add(7));
+                    let seed = nanos.wrapping_mul(u64::from(retries).wrapping_add(7));
                     seed % (base_ms / 2 + 1)
                 };
                 let delay = Duration::from_millis(base_ms + jitter_ms);
+                retries += 1;
                 tracing::debug!(
-                    attempt,
+                    retry = retries,
                     delay_ms = delay.as_millis(),
                     "sqlite lock contention, retrying"
                 );
@@ -65,7 +67,7 @@ where
             Err(err) => {
                 if is_lock_error(&err) {
                     tracing::warn!(
-                        attempts = RETRY_MAX_ATTEMPTS,
+                        retries = RETRY_MAX_RETRIES,
                         "sqlite lock contention persisted after all retries"
                     );
                 }
@@ -329,8 +331,9 @@ mod tests {
         });
         assert!(result.is_err());
         assert_eq!(
-            attempts, 5,
-            "should attempt exactly RETRY_MAX_ATTEMPTS times"
+            attempts,
+            RETRY_MAX_RETRIES + 1,
+            "should attempt initial + RETRY_MAX_RETRIES times"
         );
     }
 }

@@ -32,9 +32,12 @@ pub(crate) async fn run_single_query_pipeline(
     scoring_strategy: &Arc<dyn ScoringStrategy>,
 ) -> Result<Vec<SemanticResult>> {
     let intent = classify_query_intent(query);
-    let keyword_only = intent == QueryIntent::Keyword;
+    // Route empty queries through FTS-only — vector search with an empty
+    // embedding can't produce meaningful similarities, and `build_fts5_query`
+    // already short-circuits empty input safely.
+    let fts_only = intent == QueryIntent::Keyword || query.is_empty();
 
-    let query_embedding = if keyword_only || query.is_empty() {
+    let query_embedding = if fts_only {
         Vec::new()
     } else {
         let embedder = Arc::clone(embedder);
@@ -44,7 +47,7 @@ pub(crate) async fn run_single_query_pipeline(
             .context("spawn_blocking join error")??
     };
 
-    let (vector_candidates, fts_candidates) = if keyword_only {
+    let (vector_candidates, fts_candidates) = if fts_only {
         let pool = Arc::clone(pool);
         let q = query.to_string();
         let o = opts.clone();
