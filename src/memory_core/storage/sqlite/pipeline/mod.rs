@@ -41,12 +41,9 @@ pub(super) fn advanced_fts_candidate_limit(limit: usize) -> usize {
 // `pub(super) use` makes them visible to the parent `sqlite/` module so
 // `advanced.rs` can call them as `pipeline::collect_vector_candidates`, etc.
 
-pub(super) use abstention::{
-    abstain_and_dedup, merge_hot_cache_results, merge_semantic_metadata, merge_semantic_result,
-};
+pub(super) use abstention::merge_hot_cache_results;
 pub(super) use decomp::run_single_query_pipeline;
-pub(super) use enrichment::{enrich_graph_neighbors, expand_entity_tags};
 pub(super) use fusion::fuse_and_score;
 pub(super) use rerank::compute_cross_encoder_scores;
 pub(super) use retrieval::{collect_fts_candidates, collect_vector_candidates};
-pub(super) use scoring::{keyword_candidates_to_results, refine_scores};
+pub(super) use scoring::keyword_candidates_to_results;

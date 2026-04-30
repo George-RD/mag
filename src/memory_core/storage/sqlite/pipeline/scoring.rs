@@ -17,7 +17,7 @@ use crate::memory_core::{
 
 /// Phase 4: Score refinement — word overlap, coverage boost, Jaccard, feedback,
 /// time decay, importance, and context tag matching.
-pub(super) fn refine_scores(
+pub(crate) fn refine_scores(
     ranked: &mut HashMap<String, RankedSemanticCandidate>,
     query_tokens: &HashSet<String>,
     opts: &SearchOptions,
@@ -108,7 +108,7 @@ pub(super) fn refine_scores(
 ///
 /// This function runs synchronously and is intended for use inside
 /// `spawn_blocking`.
-pub(super) fn keyword_candidates_to_results(
+pub(crate) fn keyword_candidates_to_results(
     candidates: CandidateSet,
     query: &str,
     limit: usize,

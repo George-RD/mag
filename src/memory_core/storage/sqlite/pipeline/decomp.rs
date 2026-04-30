@@ -19,7 +19,7 @@ use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};
 ///
 /// Used by query decomposition to run each sub-query through the full pipeline.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn run_single_query_pipeline(
+pub(crate) async fn run_single_query_pipeline(
     pool: &Arc<ConnPool>,
     embedder: &Arc<dyn Embedder>,
     query: &str,

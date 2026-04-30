@@ -21,7 +21,7 @@ use crate::memory_core::{
 
 /// Phase 5: Graph enrichment — inject 1-hop neighbors from top-scoring seeds.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn enrich_graph_neighbors(
+pub(crate) fn enrich_graph_neighbors(
     conn: &Connection,
     ranked: &mut HashMap<String, RankedSemanticCandidate>,
     query_tokens: &HashSet<String>,
@@ -245,7 +245,7 @@ pub(super) fn enrich_graph_neighbors(
 
 /// Phase 5b: Entity expansion — find memories tagged with entities from seed results.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn expand_entity_tags(
+pub(crate) fn expand_entity_tags(
     conn: &Connection,
     ranked: &mut HashMap<String, RankedSemanticCandidate>,
     query_tokens: &HashSet<String>,

@@ -14,7 +14,7 @@ use crate::memory_core::ScoringParams;
 /// Returns `None` when no reranker is configured or the candidate list is empty.
 /// Must be called from inside a `spawn_blocking` closure — `rerank` is synchronous
 /// and may block on ONNX inference.
-pub(super) fn compute_cross_encoder_scores(
+pub(crate) fn compute_cross_encoder_scores(
     reranker: Option<&std::sync::Arc<dyn crate::memory_core::reranker::Reranker>>,
     query: &str,
     vector_candidates: &[(String, f64, RankedSemanticCandidate)],

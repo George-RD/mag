@@ -21,7 +21,7 @@ use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};
 /// Phase 6: collection-level abstention + dedup, plus the final scoring-strategy
 /// pass and result-list shaping (normalization, explain injection).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn abstain_and_dedup(
+pub(crate) fn abstain_and_dedup(
     ranked: HashMap<String, RankedSemanticCandidate>,
     query_tokens: &HashSet<String>,
     opts: &SearchOptions,
@@ -98,7 +98,7 @@ pub(super) fn abstain_and_dedup(
 }
 
 /// Merge hot-tier cache hits into a freshly computed result list.
-pub(super) fn merge_hot_cache_results(
+pub(crate) fn merge_hot_cache_results(
     hot_results: Vec<SemanticResult>,
     mut results: Vec<SemanticResult>,
     limit: usize,
@@ -147,7 +147,7 @@ pub(super) fn merge_hot_cache_results(
     deduped
 }
 
-pub(super) fn merge_semantic_result(existing: &mut SemanticResult, incoming: SemanticResult) {
+pub(crate) fn merge_semantic_result(existing: &mut SemanticResult, incoming: SemanticResult) {
     if incoming.score > existing.score
         || (incoming.score == existing.score && incoming.id < existing.id)
     {
@@ -165,7 +165,7 @@ pub(super) fn merge_semantic_result(existing: &mut SemanticResult, incoming: Sem
     merge_semantic_metadata(&mut existing.metadata, incoming.metadata);
 }
 
-pub(super) fn merge_semantic_metadata(
+pub(crate) fn merge_semantic_metadata(
     existing: &mut serde_json::Value,
     incoming: serde_json::Value,
 ) {

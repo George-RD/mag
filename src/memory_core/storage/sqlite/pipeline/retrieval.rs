@@ -20,7 +20,7 @@ use crate::memory_core::{
 };
 
 /// Phase 1: Collect vector candidates sorted by cosine similarity.
-pub(super) fn collect_vector_candidates(
+pub(crate) fn collect_vector_candidates(
     conn: &Connection,
     query_embedding: &[f32],
     #[cfg_attr(not(feature = "sqlite-vec"), allow(unused))] limit: usize,
@@ -187,7 +187,7 @@ pub(super) fn collect_vector_candidates(
 }
 
 /// Phase 2: Collect FTS candidates sorted by BM25.
-pub(super) fn collect_fts_candidates(
+pub(crate) fn collect_fts_candidates(
     conn: &Connection,
     query: &str,
     limit: usize,

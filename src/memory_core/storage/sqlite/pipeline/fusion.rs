@@ -6,9 +6,9 @@
 //! are dispatched downstream by the caller.
 //!
 //! NOTE: `fuse_refine_and_output` was originally a single function that
-//! covered phases 3-6. It is split here as `fuse_and_score` (phases 3 + 3b
-//! + 4 + 5 + 5b — i.e., everything that mutates the ranked map in place) and
-//! [`super::abstention::abstain_and_dedup`] (phase 6 dedup, abstention,
+//! covered phases 3-6. It is split here as `fuse_and_score` (phases 3, 3b,
+//! 4, 5, and 5b — i.e., everything that mutates the ranked map in place)
+//! and [`super::abstention::abstain_and_dedup`] (phase 6 dedup, abstention,
 //! strategy pass, and final output). The boundary is the `// ── Phase 6:`
 //! comment that previously lived inside `fuse_refine_and_output`.
 
@@ -34,7 +34,7 @@ use crate::memory_core::{
 /// [`refine_scores`], and finally [`abstain_and_dedup`] for the Phase 6
 /// dedup/abstention/output stage.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn fuse_and_score(
+pub(crate) fn fuse_and_score(
     conn: &Connection,
     vector_candidates: Vec<(String, f64, RankedSemanticCandidate)>,
     fts_candidates: Vec<(String, f64, RankedSemanticCandidate)>,
