@@ -449,10 +449,10 @@ Phase 4
 ## Milestone Checkpoints
 
 ### v0.1.9 checkpoint
-- [ ] PR-1a merged: `--mcp-tools=minimal` filters the tool list at runtime
-- [ ] PR-1b merged: AGENTS.md tool count is accurate
-- [ ] PR-1c merged: sub-query parallelism active; `TODO(#121)` gone; no benchmark regression
-- [ ] PR-1d merged: `admin.rs` split into `admin/` subdirectory (4 files + mod.rs)
+- [x] PR-1a merged (#293): `--mcp-tools=minimal` filters the tool list at runtime
+- [x] PR-1b merged (#290): AGENTS.md tool count is accurate
+- [x] PR-1c merged (#291): sub-query parallelism active; `TODO(#121)` gone; no benchmark regression
+- [x] PR-1d merged (#292): `admin.rs` split into `admin/` subdirectory (4 files + mod.rs)
 
 ### v0.2.0 checkpoint
 - [x] PR-2a merged (#296): `ScoringStrategy` trait and `DefaultScoringStrategy` in place
@@ -469,10 +469,14 @@ Prerequisite: v0.2.0 checkpoint must be fully complete (all Phase 2 PRs merged) 
 - [x] PR-3c merged (#303): conformance suite passes for both backends
 
 ### v0.2.2 checkpoint
-- [ ] PR-4a-i merged: `RetrievalStrategy` trait defined (aligned with `trait-surface.md` §3.2); `FullPipelineStrategy` reference impl in place
-- [ ] PR-4a-ii merged: `KeywordOnlyStrategy` dispatched for keyword intent; 10-sample gate passed
-- [ ] PR-4b merged: `mcp_server.rs` split into `mcp/` module; MCP smoke tests pass
-- [ ] PR-4c merged: `advanced.rs` split into `pipeline/` subdirectory; benchmark gate passes
+- [x] PR-4a-i merged (#305): `RetrievalStrategy` trait defined (aligned with `trait-surface.md` §3.2); `FullPipelineStrategy` reference impl in place
+- [x] PR-4a-ii merged (#307): `KeywordOnlyStrategy` dispatched for keyword intent; 10-sample gate passed
+- [x] PR-4b merged (#306): `mcp_server.rs` split into `mcp/` module; MCP smoke tests pass
+- [x] PR-4c merged (#317): `advanced.rs` split into `pipeline/` subdirectory; benchmark gate passes
+
+**All 15 roadmap PRs merged.** Post-roadmap follow-up: #318 addressed eight deferred retrieval/lock bugs surfaced by Phase 4 review.
+
+**Post-roadmap residual**: `src/memory_core/storage/sqlite/advanced.rs` is 675 lines after PR-4c (vs. the ~350-line residual estimate in PR-4c §scope). The remainder is the `impl AdvancedSearcher` body — a dense orchestration that delegates to `pipeline::*` functions. Not flagged as blocking; track as a candidate for the v0.3.x substrate campaign if file-size policy is enforced strictly.
 
 ---
 
