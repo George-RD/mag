@@ -10,6 +10,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+#[cfg(test)]
+use crate::memory_core::embedder::Embedder;
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister,
@@ -67,6 +69,8 @@ pub use storage::{InitMode, RankedSemanticCandidate, SqliteStorage};
 use conn_pool::retry_on_lock;
 pub(crate) use embedding_codec::dot_product;
 use embedding_codec::{decode_embedding, encode_embedding};
+#[cfg(test)]
+use helpers::normalize_for_dedup;
 use helpers::{
     EPOCH_FALLBACK, append_search_filters, build_fts5_query, canonical_hash, content_hash,
     escape_like_pattern, event_type_from_sql, event_type_to_sql, parse_metadata_from_db,

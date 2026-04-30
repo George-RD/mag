@@ -1,6 +1,6 @@
 # MAG Experimentation Substrate Campaign
 
-**Status**: Phase 1 DONE, Phase 2 DONE, Phase 3 DONE, Phase 4 DONE (v0.2.x campaign complete; v0.3.x substrate trait suite is the next campaign)
+**Status**: Phase 1 DONE, Phase 2 DONE, Phase 3 DONE, Phase 4 in progress
 **Campaign Workspace**: `../mag-substrate` (jj workspace `substrate-campaign`)
 **Generated**: 2026-04-14
 
@@ -45,14 +45,12 @@ MAG v0.2 is a Rust core exposing stable traits for Storage, Retrieval, Fusion, S
 | #301 | feat: strategy comparison benchmark harness (PR-3a) | 2026-04-14 | N/A |
 | #302 | feat: in-memory HashMap backend MemoryStorage (PR-3b) | 2026-04-14 | N/A |
 | #303 | test: shared backend conformance suite (PR-3c) | 2026-04-14 | N/A |
-| #305 | docs: field-level doc comments on QueryContext + FullPipelineStrategy::collect (PR-4a-i) | 2026-04-30 | N/A (additive) |
-| #306 | refactor: split mcp_server.rs into mcp/ module (PR-4b) | 2026-04-30 | N/A |
-| #307 | feat: KeywordOnlyStrategy + intent-based dispatch (PR-4a-ii) | 2026-04-30 | PASS |
-| #TBD | refactor: split advanced.rs into pipeline/ subdirectory (PR-4c) | pending merge | gated in CI |
 
 ## Phase 4 Status
 
-Phase 4 complete. All four PRs merged (or pending merge for PR-4c). Next: v0.3.x substrate campaign (full `substrate/` module — remaining 5 traits, orchestrators, deprecation path) per `docs/specs/trait-surface.md`.
+Phase 4 in progress -- two parallel chains:
+- **4a-i + 4a-ii** (RetrievalStrategy trait + KeywordOnlyStrategy dispatch)
+- **4b + 4c** (split mcp_server.rs -> mcp/ module, then advanced.rs -> pipeline/)
 
 ## Key Corrections from Source Inspection
 
