@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+#[cfg(not(feature = "sqlite-vec"))]
 use super::super::dot_product;
 #[cfg(not(feature = "sqlite-vec"))]
 use super::super::embedding_codec::decode_embedding;
