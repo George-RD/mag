@@ -81,12 +81,13 @@ Rust MCP memory server — stores memories in SQLite with ONNX embeddings (bge-s
   - `schema.rs` — table creation, additive migrations
   - `crud.rs` — store/retrieve/update/delete
   - `search.rs` — FTS5 BM25 + vector similarity
-  - `advanced.rs` — 6-phase RRF pipeline (vector + FTS5 + rerank + refinement + graph + abstention)
+  - `advanced.rs` — `impl AdvancedSearcher` orchestrating the 6-phase RRF pipeline; phase implementations live in `pipeline/`
+  - `pipeline/` — phase modules: `retrieval` (vector + FTS5), `rerank` (cross-encoder), `fusion` (RRF + dual-match boost), `scoring` (refinement + keyword conversion), `enrichment` (graph + entity tags), `abstention` (dedup + gate + hot-cache merge), `decomp` (single-query runner)
   - `graph.rs` — relationship traversal (BFS, max_hops)
   - `entities.rs` — entity extraction (people, tools, projects) with auto-tagging on store
   - `lifecycle.rs` — TTL, sweep, feedback
   - `session.rs` — checkpoint, profile, session_info
-  - `admin.rs` — health/export/import/stats, backup/restore
+  - `admin/` — health/export/import/stats, backup/restore (split into `backup.rs`, `maintenance.rs`, `stats.rs`, `welcome.rs`)
   - `helpers.rs` — retry logic, intent classification, cache keys, FTS5 query building
   - `nlp.rs` — entity extraction, topic keywords, sub-query generation
   - `query_classifier.rs` — intent classification (Keyword/Factual/Conceptual/General)

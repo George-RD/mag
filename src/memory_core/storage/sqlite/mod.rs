@@ -48,6 +48,7 @@ mod hot_cache_mgmt;
 mod io;
 mod lifecycle;
 mod nlp;
+pub(super) mod pipeline;
 mod query_classifier;
 mod relationships;
 mod schema;
