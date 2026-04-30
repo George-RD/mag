@@ -1,6 +1,3 @@
-use super::nlp::{
-    content_fingerprint, extract_query_entities, extract_topic_keywords, generate_sub_queries,
-};
 use super::pipeline;
 use super::query_classifier::{
     IntentProfile, QueryIntent, classify_query_intent, detect_dynamic_limit_mult,
@@ -256,95 +253,22 @@ impl AdvancedSearcher for SqliteStorage {
         .context("spawn_blocking join error")??;
 
         // ── Query decomposition: enrich results for multi-entity queries ──
-        let decomp_entities = extract_query_entities(&query_for_decomp);
-        let results = if decomp_entities.len() >= 2 {
-            let topics = extract_topic_keywords(&query_for_decomp, &decomp_entities);
-            let sub_queries = generate_sub_queries(&query_for_decomp, &decomp_entities, &topics);
-
-            if !topics.is_empty() && sub_queries.len() > 1 {
-                let mut all_results = results;
-                let mut seen_ids: HashSet<String> =
-                    all_results.iter().map(|r| r.id.clone()).collect();
-
-                let decomp_pool = Arc::clone(&self.pool);
-                let decomp_embedder = Arc::clone(&self.embedder);
-                // Use the intent-adjusted scoring params so sub-queries inherit
-                // the same RRF / word-overlap weights as the main query.
-                let decomp_sp = scoring_params.clone();
-                let decomp_opts = opts_for_decomp.clone();
-                let decomp_strat = Arc::clone(&self.scoring_strategy);
-                // Parallel sub-query execution (resolves #121).
-                // ConnPool has 4 dedicated reader connections in WAL mode.
-                // Each sub-query internally runs vector + FTS in try_join!,
-                // consuming 2 readers simultaneously, so effective parallelism
-                // is ~2 sub-queries at a time; additional queries queue on the
-                // reader mutexes without deadlock.  Results are collected with
-                // their original index and sorted before merging to preserve
-                // deterministic dedup ordering.
-                let mut join_set: tokio::task::JoinSet<(usize, Result<Vec<SemanticResult>>)> =
-                    tokio::task::JoinSet::new();
-                for (idx, sub_query) in sub_queries.iter().skip(1).enumerate() {
-                    let pool = Arc::clone(&decomp_pool);
-                    let embedder = Arc::clone(&decomp_embedder);
-                    let sq = sub_query.clone();
-                    let opts = decomp_opts.clone();
-                    let sp = decomp_sp.clone();
-                    let strat = Arc::clone(&decomp_strat);
-                    join_set.spawn(async move {
-                        let res = pipeline::run_single_query_pipeline(
-                            &pool,
-                            &embedder,
-                            &sq,
-                            candidate_limit,
-                            limit,
-                            &opts,
-                            &sp,
-                            include_superseded,
-                            explain_enabled,
-                            &strat,
-                        )
-                        .await;
-                        (idx, res)
-                    });
-                }
-                // Collect all results, then sort by original sub-query index
-                // so merge order is deterministic (same as the old sequential loop).
-                let mut indexed_results: Vec<(usize, Vec<SemanticResult>)> = Vec::new();
-                while let Some(task_result) = join_set.join_next().await {
-                    let (idx, sub_results) = task_result.context("sub-query task panicked")?;
-                    indexed_results.push((idx, sub_results?));
-                }
-                indexed_results.sort_by_key(|(idx, _)| *idx);
-                for (_idx, sub_results) in indexed_results {
-                    for result in sub_results {
-                        if seen_ids.insert(result.id.clone()) {
-                            all_results.push(result);
-                        } else if let Some(existing) =
-                            all_results.iter_mut().find(|r| r.id == result.id)
-                            && result.score > existing.score
-                        {
-                            existing.score = result.score;
-                        }
-                    }
-                }
-
-                let mut deduped: Vec<SemanticResult> = Vec::new();
-                let mut fingerprints: HashSet<String> = HashSet::new();
-                all_results.sort_by(|a, b| b.score.total_cmp(&a.score));
-                for result in all_results {
-                    let fp = content_fingerprint(&result.content);
-                    if fingerprints.insert(fp) {
-                        deduped.push(result);
-                    }
-                }
-                deduped.truncate(limit);
-                deduped
-            } else {
-                results
-            }
-        } else {
-            results
-        };
+        // Use the intent-adjusted scoring params so sub-queries inherit
+        // the same RRF / word-overlap weights as the main query.
+        let results = pipeline::enrich_with_decomposition(
+            &self.pool,
+            &self.embedder,
+            &self.scoring_strategy,
+            results,
+            &query_for_decomp,
+            candidate_limit,
+            limit,
+            &opts_for_decomp,
+            &scoring_params,
+            include_superseded,
+            explain_enabled,
+        )
+        .await?;
 
         let results = if hot_has_confident_match {
             pipeline::merge_hot_cache_results(hot_results, results, limit)

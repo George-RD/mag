@@ -42,7 +42,7 @@ pub(super) fn advanced_fts_candidate_limit(limit: usize) -> usize {
 // `advanced.rs` can call them as `pipeline::collect_vector_candidates`, etc.
 
 pub(super) use abstention::merge_hot_cache_results;
-pub(super) use decomp::run_single_query_pipeline;
+pub(super) use decomp::enrich_with_decomposition;
 pub(super) use fusion::fuse_and_score;
 pub(super) use rerank::compute_cross_encoder_scores;
 pub(super) use retrieval::{collect_dual_candidates, collect_fts_candidates};
