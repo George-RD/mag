@@ -19,8 +19,8 @@ pub(super) mod abstention;
 pub(super) mod decomp;
 pub(super) mod enrichment;
 pub(super) mod fusion;
-pub(super) mod retrieval;
 pub(super) mod rerank;
+pub(super) mod retrieval;
 pub(super) mod scoring;
 
 pub(super) const ADVANCED_FTS_CANDIDATE_MULTIPLIER: usize = 20;

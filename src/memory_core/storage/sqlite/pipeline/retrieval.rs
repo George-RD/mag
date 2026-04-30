@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-use super::advanced_fts_candidate_limit;
+use super::super::dot_product;
+#[cfg(not(feature = "sqlite-vec"))]
+use super::super::embedding_codec::decode_embedding;
 use super::super::helpers::{
     EPOCH_FALLBACK, append_search_filters, build_fts5_query, event_type_from_sql,
     parse_metadata_from_db, parse_tags_from_db, resolve_priority, to_param_refs,
@@ -11,9 +13,7 @@ use super::super::helpers::{
 #[cfg(feature = "sqlite-vec")]
 use super::super::helpers::{hydrate_memories_by_ids, vec_distance_to_similarity, vec_knn_search};
 use super::super::storage::RankedSemanticCandidate;
-#[cfg(not(feature = "sqlite-vec"))]
-use super::super::embedding_codec::decode_embedding;
-use super::super::dot_product;
+use super::advanced_fts_candidate_limit;
 use crate::memory_core::{
     EventType, ScoringParams, SearchOptions, SemanticResult, priority_factor, type_weight_et,
 };
