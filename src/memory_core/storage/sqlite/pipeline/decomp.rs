@@ -110,8 +110,10 @@ pub(crate) async fn run_single_query_pipeline(
 /// For multi-entity queries we extract entities/topics, generate sub-queries,
 /// then fan out the remaining sub-queries (skipping the first, which is the
 /// original query already represented by `base_results`). Sub-results are
-/// merged: new ids appended, duplicates score-maxed, and the final list
-/// fingerprint-deduped on content before truncating to `limit`.
+/// merged: new ids appended; on duplicate id, the higher score wins (first
+/// occurrence wins on ties for stable ordering across parallel completion);
+/// then the final list is fingerprint-deduped on content before truncating
+/// to `limit`.
 ///
 /// If decomposition does not apply (fewer than two entities, no topics, or
 /// only one sub-query) the base results are returned unchanged.
