@@ -105,9 +105,11 @@ impl AdvancedSearcher for SqliteStorage {
         });
 
         // ── KeywordOnlyStrategy dispatch ────────────────────────────────
-        // For keyword-intent queries, skip embedding, vector search,
-        // RRF fusion, reranker, and graph enrichment. Use FTS5 BM25 only.
-        if intent == QueryIntent::Keyword {
+        // For keyword-intent queries (and empty / whitespace-only queries,
+        // which can't produce a meaningful embedding), skip embedding, vector
+        // search, RRF fusion, reranker, and graph enrichment. Use FTS5 BM25
+        // only.
+        if intent == QueryIntent::Keyword || query.trim().is_empty() {
             tracing::debug!(query = %query, "dispatching to KeywordOnlyStrategy");
             let include_superseded = opts.include_superseded.unwrap_or(false);
             let explain_enabled = opts.explain.unwrap_or(false);
@@ -280,6 +282,7 @@ impl AdvancedSearcher for SqliteStorage {
         let scoring_strategy = Arc::clone(&self.scoring_strategy);
         let results = tokio::task::spawn_blocking({
             let pool = Arc::clone(&pool);
+            let sp = scoring_params.clone();
             move || {
                 // Optional cross-encoder reranking (sync, safe inside spawn_blocking)
                 let ce_scores = pipeline::compute_cross_encoder_scores(
@@ -287,7 +290,7 @@ impl AdvancedSearcher for SqliteStorage {
                     &query,
                     &vector_candidates,
                     &fts_candidates,
-                    &scoring_params,
+                    &sp,
                 );
 
                 let conn = pool.reader()?;
@@ -304,7 +307,7 @@ impl AdvancedSearcher for SqliteStorage {
                     limit,
                     include_superseded,
                     explain_enabled,
-                    &scoring_params,
+                    &sp,
                     ce_scores.as_ref(),
                     scoring_strategy.as_ref(),
                 )
@@ -326,7 +329,9 @@ impl AdvancedSearcher for SqliteStorage {
 
                 let decomp_pool = Arc::clone(&self.pool);
                 let decomp_embedder = Arc::clone(&self.embedder);
-                let decomp_sp = self.scoring_params.clone();
+                // Use the intent-adjusted scoring params so sub-queries inherit
+                // the same RRF / word-overlap weights as the main query.
+                let decomp_sp = scoring_params.clone();
                 let decomp_opts = opts_for_decomp.clone();
                 let decomp_strat = Arc::clone(&self.scoring_strategy);
                 // Parallel sub-query execution (resolves #121).
@@ -628,5 +633,43 @@ mod tests {
 
         // Should still return results through the full pipeline.
         assert!(!results.is_empty(), "full pipeline should return results");
+    }
+
+    /// Empty and whitespace-only queries must take the FTS-only dispatch
+    /// path; running vector search with an empty embedding produces no
+    /// useful signal. The call must return cleanly (no panic from a
+    /// zero-length embedding hitting downstream cosine math) and yield
+    /// an empty result set, since FTS5 with a blank query matches
+    /// nothing.
+    #[tokio::test]
+    async fn blank_query_routes_to_fts_only() {
+        use crate::memory_core::AdvancedSearcher;
+
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "blank-1",
+            "alpha entry one",
+            &MemoryInput {
+                content: "alpha entry one".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        for query in ["", "   ", "\t\n  "] {
+            let results = storage
+                .advanced_search(query, 5, &SearchOptions::default())
+                .await
+                .expect("blank query must dispatch cleanly");
+            // FTS5 with an empty query matches nothing, so we expect an empty
+            // result set rather than a panic or an embedding-driven scan.
+            assert!(
+                results.is_empty(),
+                "blank query {query:?} should yield no FTS5 matches"
+            );
+        }
     }
 }

@@ -23,9 +23,9 @@ use crate::memory_core::{
 pub(crate) fn collect_vector_candidates(
     conn: &Connection,
     query_embedding: &[f32],
-    #[cfg_attr(not(feature = "sqlite-vec"), allow(unused))] limit: usize,
+    limit: usize,
     include_superseded: bool,
-    #[cfg_attr(not(feature = "sqlite-vec"), allow(unused))] opts: &SearchOptions,
+    opts: &SearchOptions,
     scoring_params: &ScoringParams,
 ) -> Result<Vec<(String, f64, RankedSemanticCandidate)>> {
     let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
@@ -88,18 +88,43 @@ pub(crate) fn collect_vector_candidates(
 
     #[cfg(not(feature = "sqlite-vec"))]
     {
-        let vector_sql = if include_superseded {
-            "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
-             FROM memories WHERE embedding IS NOT NULL"
-        } else {
-            "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at
-             FROM memories WHERE embedding IS NOT NULL AND superseded_by_id IS NULL"
-        };
+        use rusqlite::types::Value as SqlValue;
+
+        // Apply SearchOptions filters (project, session_id, event_type,
+        // dates, etc.) at the SQL layer so the brute-force scan is bounded
+        // to the candidate set the user actually asked for. Mirrors the
+        // pre-filter semantics of the sqlite-vec branch.
+        let mut vector_sql = String::from(
+            "SELECT id, content, embedding, tags, importance, metadata, event_type, session_id, project, priority, created_at, entity_id, agent_type, event_at \
+             FROM memories WHERE embedding IS NOT NULL",
+        );
+        if !include_superseded {
+            vector_sql.push_str(" AND superseded_by_id IS NULL");
+        }
+        let mut vector_params: Vec<SqlValue> = Vec::new();
+        let mut param_idx = 1;
+        append_search_filters(
+            &mut vector_sql,
+            &mut vector_params,
+            &mut param_idx,
+            opts,
+            "",
+        );
+        // Cap the brute-force scan to keep latency bounded on large tables.
+        // Mirrors the sqlite-vec KNN candidate cap (limit*10, clamped to
+        // [200, 10_000]). Most-recent rows win when the cap bites.
+        let scan_limit = limit.saturating_mul(10).clamp(200, 10_000);
+        let scan_limit_sql = i64::try_from(scan_limit).unwrap_or(i64::MAX);
+        vector_sql.push_str(" ORDER BY created_at DESC LIMIT ?");
+        vector_sql.push_str(&param_idx.to_string());
+        vector_params.push(SqlValue::Integer(scan_limit_sql));
+
         let mut vector_stmt = conn
-            .prepare(vector_sql)
+            .prepare(&vector_sql)
             .context("failed to prepare advanced vector query")?;
+        let param_refs = to_param_refs(&vector_params);
         let vector_rows = vector_stmt
-            .query_map([], |row| {
+            .query_map(param_refs.as_slice(), |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,

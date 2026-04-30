@@ -32,17 +32,27 @@ pub(crate) fn abstain_and_dedup(
     query: &str,
 ) -> Result<Vec<SemanticResult>> {
     // ── Phase 6: Collection-level abstention + dedup ─────────────
-    let mut deduped = Vec::new();
-    let mut seen = HashSet::new();
+    // Dedup by content fingerprint, keeping the highest-scoring candidate per
+    // fingerprint. HashMap iteration order is nondeterministic, so a
+    // first-wins policy would surface arbitrary duplicates.
+    let mut by_fingerprint: HashMap<String, RankedSemanticCandidate> = HashMap::new();
     for candidate in ranked.into_values() {
         if !matches_search_options(&candidate, opts) {
             continue;
         }
         let fingerprint = normalize_for_dedup(&candidate.result.content);
-        if seen.insert(fingerprint) {
-            deduped.push(candidate);
+        match by_fingerprint.entry(fingerprint) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                if candidate.score > entry.get().score {
+                    *entry.get_mut() = candidate;
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(candidate);
+            }
         }
     }
+    let mut deduped: Vec<RankedSemanticCandidate> = by_fingerprint.into_values().collect();
 
     // Apply abstention gate on the filtered (in-scope) candidates.
     if !query_tokens.is_empty() {
@@ -114,8 +124,13 @@ pub(crate) fn merge_hot_cache_results(
         .collect();
 
     for hot_result in hot_results {
-        if let Some(existing) = merged.get_mut(&hot_result.id) {
-            merge_semantic_result(existing, hot_result);
+        match merged.entry(hot_result.id.clone()) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                merge_semantic_result(entry.get_mut(), hot_result);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(hot_result);
+            }
         }
     }
 

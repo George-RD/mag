@@ -122,7 +122,7 @@ Query → Intent classify (Keyword/Factual/Conceptual/General)
 - Schema migrations additive only — never drop/rename columns; `ALTER TABLE ADD COLUMN` with error ignoring
 - Trait-first design — add new trait + impl rather than modifying existing signatures
 - Struct-based API: `MemoryInput` (store), `MemoryUpdate` (update), `SearchOptions` (search/filter)
-- SQLite lock contention: `retry_on_lock()` with bounded backoff (5 attempts, 10-160ms + jitter)
+- SQLite lock contention: `retry_on_lock()` with bounded backoff (initial + 5 retries, 10-160ms + jitter)
 - Cache invalidation: selective for `store()`, full clear for bulk operations (import/sweep/compact)
 
 ## Quality Gates
