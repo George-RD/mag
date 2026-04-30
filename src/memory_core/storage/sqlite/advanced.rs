@@ -105,15 +105,15 @@ impl AdvancedSearcher for SqliteStorage {
         let cache_session_id_filter = opts.session_id.clone();
 
         let results = if intent == QueryIntent::Keyword || query.trim().is_empty() {
-            tracing::debug!(query = %query, "dispatching to KeywordOnlyStrategy");
+            tracing::debug!(query = %query, strategy = "keyword-only", "dispatching retrieval strategy");
+            let hot_match = hot_has_confident_match.then_some(hot_results);
             pipeline::run_keyword_only_search(
                 self,
                 &query,
                 limit,
                 &opts,
                 &scoring_params,
-                hot_results,
-                hot_has_confident_match,
+                hot_match,
             )
             .await?
         } else {
@@ -266,7 +266,7 @@ mod tests {
     async fn bounded_fts_candidates_preserve_created_at_filters() {
         let storage = SqliteStorage::new_in_memory().unwrap();
 
-        for idx in 0..120 {
+        for idx in 0..(super::pipeline::ADVANCED_FTS_CANDIDATE_MIN + 20) {
             let id = format!("old-{idx}");
             <SqliteStorage as Storage>::store(
                 &storage,
@@ -326,7 +326,7 @@ mod tests {
     async fn bounded_fts_candidates_preserve_event_at_filters() {
         let storage = SqliteStorage::new_in_memory().unwrap();
 
-        for idx in 0..120 {
+        for idx in 0..(super::pipeline::ADVANCED_FTS_CANDIDATE_MIN + 20) {
             let id = format!("old-event-{idx}");
             <SqliteStorage as Storage>::store(
                 &storage,

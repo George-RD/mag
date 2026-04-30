@@ -207,15 +207,15 @@ pub(crate) fn keyword_candidates_to_results(
 /// For keyword-intent queries (and empty / whitespace-only queries, which
 /// can't produce a meaningful embedding), this skips embedding, vector
 /// search, RRF fusion, reranker, and graph enrichment, using FTS5 BM25
-/// only. Merges hot-cache hits when the cache had a confident text match.
+/// only. Pass `Some(hot_results)` when the hot cache had a confident text
+/// match to merge them with the FTS results; pass `None` to skip the merge.
 pub(crate) async fn run_keyword_only_search(
     storage: &SqliteStorage,
     query: &str,
     limit: usize,
     opts: &SearchOptions,
     scoring_params: &ScoringParams,
-    hot_results: Vec<SemanticResult>,
-    hot_has_confident_match: bool,
+    hot_match: Option<Vec<SemanticResult>>,
 ) -> Result<Vec<SemanticResult>> {
     let include_superseded = opts.include_superseded.unwrap_or(false);
     let explain_enabled = opts.explain.unwrap_or(false);
@@ -239,11 +239,8 @@ pub(crate) async fn run_keyword_only_search(
     .await
     .context("spawn_blocking join error")?;
 
-    let results = if hot_has_confident_match {
-        merge_hot_cache_results(hot_results, results, limit)
-    } else {
-        results
-    };
-
-    Ok(results)
+    Ok(match hot_match {
+        Some(hot_results) => merge_hot_cache_results(hot_results, results, limit),
+        None => results,
+    })
 }
