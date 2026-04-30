@@ -5,9 +5,13 @@
 //! `KeywordOnlyStrategy` dispatch in `advanced_search`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use super::super::storage::RankedSemanticCandidate;
-use crate::memory_core::retrieval_strategy::CandidateSet;
+use anyhow::{Context, Result};
+
+use super::super::storage::{RankedSemanticCandidate, SqliteStorage};
+use super::abstention::merge_hot_cache_results;
+use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher};
 use crate::memory_core::scoring::query_coverage_boost;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{
@@ -196,4 +200,47 @@ pub(crate) fn keyword_candidates_to_results(
             candidate.result
         })
         .collect()
+}
+
+/// `KeywordOnlyStrategy` dispatch path for `advanced_search`.
+///
+/// For keyword-intent queries (and empty / whitespace-only queries, which
+/// can't produce a meaningful embedding), this skips embedding, vector
+/// search, RRF fusion, reranker, and graph enrichment, using FTS5 BM25
+/// only. Pass `Some(hot_results)` when the hot cache had a confident text
+/// match to merge them with the FTS results; pass `None` to skip the merge.
+pub(crate) async fn run_keyword_only_search(
+    storage: &SqliteStorage,
+    query: &str,
+    limit: usize,
+    opts: &SearchOptions,
+    scoring_params: &ScoringParams,
+    hot_match: Option<Vec<SemanticResult>>,
+) -> Result<Vec<SemanticResult>> {
+    let include_superseded = opts.include_superseded.unwrap_or(false);
+    let explain_enabled = opts.explain.unwrap_or(false);
+    let candidates: CandidateSet = storage
+        .fts_search(query, limit, opts, include_superseded, scoring_params)
+        .await?;
+
+    let scoring_strategy = Arc::clone(&storage.scoring_strategy);
+    let query_owned = query.to_string();
+    let sp = scoring_params.clone();
+    let results = tokio::task::spawn_blocking(move || {
+        keyword_candidates_to_results(
+            candidates,
+            &query_owned,
+            limit,
+            &sp,
+            scoring_strategy.as_ref(),
+            explain_enabled,
+        )
+    })
+    .await
+    .context("spawn_blocking join error")?;
+
+    Ok(match hot_match {
+        Some(hot_results) => merge_hot_cache_results(hot_results, results, limit),
+        None => results,
+    })
 }
