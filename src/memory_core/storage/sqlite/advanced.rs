@@ -105,10 +105,11 @@ impl AdvancedSearcher for SqliteStorage {
         });
 
         // ── KeywordOnlyStrategy dispatch ────────────────────────────────
-        // For keyword-intent queries (and empty queries, which can't produce a
-        // meaningful embedding), skip embedding, vector search, RRF fusion,
-        // reranker, and graph enrichment. Use FTS5 BM25 only.
-        if intent == QueryIntent::Keyword || query.is_empty() {
+        // For keyword-intent queries (and empty / whitespace-only queries,
+        // which can't produce a meaningful embedding), skip embedding, vector
+        // search, RRF fusion, reranker, and graph enrichment. Use FTS5 BM25
+        // only.
+        if intent == QueryIntent::Keyword || query.trim().is_empty() {
             tracing::debug!(query = %query, "dispatching to KeywordOnlyStrategy");
             let include_superseded = opts.include_superseded.unwrap_or(false);
             let explain_enabled = opts.explain.unwrap_or(false);
@@ -632,5 +633,44 @@ mod tests {
 
         // Should still return results through the full pipeline.
         assert!(!results.is_empty(), "full pipeline should return results");
+    }
+
+    /// Empty and whitespace-only queries must take the FTS-only dispatch
+    /// path; running vector search with an empty embedding produces no
+    /// useful signal. We assert via behavior: the call returns cleanly
+    /// (no panic from a zero-length embedding hitting downstream cosine
+    /// math) and respects `SearchOptions` filters supplied alongside the
+    /// blank query.
+    #[tokio::test]
+    async fn blank_query_routes_to_fts_only() {
+        use crate::memory_core::AdvancedSearcher;
+
+        let storage = SqliteStorage::new_in_memory().unwrap();
+
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "blank-1",
+            "alpha entry one",
+            &MemoryInput {
+                content: "alpha entry one".to_string(),
+                project: Some("p1".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        for query in ["", "   ", "\t\n  "] {
+            let results = storage
+                .advanced_search(query, 5, &SearchOptions::default())
+                .await
+                .expect("blank query must dispatch cleanly");
+            // FTS5 with an empty query matches nothing, so we expect an empty
+            // result set rather than a panic or an embedding-driven scan.
+            assert!(
+                results.is_empty(),
+                "blank query {query:?} should yield no FTS5 matches"
+            );
+        }
     }
 }
