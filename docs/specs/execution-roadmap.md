@@ -289,7 +289,7 @@ PR-3b (depends on PR-2d) ──> PR-3c
 
 ---
 
-## Phase 4 — Exercise & Decompose (target: v0.2.2) -- IN PROGRESS
+## Phase 4 — Exercise & Decompose (target: v0.2.2) -- DONE
 
 Four PRs. PR-4a-i depends on PR-2a/PR-2d and can be opened after Phase 2 merges. PR-4b can be opened any time after Phase 1 — it has no dependency on Phases 2 or 3. PR-4a-ii depends on PR-4a-i. PR-4c depends on PR-4b.
 
