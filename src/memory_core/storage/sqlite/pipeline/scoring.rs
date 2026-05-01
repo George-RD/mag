@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
-use super::super::storage::{RankedSemanticCandidate, SqliteStorage};
+use super::super::storage::RankedSemanticCandidate;
 use super::abstention::merge_hot_cache_results;
-use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher};
+use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher, QueryContext};
 use crate::memory_core::scoring::query_coverage_boost;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{
@@ -210,22 +210,26 @@ pub(crate) fn keyword_candidates_to_results(
 /// only. Pass `Some(hot_results)` when the hot cache had a confident text
 /// match to merge them with the FTS results; pass `None` to skip the merge.
 pub(crate) async fn run_keyword_only_search(
-    storage: &SqliteStorage,
-    query: &str,
-    limit: usize,
-    opts: &SearchOptions,
-    scoring_params: &ScoringParams,
+    fts_searcher: &dyn FtsSearcher,
+    scoring_strategy: &Arc<dyn ScoringStrategy>,
+    ctx: &QueryContext,
     hot_match: Option<Vec<SemanticResult>>,
 ) -> Result<Vec<SemanticResult>> {
-    let include_superseded = opts.include_superseded.unwrap_or(false);
-    let explain_enabled = opts.explain.unwrap_or(false);
-    let candidates: CandidateSet = storage
-        .fts_search(query, limit, opts, include_superseded, scoring_params)
+    let candidates: CandidateSet = fts_searcher
+        .fts_search(
+            &ctx.query,
+            ctx.limit,
+            &ctx.opts,
+            ctx.include_superseded,
+            &ctx.scoring_params,
+        )
         .await?;
 
-    let scoring_strategy = Arc::clone(&storage.scoring_strategy);
-    let query_owned = query.to_string();
-    let sp = scoring_params.clone();
+    let scoring_strategy = Arc::clone(scoring_strategy);
+    let query_owned = ctx.query.clone();
+    let sp = ctx.scoring_params.clone();
+    let limit = ctx.limit;
+    let explain_enabled = ctx.explain_enabled;
     let results = tokio::task::spawn_blocking(move || {
         keyword_candidates_to_results(
             candidates,
