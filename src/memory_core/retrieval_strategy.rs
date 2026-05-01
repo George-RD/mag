@@ -18,27 +18,45 @@ pub type CandidateSet = Vec<(String, f64, RankedSemanticCandidate)>;
 
 /// Read-path context passed through the retrieval pipeline.
 ///
-/// Wraps the query string, limit, search options, scoring params, and
-/// pre-computed embedding needed by retrieval strategies.
+/// Bundles the per-query state threaded through `RetrievalStrategy` impls
+/// and the lower-level pipeline helpers (`fuse_and_score`,
+/// `run_single_query_pipeline`, `enrich_with_decomposition`,
+/// `collect_dual_candidates`, `run_keyword_only_search`). Centralising these
+/// fields avoids the long parameter lists that previously required
+/// `#[allow(clippy::too_many_arguments)]` on those helpers.
 ///
 /// Aligned with `trait-surface.md` §2.3.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Consumed by RetrievalStrategy impls in v0.3.x pipeline composition
 pub struct QueryContext {
     /// Raw query string from the caller.
     pub query: String,
     /// Maximum number of results to return after the full pipeline.
     pub limit: usize,
+    /// Oversampled retrieval candidate limit (applies `top_k_mult` and the
+    /// dynamic limit multiplier). Equal to `limit` for single-strategy paths
+    /// that don't oversample.
+    pub candidate_limit: usize,
     /// Filter and feature options (event_type, project, session, explain, etc.).
     pub opts: SearchOptions,
     /// Scoring knobs. Consumers should clone from a shared `Arc<ScoringParams>`.
     pub scoring_params: ScoringParams,
-    /// Pre-computed query embedding. `None` until the embedding stage
-    /// populates it; strategies that do not need embeddings ignore it.
-    #[allow(dead_code)] // Consumed by vector strategy in v0.3.x pipeline composition
+    /// Pre-computed query embedding. `None` (or an empty vector) when the
+    /// strategy doesn't need embeddings (e.g. keyword-only path) or when
+    /// the embedding stage hasn't run yet.
     pub query_embedding: Option<Vec<f32>>,
     /// Whether superseded memories should be included in candidate sets.
     pub include_superseded: bool,
+    /// Whether per-candidate explain payloads should be populated.
+    pub explain_enabled: bool,
+}
+
+impl QueryContext {
+    /// View the query embedding as a slice, returning an empty slice when
+    /// no embedding is set. Convenience for helpers that take `&[f32]`.
+    #[must_use]
+    pub fn embedding_slice(&self) -> &[f32] {
+        self.query_embedding.as_deref().unwrap_or(&[])
+    }
 }
 
 // ── Trait ────────────────────────────────────────────────────────────────
@@ -253,10 +271,12 @@ mod tests {
         QueryContext {
             query: query.to_string(),
             limit: 10,
+            candidate_limit: 10,
             opts: SearchOptions::default(),
             scoring_params: ScoringParams::default(),
             query_embedding: None,
             include_superseded: false,
+            explain_enabled: false,
         }
     }
 
@@ -455,10 +475,12 @@ mod tests {
         let ctx = QueryContext {
             query: "my_func".to_string(),
             limit: 5,
+            candidate_limit: 5,
             opts: SearchOptions::default(),
             scoring_params: ScoringParams::default(),
             query_embedding: None,
             include_superseded: false,
+            explain_enabled: false,
         };
 
         let _ = strategy.collect(&ctx).await.unwrap();

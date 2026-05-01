@@ -21,11 +21,9 @@ use super::super::storage::RankedSemanticCandidate;
 use super::abstention::abstain_and_dedup;
 use super::enrichment::{enrich_graph_neighbors, expand_entity_tags};
 use super::scoring::refine_scores;
+use crate::memory_core::retrieval_strategy::QueryContext;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
-use crate::memory_core::{
-    EventType, ScoringParams, SearchOptions, SemanticResult, priority_factor, token_set,
-    type_weight_et,
-};
+use crate::memory_core::{EventType, SemanticResult, priority_factor, token_set, type_weight_et};
 
 /// Phases 3-6: RRF fusion, score refinement, graph enrichment, abstention.
 ///
@@ -33,21 +31,17 @@ use crate::memory_core::{
 /// internally invokes [`enrich_graph_neighbors`], [`expand_entity_tags`],
 /// [`refine_scores`], and finally [`abstain_and_dedup`] for the Phase 6
 /// dedup/abstention/output stage.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn fuse_and_score(
     conn: &Connection,
     vector_candidates: Vec<(String, f64, RankedSemanticCandidate)>,
     fts_candidates: Vec<(String, f64, RankedSemanticCandidate)>,
-    query: &str,
-    query_embedding: &[f32],
-    opts: &SearchOptions,
-    limit: usize,
-    include_superseded: bool,
-    explain_enabled: bool,
-    scoring_params: &ScoringParams,
+    ctx: &QueryContext,
     cross_encoder_scores: Option<&HashMap<String, f32>>,
     scoring_strategy: &dyn ScoringStrategy,
 ) -> Result<Vec<SemanticResult>> {
+    let scoring_params = &ctx.scoring_params;
+    let opts = &ctx.opts;
+    let explain_enabled = ctx.explain_enabled;
     // Phase 3: Weighted RRF fusion -- vector similarity weighted higher
     // for semantic discrimination (Oracle recommendation)
     let mut ranked: HashMap<String, RankedSemanticCandidate> = HashMap::new();
@@ -166,7 +160,7 @@ pub(crate) fn fuse_and_score(
         }
     }
 
-    let query_tokens = token_set(query, 3);
+    let query_tokens = token_set(&ctx.query, 3);
     refine_scores(
         &mut ranked,
         &query_tokens,
@@ -180,9 +174,9 @@ pub(crate) fn fuse_and_score(
         conn,
         &mut ranked,
         &query_tokens,
-        query_embedding,
-        limit,
-        include_superseded,
+        ctx.embedding_slice(),
+        ctx.limit,
+        ctx.include_superseded,
         explain_enabled,
         scoring_params,
     );
@@ -192,8 +186,8 @@ pub(crate) fn fuse_and_score(
         conn,
         &mut ranked,
         &query_tokens,
-        limit,
-        include_superseded,
+        ctx.limit,
+        ctx.include_superseded,
         explain_enabled,
         scoring_params,
         opts,
@@ -204,10 +198,10 @@ pub(crate) fn fuse_and_score(
         ranked,
         &query_tokens,
         opts,
-        limit,
+        ctx.limit,
         explain_enabled,
         scoring_params,
         scoring_strategy,
-        query,
+        &ctx.query,
     )
 }

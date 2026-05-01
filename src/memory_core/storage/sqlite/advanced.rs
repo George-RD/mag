@@ -3,7 +3,7 @@ use super::query_classifier::{
     IntentProfile, QueryIntent, classify_query_intent, detect_dynamic_limit_mult,
 };
 use super::*;
-use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher};
+use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher, QueryContext};
 
 #[async_trait]
 impl FtsSearcher for SqliteStorage {
@@ -104,18 +104,34 @@ impl AdvancedSearcher for SqliteStorage {
         let cache_project_filter = opts.project.clone();
         let cache_session_id_filter = opts.session_id.clone();
 
-        let results = if intent == QueryIntent::Keyword || query.trim().is_empty() {
-            tracing::debug!(query = %query, strategy = "keyword-only", "dispatching retrieval strategy");
+        let include_superseded = opts.include_superseded.unwrap_or(false);
+        let explain_enabled = opts.explain.unwrap_or(false);
+
+        // Apply top_k_mult: scale candidate oversampling while keeping final limit intact.
+        let dynamic_mult = detect_dynamic_limit_mult(&query);
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let candidate_limit =
+            ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
+
+        let mut ctx = QueryContext {
+            query,
+            limit,
+            candidate_limit,
+            opts,
+            scoring_params,
+            query_embedding: None,
+            include_superseded,
+            explain_enabled,
+        };
+
+        let results = if intent == QueryIntent::Keyword || ctx.query.trim().is_empty() {
+            tracing::debug!(query = %ctx.query, strategy = "keyword-only", "dispatching retrieval strategy");
             let hot_match = hot_has_confident_match.then_some(hot_results);
-            pipeline::run_keyword_only_search(
-                self,
-                &query,
-                limit,
-                &opts,
-                &scoring_params,
-                hot_match,
-            )
-            .await?
+            pipeline::run_keyword_only_search(self, &self.scoring_strategy, &ctx, hot_match).await?
         } else {
             // Phase 0: Embedding computation (blocking).
             // Keyword queries have already been handled above via
@@ -123,7 +139,7 @@ impl AdvancedSearcher for SqliteStorage {
             // embedding.
             let query_embedding = tokio::task::spawn_blocking({
                 let embedder = Arc::clone(&embedder);
-                let query = query.clone();
+                let query = ctx.query.clone();
                 move || {
                     let emb = if query.is_empty() {
                         Vec::new()
@@ -138,31 +154,26 @@ impl AdvancedSearcher for SqliteStorage {
             .await
             .context("spawn_blocking join error")??;
 
-            let include_superseded = opts.include_superseded.unwrap_or(false);
-            let explain_enabled = opts.explain.unwrap_or(false);
+            ctx.query_embedding = Some(query_embedding);
 
-            // Apply top_k_mult: scale candidate oversampling while keeping final limit intact.
-            let dynamic_mult = detect_dynamic_limit_mult(&query);
-            #[allow(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                clippy::cast_precision_loss
-            )]
-            let candidate_limit =
-                ((limit as f64 * intent_profile.top_k_mult * dynamic_mult).ceil() as usize).max(1);
+            let (vector_candidates, fts_candidates) =
+                pipeline::collect_dual_candidates(&pool, &ctx).await?;
 
-            let (vector_candidates, fts_candidates) = pipeline::collect_dual_candidates(
-                &pool,
-                &query,
-                &query_embedding,
-                candidate_limit,
-                include_superseded,
-                &opts,
-                &scoring_params,
-            )
-            .await?;
-
-            let opts_for_decomp = opts.clone();
+            // Build the sub-query decomposition context now, before `ctx`
+            // is moved into the fusion `spawn_blocking`. Sub-queries inherit
+            // intent-adjusted scoring params and the candidate / final limits
+            // but recompute their own embeddings, so we explicitly omit the
+            // parent's embedding (would otherwise be a wasted Vec<f32> clone).
+            let decomp_ctx = QueryContext {
+                query: query_for_decomp,
+                limit: ctx.limit,
+                candidate_limit: ctx.candidate_limit,
+                opts: ctx.opts.clone(),
+                scoring_params: ctx.scoring_params.clone(),
+                query_embedding: None,
+                include_superseded: ctx.include_superseded,
+                explain_enabled: ctx.explain_enabled,
+            };
 
             // Phases 3-6: RRF fusion, score refinement, graph enrichment,
             // abstention + dedup. Needs one reader for graph queries.
@@ -170,16 +181,18 @@ impl AdvancedSearcher for SqliteStorage {
             let scoring_strategy = Arc::clone(&self.scoring_strategy);
             let results = tokio::task::spawn_blocking({
                 let pool = Arc::clone(&pool);
-                let sp = scoring_params.clone();
-                let opts = opts_for_decomp.clone();
+                // Move `ctx` into the closure to hand the embedding off
+                // without an extra clone; `decomp_ctx` already holds the
+                // copies it needs for the post-fuse decomposition step.
+                let ctx_for_fuse = ctx;
                 move || {
                     // Optional cross-encoder reranking (sync, safe inside spawn_blocking)
                     let ce_scores = pipeline::compute_cross_encoder_scores(
                         reranker.as_ref(),
-                        &query,
+                        &ctx_for_fuse.query,
                         &vector_candidates,
                         &fts_candidates,
-                        &sp,
+                        &ctx_for_fuse.scoring_params,
                     );
 
                     let conn = pool.reader()?;
@@ -190,13 +203,7 @@ impl AdvancedSearcher for SqliteStorage {
                         &conn,
                         vector_candidates,
                         fts_candidates,
-                        &query,
-                        &query_embedding,
-                        &opts,
-                        limit,
-                        include_superseded,
-                        explain_enabled,
-                        &sp,
+                        &ctx_for_fuse,
                         ce_scores.as_ref(),
                         scoring_strategy.as_ref(),
                     )
@@ -205,21 +212,12 @@ impl AdvancedSearcher for SqliteStorage {
             .await
             .context("spawn_blocking join error")??;
 
-            // ── Query decomposition: enrich results for multi-entity queries ──
-            // Use the intent-adjusted scoring params so sub-queries inherit
-            // the same RRF / word-overlap weights as the main query.
             let results = pipeline::enrich_with_decomposition(
                 &self.pool,
                 &self.embedder,
                 &self.scoring_strategy,
+                &decomp_ctx,
                 results,
-                &query_for_decomp,
-                candidate_limit,
-                limit,
-                &opts_for_decomp,
-                &scoring_params,
-                include_superseded,
-                explain_enabled,
             )
             .await?;
 

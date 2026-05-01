@@ -18,7 +18,7 @@ use super::super::helpers::{
 use super::super::helpers::{hydrate_memories_by_ids, vec_distance_to_similarity, vec_knn_search};
 use super::super::storage::RankedSemanticCandidate;
 use super::advanced_fts_candidate_limit;
-use crate::memory_core::retrieval_strategy::CandidateSet;
+use crate::memory_core::retrieval_strategy::{CandidateSet, QueryContext};
 use crate::memory_core::{
     EventType, ScoringParams, SearchOptions, SemanticResult, priority_factor, type_weight_et,
 };
@@ -347,20 +347,18 @@ pub(crate) fn collect_fts_candidates(
 /// `spawn_blocking` to keep the SQLite connection on a single thread.
 pub(crate) async fn collect_dual_candidates(
     pool: &Arc<ConnPool>,
-    query: &str,
-    query_embedding: &[f32],
-    candidate_limit: usize,
-    include_superseded: bool,
-    opts: &SearchOptions,
-    scoring_params: &ScoringParams,
+    ctx: &QueryContext,
 ) -> Result<(CandidateSet, CandidateSet)> {
+    let candidate_limit = ctx.candidate_limit;
+    let include_superseded = ctx.include_superseded;
+
     if pool.has_readers() {
         let (vec_result, fts_result) = tokio::try_join!(
             tokio::task::spawn_blocking({
                 let pool = Arc::clone(pool);
-                let emb = query_embedding.to_vec();
-                let o = opts.clone();
-                let sp = scoring_params.clone();
+                let emb = ctx.embedding_slice().to_vec();
+                let o = ctx.opts.clone();
+                let sp = ctx.scoring_params.clone();
                 move || {
                     let conn = pool.reader()?;
                     collect_vector_candidates(
@@ -375,9 +373,9 @@ pub(crate) async fn collect_dual_candidates(
             }),
             tokio::task::spawn_blocking({
                 let pool = Arc::clone(pool);
-                let q = query.to_string();
-                let o = opts.clone();
-                let sp = scoring_params.clone();
+                let q = ctx.query.clone();
+                let o = ctx.opts.clone();
+                let sp = ctx.scoring_params.clone();
                 move || {
                     let conn = pool.reader()?;
                     collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
@@ -390,10 +388,10 @@ pub(crate) async fn collect_dual_candidates(
         // Sequential: single connection (in-memory / test mode).
         tokio::task::spawn_blocking({
             let pool = Arc::clone(pool);
-            let emb = query_embedding.to_vec();
-            let q = query.to_string();
-            let o = opts.clone();
-            let sp = scoring_params.clone();
+            let emb = ctx.embedding_slice().to_vec();
+            let q = ctx.query.clone();
+            let o = ctx.opts.clone();
+            let sp = ctx.scoring_params.clone();
             move || {
                 let conn = pool.reader()?;
                 let vec_c = collect_vector_candidates(
