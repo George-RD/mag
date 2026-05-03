@@ -197,6 +197,7 @@ fn present_detection(result: &DetectionResult) {
             MagConfigStatus::NotConfigured => "\u{2717}", // X mark
             MagConfigStatus::Misconfigured(_) => "\u{26a0}", // warning
             MagConfigStatus::Unreadable(_) => "\u{26a0}", // warning
+            MagConfigStatus::Stale => "\u{26a0}", // warning
         };
         println!(
             "    {status_icon} {name:<20} {status_label}",
@@ -316,6 +317,7 @@ fn status_short_label(status: &MagConfigStatus) -> &str {
         MagConfigStatus::NotConfigured => "not configured",
         MagConfigStatus::Misconfigured(r) => r.as_str(),
         MagConfigStatus::Unreadable(r) => r.as_str(),
+        MagConfigStatus::Stale => "stale",
     }
 }
 

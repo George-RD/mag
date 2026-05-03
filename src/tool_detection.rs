@@ -131,6 +131,8 @@ pub enum ConfigScope {
 pub enum MagConfigStatus {
     /// MAG entry found in `mcpServers` (or tool-equivalent key).
     Configured,
+    /// MAG entry exists but is stale.
+    Stale,
     /// Config file exists and is readable, but no MAG entry found.
     NotConfigured,
     /// MAG entry exists but is structurally invalid for the target tool.
@@ -179,7 +181,7 @@ impl DetectionResult {
     pub fn any_configured(&self) -> bool {
         self.detected
             .iter()
-            .any(|d| d.mag_status == MagConfigStatus::Configured)
+            .any(|d| d.mag_status == MagConfigStatus::Configured || d.mag_status == MagConfigStatus::Stale)
     }
 }
 
@@ -1179,6 +1181,78 @@ mod tests {
             not_found: vec![],
         };
         assert!(!result.any_configured());
+    }
+
+
+    #[test]
+    fn any_configured_returns_false_when_empty() {
+        let result = DetectionResult {
+            detected: vec![],
+            not_found: vec![],
+        };
+        assert!(!result.any_configured());
+    }
+
+    #[test]
+    fn any_configured_returns_true_when_multiple_tools_and_one_configured() {
+        let result = DetectionResult {
+            detected: vec![
+                DetectedTool {
+                    tool: AiTool::Cursor,
+                    config_path: PathBuf::from("/test/.cursor/mcp.json"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::NotConfigured,
+                },
+                DetectedTool {
+                    tool: AiTool::ClaudeCode,
+                    config_path: PathBuf::from("/test/.claude.json"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::Configured,
+                },
+            ],
+            not_found: vec![],
+        };
+        assert!(result.any_configured());
+    }
+
+
+
+
+    #[test]
+    fn any_configured_returns_false_when_all_unconfigured() {
+        let result = DetectionResult {
+            detected: vec![
+                DetectedTool {
+                    tool: AiTool::Cursor,
+                    config_path: PathBuf::from("/test/.cursor/mcp.json"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::NotConfigured,
+                },
+                DetectedTool {
+                    tool: AiTool::ClaudeCode,
+                    config_path: PathBuf::from("/test/.claude.json"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::NotConfigured,
+                },
+            ],
+            not_found: vec![],
+        };
+        assert!(!result.any_configured());
+    }
+
+
+    #[test]
+    fn any_configured_returns_true_when_stale() {
+        let result = DetectionResult {
+            detected: vec![DetectedTool {
+                tool: AiTool::ClaudeCode,
+                config_path: PathBuf::from("/test/.claude.json"),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::Stale,
+            }],
+            not_found: vec![],
+        };
+        assert!(result.any_configured());
     }
 
     // -- mcp_key_for_tool --
