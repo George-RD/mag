@@ -468,6 +468,17 @@ fn atomic_write(path: &Path, content: &str) -> Result<()> {
     }
     let tmp = path.with_extension(format!("mag-tmp.{}", std::process::id()));
     let result = (|| -> Result<()> {
+        #[cfg(unix)]
+        let mut f = {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&tmp)
+                .with_context(|| format!("creating temp file {}", tmp.display()))?
+        };
+        #[cfg(not(unix))]
         let mut f = std::fs::File::create(&tmp)
             .with_context(|| format!("creating temp file {}", tmp.display()))?;
         f.write_all(content.as_bytes())

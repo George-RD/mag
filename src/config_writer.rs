@@ -554,8 +554,26 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
         .unwrap_or_else(|| Path::new("."))
         .join(&tmp_name);
 
-    std::fs::write(&tmp_path, content)
-        .with_context(|| format!("writing temp file {}", tmp_path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp_path)
+            .with_context(|| format!("creating temp file {}", tmp_path.display()))?;
+        f.write_all(content)
+            .with_context(|| format!("writing temp file {}", tmp_path.display()))?;
+        f.sync_all()
+            .with_context(|| format!("syncing temp file {}", tmp_path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&tmp_path, content)
+            .with_context(|| format!("writing temp file {}", tmp_path.display()))?;
+    }
 
     match std::fs::rename(&tmp_path, path) {
         Ok(()) => Ok(()),
