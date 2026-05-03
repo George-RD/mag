@@ -141,11 +141,6 @@ pub trait VersionChainQuerier: Send + Sync {
     /// Returns the full version chain for a memory, ordered by created_at ascending.
     /// Includes the memory itself and all versions in its chain.
     async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>;
-
-    /// Manually supersede an old memory with a new one.
-    /// Creates SUPERSEDES relationship and sets superseded_by_id on the old memory.
-    #[allow(dead_code)]
-    async fn supersede_memory(&self, old_id: &str, new_id: &str) -> Result<()>;
 }
 
 #[async_trait]

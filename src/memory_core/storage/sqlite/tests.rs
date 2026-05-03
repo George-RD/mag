@@ -798,7 +798,7 @@ async fn test_semantic_search_include_superseded_shows_all() {
     <SqliteStorage as Storage>::store(
         &storage,
         "sem-old",
-        "alpha preference old",
+        "alpha preference",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             metadata: serde_json::json!({}),
@@ -810,7 +810,7 @@ async fn test_semantic_search_include_superseded_shows_all() {
     <SqliteStorage as Storage>::store(
         &storage,
         "sem-new",
-        "alpha preference new",
+        "alpha preference update",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             metadata: serde_json::json!({}),
@@ -819,10 +819,6 @@ async fn test_semantic_search_include_superseded_shows_all() {
     )
     .await
     .unwrap();
-    storage
-        .supersede_memory("sem-old", "sem-new")
-        .await
-        .unwrap();
 
     let default_results = storage
         .semantic_search("alpha preference", 10, &SearchOptions::default())
@@ -2318,7 +2314,7 @@ async fn test_superseded_filtered_from_find_similar() {
     <SqliteStorage as Storage>::store(
         &storage,
         "sim-old",
-        "alpha preference old",
+        "alpha preference",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             ..Default::default()
@@ -2329,7 +2325,7 @@ async fn test_superseded_filtered_from_find_similar() {
     <SqliteStorage as Storage>::store(
         &storage,
         "sim-new",
-        "alpha preference new",
+        "alpha preference update",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             ..Default::default()
@@ -2337,10 +2333,6 @@ async fn test_superseded_filtered_from_find_similar() {
     )
     .await
     .unwrap();
-    storage
-        .supersede_memory("sim-old", "sim-new")
-        .await
-        .unwrap();
 
     let results = <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim-source", 10)
         .await
@@ -2363,7 +2355,7 @@ async fn test_find_similar_backfills_after_skipping_source_and_superseded() {
     <SqliteStorage as Storage>::store(
         &storage,
         "sim-backfill-old",
-        "alpha candidate old",
+        "alpha candidate",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             ..Default::default()
@@ -2374,7 +2366,7 @@ async fn test_find_similar_backfills_after_skipping_source_and_superseded() {
     <SqliteStorage as Storage>::store(
         &storage,
         "sim-backfill-new",
-        "alpha candidate new",
+        "alpha candidate update",
         &MemoryInput {
             event_type: Some(EventType::UserPreference),
             ..Default::default()
@@ -2390,10 +2382,6 @@ async fn test_find_similar_backfills_after_skipping_source_and_superseded() {
     )
     .await
     .unwrap();
-    storage
-        .supersede_memory("sim-backfill-old", "sim-backfill-new")
-        .await
-        .unwrap();
 
     let results =
         <SqliteStorage as SimilarFinder>::find_similar(&storage, "sim-backfill-source", 2)
@@ -2419,7 +2407,10 @@ async fn test_superseded_filtered_from_get_recent() {
         &storage,
         "recent-old",
         "old memory",
-        &MemoryInput::default(),
+        &MemoryInput {
+            event_type: Some(EventType::UserPreference),
+            ..Default::default()
+        },
     )
     .await
     .unwrap();
@@ -2427,14 +2418,13 @@ async fn test_superseded_filtered_from_get_recent() {
         &storage,
         "recent-new",
         "new memory",
-        &MemoryInput::default(),
+        &MemoryInput {
+            event_type: Some(EventType::UserPreference),
+            ..Default::default()
+        },
     )
     .await
     .unwrap();
-    storage
-        .supersede_memory("recent-old", "recent-new")
-        .await
-        .unwrap();
 
     let results = storage.recent(10, &SearchOptions::default()).await.unwrap();
     assert!(results.iter().all(|r| r.id != "recent-old"));
@@ -2487,18 +2477,19 @@ async fn test_include_superseded_shows_all() {
 async fn test_version_chain_retrieval() {
     let storage = SqliteStorage::new_in_memory().unwrap();
 
-    <SqliteStorage as Storage>::store(&storage, "vc-a", "A", &MemoryInput::default())
+    let input = MemoryInput {
+        event_type: Some(EventType::UserPreference),
+        ..Default::default()
+    };
+    <SqliteStorage as Storage>::store(&storage, "vc-a", "shared content", &input)
         .await
         .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "vc-b", "B", &MemoryInput::default())
+    <SqliteStorage as Storage>::store(&storage, "vc-b", "shared content update 1", &input)
         .await
         .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "vc-c", "C", &MemoryInput::default())
+    <SqliteStorage as Storage>::store(&storage, "vc-c", "shared content update 2", &input)
         .await
         .unwrap();
-
-    storage.supersede_memory("vc-a", "vc-b").await.unwrap();
-    storage.supersede_memory("vc-b", "vc-c").await.unwrap();
 
     let from_c = storage.get_version_chain("vc-c").await.unwrap();
     assert_eq!(
@@ -2510,31 +2501,6 @@ async fn test_version_chain_retrieval() {
     assert_eq!(
         from_a.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
         vec!["vc-a", "vc-b", "vc-c"]
-    );
-}
-
-#[tokio::test]
-async fn test_manual_supersede() {
-    let storage = SqliteStorage::new_in_memory().unwrap();
-
-    <SqliteStorage as Storage>::store(&storage, "man-old", "old", &MemoryInput::default())
-        .await
-        .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "man-new", "new", &MemoryInput::default())
-        .await
-        .unwrap();
-
-    storage
-        .supersede_memory("man-old", "man-new")
-        .await
-        .unwrap();
-
-    let (superseded_by, _) = storage.debug_get_versioning_fields("man-old").unwrap();
-    assert_eq!(superseded_by.as_deref(), Some("man-new"));
-    assert!(
-        storage
-            .debug_has_relationship("man-old", "man-new", "SUPERSEDES")
-            .unwrap()
     );
 }
 
@@ -2573,14 +2539,14 @@ async fn test_non_supersession_types_dont_supersede() {
 async fn test_export_import_preserves_versioning() {
     let storage = SqliteStorage::new_in_memory().unwrap();
 
-    <SqliteStorage as Storage>::store(&storage, "exp-old", "old", &MemoryInput::default())
+    let input = MemoryInput {
+        event_type: Some(EventType::UserPreference),
+        ..Default::default()
+    };
+    <SqliteStorage as Storage>::store(&storage, "exp-old", "shared content", &input)
         .await
         .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "exp-new", "new", &MemoryInput::default())
-        .await
-        .unwrap();
-    storage
-        .supersede_memory("exp-old", "exp-new")
+    <SqliteStorage as Storage>::store(&storage, "exp-new", "shared content update", &input)
         .await
         .unwrap();
 

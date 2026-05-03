@@ -184,7 +184,6 @@ pub trait MemoryStore: Send + Sync {
 
     // ── Versioning ────────────────────────────────────────────────────────
     async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>;
-    async fn supersede_memory(&self, old_id: &str, new_id: &str) -> Result<()>;
 
     // ── Lifecycle ancillaries ─────────────────────────────────────────────
     async fn sweep_expired(&self) -> Result<usize>;
@@ -678,7 +677,7 @@ Each of the 28 traits in `memory_core/traits.rs` lands in exactly one location i
 | `Tagger` | `MemoryStore::get_by_tags` | Unchanged; also feeds `EntityExpansionScorer` |
 | `Lister` | `MemoryStore::list` | Unchanged |
 | `RelationshipQuerier` | `MemoryStore::get_relationships` | Unchanged; also feeds `GraphNeighborScorer` |
-| `VersionChainQuerier` | `MemoryStore::{get_version_chain, supersede_memory}` | Unchanged |
+| `VersionChainQuerier` | `MemoryStore::get_version_chain` | Unchanged |
 | `FeedbackRecorder` | `MemoryStore::record_feedback` | Score impact via `MultiFactorScorer::feedback_factor` |
 | `ExpirationSweeper` | `LifecyclePolicy::sweep` | Delegated to `TtlExpirationPolicy` |
 | `ProfileManager` | `MemoryStore::{get_profile, set_profile}` | Unchanged |
