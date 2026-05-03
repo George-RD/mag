@@ -2471,15 +2471,30 @@ async fn test_version_chain_retrieval() {
     };
     // Cosine = 1.0 (both have "alpha")
     // Jaccard for (A, B) and (B, C) should be >= 0.30 but < 0.75
-    <SqliteStorage as Storage>::store(&storage, "vc-a", "alpha user prefers using rust for high performance systems", &input)
-        .await
-        .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "vc-b", "alpha user prefers using rust for high performance web services", &input)
-        .await
-        .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "vc-c", "alpha user prefers using rust for high performance data processing", &input)
-        .await
-        .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "vc-a",
+        "alpha user prefers using rust for high performance systems",
+        &input,
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "vc-b",
+        "alpha user prefers using rust for high performance web services",
+        &input,
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "vc-c",
+        "alpha user prefers using rust for high performance data processing",
+        &input,
+    )
+    .await
+    .unwrap();
 
     let from_c = storage.get_version_chain("vc-c").await.unwrap();
     assert_eq!(
