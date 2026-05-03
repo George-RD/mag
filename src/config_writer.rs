@@ -450,30 +450,11 @@ pub fn verify_claude_plugin() -> Result<bool> {
 
 /// Locates the `claude` CLI binary on the system PATH.
 ///
-/// Uses `command -v claude` on Unix (or `where claude` on Windows) to resolve
-/// the binary path without requiring an external crate.
+/// Uses the `which` crate to resolve
+/// the binary path safely without spawning shells.
 fn find_claude_cli() -> Result<PathBuf> {
-    let output = if cfg!(target_os = "windows") {
-        std::process::Command::new("where").arg("claude").output()
-    } else {
-        std::process::Command::new("sh")
-            .args(["-c", "command -v claude"])
-            .output()
-    };
-
-    match output {
-        Ok(o) if o.status.success() => {
-            let path_str = String::from_utf8_lossy(&o.stdout);
-            let path = path_str.trim();
-            if path.is_empty() {
-                anyhow::bail!("claude CLI not found on PATH — install Claude Code first");
-            }
-            Ok(PathBuf::from(path))
-        }
-        _ => {
-            anyhow::bail!("claude CLI not found on PATH — install Claude Code first");
-        }
-    }
+    which::which("claude")
+        .map_err(|_| anyhow::anyhow!("claude CLI not found on PATH — install Claude Code first"))
 }
 
 // ---------------------------------------------------------------------------
