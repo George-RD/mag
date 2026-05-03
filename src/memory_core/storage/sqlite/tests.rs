@@ -2470,11 +2470,11 @@ async fn test_version_chain_retrieval() {
         ..Default::default()
     };
     // Cosine = 1.0 (both have "alpha")
-    // Jaccard for (A, B) and (B, C) should be >= 0.30 but < 0.75
+    // Jaccard similarity must be >= 0.30 for supersession, but < 0.75 to avoid deduplication
     <SqliteStorage as Storage>::store(
         &storage,
         "vc-a",
-        "alpha user prefers using rust for high performance systems",
+        "alpha user preference for rust async one two three",
         &input,
     )
     .await
@@ -2482,7 +2482,7 @@ async fn test_version_chain_retrieval() {
     <SqliteStorage as Storage>::store(
         &storage,
         "vc-b",
-        "alpha user prefers using rust for high performance web services",
+        "alpha user preference for rust async four five six",
         &input,
     )
     .await
@@ -2490,7 +2490,7 @@ async fn test_version_chain_retrieval() {
     <SqliteStorage as Storage>::store(
         &storage,
         "vc-c",
-        "alpha user prefers using rust for high performance data processing",
+        "alpha user preference for rust async seven eight nine",
         &input,
     )
     .await
@@ -2548,12 +2548,22 @@ async fn test_export_import_preserves_versioning() {
         event_type: Some(EventType::UserPreference),
         ..Default::default()
     };
-    <SqliteStorage as Storage>::store(&storage, "exp-old", "alpha shared content", &input)
-        .await
-        .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "exp-new", "alpha shared content update", &input)
-        .await
-        .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "exp-old",
+        "alpha shared content one two three",
+        &input,
+    )
+    .await
+    .unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "exp-new",
+        "alpha shared content four five six",
+        &input,
+    )
+    .await
+    .unwrap();
 
     let exported = storage.export_all().await.unwrap();
 
