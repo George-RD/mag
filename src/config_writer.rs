@@ -14,6 +14,9 @@ use crate::tool_detection::{AiTool, ConfigFormat, DetectedTool};
 // ---------------------------------------------------------------------------
 
 /// Which transport to configure for the MCP connection.
+///
+/// HTTP transport uses the loopback address (127.0.0.1) for secure local-only
+/// communication, avoiding external network exposure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportMode {
     /// HTTP transport: `{ "type": "http", "url": "http://127.0.0.1:{port}/mcp" }`
@@ -296,6 +299,12 @@ pub fn build_mag_entry(tool: AiTool, mode: TransportMode) -> serde_json::Value {
 
     match mode {
         TransportMode::Http { port } => {
+            // Security Rationale:
+            // We use unencrypted HTTP for loopback (127.0.0.1) communication.
+            // This is the standard for local MCP servers and avoids the
+            // certificate management overhead of local TLS. Security is
+            // maintained by strictly binding to the loopback interface,
+            // which prevents any external network access to the server.
             serde_json::json!({
                 "type": "http",
                 "url": format!("http://127.0.0.1:{port}/mcp")

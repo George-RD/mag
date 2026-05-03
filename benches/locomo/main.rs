@@ -57,7 +57,7 @@ use bench_utils::metrics::PeakRss;
 
 const DEFAULT_LLM_MODEL: &str = "gpt-5.4";
 const DEFAULT_LOCAL_MODEL: &str = "qwen3.5-9b-optiq";
-const DEFAULT_LOCAL_URL: &str = "http://localhost:1234/v1/chat/completions";
+const DEFAULT_LOCAL_URL: &str = "http://127.0.0.1:1234/v1/chat/completions";
 
 #[derive(Debug, Parser)]
 #[command(name = "locomo_bench")]
