@@ -2401,30 +2401,18 @@ async fn test_find_similar_backfills_after_skipping_source_and_superseded() {
 
 #[tokio::test]
 async fn test_superseded_filtered_from_get_recent() {
-    let storage = SqliteStorage::new_in_memory().unwrap();
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
 
-    <SqliteStorage as Storage>::store(
-        &storage,
-        "recent-old",
-        "old memory",
-        &MemoryInput {
-            event_type: Some(EventType::UserPreference),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-    <SqliteStorage as Storage>::store(
-        &storage,
-        "recent-new",
-        "new memory",
-        &MemoryInput {
-            event_type: Some(EventType::UserPreference),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
+    let input = MemoryInput {
+        event_type: Some(EventType::UserPreference),
+        ..Default::default()
+    };
+    <SqliteStorage as Storage>::store(&storage, "recent-old", "alpha old memory", &input)
+        .await
+        .unwrap();
+    <SqliteStorage as Storage>::store(&storage, "recent-new", "alpha new memory", &input)
+        .await
+        .unwrap();
 
     let results = storage.recent(10, &SearchOptions::default()).await.unwrap();
     assert!(results.iter().all(|r| r.id != "recent-old"));
@@ -2475,19 +2463,21 @@ async fn test_include_superseded_shows_all() {
 
 #[tokio::test]
 async fn test_version_chain_retrieval() {
-    let storage = SqliteStorage::new_in_memory().unwrap();
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
 
     let input = MemoryInput {
         event_type: Some(EventType::UserPreference),
         ..Default::default()
     };
-    <SqliteStorage as Storage>::store(&storage, "vc-a", "shared content", &input)
+    // Cosine = 1.0 (both have "alpha")
+    // Jaccard for (A, B) and (B, C) should be >= 0.30 but < 0.75
+    <SqliteStorage as Storage>::store(&storage, "vc-a", "alpha user prefers using rust for high performance systems", &input)
         .await
         .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "vc-b", "shared content update 1", &input)
+    <SqliteStorage as Storage>::store(&storage, "vc-b", "alpha user prefers using rust for high performance web services", &input)
         .await
         .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "vc-c", "shared content update 2", &input)
+    <SqliteStorage as Storage>::store(&storage, "vc-c", "alpha user prefers using rust for high performance data processing", &input)
         .await
         .unwrap();
 
@@ -2537,22 +2527,22 @@ async fn test_non_supersession_types_dont_supersede() {
 
 #[tokio::test]
 async fn test_export_import_preserves_versioning() {
-    let storage = SqliteStorage::new_in_memory().unwrap();
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
 
     let input = MemoryInput {
         event_type: Some(EventType::UserPreference),
         ..Default::default()
     };
-    <SqliteStorage as Storage>::store(&storage, "exp-old", "shared content", &input)
+    <SqliteStorage as Storage>::store(&storage, "exp-old", "alpha shared content", &input)
         .await
         .unwrap();
-    <SqliteStorage as Storage>::store(&storage, "exp-new", "shared content update", &input)
+    <SqliteStorage as Storage>::store(&storage, "exp-new", "alpha shared content update", &input)
         .await
         .unwrap();
 
     let exported = storage.export_all().await.unwrap();
 
-    let restored = SqliteStorage::new_in_memory().unwrap();
+    let restored = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
     restored.import_all(&exported).await.unwrap();
 
     let (old_superseded_by, old_chain) = restored.debug_get_versioning_fields("exp-old").unwrap();
