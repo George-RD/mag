@@ -197,7 +197,7 @@ fn present_detection(result: &DetectionResult) {
             MagConfigStatus::NotConfigured => "\u{2717}", // X mark
             MagConfigStatus::Misconfigured(_) => "\u{26a0}", // warning
             MagConfigStatus::Unreadable(_) => "\u{26a0}", // warning
-            MagConfigStatus::Stale => "\u{26a0}", // warning
+            MagConfigStatus::Stale => "\u{26a0}",      // warning
         };
         println!(
             "    {status_icon} {name:<20} {status_label}",

@@ -179,9 +179,9 @@ impl DetectionResult {
 
     /// Returns true if any tool has MAG configured.
     pub fn any_configured(&self) -> bool {
-        self.detected
-            .iter()
-            .any(|d| d.mag_status == MagConfigStatus::Configured || d.mag_status == MagConfigStatus::Stale)
+        self.detected.iter().any(|d| {
+            d.mag_status == MagConfigStatus::Configured || d.mag_status == MagConfigStatus::Stale
+        })
     }
 }
 
@@ -1183,7 +1183,6 @@ mod tests {
         assert!(!result.any_configured());
     }
 
-
     #[test]
     fn any_configured_returns_false_when_empty() {
         let result = DetectionResult {
@@ -1215,9 +1214,6 @@ mod tests {
         assert!(result.any_configured());
     }
 
-
-
-
     #[test]
     fn any_configured_returns_false_when_all_unconfigured() {
         let result = DetectionResult {
@@ -1239,7 +1235,6 @@ mod tests {
         };
         assert!(!result.any_configured());
     }
-
 
     #[test]
     fn any_configured_returns_true_when_stale() {
