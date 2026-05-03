@@ -1392,4 +1392,48 @@ mod tests {
     fn opencode_uses_json_format() {
         assert_eq!(AiTool::OpenCode.config_format(), ConfigFormat::Json);
     }
+
+    #[test]
+    fn unconfigured_filters_all_status_variants() {
+        let result = DetectionResult {
+            detected: vec![
+                DetectedTool {
+                    tool: AiTool::ClaudeCode,
+                    config_path: PathBuf::from("/test/1"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::Configured,
+                },
+                DetectedTool {
+                    tool: AiTool::Cursor,
+                    config_path: PathBuf::from("/test/2"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::NotConfigured,
+                },
+                DetectedTool {
+                    tool: AiTool::Windsurf,
+                    config_path: PathBuf::from("/test/3"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::Misconfigured("missing field".to_string()),
+                },
+                DetectedTool {
+                    tool: AiTool::Zed,
+                    config_path: PathBuf::from("/test/4"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::Unreadable("permission denied".to_string()),
+                },
+                DetectedTool {
+                    tool: AiTool::ClaudeDesktop,
+                    config_path: PathBuf::from("/test/5"),
+                    scope: ConfigScope::Global,
+                    mag_status: MagConfigStatus::InstalledAsPlugin,
+                },
+            ],
+            not_found: vec![],
+        };
+
+        let unconfigured = result.unconfigured();
+        assert_eq!(unconfigured.len(), 1);
+        assert_eq!(unconfigured[0].tool, AiTool::Cursor);
+        assert_eq!(unconfigured[0].mag_status, MagConfigStatus::NotConfigured);
+    }
 }
