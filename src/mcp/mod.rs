@@ -686,6 +686,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_tool_registry_json_schema() {
+        let json = tool_registry_json();
+        assert!(json.is_object(), "Result should be a JSON object");
+
+        let obj = json.as_object().unwrap();
+        assert!(obj.contains_key("tools"), "Must contain 'tools' key");
+        assert!(
+            obj.contains_key("tool_count"),
+            "Must contain 'tool_count' key"
+        );
+
+        assert!(json["tools"].is_array(), "'tools' should be an array");
+        assert!(
+            json["tool_count"].is_number(),
+            "'tool_count' should be a number"
+        );
+    }
+
     /// `MINIMAL_TOOL_NAMES` must be a strict subset of the names in the tool router.
     #[test]
     fn minimal_tool_names_are_valid_router_entries() {
