@@ -1,0 +1,9 @@
+1. Implement `to_json(&self) -> serde_json::Value` on `TransportMode`.
+   - The implementation will have a `match self` block and return the correct `serde_json::Value` according to each variant.
+   - For `TransportMode::Http { port }`, it returns `json!({ "type": "http", "url": format!("http://127.0.0.1:{port}/mcp") })`.
+   - For `TransportMode::Command`, it resolves the binary path with `resolve_mag_binary()` and returns `json!({ "command": binary, "args": ["serve"] })`.
+   - For `TransportMode::Stdio`, it resolves the binary path and returns `json!({ "command": binary, "args": ["serve", "--stdio"] })`.
+2. Refactor `build_mag_entry` in `src/config_writer.rs` to call `mode.to_json()`.
+   - Ensure the function returns `mode.to_json()` when `tool != AiTool::Zed`.
+3. Verify the changes by running `cargo fmt`, `cargo clippy`, and `cargo test`.
+4. Perform pre-commit checks.

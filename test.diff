@@ -1,0 +1,36 @@
+--- src/config_writer.rs
++++ src/config_writer.rs
+@@ -288,27 +288,29 @@
+ ///
+ /// The `tool` parameter is required because some tools (e.g., Zed) use a
+ /// different entry structure than the generic format.
+ pub fn build_mag_entry(tool: AiTool, mode: TransportMode) -> serde_json::Value {
+     // Zed uses a different structure
+     if tool == AiTool::Zed {
+         return build_zed_entry();
+     }
+
+-    match mode {
+-        TransportMode::Http { port } => {
+-            serde_json::json!({
+-                "type": "http",
+-                "url": format!("http://127.0.0.1:{port}/mcp")
+-            })
+-        }
+-        TransportMode::Command => {
+-            let binary = resolve_mag_binary();
+-            serde_json::json!({
+-                "command": binary,
+-                "args": ["serve"]
+-            })
+-        }
+-        TransportMode::Stdio => {
+-            let binary = resolve_mag_binary();
+-            serde_json::json!({
+-                "command": binary,
+-                "args": ["serve", "--stdio"]
+-            })
+-        }
+-    }
++    mode.to_json()
+ }
