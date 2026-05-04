@@ -13,6 +13,9 @@ PROVENANCE.local.md
 mag-offer.md
 mag-research.md
 
+# Backup files from scripts
+*.bak
+
 # Local MCP config (machine-specific paths)
 .mcp.json
 # But track the plugin's MCP config (it's a fixed localhost endpoint)
