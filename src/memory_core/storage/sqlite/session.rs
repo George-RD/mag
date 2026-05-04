@@ -71,16 +71,26 @@ impl ProfileManager for SqliteStorage {
                 .ok_or_else(|| anyhow!("profile updates must be a JSON object"))?;
             let conn = pool.writer()?;
 
-            for (key, value) in updates_obj {
-                let value_json = serde_json::to_string(value)
-                    .context("failed to serialize user profile value")?;
-                conn.execute(
-                    "INSERT OR REPLACE INTO user_profile (key, value, updated_at)
-                     VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                    params![key, value_json],
-                )
-                .context("failed to upsert user profile value")?;
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
+                .context("failed to start profile update transaction")?;
+            {
+                let mut stmt = tx
+                    .prepare_cached(
+                        "INSERT OR REPLACE INTO user_profile (key, value, updated_at)
+                         VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    )
+                    .context("failed to prepare profile upsert statement")?;
+                for (key, value) in updates_obj {
+                    let value_json = serde_json::to_string(value)
+                        .context("failed to serialize user profile value")?;
+                    stmt.execute(params![key, value_json])
+                        .context("failed to upsert user profile value")?;
+                }
             }
+            tx.commit()
+                .context("failed to commit profile update transaction")?;
+            drop(conn);
+            pool.note_write();
 
             Ok::<_, anyhow::Error>(())
         })
