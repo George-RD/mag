@@ -145,23 +145,19 @@ Run `prek run` for gates 1-3. Always use `bench.sh` (not raw `cargo run`) so res
 - [ ] Run code simplification review — check for unnecessary complexity, duplication, missed reuse
 - [ ] Update AGENTS.md if architecture or conventions changed
 
-## Version Control (jj)
+## Version Control
 
-This repo uses jj (Jujutsu) in colocated mode.
+This repo uses standard git.
 
-- **Never use bare `git commit`, `git rebase`, `git checkout`** — only `jj` commands. `git status`/`git log` for reads are fine.
-- Working copy is always a live commit (`@`). No staging area — every file change auto-amends `@`.
-- To "commit": `jj describe -m "msg" && jj new` (or `jj commit -m "msg"`)
-- To push: `jj bookmark set <name> -r @- && jj git push --bookmark <name> --allow-new`
-- Bookmarks: `feat/...`, `fix/...`, `perf/...`, `refactor/...`
-- `jj undo` reverses any operation. `jj op log` is the reflog.
+- Use normal git commands: `git branch`, `git commit`, `git rebase`, `git checkout`, `git switch`
+- Feature branches: `feat/...`, `fix/...`, `perf/...`, `refactor/...`
 
 ### PR workflow
 
-1. `jj describe -m "feat(scope): description" && jj new`
-2. `jj bookmark set feat/my-feature -r @-`
-3. `prek run`
-4. `jj git push --bookmark feat/my-feature --allow-new`
+1. `git switch -c feat/my-feature` (or `git checkout -b feat/my-feature`)
+2. Make changes and commit: `git commit -m "feat(scope): description"`
+3. Run quality gates: `prek run`
+4. Push: `git push -u origin feat/my-feature`
 5. `gh pr create --head feat/my-feature --title "..." --body "..."`
 
 ## Testing
@@ -181,7 +177,6 @@ This repo uses jj (Jujutsu) in colocated mode.
 - `docs/strongholds/` contains planning docs and coordination artifacts
 - Model files (~134 MB) auto-download on first use; cached under `~/.mag/models/`
 - `GRAPH_NEIGHBOR_FACTOR=0.1` — graph enrichment Phase 5 re-enabled at conservative factor; guarded by `if > 0.0`
-- Git hooks do NOT fire under jj — run `prek run` explicitly before pushing
 - Benchmark history: `docs/benchmarks/benchmark_log.csv` (16 cols); methodology at `docs/benchmarks/methodology.md`
 - voyage-4-nano ONNX: 2048-dim native; use `--embedder-dim` for Matryoshka truncation (512/1024/2048); quant: int8, fp16, fp32, q4
 
@@ -189,10 +184,8 @@ This repo uses jj (Jujutsu) in colocated mode.
 
 ### Claude Code
 
-- The `/jj` skill handles commit/push/PR workflows — use it instead of raw jj commands when available
 - Use `/simplify` after completing implementation work to review for quality
-- `isolation: "worktree"` on Agent tool creates git worktrees for parallel work; JJ workspaces preferred when available
-- Session-start hooks can inject orchestrator mode — see chief-of-staff plugin
+- `isolation: "worktree"` on Agent tool creates git worktrees for parallel work- Session-start hooks can inject orchestrator mode — see chief-of-staff plugin
 
 ### Codex (OpenAI)
 

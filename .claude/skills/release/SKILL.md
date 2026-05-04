@@ -38,7 +38,7 @@ Run the atomic bump script — it updates all 3 manifests + Cargo.lock and commi
 ./scripts/bump-version.sh vX.Y.Z --commit
 ```
 
-This updates Cargo.toml, npm/package.json, python/pyproject.toml, regenerates Cargo.lock, and commits with `chore: bump version to vX.Y.Z`. Uses jj if available, git otherwise.
+This updates Cargo.toml, npm/package.json, python/pyproject.toml, regenerates Cargo.lock, and commits with `chore: bump version to vX.Y.Z`. Uses git.
 
 ### Step 3: Quality gates
 
@@ -56,8 +56,8 @@ All must pass before proceeding. If benchmark gate warns (>2pp delta), run full 
 ### Step 4: Push and create PR
 
 ```bash
-jj bookmark set release/vX.Y.Z -r @-
-jj git push --bookmark release/vX.Y.Z --allow-new
+git switch -c release/vX.Y.Z
+git push -u origin release/vX.Y.Z
 gh pr create --head release/vX.Y.Z --base main \
   --title "chore: release vX.Y.Z" \
   --body "## Release vX.Y.Z
@@ -68,7 +68,7 @@ gh pr create --head release/vX.Y.Z --base main \
 - [ ] bench.sh --gate: PASS (or N/A)
 
 ### Changes since vPREV
-$(jj log -r 'main..@-' --no-graph --template 'description' | head -20)
+$(git log main..HEAD --oneline | head -20)
 "
 ```
 
@@ -93,8 +93,8 @@ gh workflow run release.yml --repo George-RD/mag -f tag=vX.Y.Z
 
 For release candidates (test CI pipeline without publishing):
 ```bash
-jj bookmark set vX.Y.Z-rc.1 -r @
-jj git push --bookmark vX.Y.Z-rc.1
+git switch -c vX.Y.Z-rc.1
+git push -u origin vX.Y.Z-rc.1
 ```
 
 ### Step 7: Monitor release
@@ -140,7 +140,7 @@ After verifying the release, bump `main` to the next development version so in-p
 
 ```bash
 ./scripts/bump-version.sh vX.Y.(Z+1)-dev --commit
-jj git push
+git push
 ```
 
 Example: after releasing v0.1.6, bump to v0.1.7-dev.
@@ -148,8 +148,8 @@ Example: after releasing v0.1.6, bump to v0.1.7-dev.
 If the repo requires a PR for main (branch protection), open a quick PR instead of pushing directly:
 
 ```bash
-jj bookmark set chore/dev-bump-vX.Y.(Z+1) -r @-
-jj git push --bookmark chore/dev-bump-vX.Y.(Z+1) --allow-new
+git switch -c chore/dev-bump-vX.Y.(Z+1)
+git push -u origin chore/dev-bump-vX.Y.(Z+1)
 gh pr create --head chore/dev-bump-vX.Y.(Z+1) --base main \
   --title "chore: bump to vX.Y.(Z+1)-dev" \
   --body "Post-release dev bump."

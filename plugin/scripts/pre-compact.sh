@@ -40,10 +40,8 @@ PROJECT="$(basename "$CWD")"
 
 # Collect VCS state (run in the project CWD parsed from the hook payload)
 VCS_STATE=""
-if [ -d "$CWD" ] && command -v jj >/dev/null 2>&1 && (cd "$CWD" && jj root >/dev/null 2>&1); then
-  VCS_STATE=$(cd "$CWD" && jj log --no-graph -r '@' -T 'change_id.shortest(8) ++ " " ++ description.first_line()' 2>/dev/null) || VCS_STATE=""
-elif [ -d "$CWD" ] && command -v jj >/dev/null 2>&1; then
-  VCS_STATE=$(cd "$CWD" && jj log --oneline -1 2>/dev/null) || VCS_STATE=""
+if [ -d "$CWD" ] && command -v git >/dev/null 2>&1 && (cd "$CWD" && git rev-parse --git-dir >/dev/null 2>&1); then
+  VCS_STATE=$(cd "$CWD" && git log --oneline -1 2>/dev/null) || VCS_STATE=""
 fi
 
 # Collect recent file from transcript
