@@ -29,6 +29,7 @@ mod cli;
 #[cfg(feature = "daemon-http")]
 #[allow(dead_code)]
 mod daemon;
+mod doctor_checks;
 #[cfg(feature = "daemon-http")]
 #[allow(dead_code)]
 mod idle_timer;
@@ -1337,81 +1338,61 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
                 });
                 // models_ok stays false; embedder check will show skipped
             }
-            Ok(model_dir) => {
-                let model_onnx = model_dir.join("model.onnx");
-                let tokenizer = model_dir.join("tokenizer.json");
-                if model_onnx.exists() && tokenizer.exists() {
-                    let model_size = std::fs::metadata(&model_onnx).map(|m| m.len()).unwrap_or(0);
-                    #[allow(clippy::cast_precision_loss)]
-                    let size_mb = model_size as f64 / (1024.0 * 1024.0);
+            Ok(model_dir) => match doctor_checks::check_model_dir(&model_dir) {
+                doctor_checks::ModelCheckResult::Ok { model_size_mb } => {
                     results.push(CheckResult {
                         name: "Models",
                         status: CheckStatus::Ok,
-                        detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
+                        detail: format!("model.onnx ({model_size_mb:.0} MB), tokenizer.json"),
                         why: None,
                         fix_hint: None,
                         fix_action: None,
                     });
                     models_ok = true;
-                } else {
-                    let mut missing = Vec::new();
-                    if !model_onnx.exists() {
-                        missing.push("model.onnx");
-                    }
-                    if !tokenizer.exists() {
-                        missing.push("tokenizer.json");
-                    }
+                }
+                doctor_checks::ModelCheckResult::MissingFiles { missing } => {
                     results.push(CheckResult {
                         name: "Models",
                         status: CheckStatus::Fail,
                         detail: format!("missing: {}", missing.join(", ")),
                         why: Some(
                             "MAG needs these files to embed text for semantic search. \
-                             Without them, recall and store commands will fail.",
+                                 Without them, recall and store commands will fail.",
                         ),
                         fix_hint: Some("mag download-model".to_string()),
                         fix_action: Some(FixAction::DownloadModel),
                     });
                 }
-            }
+            },
         }
         #[cfg(not(feature = "real-embeddings"))]
         {
             let model_dir = p.model_root.clone();
-            let model_onnx = model_dir.join("model.onnx");
-            let tokenizer = model_dir.join("tokenizer.json");
-            if model_onnx.exists() && tokenizer.exists() {
-                let model_size = std::fs::metadata(&model_onnx).map(|m| m.len()).unwrap_or(0);
-                #[allow(clippy::cast_precision_loss)]
-                let size_mb = model_size as f64 / (1024.0 * 1024.0);
-                results.push(CheckResult {
-                    name: "Models",
-                    status: CheckStatus::Ok,
-                    detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
-                    why: None,
-                    fix_hint: None,
-                    fix_action: None,
-                });
-                models_ok = true;
-            } else {
-                let mut missing = Vec::new();
-                if !model_onnx.exists() {
-                    missing.push("model.onnx");
+            match doctor_checks::check_model_dir(&model_dir) {
+                doctor_checks::ModelCheckResult::Ok { model_size_mb } => {
+                    results.push(CheckResult {
+                        name: "Models",
+                        status: CheckStatus::Ok,
+                        detail: format!("model.onnx ({model_size_mb:.0} MB), tokenizer.json"),
+                        why: None,
+                        fix_hint: None,
+                        fix_action: None,
+                    });
+                    models_ok = true;
                 }
-                if !tokenizer.exists() {
-                    missing.push("tokenizer.json");
+                doctor_checks::ModelCheckResult::MissingFiles { missing } => {
+                    results.push(CheckResult {
+                        name: "Models",
+                        status: CheckStatus::Warn,
+                        detail: format!(
+                            "missing: {} (not required — real-embeddings feature disabled)",
+                            missing.join(", ")
+                        ),
+                        why: None,
+                        fix_hint: None,
+                        fix_action: None,
+                    });
                 }
-                results.push(CheckResult {
-                    name: "Models",
-                    status: CheckStatus::Warn,
-                    detail: format!(
-                        "missing: {} (not required — real-embeddings feature disabled)",
-                        missing.join(", ")
-                    ),
-                    why: None,
-                    fix_hint: None,
-                    fix_action: None,
-                });
             }
         }
     } else {
@@ -1497,22 +1478,18 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
     #[cfg(feature = "real-embeddings")]
     match memory_core::reranker::cross_encoder_model_dir() {
         Err(_) => {} // path resolution failed; omit row (cross-encoder is optional)
-        Ok(ce_dir) => {
-            let ce_model = ce_dir.join("model.onnx");
-            let ce_tokenizer = ce_dir.join("tokenizer.json");
-            if ce_model.exists() && ce_tokenizer.exists() {
-                #[allow(clippy::cast_precision_loss)]
-                let size_mb = std::fs::metadata(&ce_model).map(|m| m.len()).unwrap_or(0) as f64
-                    / (1024.0 * 1024.0);
+        Ok(ce_dir) => match doctor_checks::check_cross_encoder_dir(&ce_dir) {
+            doctor_checks::CrossEncoderCheckResult::Ok { model_size_mb } => {
                 results.push(CheckResult {
                     name: "Cross-encoder",
                     status: CheckStatus::Ok,
-                    detail: format!("model.onnx ({size_mb:.0} MB), tokenizer.json"),
+                    detail: format!("model.onnx ({model_size_mb:.0} MB), tokenizer.json"),
                     why: None,
                     fix_hint: None,
                     fix_action: None,
                 });
-            } else {
+            }
+            doctor_checks::CrossEncoderCheckResult::MissingFiles { .. } => {
                 results.push(CheckResult {
                     name: "Cross-encoder",
                     status: CheckStatus::Fail,
@@ -1525,7 +1502,7 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
                     fix_action: Some(FixAction::DownloadCrossEncoder),
                 });
             }
-        }
+        },
     }
 
     // ── Print summary table ───────────────────────────────────────────────────

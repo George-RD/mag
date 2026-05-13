@@ -71,6 +71,7 @@ cast_precision_loss = "deny"
 
 [dev-dependencies]
 serial_test = "3.2"
+tempfile = "3"
 
 [[bin]]
 name = "mag"
