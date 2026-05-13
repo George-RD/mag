@@ -295,7 +295,9 @@ mod tests {
         let scoring_strategy: Arc<dyn ScoringStrategy> =
             Arc::new(crate::memory_core::scoring_strategy::DefaultScoringStrategy::new());
 
-        let _ = run_keyword_only_search(&mock, &scoring_strategy, &ctx, None).await;
+        let _ = run_keyword_only_search(&mock, &scoring_strategy, &ctx, None)
+            .await
+            .unwrap();
 
         assert_eq!(
             *received.lock().unwrap(),

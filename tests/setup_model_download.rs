@@ -1,12 +1,12 @@
 // tests/setup_model_download.rs
 
-#![cfg(feature = "real-embeddings")]
+#![cfg(all(feature = "real-embeddings", feature = "test-helpers"))]
 
 use mag::test_helpers::with_temp_home;
 
 /// When models are already present, model_dir() should resolve correctly.
 #[test]
-fn setup_skips_download_when_models_present() {
+fn setup_resolves_model_dir_when_models_present() {
     with_temp_home(|home| {
         let model_dir = home
             .join(".mag")
