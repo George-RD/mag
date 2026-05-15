@@ -19,7 +19,7 @@ MAG cannot be relied upon as a daily-use memory system. Scoring semantics silent
 
 - Fixing ingestion hooks (#255, #257, #259, #243) — superseded by Phase 3 log watcher.
 - TUI/WebUI in early phases — start with JSON traces.
-- Full MemoryArena coverage — one environment only, to learn the loop pattern.
+- Full MemoryArena coverage — defer to Phase 3; use LongMemEval multi-session for Phase 2b.
 - Comparative benchmarking against other memory systems — defer until MAG's own scores are stable.
 
 ---
@@ -86,12 +86,19 @@ struct BenchmarkConfig {
 
 ---
 
-## Phase 2b: MemoryArena + Active Injection Design
+## Phase 2b: LongMemEval Multi-Session + Active Injection Design
 
-### 2.4 MemoryArena Adapter (One Environment)
+> **Updated 2026-05-04:** Pivot from MemoryArena to LongMemEval. See Issue #341 for full rationale.
+> MemoryArena requires live web search (~$25+/month) or complex simulators for 3 of 4 domains.
+> LongMemEval's 133 multi-session questions test the same active-injection hypothesis without new infrastructure.
 
-- **Scope:** Progressive Web Search only (simplest agent loop: search → observe → search again).
-- Harness intercepts agent loop: after each action, `observe()` stores; before next action, `retrieve_context()` injects into prompt.
+### 2.4 LongMemEval Multi-Session Adapter
+
+- **Scope:** Multi-session questions from official LongMemEval_S dataset (133 questions that span 2+ sessions).
+- Harness stores each session's content to MAG, then tests retrieval for cross-session questions.
+- Two conditions:
+  - **Passive:** Agent formulates search query; MAG returns ranked results.
+  - **Active:** MAG proactively identifies relevant prior sessions and injects their content into context.
 
 ### 2.5 Recall Hook Design
 
@@ -100,16 +107,16 @@ Prototype when MAG should inject context:
 | Strategy | Mechanism | Tested In |
 |----------|-----------|-----------|
 | Passive | Agent asks via MCP `memory_search` | AMA-Bench |
-| Active-Threshold | Inject when semantic similarity > threshold | MemoryArena |
-| Active-Boundary | Inject on tool-use boundaries | MemoryArena |
-| Active-Periodic | Inject every N turns | MemoryArena |
+| Active-Threshold | Inject when semantic similarity > threshold | LongMemEval |
+| Active-Boundary | Inject on session boundaries | LongMemEval |
+| Active-Periodic | Inject every N turns | LongMemEval |
 
-**Goal:** Determine if active injection improves task success over passive retrieval.
+**Goal:** Determine if active injection improves answer accuracy over passive retrieval on multi-session questions.
 
 ### Phase 2b Exit Gate
 
-- [ ] MemoryArena Progressive Web Search runs end-to-end.
-- [ ] Task success rate with MAG >= task success rate without MAG.
+- [ ] LongMemEval multi-session questions run end-to-end with active injection.
+- [ ] Accuracy with active injection >= accuracy with passive retrieval.
 - [ ] Traces explain which recall strategy worked and why.
 
 ---
@@ -118,7 +125,7 @@ Prototype when MAG should inject context:
 
 Between-phase checkpoint. No new features.
 
-- Review AMA-Bench + MemoryArena traces.
+- Review AMA-Bench + LongMemEval traces.
 - Identify top 3 failure modes across both benchmarks.
 - Refactor MAG's scoring/pipeline to address them.
 - Run adversarial review on changes.
@@ -167,8 +174,8 @@ Minimal regression suite:
 ## Architecture
 
 ```
-[Benchmark: AMA-Bench]     [Benchmark: MemoryArena]
-         |                           |
+[Benchmark: AMA-Bench]     [Benchmark: LongMemEval]
+         |                     (multi-session)
          └───────────┬───────────────┘
                      |
           ┌──────────┴──────────┐
@@ -191,10 +198,10 @@ Minimal regression suite:
 | 2026-05-04 | Defer ingestion hook fixes | Log watcher in Phase 3 replaces them entirely |
 | 2026-05-04 | 3-method harness trait | Unstructured traces avoid premature event typing |
 | 2026-05-04 | AMA-Bench SWE only | Most relevant domain; avoids boiling the ocean |
-| 2026-05-04 | MemoryArena one env only | Learn loop pattern without full integration burden |
+| 2026-05-04 | LongMemEval multi-session subset | Learn loop pattern without MemoryArena infrastructure burden (Issue #341) |
 | 2026-05-04 | No LiteLLM proxy | Env vars sufficient for Phase 2 scope |
 | 2026-05-04 | JSON traces before TUI | Traces must exist before they can be displayed |
-| 2026-05-04 | Active injection in Phase 2b | MemoryArena is the only benchmark that tests it |
+| 2026-05-04 | Active injection in Phase 2b | LongMemEval multi-session questions test the same hypothesis; MemoryArena deferred to Phase 3 (Issue #341) |
 | 2026-05-04 | Checkpoint gates between phases | Prevent building on unvalidated foundations |
 
 ## Risks & Mitigations
@@ -202,13 +209,13 @@ Minimal regression suite:
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | #323 fix changes LoCoMo scores | Medium | High | Revert if >5pp regression |
-| MemoryArena too slow via MCP | Medium | Medium | Fall back to direct SQLite API for benchmark runs |
+| LongMemEval concurrent query latency | Medium | Medium | Already optimized; file-backed mode available |
 | AMA-Bench doesn't translate to Claude Code | Medium | High | Treat as one signal; Phase 3 dogfooding is the real validation |
-| Active injection hurts more than helps | Medium | Medium | A/B test passive vs. active in MemoryArena; keep the winner |
-| Phase 2b harder than expected | Medium | Medium | Scope is one environment only; can cut to passive retrieval only |
+| Active injection hurts more than helps | Medium | Medium | A/B test passive vs. active in LongMemEval; keep the winner |
+| Phase 2b harder than expected | Medium | Medium | Scope is multi-session subset only; can cut to passive retrieval only |
 
 ## Open Questions
 
 1. Exact Claude Code log schema for Phase 3 watcher?
-2. Which recall strategy (threshold/boundary/periodic) works best in MemoryArena?
+2. Which recall strategy (threshold/boundary/periodic) works best in LongMemEval multi-session questions?
 3. Should Phase 2c changes be gated by `./scripts/bench.sh --gate` or by AMA-Bench score only?
