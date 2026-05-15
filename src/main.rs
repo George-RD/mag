@@ -1571,13 +1571,10 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
         .filter(|r| r.fix_action.is_some())
         .collect();
 
-    let mut fixes_applied = false;
-
     // ── Fix prompt ────────────────────────────────────────────────────────────
     if fix {
         println!("Applying fixes (--fix)...");
         apply_doctor_fixes(&auto_fixable).await?;
-        fixes_applied = true;
     } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         let count = auto_fixable.len();
         print!(
@@ -1592,7 +1589,6 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
         let answer = input.trim().to_ascii_lowercase();
         if answer.is_empty() || answer == "y" || answer == "yes" {
             apply_doctor_fixes(&auto_fixable).await?;
-            fixes_applied = true;
         } else {
             println!("Skipped. Run `mag doctor --fix` to apply automatically.");
         }
@@ -1605,12 +1601,16 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
         );
     }
 
-    if failures.iter().all(|r| r.status != CheckStatus::Fail) || fixes_applied {
+    let hard_failures: Vec<_> = failures
+        .iter()
+        .filter(|r| r.status == CheckStatus::Fail)
+        .collect();
+    if hard_failures.is_empty() {
         Ok(())
     } else {
         anyhow::bail!(
             "{} doctor check(s) failed. See above for details.",
-            failures.len()
+            hard_failures.len()
         );
     }
 }
