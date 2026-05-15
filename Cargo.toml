@@ -23,6 +23,9 @@ real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:dotenvy"]
 mimalloc = ["dep:mimalloc"]
 sqlite-vec = ["dep:sqlite-vec"]
 daemon-http = []
+# Exposes test helper utilities (e.g. with_temp_home) to integration tests.
+# Not stable — for internal use only.
+test-helpers = []
 
 [dependencies]
 anyhow = "1.0.101"
@@ -71,6 +74,7 @@ cast_precision_loss = "deny"
 
 [dev-dependencies]
 serial_test = "3.2"
+tempfile = "3"
 
 [[bin]]
 name = "mag"

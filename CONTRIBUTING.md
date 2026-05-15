@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - **Rust toolchain** — install via [rustup.rs](https://rustup.rs) (stable)
-- **jj** (recommended) — [jj-vcs.github.io](https://jj-vcs.github.io/jj/latest/install-and-setup/); the repo uses jj in colocated mode
+- **git** — [git-scm.com](https://git-scm.com/); standard git workflow
 - **prek** (optional) — quality gate runner; install with `cargo install prek`
 
 ## Dev Setup
@@ -37,23 +37,20 @@ All commits must include a DCO sign-off:
 Signed-off-by: Your Name <your@email.com>
 ```
 
-Add it with `jj describe`, including the sign-off line in the message:
+Add it with `git commit`, including the sign-off line in the message:
 
 ```bash
-jj describe -m "$(cat <<'EOF'
-feat(scope): description
+git commit -m "feat(scope): description
 
-Signed-off-by: Your Name <your@email.com>
-EOF
-)"
+Signed-off-by: Your Name <your@email.com>"
 ```
 
 ## PR Process
 
-1. Branch from `main` (`jj new main`)
+1. Branch from `main` (`git switch -c feat/name main`)
 2. Make changes, run quality gates (see below)
 3. Push and open a PR against `main`
-4. Address review feedback; use `jj squash` to fold fixups into parent, or `jj rebase -d main` to rebase onto latest main before merge
+4. Address review feedback; use `git commit --amend` to update the last commit, or `git rebase main` to rebase onto latest main before merge
 
 ## Quality Gates
 

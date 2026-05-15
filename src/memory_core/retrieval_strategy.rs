@@ -218,7 +218,7 @@ impl RetrievalStrategy for KeywordOnlyStrategy {
         self.fts_searcher
             .fts_search(
                 &ctx.query,
-                ctx.limit,
+                ctx.candidate_limit,
                 &ctx.opts,
                 ctx.include_superseded,
                 &ctx.scoring_params,

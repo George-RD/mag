@@ -501,7 +501,7 @@ The benchmark gate compares against `docs/benchmarks/baselines.json` (see `bench
 
 ## Branch Naming and Rebase Protocol
 
-This repo is jj-colocated. Use jj bookmarks for all PR branches. For the serial dependency chains (PR-2a through PR-2d, PR-4a-i through PR-4a-ii), the following protocol applies:
+This repo uses standard git. Use git branches for all PRs. For the serial dependency chains (PR-2a through PR-2d, PR-4a-i through PR-4a-ii), the following protocol applies:
 
 ### Bookmark names
 
@@ -529,13 +529,13 @@ When an earlier PR in a dependency chain merges to main:
 
 ```bash
 # After PR-2a merges:
-jj rebase -b refactor/sqlite-extraction -d main
+git switch refactor/sqlite-extraction && git rebase main
 
 # After PR-2c merges:
-jj rebase -b refactor/scoring-injection -d main
+git switch refactor/scoring-injection && git rebase main
 
 # After PR-4a-i merges:
-jj rebase -b refactor/keyword-strategy -d main
+git switch refactor/keyword-strategy && git rebase main
 ```
 
 For parallel PRs (Phase 1, PR-3a/3b), no rebase coordination is needed — each is branched from main independently.

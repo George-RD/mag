@@ -218,7 +218,7 @@ pub(crate) async fn run_keyword_only_search(
     let candidates: CandidateSet = fts_searcher
         .fts_search(
             &ctx.query,
-            ctx.limit,
+            ctx.candidate_limit,
             &ctx.opts,
             ctx.include_superseded,
             &ctx.scoring_params,
@@ -247,4 +247,62 @@ pub(crate) async fn run_keyword_only_search(
         Some(hot_results) => merge_hot_cache_results(hot_results, results, limit),
         None => results,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+
+    struct MockFtsSearcher {
+        received_limit: Arc<Mutex<usize>>,
+    }
+
+    #[async_trait]
+    impl FtsSearcher for MockFtsSearcher {
+        async fn fts_search(
+            &self,
+            _query: &str,
+            limit: usize,
+            _opts: &SearchOptions,
+            _include_superseded: bool,
+            _scoring_params: &ScoringParams,
+        ) -> Result<CandidateSet> {
+            *self.received_limit.lock().unwrap() = limit;
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn keyword_search_passes_candidate_limit_to_fts() {
+        let received = Arc::new(Mutex::new(0usize));
+        let mock = MockFtsSearcher {
+            received_limit: received.clone(),
+        };
+
+        let ctx = QueryContext {
+            query: "test query".to_string(),
+            limit: 10,
+            candidate_limit: 200,
+            opts: SearchOptions::default(),
+            scoring_params: ScoringParams::default(),
+            query_embedding: None,
+            include_superseded: false,
+            explain_enabled: false,
+        };
+
+        let scoring_strategy: Arc<dyn ScoringStrategy> =
+            Arc::new(crate::memory_core::scoring_strategy::DefaultScoringStrategy::new());
+
+        let _ = run_keyword_only_search(&mock, &scoring_strategy, &ctx, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *received.lock().unwrap(),
+            200,
+            "fts_search should receive candidate_limit (200), not limit (10)"
+        );
+    }
 }

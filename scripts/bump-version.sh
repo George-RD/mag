@@ -178,12 +178,8 @@ if [[ "$DO_COMMIT" == true ]]; then
   echo ""
   git -C "$REPO_ROOT" add Cargo.toml Cargo.lock npm/package.json python/pyproject.toml
 
-  if command -v jj >/dev/null 2>&1 && [[ -d "$REPO_ROOT/.jj" ]]; then
-    jj --repository "$REPO_ROOT" describe -m "chore: bump version to v$VERSION"
-    jj --repository "$REPO_ROOT" new
-  else
-    git -C "$REPO_ROOT" commit -m "chore: bump version to v$VERSION"
-  fi
+  git -C "$REPO_ROOT" commit -m "chore: bump version to v$VERSION"
+  git -C "$REPO_ROOT" tag "v$VERSION"
 
   echo "Committed: chore: bump version to v$VERSION"
 fi

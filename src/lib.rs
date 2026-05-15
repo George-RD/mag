@@ -8,8 +8,8 @@ pub mod setup;
 pub(crate) mod tool_detection;
 pub mod uninstall;
 
-#[cfg(test)]
-pub(crate) mod test_helpers;
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod test_helpers;
 
 #[cfg(not(test))]
 impl memory_core::storage::sqlite::SqliteStorage {

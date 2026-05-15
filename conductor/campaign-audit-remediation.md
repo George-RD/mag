@@ -51,10 +51,10 @@
 ## Implementation Protocol
 
 Each work unit follows:
-1. `jj describe -m "type(scope): description (#issue)"` — frequently during work
+1. `git commit -m "type(scope): description (#issue)"` — frequently during work
 2. Quality gates: `prek run` (fmt + clippy + test)
 3. `/simplify` review
-4. `jj bookmark set <branch> -r @- && jj git push --bookmark <branch> --allow-new`
+4. `git push -u origin <branch>`
 5. `gh pr create` with issue reference
 6. Merge immediately on green
 

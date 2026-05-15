@@ -24,8 +24,8 @@ All gates must pass before proceeding.
 ### 3. Push and create PR
 
 ```bash
-jj bookmark set release/vX.Y.Z -r @-
-jj git push --bookmark release/vX.Y.Z --allow-new
+git switch -c release/vX.Y.Z
+git push -u origin release/vX.Y.Z
 gh pr create --head release/vX.Y.Z --base main \
   --title "chore: release vX.Y.Z" \
   --body "Release checklist: ..."
@@ -61,7 +61,7 @@ After verifying the release, bump `main` to the next development version:
 
 ```bash
 ./scripts/bump-version.sh vX.Y.(Z+1)-dev --commit
-jj git push
+git push
 ```
 
 Example: after releasing v0.1.6, bump to v0.1.7-dev.

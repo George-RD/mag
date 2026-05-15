@@ -1,5 +1,5 @@
 #!/bin/sh
-# MAG commit-capture — auto-capture jj/git commit messages as Decision memories
+# MAG commit-capture — auto-capture git commit messages as Decision memories
 # PostToolUse(Bash) hook. MUST exit fast (<50ms) for non-matching commands.
 # Receives: event JSON via stdin (tool_input.command, tool_response.stdout)
 set -eu
@@ -29,7 +29,7 @@ else
 fi
 
 case "$INPUT" in
-  *"jj commit"*|*"jj describe"*|*"git commit"*) ;;
+  *"git commit"*) ;;
   *) exit 0 ;;
 esac
 
@@ -37,11 +37,8 @@ START_TS=$(now_ms)
 
 COMMAND="$INPUT"
 
-# Detect VCS tool
+# VCS tool is always git
 VCS_TOOL="git"
-case "$COMMAND" in
-  *"jj commit"*|*"jj describe"*) VCS_TOOL="jj" ;;
-esac
 
 # Extract commit message from -m flag (quoted, then unquoted fallback)
 MSG="$(printf '%s' "$COMMAND" | sed -nE "s/.*-m[[:space:]]+['\"]([^'\"]*)['\"].*/\1/p" | head -1 || true)"
@@ -49,16 +46,7 @@ if [ -z "$MSG" ]; then
   MSG="$(printf '%s' "$COMMAND" | sed -nE 's/.*-m[[:space:]]+([^[:space:];|&]+).*/\1/p' | head -1 || true)"
 fi
 
-# Fallback: parse jj output for "Working copy now at: <hash> <message>"
-if [ -z "$MSG" ]; then
-  # Extract stdout from stdin payload (preferred) or legacy env var
-  if [ -n "$STDIN_PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
-    OUTPUT="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.tool_response.stdout // .tool_response.output // empty' 2>/dev/null || true)"
-  else
-    OUTPUT="$(printf '%s' "${CLAUDE_TOOL_OUTPUT:-}" | jq -r '.output // empty' 2>/dev/null || true)"
-  fi
-  MSG="$(printf '%s' "$OUTPUT" | sed -n 's/Working copy now at: [a-z0-9]* //p' | head -1 | head -c 200 || true)"
-fi
+# No fallback needed — git commits always include -m in the command line
 
 [ -n "$MSG" ] || exit 0
 
