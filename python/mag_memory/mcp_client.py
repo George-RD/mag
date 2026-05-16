@@ -6,7 +6,6 @@ Manages the mag serve subprocess and speaks JSON-RPC 2.0 over stdio.
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 import subprocess
@@ -187,16 +186,15 @@ class McpClient:
         resp = self.search(
             query=query, mode=mode, limit=limit, advanced=advanced, explain=True, **kwargs
         )
-        # MAG's advanced search returns _text_overlap in metadata when explain=true.
-        # Ensure each result has a 'score' key for uniform access.
-        # Return a copy to avoid mutating the original response.
-        resp = copy.deepcopy(resp)
+        # MAG already returns the canonical blended `score` on each result when
+        # advanced=True. Ensure every result has a `score` key for uniform access.
         for r in resp.get("results", []):
-            meta = r.get("metadata", {})
-            if "score" not in r and "_text_overlap" in meta:
-                r["score"] = meta["_text_overlap"]
-            elif "score" not in r:
-                r["score"] = 0.0
+            if "score" not in r:
+                meta = r.get("metadata", {})
+                if "_text_overlap" in meta:
+                    r["score"] = meta["_text_overlap"]
+                else:
+                    r["score"] = 0.0
         return resp
 
     # ------------------------------------------------------------------
