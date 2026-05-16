@@ -103,7 +103,8 @@ class LongMemEvalRunner:
 
         # Substring match scoring (same as official benchmark)
         context = retrieval.get("context", "")
-        passed = expected.lower() in context.lower() if context else False
+        expected_str = str(expected) if expected is not None else ""
+        passed = expected_str.lower() in context.lower() if context else False
 
         result = QuestionResult(
             question_id=question_id,
