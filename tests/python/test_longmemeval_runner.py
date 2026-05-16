@@ -94,3 +94,27 @@ def test_run_ab_test():
     summaries = runner.run_ab_test(questions, strategies)
     assert "passive" in summaries
     assert summaries["passive"].accuracy == 1.0
+
+
+def test_run_ab_test_with_two_strategies():
+    from mag_memory.active_strategies import ThresholdStrategy
+    client = FakeMcpClient([
+        {"results": [{"content": "answer here", "score": 0.8}], "confidence": 0.8, "abstained": False},
+        {"results": [{"content": "answer here", "score": 0.8}], "confidence": 0.8, "abstained": False},
+    ])
+    runner = LongMemEvalRunner(client)
+    strategies = [PassiveStrategy(limit=1), ThresholdStrategy(threshold=0.5, limit=1)]
+    questions = [
+        {"question": "Q1", "answer": "answer here", "question_id": "q1", "question_type": "multi-session"},
+    ]
+    summaries = runner.run_ab_test(questions, strategies)
+    assert "passive" in summaries
+    assert "active_threshold" in summaries
+
+
+def test_context_manager():
+    client = FakeMcpClient([])
+    with LongMemEvalRunner(client, project="ctx_test") as runner:
+        assert runner.project == "ctx_test"
+    # After exiting, trace file should be closed
+    assert runner._trace_file is None

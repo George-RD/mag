@@ -5,7 +5,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, TextIO, Tuple
 
 from mag_memory.mcp_client import McpClient
 from mag_memory.active_strategies import RecallStrategy, STRATEGIES
@@ -50,7 +50,7 @@ class LongMemEvalRunner:
         self.client = client
         self.project = project or f"lme_{uuid.uuid4().hex[:8]}"
         self.trace_path = trace_path
-        self._trace_file: Optional[Any] = None
+        self._trace_file: Optional[TextIO] = None
 
     def _open_trace(self) -> None:
         if self.trace_path and not self._trace_file:
@@ -102,8 +102,8 @@ class LongMemEvalRunner:
         latency_ms = (time.time() - t0) * 1000
 
         # Substring match scoring (same as official benchmark)
-        context = retrieval["context"]
-        passed = expected.lower() in context.lower()
+        context = retrieval.get("context", "")
+        passed = expected.lower() in context.lower() if context else False
 
         result = QuestionResult(
             question_id=question_id,
@@ -193,3 +193,10 @@ class LongMemEvalRunner:
         if self._trace_file:
             self._trace_file.close()
             self._trace_file = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+        return False
