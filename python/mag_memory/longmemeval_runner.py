@@ -65,24 +65,25 @@ class LongMemEvalRunner:
 
     def seed_sessions(self, sessions_data: List[Tuple[str, List[Dict[str, str]]]]) -> int:
         """
-        Store haystack sessions to MAG.
+        Store haystack sessions to MAG via batch store.
         sessions_data: list of (session_id, turns) where turns = [{"role": "user", "content": "..."}, ...]
         Returns number of memories stored.
         """
-        count = 0
+        batch: List[Dict[str, Any]] = []
         for session_idx, (session_id, turns) in enumerate(sessions_data):
             for turn_idx, turn in enumerate(turns):
                 memory_id = f"{self.project}_s{session_idx}_t{turn_idx}"
-                self.client.store(
-                    content=turn["content"],
-                    id=memory_id,
-                    project=self.project,
-                    session_id=session_id,
-                    agent_type=turn.get("role", "unknown"),
-                    tags=["longmemeval", f"session_{session_idx}"],
-                )
-                count += 1
-        return count
+                batch.append({
+                    "content": turn["content"],
+                    "id": memory_id,
+                    "project": self.project,
+                    "session_id": session_id,
+                    "agent_type": turn.get("role", "unknown"),
+                    "tags": ["longmemeval", f"session_{session_idx}"],
+                })
+        if batch:
+            self.client.store_batch(batch)
+        return len(batch)
 
     def evaluate_question(
         self,

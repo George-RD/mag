@@ -28,6 +28,27 @@ class RecallStrategy(ABC):
         ...
 
 
+def _search_with_fallback(
+    client: SearchClient,
+    query: str,
+    limit: int,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """
+    Run advanced search; if it abstains, fall back to basic search.
+    Matches the official benchmark's behaviour.
+    """
+    resp = client.search_with_scores(query=query, limit=limit, **kwargs)
+    if resp.get("abstained", False) or not resp.get("results", []):
+        # Remove any kwargs that would conflict with our explicit args
+        fallback_kwargs = {k: v for k, v in kwargs.items() if k not in ("advanced", "explain")}
+        resp = client.search_with_scores(
+            query=query, limit=limit, advanced=False, **fallback_kwargs
+        )
+        resp["_fallback"] = True
+    return resp
+
+
 class PassiveStrategy(RecallStrategy):
     """Passive retrieval: agent asks, MAG returns."""
 
@@ -37,14 +58,18 @@ class PassiveStrategy(RecallStrategy):
         self.limit = limit
 
     def retrieve(self, client: SearchClient, query: str, **kwargs: Any) -> Dict[str, Any]:
-        resp = client.search_with_scores(query=query, limit=self.limit, **kwargs)
+        resp = _search_with_fallback(client, query, self.limit, **kwargs)
         results = resp.get("results", [])
         context = "\n\n".join(r.get("content", "") for r in results)
         return {
             "context": context,
             "results": results,
             "strategy": self.name,
-            "meta": {"result_count": len(results), "abstained": resp.get("abstained", False)},
+            "meta": {
+                "result_count": len(results),
+                "abstained": resp.get("abstained", False),
+                "fallback": resp.get("_fallback", False),
+            },
         }
 
 
@@ -59,14 +84,14 @@ class ThresholdStrategy(RecallStrategy):
         self.expand_limit = expand_limit
 
     def retrieve(self, client: SearchClient, query: str, **kwargs: Any) -> Dict[str, Any]:
-        resp = client.search_with_scores(query=query, limit=self.limit, **kwargs)
+        resp = _search_with_fallback(client, query, self.limit, **kwargs)
         confidence = resp.get("confidence", 0.0)
         results = resp.get("results", [])
         expanded = False
 
-        if confidence < self.threshold and not resp.get("abstained", False):
+        if confidence < self.threshold and not resp.get("abstained", False) and not resp.get("_fallback", False):
             # Proactively expand search to get more context
-            resp = client.search_with_scores(query=query, limit=self.expand_limit, **kwargs)
+            resp = _search_with_fallback(client, query, self.expand_limit, **kwargs)
             results = resp.get("results", [])
             confidence = resp.get("confidence", confidence)
             expanded = True
@@ -97,7 +122,7 @@ class BoundaryStrategy(RecallStrategy):
 
     def retrieve(self, client: SearchClient, query: str, **kwargs: Any) -> Dict[str, Any]:
         # First, do a normal search
-        resp = client.search_with_scores(query=query, limit=self.limit, **kwargs)
+        resp = _search_with_fallback(client, query, self.limit, **kwargs)
         results = resp.get("results", [])
 
         # Identify which session_ids appear in top results
@@ -111,8 +136,8 @@ class BoundaryStrategy(RecallStrategy):
         extra_results: List[Dict[str, Any]] = []
         seen_ids = {r.get("id") or r.get("memory_id") for r in results}
         for sid in session_ids[: self.session_limit]:
-            session_resp = client.search_with_scores(
-                query="", limit=self.session_limit, session_id=sid, **kwargs
+            session_resp = _search_with_fallback(
+                client, "", self.session_limit, session_id=sid, **kwargs
             )
             for r in session_resp.get("results", []):
                 rid = r.get("id") or r.get("memory_id")
@@ -155,14 +180,14 @@ class PeriodicStrategy(RecallStrategy):
         self._session_count += 1
         if self._session_count % self.period == 0:
             # Proactively summarize what we've seen so far
-            resp = client.search_with_scores(
-                query="summary overview", limit=self.period, **kwargs
+            resp = _search_with_fallback(
+                client, "summary overview", self.period, **kwargs
             )
             summary = "\n".join(r.get("content", "") for r in resp.get("results", []))
             self._summaries.append(f"[Periodic summary after session {session_idx}]:\n{summary}")
 
     def retrieve(self, client: SearchClient, query: str, **kwargs: Any) -> Dict[str, Any]:
-        resp = client.search_with_scores(query=query, limit=self.limit, **kwargs)
+        resp = _search_with_fallback(client, query, self.limit, **kwargs)
         results = resp.get("results", [])
         context_parts = self._summaries + [r.get("content", "") for r in results]
         context = "\n\n".join(context_parts)
