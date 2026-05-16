@@ -68,6 +68,7 @@ class ThresholdStrategy(RecallStrategy):
             # Proactively expand search to get more context
             resp = client.search_with_scores(query=query, limit=self.expand_limit, **kwargs)
             results = resp.get("results", [])
+            confidence = resp.get("confidence", confidence)
             expanded = True
 
         context = "\n\n".join(r.get("content", "") for r in results)
@@ -108,12 +109,19 @@ class BoundaryStrategy(RecallStrategy):
 
         # Proactively retrieve additional content from those sessions
         extra_results: List[Dict[str, Any]] = []
+        seen_ids = {r.get("id") or r.get("memory_id") for r in results}
         for sid in session_ids[: self.session_limit]:
             session_resp = client.search_with_scores(
                 query="", limit=self.session_limit, session_id=sid, **kwargs
             )
             for r in session_resp.get("results", []):
-                if r not in results and r not in extra_results:
+                rid = r.get("id") or r.get("memory_id")
+                if rid is None:
+                    # No stable id — fall back to identity check
+                    if r not in results and r not in extra_results:
+                        extra_results.append(r)
+                elif rid not in seen_ids:
+                    seen_ids.add(rid)
                     extra_results.append(r)
 
         all_results = results + extra_results
