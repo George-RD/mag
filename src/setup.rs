@@ -521,6 +521,8 @@ const OPENCODE_SKILLS: &[(&str, &str)] = &[
         include_str!("../connectors/opencode/skills/memory-health/SKILL.md"),
     ),
 ];
+const CURSOR_RULES_CONTENT: &str = include_str!("../connectors/cursor/mag-memory.mdc");
+const WINDSURF_RULES_CONTENT: &str = include_str!("../connectors/windsurf/mag-memory.md");
 
 /// Installs connector content (AGENTS.md / SKILL.md) for each tool based on
 /// its content tier. Returns `(successes, warnings)` — human-readable messages
@@ -572,7 +574,25 @@ fn install_connector_content(tools: &[&DetectedTool]) -> (Vec<String>, Vec<(Stri
                     warnings.push((name.to_string(), msg));
                 }
             },
-            ContentTier::Rules => tracing::debug!(tool = %name, "rules connector deferred"),
+            ContentTier::Rules => {
+                let project_root = std::env::current_dir().ok().map(|p| p.into_boxed_path());
+                let project_root_ref = project_root.as_deref();
+                match install_rules(tool.tool, project_root_ref) {
+                    Ok(true) => {
+                        let msg = format!("Installed rules for {name}");
+                        tracing::debug!(tool = %name, "rules installed/updated");
+                        successes.push(msg);
+                    }
+                    Ok(false) => {
+                        tracing::debug!(tool = %name, "rules already current or no project root");
+                    }
+                    Err(e) => {
+                        let msg = format!("Failed to install rules: {e}");
+                        tracing::warn!(tool = %name, "{msg}");
+                        warnings.push((name.to_string(), msg));
+                    }
+                }
+            }
             ContentTier::Mcp | ContentTier::Plugin => {}
         }
     }
@@ -732,6 +752,47 @@ pub(crate) fn install_skills(tool: tool_detection::AiTool, home: &Path) -> Resul
     }
 
     Ok(count)
+}
+
+/// Installs rules files for Cursor and Windsurf (ContentTier::Rules tools).
+///
+/// Rules are project-scoped only — they are written to
+/// `{project_root}/.cursor/rules/mag-memory.mdc` or
+/// `{project_root}/.windsurf/rules/mag-memory.md`.
+///
+/// Returns `Ok(true)` if a file was created or updated, `Ok(false)` if the
+/// tool is not a Rules-tier tool or if `project_root` is `None`.
+pub(crate) fn install_rules(
+    tool: tool_detection::AiTool,
+    project_root: Option<&std::path::Path>,
+) -> anyhow::Result<bool> {
+    if tool.content_tier() != tool_detection::ContentTier::Rules {
+        return Ok(false);
+    }
+    let Some(root) = project_root else {
+        return Ok(false);
+    };
+
+    let (content, target_path) = match tool {
+        tool_detection::AiTool::Cursor => (
+            CURSOR_RULES_CONTENT,
+            root.join(".cursor/rules/mag-memory.mdc"),
+        ),
+        tool_detection::AiTool::Windsurf => (
+            WINDSURF_RULES_CONTENT,
+            root.join(".windsurf/rules/mag-memory.md"),
+        ),
+        _ => return Ok(false),
+    };
+
+    if let Ok(existing) = std::fs::read_to_string(&target_path)
+        && existing == content
+    {
+        return Ok(false);
+    }
+
+    crate::setup::atomic_write(&target_path, content)?;
+    Ok(true)
 }
 
 /// Removes the MAG sentinel section from an AGENTS.md file at the given path.
@@ -1195,7 +1256,12 @@ mod tests {
             let summary = configure_tools(&tools, TransportMode::Command, &tools).unwrap();
 
             assert_eq!(summary.already_current.len(), 1);
-            assert!(summary.written.is_empty());
+            // Cursor rules are installed as connector content; clean them up.
+            assert_eq!(summary.written.len(), 1);
+            assert!(summary.written[0].contains("rules"));
+            let _ = std::fs::remove_file(".cursor/rules/mag-memory.mdc");
+            let _ = std::fs::remove_dir(".cursor/rules");
+            let _ = std::fs::remove_dir(".cursor");
         });
     }
 
@@ -1840,5 +1906,64 @@ mod tests {
                 "error message should mention both sentinels: {err_msg}"
             );
         });
+    }
+    #[test]
+    fn install_rules_creates_cursor_rules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_root = tmp.path();
+
+        let result = install_rules(AiTool::Cursor, Some(project_root)).unwrap();
+        assert!(result, "expected file to be created");
+
+        let path = project_root.join(".cursor/rules/mag-memory.mdc");
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("MAG — Persistent Memory"));
+        assert!(content.contains("mag process"));
+    }
+
+    #[test]
+    fn install_rules_creates_windsurf_rules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_root = tmp.path();
+
+        let result = install_rules(AiTool::Windsurf, Some(project_root)).unwrap();
+        assert!(result, "expected file to be created");
+
+        let path = project_root.join(".windsurf/rules/mag-memory.md");
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("MAG — Persistent Memory"));
+        assert!(content.contains("mag process"));
+    }
+
+    #[test]
+    fn install_rules_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_root = tmp.path();
+
+        let first = install_rules(AiTool::Cursor, Some(project_root)).unwrap();
+        assert!(first, "first install should return true");
+
+        let second = install_rules(AiTool::Cursor, Some(project_root)).unwrap();
+        assert!(
+            !second,
+            "second install should return false (already current)"
+        );
+    }
+
+    #[test]
+    fn install_rules_returns_false_for_non_rules_tool() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_root = tmp.path();
+
+        let result = install_rules(AiTool::Codex, Some(project_root)).unwrap();
+        assert!(!result, "Codex is not Rules tier, should return false");
+    }
+
+    #[test]
+    fn install_rules_returns_false_when_no_project_root() {
+        let result = install_rules(AiTool::Cursor, None).unwrap();
+        assert!(!result, "None project_root should return false");
     }
 }

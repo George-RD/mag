@@ -456,6 +456,26 @@ fn remove_connector_content() -> (usize, Vec<(String, String)>) {
             errors.push(("OpenCode skills".to_string(), format!("{e:#}")));
         }
     }
+    // Remove project-scoped rules files for Cursor and Windsurf.
+    if let Ok(cwd) = std::env::current_dir() {
+        for &(tool_name, ref rules_path) in &[
+            ("Cursor", cwd.join(".cursor/rules/mag-memory.mdc")),
+            ("Windsurf", cwd.join(".windsurf/rules/mag-memory.md")),
+        ] {
+            if rules_path.exists() {
+                match std::fs::remove_file(rules_path) {
+                    Ok(()) => {
+                        tracing::info!(path = %rules_path.display(), "removed rules file");
+                        count += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!(path = %rules_path.display(), error = %e, "failed to remove rules file");
+                        errors.push((format!("{} rules", tool_name), format!("{e:#}")));
+                    }
+                }
+            }
+        }
+    }
 
     (count, errors)
 }
