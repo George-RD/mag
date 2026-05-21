@@ -8,7 +8,7 @@ use crate::substrate::types::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -144,6 +144,46 @@ pub trait MemoryStore: Send + Sync {
     async fn list_backups(&self) -> Result<Vec<BackupInfo>>;
     async fn restore_backup(&self, backup_path: &std::path::Path) -> Result<()>;
     async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>>;
+
+    async fn collect_vector_candidates(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+        opts: &SearchOptions,
+        include_superseded: bool,
+        scoring_params: &ScoringParams,
+    ) -> Result<CandidateSet>;
+
+    async fn collect_fts_candidates(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+        include_superseded: bool,
+        scoring_params: &ScoringParams,
+    ) -> Result<CandidateSet>;
+    #[allow(clippy::too_many_arguments)]
+    async fn enrich_graph_neighbors(
+        &self,
+        candidates: HashMap<String, ScoredCandidate>,
+        query_tokens: &HashSet<String>,
+        query_embedding: &[f32],
+        limit: usize,
+        include_superseded: bool,
+        explain_enabled: bool,
+        scoring_params: &ScoringParams,
+    ) -> Result<HashMap<String, ScoredCandidate>>;
+    #[allow(clippy::too_many_arguments)]
+    async fn expand_entity_tags(
+        &self,
+        candidates: HashMap<String, ScoredCandidate>,
+        query_tokens: &HashSet<String>,
+        limit: usize,
+        include_superseded: bool,
+        explain_enabled: bool,
+        scoring_params: &ScoringParams,
+        opts: &SearchOptions,
+    ) -> Result<HashMap<String, ScoredCandidate>>;
 
     // ── Welcome ───────────────────────────────────────────────────────────
     async fn welcome(
@@ -346,34 +386,6 @@ pub trait ConsolidationStrategy: Send + Sync {
     async fn run(&self, store: &dyn MemoryStore, dry_run: bool) -> Result<ConsolidationReport>;
 }
 
-/// Reference: DedupConsolidation
-///
-/// Merges near-duplicate memories per event type using Jaccard similarity.
-/// Wraps `MemoryStore::compact`.
-/// Uses `EventType::types_with_dedup_threshold()` to find eligible types.
-/// Thresholds from `EventType::dedup_threshold()` (0.70-0.85 range).
-pub struct DedupConsolidation {
-    pub min_cluster_size: usize,
-}
-
-/// Reference: CompactConsolidation
-///
-/// Prunes zero-access memories older than a threshold and caps session summaries.
-/// Wraps `MemoryStore::consolidate`.
-pub struct CompactConsolidation {
-    pub prune_days: i64,
-    pub max_summaries: i64,
-}
-
-/// Reference: AutoRelateConsolidation
-///
-/// Auto-compact pass across all event types with dedup thresholds,
-/// triggered when total memory count exceeds a threshold.
-/// Wraps `MemoryStore::auto_compact`.
-pub struct AutoRelateConsolidation {
-    pub count_threshold: usize,
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // 3.7 IngestionPipeline — Write-Path Processing
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -391,20 +403,4 @@ pub trait IngestionPipeline: Send + Sync {
     ///   4. Entity extraction from tags.
     ///   5. Calling `MemoryStore::store`.
     async fn ingest(&self, ctx: WriteContext, store: &dyn MemoryStore) -> Result<String>;
-}
-
-/// Reference: EmbedAndExtractPipeline
-///
-/// Mirrors the write path in `SqliteStorage`:
-///   1. Normalise input (apply_event_type_defaults).
-///   2. Compute embedding via `Embedder::embed` (spawn_blocking).
-///   3. Check cosine similarity for auto-supersession
-///      (threshold: SUPERSESSION_COSINE_THRESHOLD = 0.70,
-///      secondary Jaccard: SUPERSESSION_JACCARD_THRESHOLD = 0.30).
-///   4. Check content hash for exact dedup.
-///   5. Extract entities from tags for relationship edges.
-///   6. Call MemoryStore::store.
-///   7. Create PRECEDED_BY, RELATES_TO relationship edges.
-pub struct EmbedAndExtractPipeline {
-    pub embedder: Arc<dyn crate::memory_core::embedder::Embedder>,
 }

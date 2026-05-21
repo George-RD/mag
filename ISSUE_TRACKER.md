@@ -1,6 +1,6 @@
 # Issue Tracker — Orchestration State
 
-Last updated: 2026-03-17
+Last updated: 2026-05-21
 LoCoMo word-overlap (2-sample): **75.3%** (was 74.4% at session start)
 Evidence Recall: **77.7%**
 
@@ -16,6 +16,18 @@ Evidence Recall: **77.7%**
 | #6/#40 | Tune intent classification | #51 | Merged — per-intent multipliers, Single-Hop D->C |
 | #37 | Temporal fact reconciliation | #54 | Merged — UserFact/Reminder supersession, entity_id scoping |
 | #38 | End-to-end LLM evaluation | #55 | Merged — E2E word-overlap mode, adversarial 98.6% |
+
+## Completed 2026-05-21
+
+- Substrate Phase 3 search pipeline implementation
+- MemoryStorage advanced_search and phrase_search implementation
+- All substrate trait implementations:
+  - RetrievalStrategy
+  - FusionStrategy
+  - Scorer
+  - LifecyclePolicy
+  - ConsolidationStrategy
+  - IngestionPipeline
 
 ## Benchmark After Session
 
@@ -41,7 +53,16 @@ Evidence Recall: **77.7%**
 
 Key insight: AutoMem gap is in retrieval quality, not evaluation methodology. Adversarial near-perfect with LLM.
 
+## Discovered During Development
+
+| Issue | Title | Status | Notes |
+|-------|-------|--------|-------|
+| #N | Substrate `MemoryStore` trait lacks bulk-lookup by ID | open | `GraphNeighborScorer` clones HashMap for spawn_blocking; a `get_many` method would be more efficient |
+| #N | `EmbedAndExtractPipeline` double-computes embeddings | open | Pipeline computes embedding, then `SqliteStorage::store` recomputes it internally |
+
 ## Remaining Open Issues (6)
+
+> **Note:** The concrete substrate implementation is now complete. All substrate traits have been implemented and integrated.
 
 ### Next Wave (research needed)
 
@@ -58,3 +79,34 @@ Key insight: AutoMem gap is in retrieval quality, not evaluation methodology. Ad
 | #5 | omega-memory paid features | backlog |
 | #4 | AutoMem augmentation | backlog |
 | #3 | Fine-tuned embeddings | backlog |
+
+## Adversarial Review Findings (2026-05-21)
+
+### Critical
+1. **Retrieval strategies run sequentially** — `SearchPipeline::search` uses a `for` loop, but doc comment claims concurrent execution (`tokio::join!` / `FuturesUnordered`). Performance regression and contract mismatch. (`orchestrators.rs`) — **FIXED**: now uses `futures::future::join_all`
+2. **Explain-path panic risk** — `meta.as_object_mut().unwrap()` in `SearchPipeline::search` will panic if `candidate.result.metadata` is a JSON scalar or array instead of an object. (`orchestrators.rs`) — **FIXED**: replaced `unwrap()` with `if let Some`
+3. **Candidate loss on scorer error** — `GraphNeighborScorer` and `EntityExpansionScorer` call `std::mem::take(candidates)` before fallible `store.*` calls. If the store returns an error, `?` propagates it but candidates are already emptied. (`enrichment_impl.rs`) — **FIXED**: uses `clone()` instead of `std::mem::take()`
+4. **dry_run contract violation** — `CompactConsolidation` unconditionally calls `store.consolidate()` even when `dry_run = true`, which mutates the store. (`consolidation_impl.rs`) — **FIXED**: returns error when `dry_run = true`
+5. **EmbedAndExtractPipeline steps incomplete** — Computes embedding then discards it; does not perform auto-supersession, dedup, entity extraction, or relationship creation as documented. (`ingestion_impl.rs`) — **NOTED**: documented with TODO; requires MemoryStore API extension
+
+### Warnings
+1. **RRF formula deviation** — `RrfFusion` multiplies raw signal score by reciprocal-rank weight, but trait docs define RRF without raw-score scaling. Deviates from standard RRF. (`fusion_impl.rs`)
+2. **Redundant query tokenization** — `SearchPipeline::search` never populates `ctx.query_tokens`, so every scorer independently re-tokenizes the query. (`orchestrators.rs`)
+3. **Cross-encoder length mismatch** — `CrossEncoderScorer` zips `ids` with `ce_scores` without verifying equal lengths. (`enrichment_impl.rs`)
+4. **TTL malformed-data default** — `TtlExpirationPolicy::is_alive` returns `true` (alive) when `expires_at` is missing, non-string, or invalid RFC3339. Should arguably default to `false` for safety. (`lifecycle_impl.rs`)
+
+### Nits
+1. **Unnecessary query_tokens clone** — `MultiFactorScorer` clones `query_tokens` HashSet when a shared reference would suffice. (`scoring_impl.rs`)
+2. **Redundant id clone in WritePipeline** — `WritePipeline::ingest` clones `input.id` before moving the owned `input` into `WriteContext`; could move instead. (`orchestrators.rs`)
+
+## Adversarial Review Findings — Round 2 (2026-05-21)
+
+### Critical
+1. ❌ **EmbedAndExtractPipeline still incomplete** — NOT FIXED. Still computes embedding then discards it (acknowledged by TODO). Still lacks auto-supersession, dedup, entity extraction, and relationship creation. (`ingestion_impl.rs`)
+
+### Warnings
+1. **Cross-encoder length mismatch still present** — `CrossEncoderScorer` zips `ids` with `ce_scores` without verifying equal lengths. Unchanged from Round 1. (`enrichment_impl.rs`)
+2. **Redundant query tokenization still present** — `SearchPipeline::search` never populates `ctx.query_tokens`, so every scorer independently re-tokenizes. Unchanged from Round 1. (`orchestrators.rs`)
+
+### Nits
+1. **Redundant id clone still present** — `WritePipeline::ingest` clones `input.id` before moving the owned `input` into `WriteContext`. Unchanged from Round 1. (`orchestrators.rs`)

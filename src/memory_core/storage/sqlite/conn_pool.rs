@@ -93,7 +93,7 @@ const WAL_CHECKPOINT_INTERVAL: u64 = 10;
 /// state across connections, the pool falls back to single-connection mode
 /// where all operations use the writer.
 #[derive(Debug)]
-pub(super) struct ConnPool {
+pub(crate) struct ConnPool {
     writer: Mutex<Connection>,
     readers: Vec<Mutex<Connection>>,
     /// Round-robin counter for reader selection.
@@ -197,7 +197,7 @@ impl ConnPool {
 
     /// Acquires a reader connection via round-robin. Falls back to the writer
     /// when no dedicated readers exist (in-memory mode).
-    pub(super) fn reader(&self) -> Result<MutexGuard<'_, Connection>> {
+    pub(crate) fn reader(&self) -> Result<MutexGuard<'_, Connection>> {
         if self.readers.is_empty() {
             return self.writer();
         }

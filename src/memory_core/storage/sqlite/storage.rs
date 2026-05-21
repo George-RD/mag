@@ -39,16 +39,16 @@ pub(super) enum StoreOutcome {
 /// be cloned into both the `Storage` and `Retriever` roles of a [`Pipeline`].
 #[derive(Clone)]
 pub struct SqliteStorage {
-    pub(super) db_path: PathBuf,
-    pub(super) pool: Arc<ConnPool>,
-    pub(super) embedder: Arc<dyn Embedder>,
-    pub(super) scoring_params: ScoringParams,
-    pub(super) query_cache: QueryCache,
-    pub(super) hot_cache: Option<HotTierCache>,
-    pub(super) hot_cache_refresh_guard: Arc<()>,
-    pub(super) hot_cache_refresh_started: Arc<AtomicBool>,
-    pub(super) reranker: Option<Arc<dyn Reranker>>,
-    pub(super) scoring_strategy: Arc<dyn ScoringStrategy>,
+    pub(crate) db_path: PathBuf,
+    pub(crate) pool: Arc<ConnPool>,
+    pub(crate) embedder: Arc<dyn Embedder>,
+    pub(crate) scoring_params: ScoringParams,
+    pub(crate) query_cache: QueryCache,
+    pub(crate) hot_cache: Option<HotTierCache>,
+    pub(crate) hot_cache_refresh_guard: Arc<()>,
+    pub(crate) hot_cache_refresh_started: Arc<AtomicBool>,
+    pub(crate) reranker: Option<Arc<dyn Reranker>>,
+    pub(crate) scoring_strategy: Arc<dyn ScoringStrategy>,
 }
 
 #[cfg(feature = "sqlite-vec")]

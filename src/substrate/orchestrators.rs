@@ -6,9 +6,12 @@ use crate::substrate::traits::{
     ConsolidationStrategy, FusionStrategy, IngestionPipeline, LifecyclePolicy, MemoryStore,
     RetrievalStrategy, Scorer,
 };
-use crate::substrate::types::{CandidateSet, ConsolidationReport, QueryContext, WriteContext};
+use crate::substrate::types::{
+    CandidateSet, ConsolidationReport, QueryContext, ScoredCandidate, WriteContext,
+};
 
 use anyhow::Result;
+use futures::future::join_all;
 /// The read-path orchestrator. Wires retrieval → fusion → scoring → lifecycle.
 ///
 /// Callers construct this once (at daemon startup or per-request for testing)
@@ -28,6 +31,7 @@ pub struct SearchPipeline {
 }
 
 impl SearchPipeline {
+    #[allow(clippy::cast_possible_truncation)]
     /// Execute the full pipeline for a query.
     ///
     /// Steps:
@@ -39,14 +43,79 @@ impl SearchPipeline {
     ///   6. Sort descending by score, truncate to `ctx.limit`.
     ///   7. Map to `SemanticResult`.
     pub async fn search(&self, ctx: QueryContext) -> Result<Vec<SemanticResult>> {
-        let mut candidates: HashMap<&str, CandidateSet> =
+        // Step 1: Run all retrieval strategies concurrently.
+        let mut candidate_sets: HashMap<&str, CandidateSet> =
             HashMap::with_capacity(self.retrieval.len());
-        for strategy in &self.retrieval {
-            let set = strategy.collect(&ctx).await?;
-            candidates.insert(strategy.name(), set);
+        let futures: Vec<_> = self.retrieval.iter().map(|s| s.collect(&ctx)).collect();
+        let sets = join_all(futures).await;
+        for (strategy, result) in self.retrieval.iter().zip(sets) {
+            candidate_sets.insert(strategy.name(), result?);
         }
-        let _fused = self.fusion.fuse(candidates, &ctx.scoring_params);
-        todo!("Phase 3")
+
+        // Step 2: Fuse candidates into a single ranked list.
+        let fused = self.fusion.fuse(candidate_sets, &ctx.scoring_params);
+
+        // Step 3: Convert to HashMap for scorer chain.
+        let mut candidates: HashMap<String, ScoredCandidate> = fused
+            .into_iter()
+            .map(|c| (c.result.id.clone(), c))
+            .collect();
+
+        // Step 4: Apply each scorer in order.
+        for scorer in &self.scorers {
+            scorer.score_batch(&mut candidates, &ctx).await?;
+        }
+
+        // Step 5: Apply lifecycle filter if set.
+        let mut alive: Vec<ScoredCandidate> = if let Some(ref lifecycle) = self.lifecycle {
+            candidates
+                .into_values()
+                .filter(|c| lifecycle.is_alive(c))
+                .collect()
+        } else {
+            candidates.into_values().collect()
+        };
+
+        // Step 6: Abstention gate.
+        if !alive.is_empty() {
+            let max_text_overlap = alive.iter().map(|c| c.text_overlap).fold(0.0f64, f64::max);
+            if max_text_overlap < self.abstention_min_text {
+                return Ok(Vec::new());
+            }
+        }
+
+        // Step 7: Sort descending by score, truncate to limit.
+        alive.sort_by(|a, b| b.score.total_cmp(&a.score));
+        let max_score = alive.first().map(|c| c.score).unwrap_or(0.0);
+        let limit = ctx.limit;
+        let explain_enabled = ctx.opts.explain.unwrap_or(false);
+
+        let results: Vec<SemanticResult> = alive
+            .into_iter()
+            .take(limit)
+            .map(|mut candidate| {
+                let normalized = if max_score > 0.0 {
+                    (candidate.score / max_score).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                candidate.result.score = normalized as f32;
+                if explain_enabled {
+                    candidate.result.metadata = {
+                        let mut meta = candidate.result.metadata.clone();
+                        if let Some(ref explain) = candidate.explain
+                            && let Some(obj) = meta.as_object_mut()
+                        {
+                            obj.insert("explain".to_string(), explain.clone());
+                        }
+                        meta
+                    };
+                }
+                candidate.result
+            })
+            .collect();
+
+        Ok(results)
     }
 }
 

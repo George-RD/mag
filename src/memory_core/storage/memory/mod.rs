@@ -606,13 +606,45 @@ impl StatsProvider for MemoryStorage {
 
 #[async_trait]
 impl AdvancedSearcher for MemoryStorage {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     async fn advanced_search(
         &self,
-        _query: &str,
-        _limit: usize,
-        _opts: &SearchOptions,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
     ) -> Result<Vec<SemanticResult>> {
-        unimplemented!("AdvancedSearcher requires SQLite-specific features (FTS5 + RRF pipeline)")
+        if limit == 0 || query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query_embedding = self.embedder.embed(query)?;
+        let memories = self.memories.read().await;
+
+        let mut scored: Vec<(f64, SemanticResult)> = memories
+            .values()
+            .filter(|m| m.matches_options(opts))
+            .filter_map(|m| {
+                let emb = m.embedding.as_ref()?;
+                let sim = cosine_similarity(&query_embedding, emb) as f64;
+                if sim < 0.1 {
+                    return None;
+                }
+                let text_score = if m.content.to_lowercase().contains(&query.to_lowercase()) {
+                    1.0
+                } else {
+                    0.0
+                };
+                let combined = sim * 0.7 + text_score * 0.3;
+                let mut result = m.to_semantic_result(sim as f32);
+                result.score = combined as f32;
+                Some((combined, result))
+            })
+            .collect();
+
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+        scored.truncate(limit);
+
+        Ok(scored.into_iter().map(|(_, r)| r).collect())
     }
 }
 
@@ -620,11 +652,28 @@ impl AdvancedSearcher for MemoryStorage {
 impl PhraseSearcher for MemoryStorage {
     async fn phrase_search(
         &self,
-        _phrase: &str,
-        _limit: usize,
-        _opts: &SearchOptions,
+        phrase: &str,
+        limit: usize,
+        opts: &SearchOptions,
     ) -> Result<Vec<SearchResult>> {
-        unimplemented!("PhraseSearcher requires SQLite-specific features (FTS5)")
+        if limit == 0 || phrase.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let memories = self.memories.read().await;
+        let phrase_lower = phrase.to_lowercase();
+
+        let mut results: Vec<SearchResult> = memories
+            .values()
+            .filter(|m| m.matches_options(opts))
+            .filter(|m| m.content.to_lowercase().contains(&phrase_lower))
+            .map(|m| m.to_search_result())
+            .collect();
+
+        results.sort_by(|a, b| b.id.cmp(&a.id));
+        results.truncate(limit);
+
+        Ok(results)
     }
 }
 
@@ -1094,23 +1143,37 @@ mod tests {
         assert_eq!(results[0].id, "pf1");
     }
 
-    // ── AdvancedSearcher / PhraseSearcher stubs ────────────────────────
+    // ── AdvancedSearcher / PhraseSearcher tests ───────────────────────
 
     #[tokio::test]
-    #[should_panic(expected = "not implemented")]
-    async fn test_advanced_search_unimplemented() {
+    async fn test_advanced_search_returns_results() {
         let storage = make_storage();
-        let _ = storage
+        let input = make_input("advanced search query content");
+        Storage::store(&storage, "adv1", "advanced search query content", &input)
+            .await
+            .unwrap();
+
+        let results = storage
             .advanced_search("query", 10, &SearchOptions::default())
-            .await;
+            .await
+            .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].id, "adv1");
     }
 
     #[tokio::test]
-    #[should_panic(expected = "not implemented")]
-    async fn test_phrase_search_unimplemented() {
+    async fn test_phrase_search_returns_results() {
         let storage = make_storage();
-        let _ = storage
+        let input = make_input("hello world phrase test");
+        Storage::store(&storage, "ph1", "hello world phrase test", &input)
+            .await
+            .unwrap();
+
+        let results = storage
             .phrase_search("phrase", 10, &SearchOptions::default())
-            .await;
+            .await
+            .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].id, "ph1");
     }
 }

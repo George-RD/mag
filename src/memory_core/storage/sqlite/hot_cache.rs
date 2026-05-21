@@ -33,7 +33,7 @@ struct HotEntry {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct HotTierCache {
+pub(crate) struct HotTierCache {
     entries: Arc<RwLock<Vec<HotEntry>>>,
     initialized: Arc<AtomicBool>,
     capacity: usize,

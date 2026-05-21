@@ -16,7 +16,7 @@ const QUERY_CACHE_CAPACITY: usize = 128;
 /// *could* be affected by a write with known attributes, instead of clearing
 /// the entire cache on every write.
 #[derive(Clone, Debug)]
-pub(super) struct CachedQuery {
+pub(crate) struct CachedQuery {
     pub(super) inserted_at: Instant,
     pub(super) results: Vec<SemanticResult>,
     /// The event_type filter active when this query was cached (None = any type could match).

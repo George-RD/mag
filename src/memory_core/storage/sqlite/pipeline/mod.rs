@@ -15,19 +15,19 @@
 //! callers (the residual `advanced.rs`) only need `use super::pipeline::*` or
 //! `use super::pipeline::<phase>::<fn>`.
 
-pub(super) mod abstention;
-pub(super) mod decomp;
-pub(super) mod enrichment;
-pub(super) mod fusion;
-pub(super) mod rerank;
-pub(super) mod retrieval;
-pub(super) mod scoring;
+pub(crate) mod abstention;
+pub(crate) mod decomp;
+pub(crate) mod enrichment;
+pub(crate) mod fusion;
+pub(crate) mod rerank;
+pub(crate) mod retrieval;
+pub(crate) mod scoring;
 
-pub(super) const ADVANCED_FTS_CANDIDATE_MULTIPLIER: usize = 20;
-pub(super) const ADVANCED_FTS_CANDIDATE_MIN: usize = 100;
-pub(super) const ADVANCED_FTS_CANDIDATE_MAX: usize = 5_000;
+pub(crate) const ADVANCED_FTS_CANDIDATE_MULTIPLIER: usize = 20;
+pub(crate) const ADVANCED_FTS_CANDIDATE_MIN: usize = 100;
+pub(crate) const ADVANCED_FTS_CANDIDATE_MAX: usize = 5_000;
 
-pub(super) fn advanced_fts_candidate_limit(limit: usize) -> usize {
+pub(crate) fn advanced_fts_candidate_limit(limit: usize) -> usize {
     let oversampled_limit = limit
         .saturating_mul(ADVANCED_FTS_CANDIDATE_MULTIPLIER)
         .clamp(ADVANCED_FTS_CANDIDATE_MIN, ADVANCED_FTS_CANDIDATE_MAX);
@@ -41,9 +41,9 @@ pub(super) fn advanced_fts_candidate_limit(limit: usize) -> usize {
 // `pub(super) use` makes them visible to the parent `sqlite/` module so
 // `advanced.rs` can call them as e.g. `pipeline::collect_dual_candidates`.
 
-pub(super) use abstention::merge_hot_cache_results;
-pub(super) use decomp::enrich_with_decomposition;
-pub(super) use fusion::fuse_and_score;
-pub(super) use rerank::compute_cross_encoder_scores;
-pub(super) use retrieval::{collect_dual_candidates, collect_fts_candidates};
-pub(super) use scoring::run_keyword_only_search;
+pub(crate) use abstention::merge_hot_cache_results;
+pub(crate) use decomp::enrich_with_decomposition;
+pub(crate) use fusion::fuse_and_score;
+pub(crate) use rerank::compute_cross_encoder_scores;
+pub(crate) use retrieval::{collect_dual_candidates, collect_fts_candidates};
+pub(crate) use scoring::run_keyword_only_search;
