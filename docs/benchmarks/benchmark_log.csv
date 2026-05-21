@@ -34,3 +34,4 @@ date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_scor
 2026-05-13,e59dc52,chore/remove-bak-files,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,90.7,6.4,strategy=sqlite-v1
 2026-05-13,3b6cea6,chore/remove-bak-files,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,90.7,6.0,strategy=sqlite-v1
 2026-05-13,ccf9bc8,chore/remove-bak-files,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,90.7,6.2,strategy=sqlite-v1
+2026-05-16,eeb6a94,main,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,90.7,6.5,strategy=sqlite-v1
