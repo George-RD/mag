@@ -309,7 +309,7 @@ Run `prek run` for gates 1-3. Always use `bench.sh` (not raw `cargo run`) so res
 
 ## Gotchas
 
-- `benches/locomo/` is a modular 8-file benchmark suite, not a single-file bench
+- `benches/locomo/` is a modular 10-file benchmark suite, not a single-file bench
 - LoCoMo-10 IS the reduced dataset (original had 50 conversations); `--samples 2` is fast iteration mode
 - LoCoMo categories: cat 1=single-hop, 2=temporal, 3=multi-hop, 4=open-domain, 5=adversarial
 - `conductor/` is a legacy Gemini CLI artifact — not actively maintained
