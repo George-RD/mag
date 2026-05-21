@@ -5,6 +5,7 @@ pub(crate) mod config_writer;
 pub mod daemon;
 pub mod memory_core;
 pub mod setup;
+pub mod substrate;
 pub(crate) mod tool_detection;
 pub mod uninstall;
 
