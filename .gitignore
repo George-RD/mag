@@ -25,3 +25,9 @@ mag-research.md
 data/*
 # But track the local benchmark definition
 !data/local_benchmark.json
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+# Benchmark result outputs
+/results/
