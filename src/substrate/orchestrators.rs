@@ -42,7 +42,11 @@ impl SearchPipeline {
     ///   5. Apply abstention gate (max text_overlap < abstention_min_text → return empty).
     ///   6. Sort descending by score, truncate to `ctx.limit`.
     ///   7. Map to `SemanticResult`.
-    pub async fn search(&self, ctx: QueryContext) -> Result<Vec<SemanticResult>> {
+    pub async fn search(&self, mut ctx: QueryContext) -> Result<Vec<SemanticResult>> {
+        // Pre-compute query tokens once so scorers don't re-tokenize independently.
+        if ctx.query_tokens.is_none() {
+            ctx.query_tokens = Some(crate::memory_core::scoring::token_set(&ctx.query, 3));
+        }
         // Step 1: Run all retrieval strategies concurrently.
         let mut candidate_sets: HashMap<&str, CandidateSet> =
             HashMap::with_capacity(self.retrieval.len());
@@ -51,16 +55,13 @@ impl SearchPipeline {
         for (strategy, result) in self.retrieval.iter().zip(sets) {
             candidate_sets.insert(strategy.name(), result?);
         }
-
         // Step 2: Fuse candidates into a single ranked list.
         let fused = self.fusion.fuse(candidate_sets, &ctx.scoring_params);
-
         // Step 3: Convert to HashMap for scorer chain.
         let mut candidates: HashMap<String, ScoredCandidate> = fused
             .into_iter()
             .map(|c| (c.result.id.clone(), c))
             .collect();
-
         // Step 4: Apply each scorer in order.
         for scorer in &self.scorers {
             scorer.score_batch(&mut candidates, &ctx).await?;
@@ -126,9 +127,9 @@ pub struct WritePipeline {
 }
 
 impl WritePipeline {
-    pub async fn ingest(&self, input: MemoryInput) -> Result<String> {
+    pub async fn ingest(&self, mut input: MemoryInput) -> Result<String> {
         let ctx = WriteContext {
-            assigned_id: input.id.clone().unwrap_or_default(),
+            assigned_id: input.id.take().unwrap_or_default(),
             embedding: None,
             input,
         };

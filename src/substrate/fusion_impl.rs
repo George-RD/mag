@@ -30,12 +30,11 @@ impl FusionStrategy for super::traits::RrfFusion {
                 } else if strategy_name == "fts" {
                     fts_ranks.insert(id.clone(), rank);
                 }
-
                 if let Some(existing) = output.get_mut(id) {
-                    existing.score += candidate.score * rrf_score;
+                    existing.score += rrf_score;
                 } else {
                     let mut merged = candidate.clone();
-                    merged.score *= rrf_score;
+                    merged.score = rrf_score;
                     output.insert(id.clone(), merged);
                 }
             }

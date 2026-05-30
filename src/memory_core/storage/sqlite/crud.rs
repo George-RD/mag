@@ -1,8 +1,13 @@
 use super::*;
 
-#[async_trait]
-impl Storage for SqliteStorage {
-    async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
+impl SqliteStorage {
+    pub(super) async fn store_inner(
+        &self,
+        id: &str,
+        data: &str,
+        input: &MemoryInput,
+        provided_embedding: Option<Vec<f32>>,
+    ) -> Result<()> {
         let tags_json =
             serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?;
         let metadata_json = serde_json::to_string(&input.metadata)
@@ -139,11 +144,12 @@ impl Storage for SqliteStorage {
                     return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new(), Vec::new()));
                 }
             }
-
             // ── Phase 2: Embedding (the real bottleneck, ~8ms) ──
-            let embedding_vec = embedder.embed(&data)?;
+            let embedding_vec = match provided_embedding {
+                Some(e) => e,
+                None => embedder.embed(&data)?,
+            };
             let embedding = encode_embedding(&embedding_vec);
-
             // ── Phase 3: Supersession detection ──
             let mut superseded_ids: Vec<String> = Vec::new();
             if let Some(ref event_type_value) = event_type
@@ -477,7 +483,12 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 }
-
+#[async_trait]
+impl Storage for SqliteStorage {
+    async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
+        self.store_inner(id, data, input, None).await
+    }
+}
 #[async_trait]
 impl Retriever for SqliteStorage {
     async fn retrieve(&self, id: &str) -> Result<String> {
