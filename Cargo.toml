@@ -36,12 +36,12 @@ axum = "0.8"
 clap = { version = "4.5.59", features = ["derive"] }
 rusqlite = { version = "0.33", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tower = "0.5"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
-uuid = { version = "1.15", features = ["v4", "serde"] }
+uuid = { version = "1.23", features = ["v4", "serde"] }
 sha2 = "0.10.9"
 schemars = "1.2.1"
 serde_json = "1.0"
@@ -75,7 +75,7 @@ cast_sign_loss = "deny"
 cast_precision_loss = "deny"
 
 [dev-dependencies]
-serial_test = "3.2"
+serial_test = "3.5"
 tempfile = "3"
 
 [[bin]]
