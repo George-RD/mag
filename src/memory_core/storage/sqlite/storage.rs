@@ -181,6 +181,16 @@ impl SqliteStorage {
     pub async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
         <Self as Storage>::store(self, id, data, input).await
     }
+    #[allow(dead_code)]
+    pub async fn store_with_embedding(
+        &self,
+        id: &str,
+        data: &str,
+        input: &MemoryInput,
+        embedding: Vec<f32>,
+    ) -> Result<()> {
+        self.store_inner(id, data, input, Some(embedding)).await
+    }
 
     #[allow(dead_code)]
     pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
