@@ -14,14 +14,16 @@ impl LifecyclePolicy for crate::substrate::traits::TtlExpirationPolicy {
         let expires_at = match candidate.result.metadata.get("expires_at") {
             Some(v) => match v.as_str() {
                 Some(s) => s,
-                None => return false,
+                None => return true,
             },
             None => return true,
         };
+
         let expires = match DateTime::parse_from_rfc3339(expires_at) {
             Ok(dt) => dt.with_timezone(&Utc),
-            Err(_) => return false,
+            Err(_) => return true,
         };
+
         expires >= Utc::now()
     }
 

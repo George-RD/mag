@@ -40,15 +40,7 @@ impl MemoryStore for SqliteStorage {
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
         self.store(id, data, input).await
     }
-    async fn store_with_embedding(
-        &self,
-        id: &str,
-        data: &str,
-        input: &MemoryInput,
-        embedding: Vec<f32>,
-    ) -> Result<()> {
-        self.store_with_embedding(id, data, input, embedding).await
-    }
+
     async fn retrieve(&self, id: &str) -> Result<String> {
         self.retrieve(id).await
     }

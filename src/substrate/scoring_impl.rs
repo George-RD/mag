@@ -18,21 +18,19 @@ impl Scorer for MultiFactorScorer {
         candidates: &mut HashMap<String, ScoredCandidate>,
         ctx: &QueryContext,
     ) -> Result<()> {
-        let default_tokens;
-        let tokens = match &ctx.query_tokens {
-            Some(t) => t,
-            None => {
-                default_tokens = crate::memory_core::scoring::token_set(&ctx.query, 3);
-                &default_tokens
-            }
-        };
+        let tokens = ctx
+            .query_tokens
+            .clone()
+            .unwrap_or_else(|| crate::memory_core::scoring::token_set(&ctx.query, 3));
+
         refine_scores(
             candidates,
-            tokens,
+            &tokens,
             &ctx.opts,
             ctx.opts.explain.unwrap_or(false),
             &ctx.scoring_params,
         );
+
         Ok(())
     }
 }

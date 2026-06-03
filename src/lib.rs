@@ -3,7 +3,6 @@ pub mod benchmarking;
 pub(crate) mod config_writer;
 #[cfg(feature = "daemon-http")]
 pub mod daemon;
-pub mod harness;
 pub mod memory_core;
 pub mod setup;
 #[cfg(feature = "substrate")]

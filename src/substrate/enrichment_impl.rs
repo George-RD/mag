@@ -127,13 +127,6 @@ impl Scorer for crate::substrate::traits::CrossEncoderScorer {
         .await
         .context("spawn_blocking join error")??;
 
-        if ids.len() != ce_scores.len() {
-            anyhow::bail!(
-                "cross-encoder score count mismatch: ids={} ce_scores={}",
-                ids.len(),
-                ce_scores.len()
-            );
-        }
         for (id, ce_score) in ids.iter().zip(ce_scores.iter()) {
             if let Some(candidate) = candidates.get_mut(id) {
                 candidate.score = alpha * candidate.score + (1.0 - alpha) * f64::from(*ce_score);

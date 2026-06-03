@@ -1,6 +1,6 @@
 # Issue Tracker — Orchestration State
 
-Last updated: 2026-05-30
+Last updated: 2026-05-21
 LoCoMo word-overlap (2-sample): **75.3%** (was 74.4% at session start)
 Evidence Recall: **77.7%**
 
@@ -58,7 +58,7 @@ Key insight: AutoMem gap is in retrieval quality, not evaluation methodology. Ad
 | Issue | Title | Status | Notes |
 |-------|-------|--------|-------|
 | #N | Substrate `MemoryStore` trait lacks bulk-lookup by ID | open | `GraphNeighborScorer` clones HashMap for spawn_blocking; a `get_many` method would be more efficient |
-| #N | `EmbedAndExtractPipeline` double-computes embeddings | resolved | Pipeline now passes pre-computed embedding via `store_with_embedding` (`ingestion_impl.rs`, `store_impl.rs`, `crud.rs`) |
+| #N | `EmbedAndExtractPipeline` double-computes embeddings | open | Pipeline computes embedding, then `SqliteStorage::store` recomputes it internally |
 
 ## Remaining Open Issues (6)
 
@@ -90,23 +90,23 @@ Key insight: AutoMem gap is in retrieval quality, not evaluation methodology. Ad
 5. **EmbedAndExtractPipeline steps incomplete** — Computes embedding then discards it; does not perform auto-supersession, dedup, entity extraction, or relationship creation as documented. (`ingestion_impl.rs`) — **NOTED**: documented with TODO; requires MemoryStore API extension
 
 ### Warnings
-1. **RRF formula deviation** — `RrfFusion` multiplies raw signal score by reciprocal-rank weight, but trait docs define RRF without raw-score scaling. Deviates from standard RRF. (`fusion_impl.rs`) — **FIXED**: pure RRF, `existing.score += rrf_score`, `merged.score = rrf_score`
-2. **Redundant query tokenization** — `SearchPipeline::search` never populates `ctx.query_tokens`, so every scorer independently re-tokenizes the query. (`orchestrators.rs`) — **FIXED**: pre-computes `ctx.query_tokens` once before scorer loop
-3. **Cross-encoder length mismatch** — `CrossEncoderScorer` zips `ids` with `ce_scores` without verifying equal lengths. (`enrichment_impl.rs`) — **FIXED**: `bail!` on length mismatch before zip
-4. **TTL malformed-data default** — `TtlExpirationPolicy::is_alive` returns `true` (alive) when `expires_at` is missing, non-string, or invalid RFC3339. Should arguably default to `false` for safety. (`lifecycle_impl.rs`) — **FIXED**: fail-closed, malformed/non-string/unparseable → `is_alive = false`
+1. **RRF formula deviation** — `RrfFusion` multiplies raw signal score by reciprocal-rank weight, but trait docs define RRF without raw-score scaling. Deviates from standard RRF. (`fusion_impl.rs`)
+2. **Redundant query tokenization** — `SearchPipeline::search` never populates `ctx.query_tokens`, so every scorer independently re-tokenizes the query. (`orchestrators.rs`)
+3. **Cross-encoder length mismatch** — `CrossEncoderScorer` zips `ids` with `ce_scores` without verifying equal lengths. (`enrichment_impl.rs`)
+4. **TTL malformed-data default** — `TtlExpirationPolicy::is_alive` returns `true` (alive) when `expires_at` is missing, non-string, or invalid RFC3339. Should arguably default to `false` for safety. (`lifecycle_impl.rs`)
 
 ### Nits
-1. **Unnecessary query_tokens clone** — `MultiFactorScorer` clones `query_tokens` HashSet when a shared reference would suffice. (`scoring_impl.rs`) — **FIXED**: borrows `ctx.query_tokens` instead of cloning
-2. **Redundant id clone in WritePipeline** — `WritePipeline::ingest` clones `input.id` before moving the owned `input` into `WriteContext`; could move instead. (`orchestrators.rs`) — **FIXED**: uses `input.id.take()` instead of clone
+1. **Unnecessary query_tokens clone** — `MultiFactorScorer` clones `query_tokens` HashSet when a shared reference would suffice. (`scoring_impl.rs`)
+2. **Redundant id clone in WritePipeline** — `WritePipeline::ingest` clones `input.id` before moving the owned `input` into `WriteContext`; could move instead. (`orchestrators.rs`)
 
 ## Adversarial Review Findings — Round 2 (2026-05-21)
 
 ### Critical
-1. **EmbedAndExtractPipeline still incomplete** — (`ingestion_impl.rs`) — **FIXED**: delegates full store path (dedup/supersession/entity/relate) via `store_with_embedding`
+1. ❌ **EmbedAndExtractPipeline still incomplete** — NOT FIXED. Still computes embedding then discards it (acknowledged by TODO). Still lacks auto-supersession, dedup, entity extraction, and relationship creation. (`ingestion_impl.rs`)
 
 ### Warnings
-1. **Cross-encoder length mismatch still present** — `CrossEncoderScorer` zips `ids` with `ce_scores` without verifying equal lengths. Unchanged from Round 1. (`enrichment_impl.rs`) — **FIXED**: `bail!` on length mismatch before zip
-2. **Redundant query tokenization still present** — `SearchPipeline::search` never populates `ctx.query_tokens`, so every scorer independently re-tokenizes. Unchanged from Round 1. (`orchestrators.rs`) — **FIXED**: pre-computes `ctx.query_tokens` once before scorer loop
+1. **Cross-encoder length mismatch still present** — `CrossEncoderScorer` zips `ids` with `ce_scores` without verifying equal lengths. Unchanged from Round 1. (`enrichment_impl.rs`)
+2. **Redundant query tokenization still present** — `SearchPipeline::search` never populates `ctx.query_tokens`, so every scorer independently re-tokenizes. Unchanged from Round 1. (`orchestrators.rs`)
 
 ### Nits
-1. **Redundant id clone still present** — `WritePipeline::ingest` clones `input.id` before moving the owned `input` into `WriteContext`. Unchanged from Round 1. (`orchestrators.rs`) — **FIXED**: uses `input.id.take()` instead of clone
+1. **Redundant id clone still present** — `WritePipeline::ingest` clones `input.id` before moving the owned `input` into `WriteContext`. Unchanged from Round 1. (`orchestrators.rs`)

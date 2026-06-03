@@ -17,14 +17,19 @@ impl IngestionPipeline for EmbedAndExtractPipeline {
         } else {
             ctx.assigned_id
         };
+
         let content = ctx.input.content.clone();
         let embedder = Arc::clone(&self.embedder);
-        let embedding = tokio::task::spawn_blocking(move || embedder.embed(&content))
+
+        // TODO: The embedding is computed here but MemoryStore::store does not accept
+        // a pre-computed embedding, so it is recomputed inside SqliteStorage::store.
+        // Extend MemoryStore with a store_with_embedding method to avoid double work.
+        let _embedding = tokio::task::spawn_blocking(move || embedder.embed(&content))
             .await
             .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {e:?}"))??;
-        store
-            .store_with_embedding(&id, &ctx.input.content, &ctx.input, embedding)
-            .await?;
+
+        store.store(&id, &ctx.input.content, &ctx.input).await?;
+
         Ok(id)
     }
 }
