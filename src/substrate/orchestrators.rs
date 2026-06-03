@@ -46,10 +46,28 @@ impl SearchPipeline {
         // Step 1: Run all retrieval strategies concurrently.
         let mut candidate_sets: HashMap<&str, CandidateSet> =
             HashMap::with_capacity(self.retrieval.len());
-        let futures: Vec<_> = self.retrieval.iter().map(|s| s.collect(&ctx)).collect();
-        let sets = join_all(futures).await;
-        for (strategy, result) in self.retrieval.iter().zip(sets) {
-            candidate_sets.insert(strategy.name(), result?);
+        match self.retrieval.len() {
+            0 => {}
+            1 => {
+                let result = self.retrieval[0].collect(&ctx).await;
+                candidate_sets.insert(self.retrieval[0].name(), result?);
+            }
+            2 => {
+                let (a, b) = tokio::try_join!(
+                    self.retrieval[0].collect(&ctx),
+                    self.retrieval[1].collect(&ctx),
+                )?;
+                candidate_sets.insert(self.retrieval[0].name(), a);
+                candidate_sets.insert(self.retrieval[1].name(), b);
+            }
+            _ => {
+                let futures: Vec<_> =
+                    self.retrieval.iter().map(|s| s.collect(&ctx)).collect();
+                let sets = join_all(futures).await;
+                for (strategy, result) in self.retrieval.iter().zip(sets) {
+                    candidate_sets.insert(strategy.name(), result?);
+                }
+            }
         }
 
         // Step 2: Fuse candidates into a single ranked list.
@@ -85,7 +103,7 @@ impl SearchPipeline {
         }
 
         // Step 7: Sort descending by score, truncate to limit.
-        alive.sort_by(|a, b| b.score.total_cmp(&a.score));
+        alive.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
         let max_score = alive.first().map(|c| c.score).unwrap_or(0.0);
         let limit = ctx.limit;
         let explain_enabled = ctx.opts.explain.unwrap_or(false);

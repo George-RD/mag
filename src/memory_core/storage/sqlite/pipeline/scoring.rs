@@ -6,6 +6,19 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicU64, Ordering};
+thread_local! {
+    static TOKEN_CACHE: RefCell<HashMap<String, (u64, HashSet<String>)>> = RefCell::new(HashMap::new());
+}
+static TOKEN_CACHE_GEN: AtomicU64 = AtomicU64::new(1);
+const TOKEN_CACHE_MAX_LEN: usize = 4096;
+/// Increment the global token-cache generation, invalidating all cached token sets.
+/// Call after any store, update, or delete that may change memory content/tags.
+pub(crate) fn bump_token_cache_gen() {
+    TOKEN_CACHE_GEN.fetch_add(1, Ordering::SeqCst);
+}
 
 use anyhow::{Context, Result};
 
@@ -16,7 +29,7 @@ use crate::memory_core::scoring::query_coverage_boost;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{
     EventType, ScoringParams, SearchOptions, SemanticResult, feedback_factor, jaccard_pre,
-    time_decay_et, token_set, word_overlap_pre,
+    time_decay_et, time_decay_et_with_now, token_set, word_overlap_pre,
 };
 
 /// Phase 4: Score refinement — word overlap, coverage boost, Jaccard, feedback,
@@ -28,17 +41,35 @@ pub(crate) fn refine_scores(
     explain_enabled: bool,
     scoring_params: &ScoringParams,
 ) {
-    for candidate in ranked.values_mut() {
-        let with_tags = if candidate.result.tags.is_empty() {
-            candidate.result.content.clone()
-        } else {
-            format!(
-                "{} {}",
-                candidate.result.content,
-                candidate.result.tags.join(" ")
-            )
-        };
-        let candidate_tokens = token_set(&with_tags, 3);
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let current_gen = TOKEN_CACHE_GEN.load(Ordering::Acquire);
+    for (id, candidate) in ranked.iter_mut() {
+        let candidate_tokens = TOKEN_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.len() > TOKEN_CACHE_MAX_LEN {
+                cache.clear();
+            }
+            match cache.get(id) {
+                Some((cached_gen, tokens)) if *cached_gen == current_gen => tokens.clone(),
+                _ => {
+                    let tokens = if candidate.result.tags.is_empty() {
+                        token_set(&candidate.result.content, 3)
+                    } else {
+                        let with_tags = format!(
+                            "{} {}",
+                            candidate.result.content,
+                            candidate.result.tags.join(" ")
+                        );
+                        token_set(&with_tags, 3)
+                    };
+                    cache.insert(id.clone(), (current_gen, tokens.clone()));
+                    tokens
+                }
+            }
+        });
         let overlap = word_overlap_pre(query_tokens, &candidate_tokens);
         candidate.text_overlap = overlap;
         let fb_score = candidate
@@ -61,7 +92,7 @@ pub(crate) fn refine_scores(
             .event_type
             .as_ref()
             .unwrap_or(&EventType::Memory);
-        let td = time_decay_et(&candidate.created_at, et_ref, scoring_params);
+        let td = time_decay_et_with_now(&candidate.created_at, et_ref, scoring_params, now_secs);
         candidate.score *= td;
         let importance_factor_val = scoring_params.importance_floor
             + candidate.result.importance * scoring_params.importance_scale;
@@ -187,7 +218,7 @@ pub(crate) fn keyword_candidates_to_results(
         }
     }
 
-    ranked.sort_by(|(a, _), (b, _)| b.total_cmp(a));
+    ranked.sort_unstable_by(|(a, _), (b, _)| b.total_cmp(a));
     ranked.truncate(limit);
 
     ranked

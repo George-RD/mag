@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::storage::sqlite::pipeline::scoring::bump_token_cache_gen;
 
 #[async_trait]
 impl Storage for SqliteStorage {
@@ -473,7 +474,7 @@ impl Storage for SqliteStorage {
                 tracing::warn!(old_id = %old_id, new_id = %id, error = %error, "failed to create SUPERSEDES edge");
             }
         }
-
+        bump_token_cache_gen();
         Ok(())
     }
 }
@@ -544,7 +545,7 @@ impl Deleter for SqliteStorage {
         })
         .await
         .context("spawn_blocking join error")??;
-
+        bump_token_cache_gen();
         self.invalidate_query_cache();
         self.refresh_hot_cache_best_effort();
         Ok(deleted)
@@ -695,7 +696,7 @@ impl Updater for SqliteStorage {
         })
         .await
         .context("spawn_blocking join error")??;
-
+        bump_token_cache_gen();
         self.invalidate_query_cache();
         self.refresh_hot_cache_best_effort();
         Ok(())
