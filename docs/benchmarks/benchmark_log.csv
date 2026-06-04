@@ -37,3 +37,5 @@ date,commit,branch,issue_or_pr,scoring_mode,samples,embedding_model,overall_scor
 2026-05-16,eeb6a94,main,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,90.7,6.5,strategy=sqlite-v1
 2026-06-04,9d49c6c,perf/substrate-search-optimization,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,91.0,7.0,strategy=sqlite-v1
 2026-06-04,9d49c6c,perf/substrate-search-optimization,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,91.0,7.3,strategy=sqlite-v1
+2026-06-04,0307f36,perf/substrate-search-optimization,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,91.0,11.0,strategy=sqlite-v1
+2026-06-04,0307f36,perf/substrate-search-optimization,,word-overlap,2,onnx-bge-small,91.5,87.1,91.5,75.6,94.3,92.7,91.0,10.8,strategy=sqlite-v1
