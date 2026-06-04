@@ -179,12 +179,8 @@ pub(crate) fn keyword_candidates_to_results(
                 .event_type
                 .as_ref()
                 .unwrap_or(&EventType::Memory);
-            let time_decay = time_decay_et_with_now(
-                &candidate.created_at,
-                et,
-                scoring_params,
-                now_secs,
-            );
+            let time_decay =
+                time_decay_et_with_now(&candidate.created_at, et, scoring_params, now_secs);
             let keyword_score = base * (1.0 + overlap_boost) * importance_factor * time_decay;
             candidate.score = keyword_score;
 

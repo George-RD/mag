@@ -166,8 +166,7 @@ async fn main() -> Result<()> {
     latencies.sort();
     let p50 = latencies[latencies.len() / 2];
     let p99 = latencies[latencies.len() * 99 / 100];
-    let avg = latencies.iter().sum::<Duration>()
-        / u32::try_from(latencies.len()).unwrap_or(1);
+    let avg = latencies.iter().sum::<Duration>() / u32::try_from(latencies.len()).unwrap_or(1);
     let total_s: f64 = latencies.iter().map(|d| d.as_secs_f64()).sum();
     #[allow(clippy::cast_precision_loss)]
     let qps = args.queries as f64 / total_s;
