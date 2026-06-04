@@ -61,8 +61,7 @@ impl SearchPipeline {
                 candidate_sets.insert(self.retrieval[1].name(), b);
             }
             _ => {
-                let futures: Vec<_> =
-                    self.retrieval.iter().map(|s| s.collect(&ctx)).collect();
+                let futures: Vec<_> = self.retrieval.iter().map(|s| s.collect(&ctx)).collect();
                 let sets = join_all(futures).await;
                 for (strategy, result) in self.retrieval.iter().zip(sets) {
                     candidate_sets.insert(strategy.name(), result?);

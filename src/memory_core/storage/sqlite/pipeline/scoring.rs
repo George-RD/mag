@@ -4,11 +4,11 @@
 //! Also hosts the keyword-only result conversion path used by
 //! `KeywordOnlyStrategy` dispatch in `advanced_search`.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 thread_local! {
     static TOKEN_CACHE: RefCell<HashMap<String, (u64, HashSet<String>)>> = RefCell::new(HashMap::new());
 }

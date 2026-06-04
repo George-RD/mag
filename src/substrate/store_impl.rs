@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-
 #[async_trait]
 impl MemoryStore for SqliteStorage {
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {

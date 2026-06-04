@@ -58,6 +58,7 @@ fn decode_binary_embedding(blob: &[u8]) -> Vec<f32> {
 }
 /// Dot product of a f32 slice with a little-endian binary embedding blob.
 /// Avoids decoding the blob to a Vec<f32> when the caller only needs the dot product.
+#[cfg(not(feature = "sqlite-vec"))]
 pub(crate) fn dot_product_bytes(a: &[f32], blob: &[u8]) -> f32 {
     if blob.len() != a.len() * 4 || a.is_empty() {
         return 0.0;

@@ -12,8 +12,8 @@ use clap::Parser;
 use mag::memory_core::storage::sqlite::SqliteStorage;
 use mag::memory_core::{Embedder, MemoryInput, PlaceholderEmbedder, ScoringParams, SearchOptions};
 use mag::substrate::{
-    FullTextSearch, MemoryStore, MultiFactorScorer, QueryContext, RrfFusion,
-    SearchPipeline, TtlExpirationPolicy, VectorSearch,
+    FullTextSearch, MemoryStore, MultiFactorScorer, QueryContext, RrfFusion, SearchPipeline,
+    TtlExpirationPolicy, VectorSearch,
 };
 
 #[derive(Debug, Parser)]
@@ -32,20 +32,41 @@ struct Args {
 }
 
 const TOPICS: &[&str] = &[
-    "rust programming", "python scripting", "javascript frontend",
-    "database design", "API architecture", "microservices",
-    "container orchestration", "CI/CD pipelines", "testing strategies",
-    "performance optimization", "security practices", "monitoring",
-    "logging infrastructure", "message queues", "caching layers",
-    "authentication", "authorization", "error handling",
-    "concurrency patterns", "data modeling",
+    "rust programming",
+    "python scripting",
+    "javascript frontend",
+    "database design",
+    "API architecture",
+    "microservices",
+    "container orchestration",
+    "CI/CD pipelines",
+    "testing strategies",
+    "performance optimization",
+    "security practices",
+    "monitoring",
+    "logging infrastructure",
+    "message queues",
+    "caching layers",
+    "authentication",
+    "authorization",
+    "error handling",
+    "concurrency patterns",
+    "data modeling",
 ];
 
 const SUBTOPICS: &[&str] = &[
-    "best practices", "common pitfalls", "advanced techniques",
-    "beginner guide", "case study", "benchmark results",
-    "migration strategy", "troubleshooting", "design patterns",
-    "performance comparison", "security implications", "integration guide",
+    "best practices",
+    "common pitfalls",
+    "advanced techniques",
+    "beginner guide",
+    "case study",
+    "benchmark results",
+    "migration strategy",
+    "troubleshooting",
+    "design patterns",
+    "performance comparison",
+    "security implications",
+    "integration guide",
 ];
 
 fn generate_content(index: usize) -> String {
@@ -145,8 +166,10 @@ async fn main() -> Result<()> {
     latencies.sort();
     let p50 = latencies[latencies.len() / 2];
     let p99 = latencies[latencies.len() * 99 / 100];
-    let avg = latencies.iter().sum::<Duration>() / latencies.len() as u32;
+    let avg = latencies.iter().sum::<Duration>()
+        / u32::try_from(latencies.len()).unwrap_or(1);
     let total_s: f64 = latencies.iter().map(|d| d.as_secs_f64()).sum();
+    #[allow(clippy::cast_precision_loss)]
     let qps = args.queries as f64 / total_s;
 
     println!("METRIC p50_latency_us={}", p50.as_micros());

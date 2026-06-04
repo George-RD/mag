@@ -157,12 +157,10 @@ pub(crate) fn collect_vector_candidates(
             let session_id: Option<String> = row.get(7).ok().flatten();
             let project: Option<String> = row.get(8).ok().flatten();
             let priority: Option<i64> = row.get(9).ok().flatten();
-            let created_at: String = row.get(10)
-                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string());
+            let created_at: String = row.get(10).unwrap_or_else(|_| EPOCH_FALLBACK.to_string());
             let entity_id: Option<String> = row.get(11).ok().flatten();
             let agent_type: Option<String> = row.get(12).ok().flatten();
-            let event_at: String = row.get(13)
-                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string());
+            let event_at: String = row.get(13).unwrap_or_else(|_| EPOCH_FALLBACK.to_string());
             let et = event_type_from_sql(event_type_str);
             let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
             let priority_value = resolve_priority(et.as_ref(), priority);

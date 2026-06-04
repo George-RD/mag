@@ -11,8 +11,7 @@ impl FusionStrategy for super::traits::RrfFusion {
         scoring_params: &ScoringParams,
     ) -> Vec<ScoredCandidate> {
         let total_candidates: usize = candidates.values().map(|v| v.len()).sum();
-        let mut output: HashMap<String, ScoredCandidate> =
-            HashMap::with_capacity(total_candidates);
+        let mut output: HashMap<String, ScoredCandidate> = HashMap::with_capacity(total_candidates);
         let mut in_vector: HashSet<String> = HashSet::new();
         let mut fts_ranks: HashMap<String, usize> = HashMap::new();
         for (strategy_name, candidate_set) in candidates {
