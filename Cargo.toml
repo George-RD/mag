@@ -101,3 +101,8 @@ required-features = ["real-embeddings"]
 name = "locomo_bench"
 path = "benches/locomo/main.rs"
 required-features = ["real-embeddings"]
+
+[[bin]]
+name = "substrate_bench"
+path = "benches/substrate_bench.rs"
+required-features = ["substrate"]

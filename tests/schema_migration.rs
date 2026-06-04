@@ -77,7 +77,8 @@ fn column_exists(db_path: &std::path::Path, table: &str, column: &str) -> Result
 
 /// Builds a v0.1.4 snapshot database and opens it with the current storage
 /// layer.  The v0.1.4 snapshot has schema versions 1-5 (no `last_confirmed_at`
-/// column).  Opening it must trigger the v6 migration that adds the column.
+/// column).  Opening it must trigger the v6 migration that adds the column
+/// and the v7 migration that adds the vector search partial index.
 #[tokio::test]
 async fn test_migration_from_v0_1_4() -> Result<()> {
     let sql = include_str!("fixtures/v0_1_4_schema.sql");
@@ -93,18 +94,16 @@ async fn test_migration_from_v0_1_4() -> Result<()> {
         !column_exists(&db_path, "memories", "last_confirmed_at")?,
         "last_confirmed_at should be absent before migration"
     );
-
     // Open with current storage code — this triggers initialize_schema, which
-    // applies the v6 migration (ADD COLUMN last_confirmed_at TEXT).
+    // applies the v6 migration (ADD COLUMN last_confirmed_at TEXT) and the v7
+    // migration (partial index for vector search).
     let storage = SqliteStorage::new_with_path(db_path.clone(), Arc::new(PlaceholderEmbedder))?;
-
-    // Post-condition: schema version advanced to 6.
+    // Post-condition: schema version advanced to 7.
     let post_version = read_schema_version(&db_path)?;
     assert_eq!(
-        post_version, 6,
-        "schema version must be 6 after migration from v0.1.4"
+        post_version, 7,
+        "schema version must be 7 after migration from v0.1.4"
     );
-
     // Post-condition: new column now exists with NULL default for old rows.
     assert!(
         column_exists(&db_path, "memories", "last_confirmed_at")?,
@@ -159,43 +158,40 @@ async fn test_migration_from_v0_1_4() -> Result<()> {
 
     Ok(())
 }
-
-// ── v0.1.5 idempotency ─────────────────────────────────────────────────────
-
-/// Verifies that opening a fully-migrated v0.1.5 database (schema versions 1-6)
+/// Verifies that opening a fully-migrated v0.1.5 database (schema versions 1-7)
 /// is a no-op: no migrations fire, all data is intact, and the schema version
-/// stays at 6.
+/// stays at 7.
 #[tokio::test]
 async fn test_migration_idempotent_v0_1_5() -> Result<()> {
     // Build a v0.1.5 snapshot by applying the v0.1.4 fixture and then running
-    // the v6 migration manually — this is equivalent to what a v0.1.5 binary
-    // would have produced.
+    // the v6 and v7 migrations manually — this is equivalent to what a current
+    // binary would have produced.
     let sql = include_str!("fixtures/v0_1_4_schema.sql");
     let (db_path, _guard) = build_db_from_fixture(sql)?;
-
-    // Manually apply the v6 migration (as v0.1.5 binary would have).
+    // Manually apply the v6 and v7 migrations.
     {
         let conn = Connection::open(&db_path)?;
         conn.execute_batch("ALTER TABLE memories ADD COLUMN last_confirmed_at TEXT;")?;
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_memories_vec_created ON memories(created_at DESC) WHERE embedding IS NOT NULL AND superseded_by_id IS NULL;")?;
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version) VALUES (6)",
             [],
         )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (7)",
+            [],
+        )?;
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     }
-
     let pre_version = read_schema_version(&db_path)?;
-    assert_eq!(pre_version, 6, "fixture must start at schema version 6");
-
+    assert_eq!(pre_version, 7, "fixture must start at schema version 7");
     // Open with current code — must not re-apply any migration.
     let storage = SqliteStorage::new_with_path(db_path.clone(), Arc::new(PlaceholderEmbedder))?;
-
     let post_version = read_schema_version(&db_path)?;
     assert_eq!(
-        post_version, 6,
-        "schema version must remain 6 for an already-migrated database"
+        post_version, 7,
+        "schema version must remain 7 for an already-migrated database"
     );
-
     // Pre-existing data is still accessible.
     let content = storage.retrieve("v014-mem-001").await?;
     assert_eq!(
@@ -314,22 +310,19 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
     }
 
     // Opening with current code must bootstrap the migration table and bring
-    // the database to version 6.
+    // the database to version 7.
     let storage = SqliteStorage::new_with_path(db_path.clone(), Arc::new(PlaceholderEmbedder))?;
-
     let post_version = read_schema_version(&db_path)?;
     assert_eq!(
-        post_version, 6,
-        "pre-versioning database must be brought to schema version 6"
+        post_version, 7,
+        "pre-versioning database must be brought to schema version 7"
     );
-
     // Legacy data must still be accessible.
     let content = storage.retrieve("legacy-001").await?;
     assert_eq!(
         content, "old memory from before versioning",
         "legacy memory must survive full migration from pre-versioning state"
     );
-
     // FTS search on migrated legacy data works.
     let results = storage
         .search("old memory", 10, &SearchOptions::default())
@@ -338,7 +331,6 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
         results.iter().any(|r| r.id == "legacy-001"),
         "FTS search must find legacy-001 after full migration"
     );
-
     // v2 columns must be present (they were in the fixture already; seed-versions
     // marks them applied without re-running the ALTERs).
     assert!(
@@ -354,6 +346,18 @@ async fn test_migration_from_pre_versioning_database() -> Result<()> {
         column_exists(&db_path, "memories", "last_confirmed_at")?,
         "last_confirmed_at column must exist after v6 migration"
     );
-
+    // v7 index must have been added by the migration.
+    {
+        let conn = Connection::open(&db_path)?;
+        let index_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_memories_vec_created'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(
+            index_exists, 1,
+            "idx_memories_vec_created index must exist after v7 migration"
+        );
+    }
     Ok(())
 }
