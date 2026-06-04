@@ -36,15 +36,51 @@ pub(super) fn decode_embedding(blob: &[u8]) -> Result<Vec<f32>> {
 }
 
 fn decode_binary_embedding(blob: &[u8]) -> Vec<f32> {
-    blob.chunks_exact(4)
-        .map(|chunk| {
+    let len = blob.len() / 4;
+    let mut vec = Vec::with_capacity(len);
+    #[cfg(target_endian = "little")]
+    // SAFETY: blob.len() is a multiple of 4 (checked by caller). We copy the
+    // raw bytes directly into a properly-aligned Vec<f32> buffer. On
+    // little-endian platforms the le f32 wire format is layout-compatible.
+    unsafe {
+        std::ptr::copy_nonoverlapping(blob.as_ptr(), vec.as_mut_ptr() as *mut u8, blob.len());
+        vec.set_len(len);
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        for chunk in blob.chunks_exact(4) {
             let mut bytes = [0_u8; 4];
             bytes.copy_from_slice(chunk);
-            f32::from_le_bytes(bytes)
-        })
-        .collect()
+            vec.push(f32::from_le_bytes(bytes));
+        }
+    }
+    vec
 }
-
+/// Dot product of a f32 slice with a little-endian binary embedding blob.
+/// Avoids decoding the blob to a Vec<f32> when the caller only needs the dot product.
+pub(crate) fn dot_product_bytes(a: &[f32], blob: &[u8]) -> f32 {
+    if blob.len() != a.len() * 4 || a.is_empty() {
+        return 0.0;
+    }
+    #[cfg(target_endian = "little")]
+    // SAFETY: blob.len() == a.len() * 4 (checked above). On little-endian
+    // platforms the le f32 wire format is layout-compatible with &[f32].
+    unsafe {
+        let b = std::slice::from_raw_parts(blob.as_ptr() as *const f32, a.len());
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        a.iter()
+            .zip(blob.chunks_exact(4))
+            .map(|(x, chunk)| {
+                let mut bytes = [0_u8; 4];
+                bytes.copy_from_slice(chunk);
+                x * f32::from_le_bytes(bytes)
+            })
+            .sum()
+    }
+}
 /// Dot product of two vectors. Equivalent to cosine similarity when inputs are L2-normalized.
 pub(crate) fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {

@@ -9,7 +9,7 @@ use super::super::conn_pool::ConnPool;
 #[cfg(not(feature = "sqlite-vec"))]
 use super::super::dot_product;
 #[cfg(not(feature = "sqlite-vec"))]
-use super::super::embedding_codec::decode_embedding;
+use super::super::embedding_codec::{decode_embedding, dot_product_bytes};
 use super::super::helpers::{
     EPOCH_FALLBACK, append_search_filters, build_fts5_query, event_type_from_sql,
     parse_metadata_from_db, parse_tags_from_db, resolve_priority, to_param_refs,
@@ -32,7 +32,8 @@ pub(crate) fn collect_vector_candidates(
     opts: &SearchOptions,
     scoring_params: &ScoringParams,
 ) -> Result<Vec<(String, f64, RankedSemanticCandidate)>> {
-    let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
+    let mut vector_candidates: Vec<(String, f64, RankedSemanticCandidate)> =
+        Vec::with_capacity(limit.saturating_mul(10).clamp(200, 10_000));
 
     #[cfg(feature = "sqlite-vec")]
     {
@@ -115,66 +116,54 @@ pub(crate) fn collect_vector_candidates(
             "",
         );
         // Cap the brute-force scan to keep latency bounded on large tables.
-        // Mirrors the sqlite-vec KNN candidate cap (limit*10, clamped to
-        // [200, 10_000]). Most-recent rows win when the cap bites.
-        let scan_limit = limit.saturating_mul(10).clamp(200, 10_000);
+        // Uses limit*5 with a floor of 100 (vs limit*10 floor 200 for sqlite-vec)
+        // because the non-vec branch does a recency-ordered scan rather than
+        // true KNN, so fewer candidates are needed to bound latency.
+        let scan_limit = limit.saturating_mul(5).clamp(100, 10_000);
         let scan_limit_sql = i64::try_from(scan_limit).unwrap_or(i64::MAX);
         vector_sql.push_str(" ORDER BY created_at DESC LIMIT ?");
         vector_sql.push_str(&param_idx.to_string());
         vector_params.push(SqlValue::Integer(scan_limit_sql));
-
         let mut vector_stmt = conn
-            .prepare(&vector_sql)
+            .prepare_cached(&vector_sql)
             .context("failed to prepare advanced vector query")?;
         let param_refs = to_param_refs(&vector_params);
-        let vector_rows = vector_stmt
-            .query_map(param_refs.as_slice(), |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Vec<u8>>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, f64>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, Option<String>>(6).ok().flatten(),
-                    row.get::<_, Option<String>>(7).ok().flatten(),
-                    row.get::<_, Option<String>>(8).ok().flatten(),
-                    row.get::<_, Option<i64>>(9).ok().flatten(),
-                    row.get::<_, String>(10)
-                        .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
-                    row.get::<_, Option<String>>(11).ok().flatten(),
-                    row.get::<_, Option<String>>(12).ok().flatten(),
-                    row.get::<_, String>(13)
-                        .unwrap_or_else(|_| EPOCH_FALLBACK.to_string()),
-                ))
-            })
+        let mut rows = vector_stmt
+            .query(param_refs.as_slice())
             .context("failed to execute advanced vector query")?;
-
-        for row in vector_rows {
-            let (
-                id,
-                content,
-                embedding_blob,
-                raw_tags,
-                importance,
-                raw_metadata,
-                event_type_str,
-                session_id,
-                project,
-                priority,
-                created_at,
-                entity_id,
-                agent_type,
-                event_at,
-            ) = row.context("failed to decode advanced vector row")?;
-            let candidate_emb: Vec<f32> =
-                decode_embedding(&embedding_blob).context("failed to decode stored embedding")?;
-            let similarity = dot_product(query_embedding, &candidate_emb) as f64;
+        while let Some(row) = rows.next()? {
+            // Fetch embedding first and compute similarity; skip early if
+            // the candidate is too dissimilar, avoiding the cost of cloning
+            // the remaining fields.
+            let embedding_blob: Vec<u8> = row.get(2)?;
+            let similarity = if embedding_blob.len() == query_embedding.len() * 4
+                && embedding_blob.first().copied().unwrap_or(0) != b'['
+            {
+                dot_product_bytes(query_embedding, &embedding_blob) as f64
+            } else {
+                let candidate_emb: Vec<f32> = decode_embedding(&embedding_blob)
+                    .context("failed to decode stored embedding")?;
+                dot_product(query_embedding, &candidate_emb) as f64
+            };
             if similarity < 0.1 {
                 continue;
             }
-
-            let et = event_type_from_sql(event_type_str.clone());
+            let id: String = row.get(0)?;
+            let content: String = row.get(1)?;
+            let raw_tags: String = row.get(3)?;
+            let importance: f64 = row.get(4)?;
+            let raw_metadata: String = row.get(5)?;
+            let event_type_str: Option<String> = row.get(6).ok().flatten();
+            let session_id: Option<String> = row.get(7).ok().flatten();
+            let project: Option<String> = row.get(8).ok().flatten();
+            let priority: Option<i64> = row.get(9).ok().flatten();
+            let created_at: String = row.get(10)
+                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string());
+            let entity_id: Option<String> = row.get(11).ok().flatten();
+            let agent_type: Option<String> = row.get(12).ok().flatten();
+            let event_at: String = row.get(13)
+                .unwrap_or_else(|_| EPOCH_FALLBACK.to_string());
+            let et = event_type_from_sql(event_type_str);
             let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
             let priority_value = resolve_priority(et.as_ref(), priority);
             let initial_score =
@@ -211,7 +200,7 @@ pub(crate) fn collect_vector_candidates(
     }
 
     // Sort by cosine similarity descending for rank assignment
-    vector_candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
+    vector_candidates.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
     Ok(vector_candidates)
 }
 
@@ -226,7 +215,8 @@ pub(crate) fn collect_fts_candidates(
 ) -> Result<Vec<(String, f64, RankedSemanticCandidate)>> {
     use rusqlite::types::Value as SqlValue;
 
-    let mut fts_candidates: Vec<(String, f64, RankedSemanticCandidate)> = Vec::new();
+    let mut fts_candidates: Vec<(String, f64, RankedSemanticCandidate)> =
+        Vec::with_capacity(advanced_fts_candidate_limit(limit));
 
     let fts_query = build_fts5_query(query);
     let mut fts_sql = String::from(
@@ -246,7 +236,7 @@ pub(crate) fn collect_fts_candidates(
     let sql_limit = i64::try_from(advanced_fts_candidate_limit(limit)).unwrap_or(i64::MAX);
     fts_params.push(SqlValue::Integer(sql_limit));
 
-    let fts_stmt = conn.prepare(&fts_sql);
+    let fts_stmt = conn.prepare_cached(&fts_sql);
     if let Err(e) = &fts_stmt {
         tracing::warn!("failed to prepare FTS query: {e}");
     }
@@ -295,8 +285,7 @@ pub(crate) fn collect_fts_candidates(
                     agent_type,
                     event_at,
                 ) = row.context("failed to decode advanced FTS row")?;
-
-                let et = event_type_from_sql(event_type.clone());
+                let et = event_type_from_sql(event_type);
                 let et_ref = et.as_ref().unwrap_or(&EventType::Memory);
                 let priority_value = resolve_priority(et.as_ref(), priority);
                 let initial_score =
@@ -334,7 +323,7 @@ pub(crate) fn collect_fts_candidates(
     }
     // BM25 returns negative values where more negative = better match,
     // so sort ascending (most negative first = best rank for RRF)
-    fts_candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
+    fts_candidates.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
     Ok(fts_candidates)
 }
 

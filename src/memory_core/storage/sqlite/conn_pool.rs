@@ -169,7 +169,7 @@ impl ConnPool {
     }
 
     /// Returns `true` when the pool has dedicated reader connections.
-    pub(super) fn has_readers(&self) -> bool {
+    pub(crate) fn has_readers(&self) -> bool {
         !self.readers.is_empty()
     }
 
