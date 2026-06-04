@@ -29,7 +29,7 @@ use crate::memory_core::scoring::query_coverage_boost;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{
     EventType, ScoringParams, SearchOptions, SemanticResult, feedback_factor, jaccard_pre,
-    time_decay_et, time_decay_et_with_now, token_set, word_overlap_pre,
+    time_decay_et_with_now, token_set, word_overlap_pre,
 };
 
 /// Phase 4: Score refinement — word overlap, coverage boost, Jaccard, feedback,
@@ -121,7 +121,7 @@ pub(crate) fn refine_scores(
             }
         }
 
-        if explain_enabled && let Some(ref mut exp) = candidate.explain {
+        if explain_enabled && let Some(exp) = &mut candidate.explain {
             exp["word_overlap"] = serde_json::json!(overlap);
             exp["query_coverage_boost"] = serde_json::json!(coverage_boost);
             exp["text_overlap"] = serde_json::json!(overlap);
@@ -152,6 +152,10 @@ pub(crate) fn keyword_candidates_to_results(
     explain_enabled: bool,
 ) -> Vec<SemanticResult> {
     let query_tokens = token_set(query, 3);
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
 
     // Score all candidates, keeping them as RankedSemanticCandidate so we
     // can read text_overlap for the abstention gate before converting.
@@ -175,7 +179,12 @@ pub(crate) fn keyword_candidates_to_results(
                 .event_type
                 .as_ref()
                 .unwrap_or(&EventType::Memory);
-            let time_decay = time_decay_et(&candidate.created_at, et, scoring_params);
+            let time_decay = time_decay_et_with_now(
+                &candidate.created_at,
+                et,
+                scoring_params,
+                now_secs,
+            );
             let keyword_score = base * (1.0 + overlap_boost) * importance_factor * time_decay;
             candidate.score = keyword_score;
 

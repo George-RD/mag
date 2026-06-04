@@ -64,23 +64,31 @@ pub(crate) fn dot_product_bytes(a: &[f32], blob: &[u8]) -> f32 {
         return 0.0;
     }
     #[cfg(target_endian = "little")]
-    // SAFETY: blob.len() == a.len() * 4 (checked above). On little-endian
-    // platforms the le f32 wire format is layout-compatible with &[f32].
-    unsafe {
-        let b = std::slice::from_raw_parts(blob.as_ptr() as *const f32, a.len());
-        a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
-    }
-    #[cfg(not(target_endian = "little"))]
     {
-        a.iter()
-            .zip(blob.chunks_exact(4))
-            .map(|(x, chunk)| {
-                let mut bytes = [0_u8; 4];
-                bytes.copy_from_slice(chunk);
-                x * f32::from_le_bytes(bytes)
-            })
-            .sum()
+        let ptr = blob.as_ptr();
+        // Only use the unsafe fast path when the blob is properly aligned
+        // for f32 (4-byte alignment). SQLite BLOBs are not guaranteed to be
+        // aligned, so we fall back to the safe byte-by-byte path when they
+        // are not.
+        if ptr.align_offset(std::mem::align_of::<f32>()) == 0 {
+            // SAFETY: blob.len() == a.len() * 4 (checked above) and the
+            // pointer is 4-byte aligned. On little-endian platforms the le
+            // f32 wire format is layout-compatible with &[f32].
+            return unsafe {
+                let b = std::slice::from_raw_parts(ptr as *const f32, a.len());
+                a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+            };
+        }
     }
+    // Safe fallback: decode bytes one at a time.
+    a.iter()
+        .zip(blob.chunks_exact(4))
+        .map(|(x, chunk)| {
+            let mut bytes = [0_u8; 4];
+            bytes.copy_from_slice(chunk);
+            x * f32::from_le_bytes(bytes)
+        })
+        .sum()
 }
 /// Dot product of two vectors. Equivalent to cosine similarity when inputs are L2-normalized.
 pub(crate) fn dot_product(a: &[f32], b: &[f32]) -> f32 {
