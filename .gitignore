@@ -25,3 +25,6 @@ mag-research.md
 data/*
 # But track the local benchmark definition
 !data/local_benchmark.json
+
+# Oh My Pi harness working artifacts
+.omp/
