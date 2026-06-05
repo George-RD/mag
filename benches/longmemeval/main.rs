@@ -95,10 +95,11 @@ fn main() -> Result<()> {
     {
         bail!("--dataset-path/--force-refresh/--temp-dataset/--questions require --official");
     }
-    // No special validation needed; --local just changes the LLM endpoint.
+    if args.local && args.llm_judge {
+        bail!("--local and --llm-judge are mutually exclusive; use one LLM endpoint at a time");
+    }
     let mut rss = bench_utils::metrics::PeakRss::default();
     rss.sample();
-
     let runtime = tokio::runtime::Runtime::new()?;
 
     if args.grid_search {
@@ -131,7 +132,7 @@ fn main() -> Result<()> {
                 judge::init_llm_judge_local(model, url)?;
             } else {
                 judge::load_api_key_from_dotenv();
-                judge::init_llm_judge(model)?;
+                judge::init_llm_judge(model, Some(url))?;
             }
         }
         let mut dataset = runtime.block_on(benchmarking::resolve_dataset(
@@ -202,7 +203,7 @@ fn main() -> Result<()> {
             judge::init_llm_judge_local(model, url)?;
         } else {
             judge::load_api_key_from_dotenv();
-            judge::init_llm_judge(model)?;
+            judge::init_llm_judge(model, Some(url))?;
         }
     }
     let embedder: std::sync::Arc<dyn mag::memory_core::embedder::Embedder> =

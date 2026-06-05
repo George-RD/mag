@@ -4,6 +4,10 @@
 //! extraction and retrieval-only answering.
 //!
 //! Providers: OpenAI, Anthropic, Ollama/local (any OpenAI-compatible endpoint).
+#![allow(dead_code)]
+// Dead-code allowed: this is new infrastructure (Phase 1). Public APIs will be
+// consumed by Phase 2 (extraction) and Phase 3 (reflection). Removing this
+// directive is part of the Phase 2 delivery checklist.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -203,7 +207,7 @@ impl LlmClient {
         self.config
             .base_url
             .as_deref()
-            .unwrap_or_else(|| match self.config.provider {
+            .unwrap_or(match self.config.provider {
                 LlmProvider::OpenAI => "https://api.openai.com/v1",
                 LlmProvider::Anthropic => "https://api.anthropic.com/v1",
                 LlmProvider::Ollama => "http://localhost:11434/v1",
@@ -313,9 +317,15 @@ impl LlmBackend for OpenAiProvider {
             request = request.bearer_auth(key);
         }
 
-        let response = request.send().await.context("LLM structured request failed")?;
+        let response = request
+            .send()
+            .await
+            .context("LLM structured request failed")?;
         let status = response.status();
-        let text = response.text().await.context("LLM structured response read failed")?;
+        let text = response
+            .text()
+            .await
+            .context("LLM structured response read failed")?;
         if !status.is_success() {
             anyhow::bail!("LLM API error ({}): {}", status, text);
         }
@@ -389,7 +399,10 @@ impl LlmBackend for AnthropicProvider {
 
         let response = request.send().await.context("Anthropic request failed")?;
         let status = response.status();
-        let text = response.text().await.context("Anthropic response read failed")?;
+        let text = response
+            .text()
+            .await
+            .context("Anthropic response read failed")?;
         if !status.is_success() {
             anyhow::bail!("Anthropic API error ({}): {}", status, text);
         }
@@ -414,9 +427,7 @@ impl LlmBackend for AnthropicProvider {
 /// Build an `LlmBackend` from configuration.
 pub fn build_llm_backend(config: LlmConfig) -> Result<Arc<dyn LlmBackend>> {
     match config.provider {
-        LlmProvider::OpenAI | LlmProvider::Ollama => {
-            Ok(Arc::new(OpenAiProvider::new(config)?))
-        }
+        LlmProvider::OpenAI | LlmProvider::Ollama => Ok(Arc::new(OpenAiProvider::new(config)?)),
         LlmProvider::Anthropic => Ok(Arc::new(AnthropicProvider::new(config)?)),
     }
 }

@@ -215,8 +215,7 @@ pub(crate) async fn run_official_benchmark(
 
         // Evaluate.
         let actual = if e2e {
-            match crate::judge::generate_answer(&question.question, &hits,
-            ).await {
+            match crate::judge::generate_answer(&question.question, &hits).await {
                 Ok(answer) => answer,
                 Err(err) => {
                     eprintln!(
