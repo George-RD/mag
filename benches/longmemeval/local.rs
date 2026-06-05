@@ -359,17 +359,32 @@ async fn check_top3(
     expected_substring: &str,
     category: &str,
     verbose: bool,
+    e2e: bool,
     top_k: usize,
     opts: &SearchOptions,
 ) -> Result<()> {
     let hits = query_top3(storage, query_text, top_k, opts).await?;
     rss.sample();
+    let actual = if e2e {
+        match crate::judge::generate_answer(query_text, &hits).await {
+            Ok(answer) => answer,
+            Err(err) => {
+                eprintln!(
+                    "warning: E2E answer generation failed, falling back to retrieved memories: {err}"
+                );
+                hits.iter()
+                    .map(|hit| hit.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n---\n")
+            }
+        }
+    } else {
+        hits.iter()
+            .map(|hit| hit.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n")
+    };
     let passed = substring_match(&hits, expected_substring);
-    let actual = hits
-        .iter()
-        .map(|hit| hit.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n---\n");
     record_question_eval(
         category,
         query_text,
@@ -403,6 +418,7 @@ pub(crate) async fn run_benchmark(
     verbose: bool,
     rss: &mut PeakRss,
     abstention_threshold: f32,
+    e2e: bool,
     top_k: usize,
 ) -> Result<BTreeMap<String, CategoryResult>> {
     let data = load_benchmark_data();
@@ -434,6 +450,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "information_extraction",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )
@@ -450,6 +467,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "multi_session",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )
@@ -484,6 +502,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "temporal",
             verbose,
+            e2e,
             top_k,
             &recent_week_opts,
         )
@@ -514,6 +533,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "temporal",
             verbose,
+            e2e,
             top_k,
             &two_weeks_opts,
         )
@@ -544,6 +564,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "temporal",
             verbose,
+            e2e,
             top_k,
             &month_opts,
         )
@@ -691,6 +712,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "knowledge_update",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )
@@ -745,6 +767,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "knowledge_update",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )

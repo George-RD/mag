@@ -108,6 +108,7 @@ pub(crate) async fn run_official_benchmark(
     embedder: std::sync::Arc<OnnxEmbedder>,
     verbose: bool,
     llm_judge: bool,
+    e2e: bool,
     top_k: usize,
     rss: &mut PeakRss,
 ) -> Result<OfficialSummary> {
@@ -213,13 +214,29 @@ pub(crate) async fn run_official_benchmark(
         rss.sample();
 
         // Evaluate.
-        let actual = hits
-            .iter()
-            .map(|hit| hit.content.as_str())
-            .collect::<Vec<_>>()
-            .join("\n---\n");
+        let actual = if e2e {
+            match crate::judge::generate_answer(&question.question, &hits,
+            ).await {
+                Ok(answer) => answer,
+                Err(err) => {
+                    eprintln!(
+                        "warning: E2E answer generation failed for Q{}, falling back to retrieved memories: {err}",
+                        question.question_id
+                    );
+                    hits.iter()
+                        .map(|hit| hit.content.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n---\n")
+                }
+            }
+        } else {
+            hits.iter()
+                .map(|hit| hit.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n---\n")
+        };
 
-        let passed = if llm_judge {
+        let passed = if llm_judge || e2e {
             let judge_type = official_judge_type(&question.question_type);
             match llm_judge_eval(&question.question, &question.answer, &actual, judge_type).await {
                 Ok((verdict, _tokens)) => verdict,
