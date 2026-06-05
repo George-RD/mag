@@ -23,6 +23,7 @@ real-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:dotenvy"]
 mimalloc = ["dep:mimalloc"]
 sqlite-vec = ["dep:sqlite-vec"]
 substrate = []
+llm = []
 daemon-http = []
 # Exposes test helper utilities (e.g. with_temp_home) to integration tests.
 # Not stable — for internal use only.
