@@ -36,30 +36,37 @@ pub struct LlmConfig {
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
+    #[serde(default = "default_concurrency_limit_opt")]
+    pub concurrency_limit: Option<usize>,
 }
 
 fn default_timeout_secs() -> u64 {
     60
 }
-
 fn default_max_tokens() -> u32 {
     512
 }
-
 fn default_temperature() -> f32 {
     0.0
+}
+fn default_concurrency_limit() -> usize {
+    4
+}
+fn default_concurrency_limit_opt() -> Option<usize> {
+    Some(4)
 }
 
 impl LlmConfig {
     /// Load from environment variables with `MAG_LLM_` prefix.
     ///
     /// Variables:
-    ///   MAG_LLM_PROVIDER   → openai | anthropic | ollama
-    ///   MAG_LLM_MODEL      → model name
-    ///   MAG_LLM_API_KEY    → API key (optional for local)
-    ///   MAG_LLM_BASE_URL   → custom endpoint (optional)
-    ///   MAG_LLM_TIMEOUT    → timeout in seconds (default 60)
-    ///   MAG_LLM_MAX_TOKENS → max tokens (default 512)
+    ///   MAG_LLM_PROVIDER    → openai | anthropic | ollama
+    ///   MAG_LLM_MODEL       → model name
+    ///   MAG_LLM_API_KEY     → API key (optional for local)
+    ///   MAG_LLM_BASE_URL    → custom endpoint (optional)
+    ///   MAG_LLM_TIMEOUT     → timeout in seconds (default 60)
+    ///   MAG_LLM_MAX_TOKENS  → max tokens (default 512)
+    ///   MAG_LLM_CONCURRENCY → max concurrent requests (default 4)
     pub fn from_env() -> Option<Self> {
         let provider = std::env::var("MAG_LLM_PROVIDER").ok()?;
         let provider = match provider.to_lowercase().as_str() {
@@ -83,6 +90,9 @@ impl LlmConfig {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(default_temperature);
+        let concurrency_limit = std::env::var("MAG_LLM_CONCURRENCY")
+            .ok()
+            .and_then(|s| s.parse().ok());
         Some(Self {
             provider,
             model,
@@ -91,9 +101,9 @@ impl LlmConfig {
             timeout_secs,
             max_tokens,
             temperature,
+            concurrency_limit,
         })
     }
-
     /// Default OpenAI configuration.
     pub fn openai(model: impl Into<String>, api_key: impl Into<String>) -> Self {
         Self {
@@ -104,6 +114,7 @@ impl LlmConfig {
             timeout_secs: default_timeout_secs(),
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
+            concurrency_limit: None,
         }
     }
 
@@ -117,6 +128,7 @@ impl LlmConfig {
             timeout_secs: default_timeout_secs(),
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
+            concurrency_limit: None,
         }
     }
 }
@@ -166,6 +178,8 @@ pub trait LlmBackend: Send + Sync {
 pub struct LlmClient {
     pub config: LlmConfig,
     pub http: reqwest::Client,
+    /// Bounded concurrency semaphore. Defaults to 4 concurrent requests.
+    pub semaphore: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
 impl LlmClient {
@@ -174,7 +188,15 @@ impl LlmClient {
             .timeout(Duration::from_secs(config.timeout_secs))
             .build()
             .context("failed to build LLM HTTP client")?;
-        Ok(Self { config, http })
+        let permits = config
+            .concurrency_limit
+            .unwrap_or_else(default_concurrency_limit);
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(permits));
+        Ok(Self {
+            config,
+            http,
+            semaphore,
+        })
     }
 
     pub fn base_url(&self) -> &str {
@@ -208,6 +230,12 @@ impl OpenAiProvider {
 #[async_trait]
 impl LlmBackend for OpenAiProvider {
     async fn complete(&self, prompt: &str, system: Option<&str>) -> Result<String> {
+        let _permit = self
+            .client
+            .semaphore
+            .acquire()
+            .await
+            .context("LLM concurrency limit reached")?;
         let url = format!("{}/chat/completions", self.client.base_url());
         let mut messages = Vec::new();
         if let Some(sys) = system {
@@ -253,13 +281,18 @@ impl LlmBackend for OpenAiProvider {
         system: Option<&str>,
         schema: &serde_json::Value,
     ) -> Result<serde_json::Value> {
+        let _permit = self
+            .client
+            .semaphore
+            .acquire()
+            .await
+            .context("LLM concurrency limit reached")?;
         let url = format!("{}/chat/completions", self.client.base_url());
         let mut messages = Vec::new();
         if let Some(sys) = system {
             messages.push(serde_json::json!({"role": "system", "content": sys}));
         }
         messages.push(serde_json::json!({"role": "user", "content": prompt}));
-
         let body = serde_json::json!({
             "model": self.client.config.model,
             "messages": messages,
@@ -327,6 +360,12 @@ impl AnthropicProvider {
 #[async_trait]
 impl LlmBackend for AnthropicProvider {
     async fn complete(&self, prompt: &str, system: Option<&str>) -> Result<String> {
+        let _permit = self
+            .client
+            .semaphore
+            .acquire()
+            .await
+            .context("LLM concurrency limit reached")?;
         let url = format!("{}/messages", self.client.base_url());
         let mut body = serde_json::json!({
             "model": self.client.config.model,
