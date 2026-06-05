@@ -114,23 +114,31 @@ pub fn time_decay(created_at: &str, event_type: &str, scoring_params: &ScoringPa
 
 /// Time decay using a typed `EventType` (avoids string round-trip).
 pub fn time_decay_et(created_at: &str, et: &EventType, scoring_params: &ScoringParams) -> f64 {
-    if et.memory_kind() == MemoryKind::Semantic {
-        return 1.0;
-    }
-
-    if !scoring_params.time_decay_days.is_finite() || scoring_params.time_decay_days <= 0.0 {
-        return 1.0;
-    }
-
     let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_secs_f64(),
         Err(_) => return 1.0,
     };
+    time_decay_et_with_now(created_at, et, scoring_params, now)
+}
+/// Time decay with a pre-computed "now" timestamp (avoids repeated system calls
+/// when scoring many candidates in a loop).
+pub fn time_decay_et_with_now(
+    created_at: &str,
+    et: &EventType,
+    scoring_params: &ScoringParams,
+    now_secs: f64,
+) -> f64 {
+    if et.memory_kind() == MemoryKind::Semantic {
+        return 1.0;
+    }
+    if !scoring_params.time_decay_days.is_finite() || scoring_params.time_decay_days <= 0.0 {
+        return 1.0;
+    }
     let created = match parse_iso8601_to_unix_seconds(created_at) {
         Some(value) => value,
         None => return 1.0,
     };
-    let age_seconds = (now - created).max(0.0);
+    let age_seconds = (now_secs - created).max(0.0);
     let days_old = age_seconds / 86_400.0;
     1.0 / (1.0 + (days_old / scoring_params.time_decay_days))
 }
@@ -510,10 +518,9 @@ pub fn jaccard_pre(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
     if a.is_empty() && b.is_empty() {
         return 0.0;
     }
-
     let intersection = a.intersection(b).count();
-    let union = a.union(b).count();
-
+    // |A ∪ B| = |A| + |B| - |A ∩ B|
+    let union = a.len() + b.len() - intersection;
     if union == 0 {
         0.0
     } else {

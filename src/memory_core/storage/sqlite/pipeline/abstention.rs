@@ -73,7 +73,7 @@ pub(crate) fn abstain_and_dedup(
         candidate.score = scoring_strategy.score(candidate, query, scoring_params);
     }
 
-    deduped.sort_by(|a, b| b.score.total_cmp(&a.score));
+    deduped.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
     let max_score = deduped.first().map(|c| c.score).unwrap_or(0.0);
     let mut out = Vec::new();
     for mut candidate in deduped.into_iter().take(limit) {
@@ -135,7 +135,7 @@ pub(crate) fn merge_hot_cache_results(
     }
 
     let mut merged_results: Vec<_> = merged.into_values().collect();
-    merged_results.sort_by(|left, right| {
+    merged_results.sort_unstable_by(|left, right| {
         right
             .score
             .total_cmp(&left.score)
@@ -152,7 +152,7 @@ pub(crate) fn merge_hot_cache_results(
         seen.insert(fingerprint, deduped.len());
         deduped.push(result);
     }
-    deduped.sort_by(|left, right| {
+    deduped.sort_unstable_by(|left, right| {
         right
             .score
             .total_cmp(&left.score)

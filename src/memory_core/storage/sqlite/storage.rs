@@ -114,6 +114,15 @@ impl SqliteStorage {
             scoring_strategy: Arc::new(DefaultScoringStrategy::new()),
         })
     }
+    /// Run `ANALYZE` to update SQLite query planner statistics.
+    /// Call after bulk inserts to ensure optimal index selection.
+    #[allow(dead_code)]
+    pub fn analyze(&self) -> Result<()> {
+        let conn = self.pool.writer()?;
+        conn.execute_batch("ANALYZE")
+            .context("failed to run ANALYZE")?;
+        Ok(())
+    }
 
     /// Sets the reranker for this storage instance.
     pub fn with_reranker(mut self, reranker: Arc<dyn Reranker>) -> Self {

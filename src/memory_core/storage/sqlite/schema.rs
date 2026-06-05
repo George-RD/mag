@@ -229,10 +229,21 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
             [],
         )?;
     }
-
+    // --- v7: Partial index for vector search ---
+    if current < 7 {
+        let indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_memories_vec_created ON memories(created_at DESC) WHERE embedding IS NOT NULL AND superseded_by_id IS NULL",
+        ];
+        for idx in &indexes {
+            let _ = conn.execute_batch(idx);
+        }
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (7)",
+            [],
+        )?;
+    }
     #[cfg(not(feature = "sqlite-vec"))]
     let _ = embedding_dim;
-
     Ok(())
 }
 

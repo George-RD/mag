@@ -9,8 +9,13 @@ impl LifecyclePolicy for crate::substrate::traits::TtlExpirationPolicy {
     fn name(&self) -> &str {
         "ttl"
     }
-
     fn is_alive(&self, candidate: &ScoredCandidate) -> bool {
+        // Fast path: empty or null metadata cannot contain an expires_at field.
+        match &candidate.result.metadata {
+            serde_json::Value::Null => return true,
+            serde_json::Value::Object(map) if map.is_empty() => return true,
+            _ => {}
+        }
         let expires_at = match candidate.result.metadata.get("expires_at") {
             Some(v) => match v.as_str() {
                 Some(s) => s,
@@ -18,12 +23,10 @@ impl LifecyclePolicy for crate::substrate::traits::TtlExpirationPolicy {
             },
             None => return true,
         };
-
         let expires = match DateTime::parse_from_rfc3339(expires_at) {
             Ok(dt) => dt.with_timezone(&Utc),
             Err(_) => return true,
         };
-
         expires >= Utc::now()
     }
 

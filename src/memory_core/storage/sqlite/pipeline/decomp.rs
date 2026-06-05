@@ -170,7 +170,7 @@ pub(crate) async fn enrich_with_decomposition(
 
     let mut deduped: Vec<SemanticResult> = Vec::new();
     let mut fingerprints: HashSet<String> = HashSet::new();
-    all_results.sort_by(|a, b| b.score.total_cmp(&a.score));
+    all_results.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
     for result in all_results {
         let fp = content_fingerprint(&result.content);
         if fingerprints.insert(fp) {

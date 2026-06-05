@@ -18,23 +18,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-fn convert_ranked(
-    c: crate::memory_core::storage::sqlite::RankedSemanticCandidate,
-) -> ScoredCandidate {
-    ScoredCandidate {
-        result: c.result,
-        created_at: c.created_at,
-        event_at: c.event_at,
-        score: c.score,
-        priority_value: c.priority_value,
-        vec_sim: c.vec_sim,
-        text_overlap: c.text_overlap,
-        entity_id: c.entity_id,
-        agent_type: c.agent_type,
-        explain: c.explain,
-    }
-}
-
 #[async_trait]
 impl MemoryStore for SqliteStorage {
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
@@ -291,6 +274,22 @@ impl MemoryStore for SqliteStorage {
         let opts = opts.clone();
         let scoring_params = scoring_params.clone();
 
+        // In-memory databases have a single connection; skip spawn_blocking
+        // overhead and run synchronously to avoid mutex contention between
+        // concurrent blocking tasks.
+        if !pool.has_readers() {
+            let conn = pool.reader()?;
+            let candidates = collect_vec(
+                &conn,
+                &query_embedding,
+                limit,
+                include_superseded,
+                &opts,
+                &scoring_params,
+            )?;
+            return Ok(candidates);
+        }
+
         let candidates = tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
             collect_vec(
@@ -305,12 +304,8 @@ impl MemoryStore for SqliteStorage {
         .await
         .context("spawn_blocking join error")??;
 
-        Ok(candidates
-            .into_iter()
-            .map(|(id, score, c)| (id, score, convert_ranked(c)))
-            .collect())
+        Ok(candidates)
     }
-
     async fn collect_fts_candidates(
         &self,
         query: &str,
@@ -323,6 +318,22 @@ impl MemoryStore for SqliteStorage {
         let query = query.to_string();
         let opts = opts.clone();
         let scoring_params = scoring_params.clone();
+
+        // In-memory databases have a single connection; skip spawn_blocking
+        // overhead and run synchronously to avoid mutex contention between
+        // concurrent blocking tasks.
+        if !pool.has_readers() {
+            let conn = pool.reader()?;
+            let candidates = collect_fts(
+                &conn,
+                &query,
+                limit,
+                &opts,
+                include_superseded,
+                &scoring_params,
+            )?;
+            return Ok(candidates);
+        }
 
         let candidates = tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
@@ -338,10 +349,7 @@ impl MemoryStore for SqliteStorage {
         .await
         .context("spawn_blocking join error")??;
 
-        Ok(candidates
-            .into_iter()
-            .map(|(id, score, c)| (id, score, convert_ranked(c)))
-            .collect())
+        Ok(candidates)
     }
     async fn enrich_graph_neighbors(
         &self,

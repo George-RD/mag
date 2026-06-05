@@ -37,7 +37,7 @@ pub(crate) fn enrich_graph_neighbors(
 
     let mut seed_list: Vec<(String, f64)> =
         ranked.iter().map(|(id, c)| (id.clone(), c.score)).collect();
-    seed_list.sort_by(|a, b| b.1.total_cmp(&a.1));
+    seed_list.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
     let k = limit.clamp(scoring_params.graph_seed_min, scoring_params.graph_seed_max);
     seed_list.truncate(k);
 
@@ -267,7 +267,7 @@ pub(crate) fn expand_entity_tags(
         .iter()
         .map(|(id, c)| (id.clone(), c.score, c.result.tags.clone()))
         .collect();
-    seed_list_for_expansion.sort_by(|a, b| b.1.total_cmp(&a.1));
+    seed_list_for_expansion.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
     seed_list_for_expansion.truncate(limit.min(20));
 
     let mut entity_tags_to_search: Vec<String> = Vec::new();

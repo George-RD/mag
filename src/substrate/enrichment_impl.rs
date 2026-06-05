@@ -106,7 +106,7 @@ impl Scorer for crate::substrate::traits::CrossEncoderScorer {
 
         // Collect and sort candidates by score descending, take top N
         let mut sorted: Vec<(&String, &ScoredCandidate)> = candidates.iter().collect();
-        sorted.sort_by(|a, b| {
+        sorted.sort_unstable_by(|a, b| {
             b.1.score
                 .partial_cmp(&a.1.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
