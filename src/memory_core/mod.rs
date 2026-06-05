@@ -9,6 +9,8 @@ pub use domain::*;
 pub use traits::*;
 
 pub mod embedder;
+#[cfg(feature = "llm")]
+pub mod llm;
 pub mod reranker;
 pub mod retrieval_strategy;
 pub mod scoring;

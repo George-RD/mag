@@ -68,10 +68,20 @@ struct Args {
     /// Use a file-backed SQLite database (WAL mode, 4 readers) instead of in-memory
     #[arg(long)]
     file_backed: bool,
+    /// E2E mode: generate an LLM answer from retrieved context, then judge the generated answer.
+    #[arg(long)]
+    e2e: bool,
+    /// Use a local OpenAI-compatible server (no API key needed, implies --e2e).
+    #[arg(long)]
+    local: bool,
+    /// OpenAI-compatible API endpoint URL (default: OpenAI, or localhost with --local).
+    #[arg(long)]
+    llm_url: Option<String>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let e2e = args.e2e || args.local;
     if args.top_k == Some(0) {
         bail!("--top-k must be greater than 0");
     }
@@ -86,9 +96,11 @@ fn main() -> Result<()> {
     {
         bail!("--dataset-path/--force-refresh/--temp-dataset/--questions require --official");
     }
+    if args.local && args.llm_judge {
+        bail!("--local and --llm-judge are mutually exclusive; use one LLM endpoint at a time");
+    }
     let mut rss = bench_utils::metrics::PeakRss::default();
     rss.sample();
-
     let runtime = tokio::runtime::Runtime::new()?;
 
     if args.grid_search {
@@ -109,9 +121,20 @@ fn main() -> Result<()> {
 
     // ── Official LongMemEval_S mode ────────────────────────────────────────
     if args.official {
-        if args.llm_judge {
-            judge::load_api_key_from_dotenv();
-            judge::init_llm_judge(args.judge_model.as_str())?;
+        let use_llm = args.llm_judge || args.e2e || args.local;
+        if use_llm {
+            let model = args.judge_model.as_str();
+            let url = args.llm_url.as_deref().unwrap_or(if args.local {
+                "http://localhost:1234/v1/chat/completions"
+            } else {
+                "https://api.openai.com/v1/chat/completions"
+            });
+            if args.local {
+                judge::init_llm_judge_local(model, url)?;
+            } else {
+                judge::load_api_key_from_dotenv();
+                judge::init_llm_judge(model, Some(url))?;
+            }
         }
         let mut dataset = runtime.block_on(benchmarking::resolve_dataset(
             DatasetKind::LongMemEval,
@@ -142,8 +165,8 @@ fn main() -> Result<()> {
         let embedder = std::sync::Arc::new(OnnxEmbedder::new()?);
         if !args.json {
             println!(
-                "Running official LongMemEval_S benchmark (top_k={top_k}, llm_judge={})...",
-                args.llm_judge
+                "Running official LongMemEval_S benchmark (top_k={top_k}, llm_judge={}, e2e={})...",
+                args.llm_judge, e2e
             );
         }
         let metadata = benchmarking::benchmark_metadata("longmemeval_official", &dataset);
@@ -155,6 +178,7 @@ fn main() -> Result<()> {
             embedder,
             args.verbose,
             args.llm_judge,
+            e2e,
             top_k,
             &mut rss,
         ))?;
@@ -167,11 +191,21 @@ fn main() -> Result<()> {
         dataset.cleanup()?;
         return Ok(());
     }
-
     // ── Local hand-crafted benchmark (default) ────────────────────────────
-    if args.llm_judge {
-        judge::load_api_key_from_dotenv();
-        judge::init_llm_judge(args.judge_model.as_str())?;
+    let use_llm = args.llm_judge || args.e2e || args.local;
+    if use_llm {
+        let model = args.judge_model.as_str();
+        let url = args.llm_url.as_deref().unwrap_or(if args.local {
+            "http://localhost:1234/v1/chat/completions"
+        } else {
+            "https://api.openai.com/v1/chat/completions"
+        });
+        if args.local {
+            judge::init_llm_judge_local(model, url)?;
+        } else {
+            judge::load_api_key_from_dotenv();
+            judge::init_llm_judge(model, Some(url))?;
+        }
     }
     let embedder: std::sync::Arc<dyn mag::memory_core::embedder::Embedder> =
         std::sync::Arc::new(OnnxEmbedder::new()?);
@@ -207,6 +241,9 @@ fn main() -> Result<()> {
         if args.llm_judge {
             println!("  (LLM-as-judge mode: {})", args.judge_model);
         }
+        if e2e {
+            println!("  (E2E mode: generating answers before judging)");
+        }
     }
     let query_start = Instant::now();
     let mut llm_judge_calls = 0usize;
@@ -219,6 +256,7 @@ fn main() -> Result<()> {
         {
             ABSTENTION_MIN_TEXT as f32
         },
+        e2e,
         top_k,
     ))?;
     let querying_ms = query_start.elapsed().as_millis();
@@ -226,7 +264,7 @@ fn main() -> Result<()> {
     let evals = helpers::snapshot_question_evals();
     let (total_correct, total_questions, overall);
     let mut llm_results_summary: Option<BTreeMap<String, types::CategoryResult>> = None;
-    if args.llm_judge {
+    if args.llm_judge || args.e2e || args.local {
         llm_judge_calls = evals.len();
         let (llm_results, cost, fallback_count) =
             runtime.block_on(judge::run_llm_judge(&evals, args.verbose));
@@ -263,7 +301,7 @@ fn main() -> Result<()> {
     if !args.json {
         println!("Seeding time:  {seeding_ms} ms");
         println!("Query time:    {querying_ms} ms");
-        if args.llm_judge {
+        if args.llm_judge || args.e2e || args.local {
             println!("LLM judge calls: {llm_judge_calls}");
         }
         println!("Peak RSS:      {} KB", rss.peak_kb);

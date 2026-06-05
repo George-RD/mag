@@ -22,10 +22,25 @@ use std::sync::Arc;
 pub trait MemoryStore: Send + Sync {
     // ── Core CRUD ─────────────────────────────────────────────────────────
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()>;
+
+    /// Store a memory with a pre-computed embedding vector.
+    ///
+    /// Default implementation delegates to `store` (which may recompute the
+    /// embedding). Backends that can accept pre-computed embeddings should
+    /// override this to avoid double work.
+    async fn store_with_embedding(
+        &self,
+        id: &str,
+        data: &str,
+        input: &MemoryInput,
+        _embedding: Vec<f32>,
+    ) -> Result<()> {
+        self.store(id, data, input).await
+    }
+
     async fn retrieve(&self, id: &str) -> Result<String>;
     async fn delete(&self, id: &str) -> Result<bool>;
     async fn update(&self, id: &str, update: &MemoryUpdate) -> Result<()>;
-
     // ── Query surface ─────────────────────────────────────────────────────
     async fn search(
         &self,

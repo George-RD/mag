@@ -359,23 +359,49 @@ async fn check_top3(
     expected_substring: &str,
     category: &str,
     verbose: bool,
+    e2e: bool,
     top_k: usize,
     opts: &SearchOptions,
 ) -> Result<()> {
     let hits = query_top3(storage, query_text, top_k, opts).await?;
     rss.sample();
-    let passed = substring_match(&hits, expected_substring);
-    let actual = hits
-        .iter()
-        .map(|hit| hit.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n---\n");
+    let (actual, generation_tokens) = if e2e {
+        match crate::judge::generate_answer(query_text, &hits).await {
+            Ok((answer, tokens)) => (answer, Some(tokens)),
+            Err(err) => {
+                eprintln!(
+                    "warning: E2E answer generation failed, falling back to retrieved memories: {err}"
+                );
+                let fallback = hits
+                    .iter()
+                    .map(|hit| hit.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n---\n");
+                (fallback, None)
+            }
+        }
+    } else {
+        let fallback = hits
+            .iter()
+            .map(|hit| hit.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        (fallback, None)
+    };
+    let passed = if e2e {
+        actual
+            .to_lowercase()
+            .contains(&expected_substring.to_lowercase())
+    } else {
+        substring_match(&hits, expected_substring)
+    };
     record_question_eval(
         category,
         query_text,
         expected_substring,
         actual.as_str(),
         passed,
+        generation_tokens,
     );
 
     let detail = if verbose {
@@ -403,6 +429,7 @@ pub(crate) async fn run_benchmark(
     verbose: bool,
     rss: &mut PeakRss,
     abstention_threshold: f32,
+    e2e: bool,
     top_k: usize,
 ) -> Result<BTreeMap<String, CategoryResult>> {
     let data = load_benchmark_data();
@@ -434,6 +461,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "information_extraction",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )
@@ -450,6 +478,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "multi_session",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )
@@ -484,6 +513,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "temporal",
             verbose,
+            e2e,
             top_k,
             &recent_week_opts,
         )
@@ -514,6 +544,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "temporal",
             verbose,
+            e2e,
             top_k,
             &two_weeks_opts,
         )
@@ -544,6 +575,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "temporal",
             verbose,
+            e2e,
             top_k,
             &month_opts,
         )
@@ -595,6 +627,7 @@ pub(crate) async fn run_benchmark(
             ),
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "temporal", passed, detail);
     }
@@ -639,6 +672,7 @@ pub(crate) async fn run_benchmark(
             expected.as_str(),
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "temporal", passed, detail);
     }
@@ -677,6 +711,7 @@ pub(crate) async fn run_benchmark(
             "at least one result expected within rolling window",
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "temporal", passed, None);
     }
@@ -691,6 +726,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "knowledge_update",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )
@@ -731,6 +767,7 @@ pub(crate) async fn run_benchmark(
             expected.as_str(),
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "knowledge_update", passed, detail);
     }
@@ -745,6 +782,7 @@ pub(crate) async fn run_benchmark(
             &q.expected,
             "knowledge_update",
             verbose,
+            e2e,
             top_k,
             &no_filter,
         )
@@ -776,6 +814,7 @@ pub(crate) async fn run_benchmark(
             "question should be unanswerable from stored memories",
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "abstention", passed, detail);
     }

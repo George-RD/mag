@@ -117,6 +117,7 @@ pub(crate) fn record_question_eval(
     expected: &str,
     actual: &str,
     substring_passed: bool,
+    generation_tokens: Option<usize>,
 ) {
     let eval = QuestionEvaluation {
         category: category.to_string(),
@@ -125,6 +126,7 @@ pub(crate) fn record_question_eval(
         expected: expected.to_string(),
         actual: actual.to_string(),
         substring_passed,
+        generation_tokens,
     };
     match bench_evals().lock() {
         Ok(mut guard) => guard.push(eval),

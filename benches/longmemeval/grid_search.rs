@@ -227,6 +227,7 @@ pub(crate) async fn run_grid_search(verbose: bool) -> Result<Vec<GridSearchResul
             {
                 params.abstention_min_text as f32
             },
+            false,
             3,
         )
         .await?;
