@@ -62,13 +62,15 @@ pub(crate) fn init_llm_judge_with_key(
         OPENAI_MODEL
             .set(model.to_string())
             .map_err(|_| anyhow!("LLM judge model initialization race"))?;
-        if let Some(key) = api_key
-            && OPENAI_API_KEY.get().is_none()
-        {
-            OPENAI_API_KEY
-                .set(key)
-                .map_err(|_| anyhow!("LLM judge API key initialization race"))?;
-        }
+    }
+    if let Some(key) = api_key
+        && OPENAI_API_KEY.get().is_none()
+    {
+        OPENAI_API_KEY
+            .set(key)
+            .map_err(|_| anyhow!("LLM judge API key initialization race"))?;
+    }
+    if OPENAI_URL.get().is_none() {
         OPENAI_URL
             .set(url.to_string())
             .map_err(|_| anyhow!("LLM judge URL initialization race"))?;
@@ -81,7 +83,6 @@ pub(crate) fn init_llm_judge_with_key(
             .set(client)
             .map_err(|_| anyhow!("LLM judge client initialization race"))?;
     }
-
     let final_model = OPENAI_MODEL.get().expect("OPENAI_MODEL was just set above");
     if final_model != model {
         return Err(anyhow!(
