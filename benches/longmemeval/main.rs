@@ -81,6 +81,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let e2e = args.e2e || args.local;
     if args.top_k == Some(0) {
         bail!("--top-k must be greater than 0");
     }
@@ -165,7 +166,7 @@ fn main() -> Result<()> {
         if !args.json {
             println!(
                 "Running official LongMemEval_S benchmark (top_k={top_k}, llm_judge={}, e2e={})...",
-                args.llm_judge, args.e2e
+                args.llm_judge, e2e
             );
         }
         let metadata = benchmarking::benchmark_metadata("longmemeval_official", &dataset);
@@ -177,7 +178,7 @@ fn main() -> Result<()> {
             embedder,
             args.verbose,
             args.llm_judge,
-            args.e2e,
+            e2e,
             top_k,
             &mut rss,
         ))?;
@@ -240,7 +241,7 @@ fn main() -> Result<()> {
         if args.llm_judge {
             println!("  (LLM-as-judge mode: {})", args.judge_model);
         }
-        if args.e2e {
+        if e2e {
             println!("  (E2E mode: generating answers before judging)");
         }
     }
@@ -255,7 +256,7 @@ fn main() -> Result<()> {
         {
             ABSTENTION_MIN_TEXT as f32
         },
-        args.e2e,
+        e2e,
         top_k,
     ))?;
     let querying_ms = query_start.elapsed().as_millis();

@@ -214,7 +214,10 @@ pub(crate) async fn llm_judge_eval(
 
 /// Generate an answer from retrieved context + question using an LLM.
 /// This is the "generate" step of retrieve-then-generate E2E evaluation.
-pub(crate) async fn generate_answer(question: &str, hits: &[crate::types::Hit]) -> Result<String> {
+pub(crate) async fn generate_answer(
+    question: &str,
+    hits: &[crate::types::Hit],
+) -> Result<(String, usize)> {
     let client = OPENAI_CLIENT
         .get()
         .ok_or_else(|| anyhow!("LLM client not initialized"))?;
@@ -264,13 +267,26 @@ pub(crate) async fn generate_answer(question: &str, hits: &[crate::types::Hit]) 
     let response = request.send().await?.error_for_status()?;
 
     let parsed: OpenAiChatResponse = response.json().await?;
+    let prompt_tokens = parsed
+        .usage
+        .as_ref()
+        .map(|u| {
+            u.prompt_tokens.try_into().unwrap_or_else(|_| {
+                eprintln!(
+                    "warn: prompt_tokens {} overflows usize, using 0",
+                    u.prompt_tokens
+                );
+                0usize
+            })
+        })
+        .unwrap_or(0);
     let answer = parsed
         .choices
         .first()
         .map(|choice| choice.message.content.trim().to_string())
         .ok_or_else(|| anyhow!("LLM response missing choices"))?;
 
-    Ok(answer)
+    Ok((answer, prompt_tokens))
 }
 
 pub(crate) async fn run_llm_judge(
@@ -317,6 +333,9 @@ pub(crate) async fn run_llm_judge(
         let passed = match judged {
             Ok((v, tokens)) => {
                 input_tokens += tokens;
+                if let Some(gtok) = eval.generation_tokens {
+                    input_tokens += gtok;
+                }
                 v
             }
             Err(err) => {
@@ -327,6 +346,9 @@ pub(crate) async fn run_llm_judge(
                     eval.actual.as_str(),
                     official_judge_type(eval.question_type.as_str()),
                 );
+                if let Some(gtok) = eval.generation_tokens {
+                    input_tokens += gtok;
+                }
                 eprintln!(
                     "warning: LLM judge failed for category '{}', using substring fallback: {}",
                     eval.category, err

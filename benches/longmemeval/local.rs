@@ -365,32 +365,43 @@ async fn check_top3(
 ) -> Result<()> {
     let hits = query_top3(storage, query_text, top_k, opts).await?;
     rss.sample();
-    let actual = if e2e {
+    let (actual, generation_tokens) = if e2e {
         match crate::judge::generate_answer(query_text, &hits).await {
-            Ok(answer) => answer,
+            Ok((answer, tokens)) => (answer, Some(tokens)),
             Err(err) => {
                 eprintln!(
                     "warning: E2E answer generation failed, falling back to retrieved memories: {err}"
                 );
-                hits.iter()
+                let fallback = hits
+                    .iter()
                     .map(|hit| hit.content.as_str())
                     .collect::<Vec<_>>()
-                    .join("\n---\n")
+                    .join("\n---\n");
+                (fallback, None)
             }
         }
     } else {
-        hits.iter()
+        let fallback = hits
+            .iter()
             .map(|hit| hit.content.as_str())
             .collect::<Vec<_>>()
-            .join("\n---\n")
+            .join("\n---\n");
+        (fallback, None)
     };
-    let passed = substring_match(&hits, expected_substring);
+    let passed = if e2e {
+        actual
+            .to_lowercase()
+            .contains(&expected_substring.to_lowercase())
+    } else {
+        substring_match(&hits, expected_substring)
+    };
     record_question_eval(
         category,
         query_text,
         expected_substring,
         actual.as_str(),
         passed,
+        generation_tokens,
     );
 
     let detail = if verbose {
@@ -616,6 +627,7 @@ pub(crate) async fn run_benchmark(
             ),
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "temporal", passed, detail);
     }
@@ -660,6 +672,7 @@ pub(crate) async fn run_benchmark(
             expected.as_str(),
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "temporal", passed, detail);
     }
@@ -698,6 +711,7 @@ pub(crate) async fn run_benchmark(
             "at least one result expected within rolling window",
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "temporal", passed, None);
     }
@@ -753,6 +767,7 @@ pub(crate) async fn run_benchmark(
             expected.as_str(),
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "knowledge_update", passed, detail);
     }
@@ -799,6 +814,7 @@ pub(crate) async fn run_benchmark(
             "question should be unanswerable from stored memories",
             actual.as_str(),
             passed,
+            None,
         );
         record_result(&mut results, "abstention", passed, detail);
     }

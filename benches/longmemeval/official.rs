@@ -116,6 +116,7 @@ pub(crate) async fn run_official_benchmark(
     let mut results = BTreeMap::<String, CategoryResult>::new();
     let mut total_memories = 0usize;
     let mut total_query_ms = 0u128;
+    let mut generation_tokens = 0usize;
     let overall_start = Instant::now();
 
     let no_filter = SearchOptions {
@@ -212,20 +213,19 @@ pub(crate) async fn run_official_benchmark(
         let query_ms = query_start.elapsed().as_millis();
         total_query_ms += query_ms;
         rss.sample();
-
         // Evaluate.
         let actual = if e2e {
             match crate::judge::generate_answer(&question.question, &hits).await {
-                Ok(answer) => answer,
+                Ok((answer, tokens)) => {
+                    generation_tokens += tokens;
+                    answer
+                }
                 Err(err) => {
                     eprintln!(
-                        "warning: E2E answer generation failed for Q{}, falling back to retrieved memories: {err}",
+                        "warning: E2E answer generation failed for Q{}, marking as failed: {err}",
                         question.question_id
                     );
-                    hits.iter()
-                        .map(|hit| hit.content.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n---\n")
+                    String::new()
                 }
             }
         } else {
@@ -300,7 +300,9 @@ pub(crate) async fn run_official_benchmark(
     } else {
         0.0
     };
-
+    if e2e && generation_tokens > 0 {
+        eprintln!("E2E generation tokens: {generation_tokens}");
+    }
     Ok(OfficialSummary {
         metadata,
         dataset: "LongMemEval_S".to_string(),

@@ -195,6 +195,7 @@ impl LlmClient {
         let permits = config
             .concurrency_limit
             .unwrap_or_else(default_concurrency_limit);
+        let permits = permits.max(1);
         let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(permits));
         Ok(Self {
             config,
@@ -394,7 +395,7 @@ impl LlmBackend for AnthropicProvider {
             .header("anthropic-version", "2023-06-01")
             .json(&body);
         if let Some(key) = &self.client.config.api_key {
-            request = request.bearer_auth(key);
+            request = request.header("x-api-key", key);
         }
 
         let response = request.send().await.context("Anthropic request failed")?;

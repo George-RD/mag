@@ -44,8 +44,7 @@ Following Hindsight's multi-tier evaluation:
 
 **LongMemEval_S E2E (500 questions):**
 ```bash
-# Local tier
-cargo run --release --bin longmemeval_bench -- --official --e2e --local --llm-url http://localhost:1234/v1/chat/completions --llm-model qwen3.5-9b-optiq
+cargo run --release --bin longmemeval_bench -- --official --e2e --local --llm-url http://localhost:1234/v1/chat/completions --judge-model qwen3.5-9b-optiq
 
 # API tier (gpt-4o-mini)
 cargo run --release --bin longmemeval_bench -- --official --e2e --judge-model gpt-4o-mini

@@ -73,6 +73,8 @@ pub(crate) struct QuestionEvaluation {
     pub expected: String,
     pub actual: String,
     pub substring_passed: bool,
+    /// Prompt tokens consumed by answer generation (E2E mode only).
+    pub generation_tokens: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
