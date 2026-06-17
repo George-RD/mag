@@ -458,6 +458,61 @@ pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)> {
         .context("failed to count unindexed memory rows")?;
     Ok((orphaned, missing))
 }
+/// Read-only diagnostic snapshot of the FTS5 index.
+///
+/// Tolerates a structurally corrupt `memories_fts` virtual table so that
+/// diagnostics paths can report degradation instead of returning an opaque
+/// error.
+pub(super) struct FtsDiagnostic {
+    pub indexed_count: Option<i64>,
+    pub divergence: Option<(i64, i64)>,
+    /// `Some` when the FTS5 virtual table or its shadow tables could not be
+    /// queried, indicating corruption or severe unreadability.
+    pub corruption_error: Option<String>,
+}
+
+impl FtsDiagnostic {
+    pub fn in_sync(&self) -> bool {
+        self.corruption_error.is_none() && self.divergence == Some((0, 0))
+    }
+
+    pub fn warning(&self) -> Option<String> {
+        if let Some(ref err) = self.corruption_error {
+            Some(format!(
+                "FTS5 index corrupt or unreadable: {err} (run `mag maintain --action fts-rebuild`)"
+            ))
+        } else if let Some((orphaned, missing)) = self.divergence {
+            if orphaned != 0 || missing != 0 {
+                Some(format!(
+                    "FTS5 index out of sync: {orphaned} orphaned index rows, {missing} unindexed memories (run `mag maintain --action fts-rebuild`)"
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+/// Returns a read-only diagnostic snapshot of the FTS5 index, catching a
+/// structurally corrupt index instead of propagating the error.
+pub(super) fn fts_diagnostic(conn: &Connection) -> FtsDiagnostic {
+    let indexed_count = conn.query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0));
+    let divergence = fts_divergence(conn);
+
+    let corruption_error = indexed_count
+        .as_ref()
+        .err()
+        .map(|e| e.to_string())
+        .or_else(|| divergence.as_ref().err().map(|e| e.to_string()));
+
+    FtsDiagnostic {
+        indexed_count: indexed_count.ok(),
+        divergence: divergence.ok(),
+        corruption_error,
+    }
+}
 
 /// Detects and repairs divergence between the `memories` table and the
 /// `memories_fts` full-text index, returning the number of FTS rows changed.

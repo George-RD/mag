@@ -24,9 +24,8 @@ impl MaintenanceManager for SqliteStorage {
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
                 .context("failed to count memories")?;
 
-            let fts_count: i64 = conn
-                .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
-                .context("failed to count FTS5 rows")?;
+            let fts = super::super::schema::fts_diagnostic(&conn);
+            let fts_count = fts.indexed_count.unwrap_or(0);
 
             let integrity: String = conn
                 .query_row("PRAGMA integrity_check", [], |row| row.get(0))
@@ -69,17 +68,13 @@ impl MaintenanceManager for SqliteStorage {
                 status = "healthy";
             }
 
-            let (fts_orphaned, fts_missing) = super::super::schema::fts_divergence(&conn)?;
-            let fts5_in_sync = fts_orphaned == 0 && fts_missing == 0;
-            if !fts5_in_sync {
-                warnings.push(format!(
-                    "FTS5 index out of sync: {fts_orphaned} orphaned index rows, {fts_missing} unindexed memories (run `mag maintain --action fts-rebuild`)"
-                ));
+            let fts5_in_sync = fts.in_sync();
+            if let Some(w) = fts.warning() {
+                warnings.push(w);
                 if status == "healthy" {
                     status = "warning";
                 }
             }
-
             Ok::<_, anyhow::Error>(serde_json::json!({
                 "status": status,
                 "db_size_mb": (db_size_mb * 100.0).round() / 100.0,

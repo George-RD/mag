@@ -8010,3 +8010,93 @@ async fn test_stats_detects_equal_count_fts_divergence() {
         "equal-count id divergence must still report out of sync"
     );
 }
+
+/// Structurally corrupt FTS indexes (e.g. a damaged `memories_fts_data` segment
+/// tree) can make `fts_divergence()` itself fail while the `memories` table
+/// remains readable. Maintenance diagnostics must stay callable and report the
+/// FTS problem explicitly instead of returning an opaque error.
+#[tokio::test]
+async fn test_check_health_reports_structurally_corrupt_fts() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "corrupt-diag-1",
+        "happy cat",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts_data", []).unwrap();
+    }
+
+    let report =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .expect("check_health must remain callable when the FTS index is structurally corrupt");
+
+    assert!(
+        report["status"] == "warning" || report["status"] == "critical",
+        "structurally corrupt FTS must degrade the health status"
+    );
+    // NOTE: we do NOT assert `integrity_ok == true` here.  PRAGMA integrity_check
+    // validates the entire database, including FTS5 shadow tables.  Since we
+    // deliberately corrupted the FTS index by deleting from memories_fts_data, the
+    // check may correctly report integrity_ok=false even though the core memories
+    // table is intact.  The actual regression contract (call succeeds, status
+    // degraded, warning flags FTS) is covered by the assertions above and below.
+    let warnings = report["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| {
+            let s = w.as_str().unwrap_or("");
+            s.contains("FTS") && (s.contains("corrupt") || s.contains("out of sync"))
+        }),
+        "warning must explicitly flag the FTS problem; got {:?}",
+        warnings
+    );
+}
+
+/// `stats()` must likewise tolerate a structurally corrupt FTS index and surface
+/// a degraded `fts5_in_sync` report rather than erroring.
+#[tokio::test]
+async fn test_stats_reports_structurally_corrupt_fts() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "corrupt-diag-2",
+        "happy cat",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts_data", []).unwrap();
+    }
+
+    let stats = storage
+        .stats()
+        .await
+        .expect("stats must remain callable when the FTS index is structurally corrupt");
+
+    assert_eq!(
+        stats["fts5_in_sync"], false,
+        "structurally corrupt FTS must report fts5_in_sync=false"
+    );
+    assert!(
+        stats.get("fts5_error").is_some()
+            || stats
+                .get("warnings")
+                .and_then(|w| w.as_array())
+                .map(|arr| arr.iter().any(|w| {
+                    let s = w.as_str().unwrap_or("");
+                    s.contains("FTS") && (s.contains("corrupt") || s.contains("out of sync"))
+                }))
+                .unwrap_or(false),
+        "stats must surface a degraded FTS report; got {:?}",
+        stats
+    );
+}
