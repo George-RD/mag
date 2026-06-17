@@ -68,11 +68,11 @@ async fn substrate_fts_pipeline_returns_results() {
 #[tokio::test]
 async fn substrate_embed_and_extract_reuses_precomputed_embedding() {
     #[derive(Clone)]
-    struct CountingEmbedder {
+    struct RecordingEmbedder {
         counter: Arc<AtomicUsize>,
     }
 
-    impl Embedder for CountingEmbedder {
+    impl Embedder for RecordingEmbedder {
         fn dimension(&self) -> usize {
             32
         }
@@ -84,30 +84,31 @@ async fn substrate_embed_and_extract_reuses_precomputed_embedding() {
     }
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let embedder: Arc<dyn Embedder> = Arc::new(CountingEmbedder {
+    let embedder: Arc<dyn Embedder> = Arc::new(RecordingEmbedder {
         counter: Arc::clone(&counter),
     });
     let storage =
         SqliteStorage::new_with_path(PathBuf::from(":memory:"), Arc::clone(&embedder)).unwrap();
     let store: Arc<dyn MemoryStore> = Arc::new(storage);
-
     let pipeline = EmbedAndExtractPipeline::new(Arc::clone(&embedder));
 
+    let precomputed_embedding = vec![0.25_f32; 32];
     let ctx = WriteContext {
         input: MemoryInput {
             content: "rust programming language".to_string(),
             ..Default::default()
         },
         assigned_id: "mem-1".to_string(),
-        embedding: None,
+        embedding: Some(precomputed_embedding),
     };
 
     let id = pipeline.ingest(ctx, store.as_ref()).await.unwrap();
     assert_eq!(id, "mem-1");
+    assert_eq!(store.retrieve(&id).await.unwrap(), "rust programming language");
 
     let count = counter.load(Ordering::SeqCst);
     assert_eq!(
-        count, 1,
-        "embedder should be invoked exactly once for a single ingest with a precomputed embedding, got {count}"
+        count, 0,
+        "embedder should not be invoked when WriteContext supplies a precomputed embedding, got {count}"
     );
 }
