@@ -152,7 +152,7 @@ fn extract_projects(text: &str) -> Vec<String> {
 }
 
 /// Convert a name to a URL-safe slug.
-pub(super) fn slugify(value: &str) -> String {
+pub fn slugify(value: &str) -> String {
     let cleaned: String = value
         .to_lowercase()
         .chars()
@@ -185,7 +185,7 @@ pub(super) fn slugify(value: &str) -> String {
 /// - Min 2 chars after slugification
 /// - Max 6 words (hyphens count as word separators)
 /// - Reject pure stopwords, code class names (*Handler/*Service), boolean literals
-pub(super) fn is_valid_entity(slug: &str) -> bool {
+pub fn is_valid_entity(slug: &str) -> bool {
     if slug.len() < 2 {
         return false;
     }

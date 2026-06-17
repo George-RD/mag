@@ -6,8 +6,12 @@ use crate::memory_core::storage::sqlite::pipeline::retrieval::{
     collect_fts_candidates as collect_fts, collect_vector_candidates as collect_vec,
 };
 use crate::memory_core::{
-    BackupInfo, CheckpointInput, GraphNode, ListResult, MemoryInput, MemoryUpdate, SearchOptions,
-    SearchResult, SemanticResult,
+    AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager, Deleter,
+    ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult,
+    Lister, MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, Recents,
+    RelationshipQuerier, ReminderManager, Retriever, SearchOptions, SearchResult, Searcher,
+    SemanticResult, SemanticSearcher, SimilarFinder, StatsProvider, Storage, Tagger, Updater,
+    VersionChainQuerier, WelcomeProvider,
 };
 use crate::substrate::traits::MemoryStore;
 use crate::substrate::types::{CandidateSet, ScoredCandidate};
@@ -17,23 +21,22 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
-
 #[async_trait]
 impl MemoryStore for SqliteStorage {
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
-        self.store(id, data, input).await
+        <Self as Storage>::store(self, id, data, input).await
     }
 
     async fn retrieve(&self, id: &str) -> Result<String> {
-        self.retrieve(id).await
+        <Self as Retriever>::retrieve(self, id).await
     }
 
     async fn delete(&self, id: &str) -> Result<bool> {
-        self.delete(id).await
+        <Self as Deleter>::delete(self, id).await
     }
 
     async fn update(&self, id: &str, update: &MemoryUpdate) -> Result<()> {
-        self.update(id, update).await
+        <Self as Updater>::update(self, id, update).await
     }
 
     async fn search(
@@ -42,7 +45,7 @@ impl MemoryStore for SqliteStorage {
         limit: usize,
         opts: &SearchOptions,
     ) -> Result<Vec<SearchResult>> {
-        self.search(query, limit, opts).await
+        <Self as Searcher>::search(self, query, limit, opts).await
     }
 
     async fn semantic_search(
@@ -51,7 +54,7 @@ impl MemoryStore for SqliteStorage {
         limit: usize,
         opts: &SearchOptions,
     ) -> Result<Vec<SemanticResult>> {
-        self.semantic_search(query, limit, opts).await
+        <Self as SemanticSearcher>::semantic_search(self, query, limit, opts).await
     }
 
     async fn advanced_search(
@@ -60,7 +63,7 @@ impl MemoryStore for SqliteStorage {
         limit: usize,
         opts: &SearchOptions,
     ) -> Result<Vec<SemanticResult>> {
-        self.advanced_search(query, limit, opts).await
+        <Self as AdvancedSearcher>::advanced_search(self, query, limit, opts).await
     }
 
     async fn phrase_search(
@@ -69,11 +72,11 @@ impl MemoryStore for SqliteStorage {
         limit: usize,
         opts: &SearchOptions,
     ) -> Result<Vec<SearchResult>> {
-        self.phrase_search(phrase, limit, opts).await
+        <Self as PhraseSearcher>::phrase_search(self, phrase, limit, opts).await
     }
 
     async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>> {
-        self.recent(limit, opts).await
+        <Self as Recents>::recent(self, limit, opts).await
     }
 
     async fn get_by_tags(
@@ -82,11 +85,11 @@ impl MemoryStore for SqliteStorage {
         limit: usize,
         opts: &SearchOptions,
     ) -> Result<Vec<SearchResult>> {
-        self.get_by_tags(tags, limit, opts).await
+        <Self as Tagger>::get_by_tags(self, tags, limit, opts).await
     }
 
     async fn list(&self, offset: usize, limit: usize, opts: &SearchOptions) -> Result<ListResult> {
-        self.list(offset, limit, opts).await
+        <Self as Lister>::list(self, offset, limit, opts).await
     }
 
     async fn traverse(
@@ -96,27 +99,26 @@ impl MemoryStore for SqliteStorage {
         min_weight: f64,
         edge_types: Option<&[String]>,
     ) -> Result<Vec<GraphNode>> {
-        self.traverse(start_id, max_hops, min_weight, edge_types)
-            .await
+        <Self as GraphTraverser>::traverse(self, start_id, max_hops, min_weight, edge_types).await
     }
 
     async fn get_relationships(
         &self,
         memory_id: &str,
     ) -> Result<Vec<crate::memory_core::Relationship>> {
-        self.get_relationships(memory_id).await
+        <Self as RelationshipQuerier>::get_relationships(self, memory_id).await
     }
 
     async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>> {
-        self.find_similar(memory_id, limit).await
+        <Self as SimilarFinder>::find_similar(self, memory_id, limit).await
     }
 
     async fn get_version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>> {
-        self.get_version_chain(memory_id).await
+        <Self as VersionChainQuerier>::get_version_chain(self, memory_id).await
     }
 
     async fn sweep_expired(&self) -> Result<usize> {
-        self.sweep_expired().await
+        <Self as ExpirationSweeper>::sweep_expired(self).await
     }
 
     async fn record_feedback(
@@ -125,19 +127,19 @@ impl MemoryStore for SqliteStorage {
         rating: &str,
         reason: Option<&str>,
     ) -> Result<serde_json::Value> {
-        self.record_feedback(memory_id, rating, reason).await
+        <Self as FeedbackRecorder>::record_feedback(self, memory_id, rating, reason).await
     }
 
     async fn get_profile(&self) -> Result<serde_json::Value> {
-        self.get_profile().await
+        <Self as ProfileManager>::get_profile(self).await
     }
 
     async fn set_profile(&self, updates: &serde_json::Value) -> Result<()> {
-        self.set_profile(updates).await
+        <Self as ProfileManager>::set_profile(self, updates).await
     }
 
     async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
-        self.save_checkpoint(input).await
+        <Self as CheckpointManager>::save_checkpoint(self, input).await
     }
 
     async fn resume_task(
@@ -146,9 +148,8 @@ impl MemoryStore for SqliteStorage {
         project: Option<&str>,
         limit: usize,
     ) -> Result<Vec<serde_json::Value>> {
-        self.resume_task(query, project, limit).await
+        <Self as CheckpointManager>::resume_task(self, query, project, limit).await
     }
-
     async fn create_reminder(
         &self,
         text: &str,
@@ -157,16 +158,23 @@ impl MemoryStore for SqliteStorage {
         session_id: Option<&str>,
         project: Option<&str>,
     ) -> Result<serde_json::Value> {
-        self.create_reminder(text, duration_str, context, session_id, project)
-            .await
+        <Self as ReminderManager>::create_reminder(
+            self,
+            text,
+            duration_str,
+            context,
+            session_id,
+            project,
+        )
+        .await
     }
 
     async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>> {
-        self.list_reminders(status).await
+        <Self as ReminderManager>::list_reminders(self, status).await
     }
 
     async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
-        self.dismiss_reminder(reminder_id).await
+        <Self as ReminderManager>::dismiss_reminder(self, reminder_id).await
     }
 
     async fn query_lessons(
@@ -177,8 +185,15 @@ impl MemoryStore for SqliteStorage {
         agent_type: Option<&str>,
         limit: usize,
     ) -> Result<Vec<serde_json::Value>> {
-        self.query_lessons(task, project, exclude_session, agent_type, limit)
-            .await
+        <Self as LessonQuerier>::query_lessons(
+            self,
+            task,
+            project,
+            exclude_session,
+            agent_type,
+            limit,
+        )
+        .await
     }
 
     async fn check_health(
@@ -187,11 +202,11 @@ impl MemoryStore for SqliteStorage {
         critical_mb: f64,
         max_nodes: i64,
     ) -> Result<serde_json::Value> {
-        self.check_health(warn_mb, critical_mb, max_nodes).await
+        <Self as MaintenanceManager>::check_health(self, warn_mb, critical_mb, max_nodes).await
     }
 
     async fn consolidate(&self, prune_days: i64, max_summaries: i64) -> Result<serde_json::Value> {
-        self.consolidate(prune_days, max_summaries).await
+        <Self as MaintenanceManager>::consolidate(self, prune_days, max_summaries).await
     }
 
     async fn compact(
@@ -201,12 +216,18 @@ impl MemoryStore for SqliteStorage {
         min_cluster_size: usize,
         dry_run: bool,
     ) -> Result<serde_json::Value> {
-        self.compact(event_type, similarity_threshold, min_cluster_size, dry_run)
-            .await
+        <Self as MaintenanceManager>::compact(
+            self,
+            event_type,
+            similarity_threshold,
+            min_cluster_size,
+            dry_run,
+        )
+        .await
     }
 
     async fn clear_session(&self, session_id: &str) -> Result<usize> {
-        self.clear_session(session_id).await
+        <Self as MaintenanceManager>::clear_session(self, session_id).await
     }
 
     async fn auto_compact(
@@ -214,43 +235,43 @@ impl MemoryStore for SqliteStorage {
         count_threshold: usize,
         dry_run: bool,
     ) -> Result<serde_json::Value> {
-        self.auto_compact(count_threshold, dry_run).await
+        <Self as MaintenanceManager>::auto_compact(self, count_threshold, dry_run).await
     }
 
     async fn type_stats(&self) -> Result<serde_json::Value> {
-        self.type_stats().await
+        <Self as StatsProvider>::type_stats(self).await
     }
 
     async fn session_stats(&self) -> Result<serde_json::Value> {
-        self.session_stats().await
+        <Self as StatsProvider>::session_stats(self).await
     }
 
     async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value> {
-        self.weekly_digest(days).await
+        <Self as StatsProvider>::weekly_digest(self, days).await
     }
 
     async fn access_rate_stats(&self) -> Result<serde_json::Value> {
-        self.access_rate_stats().await
+        <Self as StatsProvider>::access_rate_stats(self).await
     }
 
     async fn create_backup(&self) -> Result<BackupInfo> {
-        self.create_backup().await
+        <Self as BackupManager>::create_backup(self).await
     }
 
     async fn rotate_backups(&self, max_count: usize) -> Result<usize> {
-        self.rotate_backups(max_count).await
+        <Self as BackupManager>::rotate_backups(self, max_count).await
     }
 
     async fn list_backups(&self) -> Result<Vec<BackupInfo>> {
-        self.list_backups().await
+        <Self as BackupManager>::list_backups(self).await
     }
 
     async fn restore_backup(&self, backup_path: &std::path::Path) -> Result<()> {
-        self.restore_backup(backup_path).await
+        <Self as BackupManager>::restore_backup(self, backup_path).await
     }
 
     async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>> {
-        self.maybe_startup_backup().await
+        <Self as BackupManager>::maybe_startup_backup(self).await
     }
 
     async fn welcome(
@@ -258,9 +279,8 @@ impl MemoryStore for SqliteStorage {
         session_id: Option<&str>,
         project: Option<&str>,
     ) -> Result<serde_json::Value> {
-        self.welcome(session_id, project).await
+        <Self as WelcomeProvider>::welcome(self, session_id, project).await
     }
-
     async fn collect_vector_candidates(
         &self,
         query_embedding: &[f32],

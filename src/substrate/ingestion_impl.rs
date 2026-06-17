@@ -1,4 +1,6 @@
 use crate::memory_core::embedder::Embedder;
+#[cfg(feature = "llm")]
+use crate::substrate::extraction::LlmExtractor;
 use crate::substrate::traits::{IngestionPipeline, MemoryStore};
 use crate::substrate::types::WriteContext;
 use anyhow::Result;
@@ -34,7 +36,7 @@ impl EmbedAndExtractPipeline {
 
 #[async_trait]
 impl IngestionPipeline for EmbedAndExtractPipeline {
-    async fn ingest(&self, ctx: WriteContext, store: &dyn MemoryStore) -> Result<String> {
+    async fn ingest(&self, mut ctx: WriteContext, store: &dyn MemoryStore) -> Result<String> {
         let id = if ctx.assigned_id.is_empty() {
             uuid::Uuid::new_v4().to_string()
         } else {
@@ -47,12 +49,66 @@ impl IngestionPipeline for EmbedAndExtractPipeline {
         let embedding = tokio::task::spawn_blocking(move || embedder.embed(&content))
             .await
             .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {e:?}"))??;
-
         #[cfg(feature = "llm")]
-        if let Some(ref _llm) = self.llm {
-            // Phase 2: LLM-powered extraction (facts, entities, relationships, temporal).
-            // For now, the store performs rule-based entity extraction.
-            // TODO: Use LLM to enrich tags/metadata before storing.
+        if let Some(ref llm_backend) = self.llm {
+            let extractor = LlmExtractor {
+                llm: Arc::clone(llm_backend),
+            };
+            match extractor.extract(&ctx.input.content).await {
+                Ok(result) => {
+                    use std::collections::HashSet;
+                    let mut tag_set: HashSet<String> =
+                        HashSet::with_capacity(ctx.input.tags.len() + 30);
+                    for tag in &ctx.input.tags {
+                        tag_set.insert(tag.clone());
+                    }
+                    for tag in result.entity_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.fact_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.relationship_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.temporal_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.topic_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.sentiment_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.action_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.location_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.decision_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.question_tags() {
+                        tag_set.insert(tag);
+                    }
+                    for tag in result.status_tags() {
+                        tag_set.insert(tag);
+                    }
+                    ctx.input.tags = tag_set.into_iter().collect();
+                    if let Ok(meta) = serde_json::to_value(&result) {
+                        ctx.input.metadata["llm_extraction"] = meta;
+                    }
+                    if ctx.input.referenced_date.is_none()
+                        && let Some(date) = result.best_temporal_date()
+                    {
+                        ctx.input.referenced_date = Some(date.to_string());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "LLM extraction failed, falling back to rule-based");
+                }
+            }
         }
 
         store
