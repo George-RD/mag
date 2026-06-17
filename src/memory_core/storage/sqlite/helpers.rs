@@ -91,7 +91,7 @@ const SYNONYM_CAP: usize = 3;
 /// every word in a group maps to all *other* words in that group.
 ///
 /// Returns an empty slice for words without known synonyms.
-fn get_synonyms(word: &str) -> &'static [&'static str] {
+pub(crate) fn get_synonyms(word: &str) -> &'static [&'static str] {
     match word {
         "buy" | "purchase" | "bought" => match word {
             "buy" => &["purchase", "bought"],
@@ -431,10 +431,12 @@ fn get_synonyms(word: &str) -> &'static [&'static str] {
             "come" => &["arrive", "reach"],
             _ => &[],
         },
-        "fix" | "repair" | "mend" => match word {
-            "fix" => &["repair", "mend"],
-            "repair" => &["fix", "mend"],
-            "mend" => &["fix", "repair"],
+        "fix" | "repair" | "resolve" | "patch" | "mend" => match word {
+            "fix" => &["repair", "resolve", "patch", "mend"],
+            "repair" => &["fix", "resolve", "patch", "mend"],
+            "resolve" => &["fix", "repair", "patch", "mend"],
+            "patch" => &["fix", "repair", "resolve", "mend"],
+            "mend" => &["fix", "repair", "resolve", "patch"],
             _ => &[],
         },
         "break" | "shatter" | "crack" | "damage" => match word {
@@ -458,6 +460,77 @@ fn get_synonyms(word: &str) -> &'static [&'static str] {
         },
         _ => &[],
     }
+}
+/// Expands ISO dates in text to natural language month names.
+/// Returns a space-separated string of expanded tokens.
+pub(crate) fn expand_date_tokens(text: &str) -> String {
+    const MONTHS: [&str; 13] = [
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let mut extra = String::new();
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        // Check if current position starts a 4-digit sequence
+        if i + 4 <= len
+            && bytes[i].is_ascii_digit()
+            && bytes[i + 1].is_ascii_digit()
+            && bytes[i + 2].is_ascii_digit()
+            && bytes[i + 3].is_ascii_digit()
+        {
+            // Ensure this is a word boundary (not preceded by alphanumeric)
+            let at_word_start = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+            if at_word_start
+                && i + 10 <= len
+                && bytes[i + 4] == b'-'
+                && bytes[i + 5].is_ascii_digit()
+                && bytes[i + 6].is_ascii_digit()
+                && bytes[i + 7] == b'-'
+                && bytes[i + 8].is_ascii_digit()
+                && bytes[i + 9].is_ascii_digit()
+            {
+                // Full YYYY-MM-DD pattern
+                let year = &text[i..i + 4];
+                let month_num: usize = text[i + 5..i + 7].parse().unwrap_or(0);
+                let day: usize = text[i + 8..i + 10].parse().unwrap_or(0);
+                if (1..=12).contains(&month_num) && (1..=31).contains(&day) {
+                    let month_name = MONTHS[month_num];
+                    extra.push(' ');
+                    extra.push_str(&format!("{month_name} {year} {day} {month_name} {year}"));
+                }
+                i += 10;
+            } else if at_word_start {
+                // Standalone 4-digit year (1900-2099) not part of ISO date
+                let at_word_end = i + 4 >= len || !bytes[i + 4].is_ascii_alphanumeric();
+                if at_word_end {
+                    let year_num: u16 = text[i..i + 4].parse().unwrap_or(0);
+                    if (1900..=2099).contains(&year_num) {
+                        extra.push(' ');
+                        extra.push_str(&text[i..i + 4]);
+                    }
+                }
+                i += 4;
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    extra
 }
 
 pub(super) fn build_fts5_query(input: &str) -> String {
@@ -522,7 +595,8 @@ pub(super) fn build_fts5_query(input: &str) -> String {
     // For 1-2 token queries, bigrams would be redundant (either a single
     // token or an exact duplicate of the full query). Just join with OR.
     if effective_tokens.len() < 3 {
-        let mut parts = escaped;
+        let mut parts = Vec::with_capacity(escaped.len() + synonym_terms.len());
+        parts.extend(escaped);
         parts.extend(synonym_terms);
         return parts.join(" OR ");
     }
@@ -537,7 +611,8 @@ pub(super) fn build_fts5_query(input: &str) -> String {
         })
         .collect();
 
-    let mut parts = escaped;
+    let mut parts = Vec::with_capacity(escaped.len() + bigrams.len() + synonym_terms.len());
+    parts.extend(escaped);
     parts.extend(bigrams);
     parts.extend(synonym_terms);
     parts.join(" OR ")
@@ -1233,5 +1308,15 @@ mod tests {
         assert!(q.contains("\"movie\""));
         assert!(q.contains("\"film\""));
         assert!(!q.contains("\"the\""));
+    }
+
+    #[test]
+    fn fts5_query_fix_expands_to_patch_repair_resolve() {
+        let q = build_fts5_query("fix payment");
+        assert!(q.contains("\"fix\""), "original term present");
+        assert!(q.contains("\"patch\""), "synonym patch present");
+        assert!(q.contains("\"repair\""), "synonym repair present");
+        assert!(q.contains("\"resolve\""), "synonym resolve present");
+        assert!(q.contains("\"payment\""), "non-synonym term present");
     }
 }

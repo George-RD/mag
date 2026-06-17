@@ -1,5 +1,6 @@
 pub mod consolidation_impl;
 pub mod enrichment_impl;
+pub mod extraction;
 pub mod fusion_impl;
 pub mod ingestion_impl;
 pub mod lifecycle_impl;

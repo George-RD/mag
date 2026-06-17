@@ -25,6 +25,14 @@ impl Searcher for SqliteStorage {
 
             let fts_query = build_fts5_query(&query);
             let include_superseded = opts.include_superseded.unwrap_or(false);
+            let mut all_results: Vec<SearchResult> = Vec::with_capacity(limit * 2);
+            let mut seen_ids: std::collections::HashSet<String> =
+                std::collections::HashSet::with_capacity(limit * 2);
+            let mut tag_match_count: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::with_capacity(limit * 2);
+            let mut fts_position: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::with_capacity(limit * 2);
+            // ── Phase 1: FTS5 content search ──
             let mut fts_sql = String::from(
                 "SELECT f.id, m.content, m.tags, m.importance, m.metadata, m.event_type, m.session_id, m.project, m.entity_id, m.agent_type
                  FROM memories_fts f
@@ -45,71 +53,189 @@ impl Searcher for SqliteStorage {
                 "m.tags",
             );
             fts_sql.push_str(" ORDER BY bm25(memories_fts)");
+            let candidate_limit = effective_limit * 10;
             fts_sql.push_str(&format!(" LIMIT ?{param_idx}"));
-            fts_params.push(SqlValue::Integer(effective_limit));
+            fts_params.push(SqlValue::Integer(candidate_limit));
 
-            let fts_result = conn.prepare(&fts_sql);
-
-            if let Ok(mut stmt) = fts_result {
+            if let Ok(mut stmt) = conn.prepare(&fts_sql) {
                 let fts_param_refs = to_param_refs(&fts_params);
-                let rows = stmt
-                    .query_map(fts_param_refs.as_slice(), search_result_from_row);
-
+                let rows = stmt.query_map(fts_param_refs.as_slice(), search_result_from_row);
                 if let Err(ref e) = rows {
-                    tracing::warn!("FTS5 search failed, falling back to LIKE: {e}");
+                    tracing::warn!("FTS5 search failed: {e}");
                 }
                 if let Ok(rows) = rows {
-                    let mut results = Vec::new();
-                    for row in rows {
-                        results.push(row.context("failed to decode FTS5 search row")?);
-                    }
-
-                    if !results.is_empty() {
-                        return Ok(results);
+                    for (pos, row) in rows.enumerate() {
+                        let result = row.context("failed to decode FTS5 search row")?;
+                        seen_ids.insert(result.id.clone());
+                        fts_position.insert(result.id.clone(), pos);
+                        all_results.push(result);
                     }
                 }
             }
 
-            let pattern = escape_like_pattern(&query);
+            // ── Phase 2: Tokenized tag search ──
+            let raw_tokens: Vec<&str> = query.split_whitespace().collect();
+            let tag_tokens: Vec<String> = raw_tokens
+                .iter()
+                .map(|t| t.to_lowercase())
+                .filter(|t| !t.is_empty() && !is_stopword(t))
+                .collect();
 
-            let mut sql = String::from(
-                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
-                 FROM memories
-                 WHERE lower(content) LIKE ?1 ESCAPE '\\'",
-            );
-            if !include_superseded {
-                sql.push_str(" AND superseded_by_id IS NULL");
+            if !tag_tokens.is_empty() {
+                let mut tag_sql = String::from(
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
+                     FROM memories
+                     WHERE (",
+                );
+                let mut tag_params: Vec<SqlValue> = Vec::new();
+                for (i, token) in tag_tokens.iter().enumerate() {
+                    if i > 0 {
+                        tag_sql.push_str(" OR ");
+                    }
+                    tag_sql.push_str(&format!("lower(tags) LIKE ?{}", i + 1));
+                    tag_params.push(SqlValue::Text(format!("%{}%", token)));
+                }
+                tag_sql.push(')');
+
+                if !include_superseded {
+                    tag_sql.push_str(" AND superseded_by_id IS NULL");
+                }
+                let mut tag_idx = tag_tokens.len() + 1;
+                append_search_filters(
+                    &mut tag_sql, &mut tag_params, &mut tag_idx, &opts, "");
+                append_context_tag_filters(
+                    &mut tag_sql,
+                    &mut tag_params,
+                    &mut tag_idx,
+                    opts.context_tags.as_deref(),
+                    "tags",
+                );
+                tag_sql.push_str(" ORDER BY last_accessed_at DESC");
+
+                if let Ok(mut stmt) = conn.prepare(&tag_sql) {
+                    let tag_param_refs = to_param_refs(&tag_params);
+                    if let Ok(rows) = stmt.query_map(tag_param_refs.as_slice(), search_result_from_row) {
+                        for row in rows {
+                            let result = row.context("failed to decode tag search row")?;
+                            let mut tag_text = result.tags.join(" ");
+                            if tag_text.is_ascii() {
+                                tag_text.make_ascii_lowercase();
+                            } else {
+                                tag_text = tag_text.to_lowercase();
+                            }
+                            let mut tag_words: Vec<&str> = tag_text
+                                .split(|c: char| !c.is_alphanumeric() && c != '-')
+                                .filter(|w| !w.is_empty())
+                                .collect();
+                            // Also add fully-split words (e.g. "machine-learning" → "machine", "learning")
+                            let split_words: Vec<&str> = tag_text
+                                .split(|c: char| !c.is_alphanumeric())
+                                .filter(|w| !w.is_empty() && w.len() > 2)
+                                .collect();
+                            tag_words.extend(split_words);
+                            // Expand ISO dates in tags to natural language month names
+                            let date_expansion = expand_date_tokens(&tag_text);
+                            let date_words: Vec<&str> = date_expansion.split_whitespace().collect();
+                            let match_count = tag_tokens
+                                .iter()
+                                .filter(|t| {
+                                    if tag_words.contains(&t.as_str()) || date_words.contains(&t.as_str()) {
+                                        return true;
+                                    }
+                                    let stemmed_t = simple_stem(t);
+                                    if stemmed_t != **t
+                                        && (tag_words.iter().any(|word| simple_stem(word) == stemmed_t)
+                                            || date_words.iter().any(|word| simple_stem(word) == stemmed_t))
+                                    {
+                                        return true;
+                                    }
+                                    // Synonym expansion: check if any synonym matches a tag word
+                                    for syn in get_synonyms(t) {
+                                        if tag_words.contains(syn) || date_words.contains(syn) {
+                                            return true;
+                                        }
+                                        let stemmed_syn = simple_stem(syn);
+                                        if stemmed_syn != *syn
+                                            && (tag_words.iter().any(|word| simple_stem(word) == stemmed_syn)
+                                                || date_words.iter().any(|word| simple_stem(word) == stemmed_syn))
+                                        {
+                                            return true;
+                                        }
+                                    }
+                                    false
+                                })
+                                .count();
+                            if match_count > 0 {
+                                tag_match_count.insert(result.id.clone(), match_count);
+                            }
+                            if seen_ids.insert(result.id.clone()) {
+                                all_results.push(result);
+                            }
+                        }
+                    }
+                }
             }
-            let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
-            let mut idx = 2;
-            append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
-            append_context_tag_filters(
-                &mut sql,
-                &mut params_values,
-                &mut idx,
-                opts.context_tags.as_deref(),
-                "tags",
-            );
-            sql.push_str(" ORDER BY last_accessed_at DESC");
-            sql.push_str(&format!(" LIMIT ?{idx}"));
-            params_values.push(SqlValue::Integer(effective_limit));
+            // ── Phase 3: Re-rank by composite score ──
+            // Score = tag_matches * 100 * coverage - fts_position + dual_bonus
+            // where coverage = match_count / query_token_count.
+            // Coverage weighting rewards memories that match a higher fraction
+            // of the query tokens, creating tighter margins between fully
+            // relevant and partially relevant matches.
+            let query_token_count = tag_tokens.len().max(1) as i64;
+            #[allow(clippy::cast_precision_loss)]
+            all_results.sort_by(|a, b| {
+                let a_match = tag_match_count.get(&a.id).copied().unwrap_or(0) as i64;
+                let b_match = tag_match_count.get(&b.id).copied().unwrap_or(0) as i64;
+                let a_pos = fts_position.get(&a.id).copied().unwrap_or(1000) as i64;
+                let b_pos = fts_position.get(&b.id).copied().unwrap_or(1000) as i64;
+                let a_dual = if fts_position.contains_key(&a.id) && tag_match_count.contains_key(&a.id) { 10 } else { 0 };
+                let b_dual = if fts_position.contains_key(&b.id) && tag_match_count.contains_key(&b.id) { 10 } else { 0 };
+                let a_coverage = a_match as f64 / query_token_count as f64;
+                let b_coverage = b_match as f64 / query_token_count as f64;
+                let a_imp = a.importance * 50.0;
+                let b_imp = b.importance * 50.0;
+                let a_score = (a_match * 100) as f64 * a_coverage - a_pos as f64 + a_dual as f64 + a_imp;
+                let b_score = (b_match * 100) as f64 * b_coverage - b_pos as f64 + b_dual as f64 + b_imp;
+                b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            if all_results.is_empty() {
+                let pattern = escape_like_pattern(&query);
+                let mut sql = String::from(
+                    "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
+                     FROM memories
+                     WHERE lower(content) LIKE ?1 ESCAPE '\\'",
+                );
+                if !include_superseded {
+                    sql.push_str(" AND superseded_by_id IS NULL");
+                }
+                let mut params_values: Vec<SqlValue> = vec![SqlValue::Text(pattern)];
+                let mut idx = 2;
+                append_search_filters(&mut sql, &mut params_values, &mut idx, &opts, "");
+                append_context_tag_filters(
+                    &mut sql,
+                    &mut params_values,
+                    &mut idx,
+                    opts.context_tags.as_deref(),
+                    "tags",
+                );
+                sql.push_str(" ORDER BY last_accessed_at DESC");
+                sql.push_str(&format!(" LIMIT ?{idx}"));
+                params_values.push(SqlValue::Integer(effective_limit));
 
-            let mut stmt = conn
-                .prepare(&sql)
-                .context("failed to prepare LIKE search query")?;
-
-            let like_param_refs = to_param_refs(&params_values);
-
-            let rows = stmt
-                .query_map(like_param_refs.as_slice(), search_result_from_row)
-                .context("failed to execute LIKE search query")?;
-
-            let mut results = Vec::new();
-            for row in rows {
-                results.push(row.context("failed to decode LIKE search row")?);
+                let mut stmt = conn
+                    .prepare(&sql)
+                    .context("failed to prepare LIKE search query")?;
+                let like_param_refs = to_param_refs(&params_values);
+                let rows = stmt
+                    .query_map(like_param_refs.as_slice(), search_result_from_row)
+                    .context("failed to execute LIKE search query")?;
+                for row in rows {
+                    all_results.push(row.context("failed to decode LIKE search row")?);
+                }
             }
 
-            Ok::<_, anyhow::Error>(results)
+            all_results.truncate(limit);
+            Ok::<_, anyhow::Error>(all_results)
         })
         .await
         .context("spawn_blocking join error")?
@@ -378,7 +504,6 @@ impl PhraseSearcher for SqliteStorage {
             let conn = pool.reader()?;
 
             let pattern = escape_like_pattern(&phrase);
-
             let mut sql = String::from(
                 "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type
                  FROM memories
