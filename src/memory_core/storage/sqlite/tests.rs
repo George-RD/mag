@@ -7775,6 +7775,70 @@ async fn test_reopen_repairs_partial_fts_divergence_and_orphans() {
     let _ = fs::remove_dir_all(base);
 }
 
+/// A structurally corrupt FTS5 index — a damaged segment b-tree
+/// (`memories_fts_data`) left by an interrupted write or `kill -9` — makes
+/// *every* index read raise "fts5: corruption found reading blob …", so the
+/// id-set divergence probe itself errors and the prior self-heal gave up,
+/// leaving search permanently broken for a reused database. Reopening must
+/// detect the unreadable index and rebuild it from the `memories` source of
+/// truth. A surgical DELETE+reinsert leaves residual shadow-table damage that
+/// still fails `integrity-check`, so recovery must be a full DROP+repopulate.
+#[tokio::test]
+async fn test_reopen_rebuilds_structurally_corrupt_fts() {
+    let base = std::env::temp_dir().join(format!("mag-fts-corrupt-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+
+    {
+        let storage = SqliteStorage::new_with_path(
+            db_path.clone(),
+            std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+        )
+        .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "corrupt-1", "happy cat", &MemoryInput::default())
+            .await
+            .unwrap();
+        // Wipe the fts5 segment b-tree to simulate post-crash corruption: the
+        // index becomes unreadable while the `memories` table stays intact.
+        {
+            let conn = storage.test_conn().unwrap();
+            conn.execute("DELETE FROM memories_fts_data", []).unwrap();
+        }
+    } // drop storage → close pool → persist the corrupt index to disk
+
+    let reopened = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // `"cats"` is a porter-stemmed match for stored `"happy cat"` but not a
+    // substring, so the `LIKE` fallback cannot satisfy it — only a rebuilt FTS
+    // index can return the row.
+    let results = reopened
+        .search("cats", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        results.len(),
+        1,
+        "structurally corrupt FTS must be rebuilt on open so stored content is findable"
+    );
+    assert_eq!(results[0].id, "corrupt-1");
+    assert_eq!(fts_match_count(&reopened, "cats"), 1);
+
+    // The rebuilt index is internally consistent.
+    {
+        let conn = reopened.test_conn().unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')",
+            [],
+        )
+        .expect("rebuilt FTS index must pass fts5 integrity-check");
+    }
+
+    let _ = fs::remove_dir_all(base);
+}
+
 /// `rebuild_fts` recovers content-level drift (matching ids, stale indexed
 /// text) — a divergence `ensure_fts_sync`'s id anti-joins intentionally do not
 /// detect, so the manual full rebuild is the escape hatch.
