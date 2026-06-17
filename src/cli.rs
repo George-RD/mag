@@ -289,7 +289,7 @@ pub enum Commands {
         #[arg(long, default_value_t = 5)]
         limit: usize,
     },
-    /// System maintenance: health check, consolidate, compact, clear-session, backup, backup-list, backup-restore.
+    /// System maintenance: health check, consolidate, compact, fts-rebuild, clear-session, backup, backup-list, backup-restore.
     Maintain {
         #[arg(long)]
         action: String,

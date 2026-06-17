@@ -24,6 +24,10 @@ impl MaintenanceManager for SqliteStorage {
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
                 .context("failed to count memories")?;
 
+            let fts_count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
+                .context("failed to count FTS5 rows")?;
+
             let integrity: String = conn
                 .query_row("PRAGMA integrity_check", [], |row| row.get(0))
                 .unwrap_or_else(|_| "error".to_string());
@@ -41,7 +45,7 @@ impl MaintenanceManager for SqliteStorage {
             let db_size_mb = db_size_bytes as f64 / (1024.0 * 1024.0);
 
             let mut warnings: Vec<String> = Vec::new();
-            let status;
+            let mut status;
 
             if !integrity_ok {
                 status = "critical";
@@ -65,12 +69,24 @@ impl MaintenanceManager for SqliteStorage {
                 status = "healthy";
             }
 
+            let fts5_in_sync = fts_count == node_count;
+            if !fts5_in_sync {
+                warnings.push(format!(
+                    "FTS5 index out of sync: {fts_count} indexed vs {node_count} memories (run `mag maintain --action fts-rebuild`)"
+                ));
+                if status == "healthy" {
+                    status = "warning";
+                }
+            }
+
             Ok::<_, anyhow::Error>(serde_json::json!({
                 "status": status,
                 "db_size_mb": (db_size_mb * 100.0).round() / 100.0,
                 "node_count": node_count,
                 "max_nodes": max_nodes,
                 "integrity_ok": integrity_ok,
+                "fts5_indexed": fts_count,
+                "fts5_in_sync": fts5_in_sync,
                 "warnings": warnings,
             }))
         })
@@ -578,5 +594,49 @@ impl MaintenanceManager for SqliteStorage {
         }
 
         Ok(deleted)
+    }
+
+    async fn rebuild_fts(&self) -> Result<serde_json::Value> {
+        let pool = Arc::clone(&self.pool);
+
+        let result = tokio::task::spawn_blocking(move || {
+            let conn = pool.writer()?;
+
+            let before: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
+                .context("failed to count FTS5 rows")?;
+            let memories: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+                .context("failed to count memory rows")?;
+
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
+                .context("failed to start FTS rebuild transaction")?;
+            tx.execute("DELETE FROM memories_fts", [])
+                .context("failed to clear FTS5 index during rebuild")?;
+            tx.execute(
+                "INSERT INTO memories_fts(id, content) SELECT id, content FROM memories",
+                [],
+            )
+            .context("failed to repopulate FTS5 index during rebuild")?;
+            tx.commit().context("failed to commit FTS rebuild")?;
+
+            let after: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
+                .context("failed to count FTS5 rows after rebuild")?;
+
+            tracing::info!(before, after, memories, "rebuilt FTS5 index");
+            Ok::<_, anyhow::Error>(serde_json::json!({
+                "fts_rows_before": before,
+                "fts_rows_after": after,
+                "memories_count": memories,
+            }))
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        // The index changed underneath any cached results.
+        self.invalidate_query_cache();
+
+        Ok(result)
     }
 }

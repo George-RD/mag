@@ -7754,3 +7754,88 @@ async fn test_reopen_repairs_partial_fts_divergence_and_orphans() {
 
     let _ = fs::remove_dir_all(base);
 }
+
+/// `rebuild_fts` recovers content-level drift (matching ids, stale indexed
+/// text) — a divergence `ensure_fts_sync`'s id anti-joins intentionally do not
+/// detect, so the manual full rebuild is the escape hatch.
+#[tokio::test]
+async fn test_rebuild_fts_recovers_content_drift() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "r1",
+        "original keeper text",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    // Drift the FTS content while keeping the id (counts stay equal, ids match).
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["r1"])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+            params!["r1", "stale drifted garbage"],
+        )
+        .unwrap();
+    }
+    // The drifted index matches the wrong terms and misses the real ones.
+    assert_eq!(fts_match_count(&storage, "original"), 0);
+    assert_eq!(fts_match_count(&storage, "garbage"), 1);
+
+    let report = <SqliteStorage as MaintenanceManager>::rebuild_fts(&storage)
+        .await
+        .unwrap();
+    assert_eq!(report["fts_rows_after"], 1);
+    assert_eq!(report["memories_count"], 1);
+
+    // After a full rebuild the index reflects the source content again.
+    assert_eq!(fts_match_count(&storage, "original"), 1);
+    assert_eq!(fts_match_count(&storage, "garbage"), 0);
+}
+
+/// `check_health` surfaces FTS divergence: `fts5_in_sync` flips to false and a
+/// warning is emitted (status is at least "warning") when the index drifts.
+#[tokio::test]
+async fn test_check_health_reports_fts_out_of_sync() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "h1",
+        "health probe content",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    let healthy =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .unwrap();
+    assert_eq!(healthy["fts5_in_sync"], true);
+    assert_eq!(healthy["fts5_indexed"], 1);
+    assert_eq!(healthy["status"], "healthy");
+
+    // Lose the FTS row → memories(1) vs fts(0).
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts", []).unwrap();
+    }
+
+    let degraded =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .unwrap();
+    assert_eq!(degraded["fts5_in_sync"], false);
+    assert_eq!(degraded["fts5_indexed"], 0);
+    assert_eq!(degraded["status"], "warning");
+    let warnings = degraded["warnings"].as_array().unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or("").contains("FTS5 index out of sync")),
+        "health warnings should flag the FTS desync, got: {warnings:?}"
+    );
+}

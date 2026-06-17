@@ -716,6 +716,32 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
         "expected lifecycle health to return non-empty response"
     );
 
+    // ─── memory_lifecycle (action=fts_rebuild) ───
+    let lifecycle_fts_rebuild_result = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_lifecycle".into(),
+            arguments: Some(
+                serde_json::json!({ "action": "fts_rebuild" })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            task: None,
+        }),
+    )
+    .await??;
+
+    assert!(
+        lifecycle_fts_rebuild_result.content.iter().any(|c| c
+            .as_text()
+            .is_some_and(
+                |text| text.text.contains("fts_rows_after") && text.text.contains("memories_count")
+            )),
+        "expected fts_rebuild to return fts_rows_after and memories_count"
+    );
+
     // ─── memory_checkpoint (save + resume) ───
     let checkpoint_save_result = timeout(
         Duration::from_secs(20),

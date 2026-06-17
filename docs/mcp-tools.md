@@ -211,6 +211,8 @@ Run diagnostic health check.
 | critical_mb | number | no | 800.0 | Critical threshold in MB |
 | max_nodes | integer | no | 10000 | Maximum node count threshold |
 
+Output includes `fts5_indexed` (rows in the FTS index) and `fts5_in_sync` (whether the index matches the `memories` table); a diverged index adds a warning and raises status to at least `warning`.
+
 #### Action: `consolidate`
 
 Prune stale data.
@@ -239,6 +241,10 @@ Embedding-based automatic deduplication.
 |-----------|------|----------|---------|-------------|
 | count_threshold | integer | no | 500 | Memory count threshold to trigger compaction |
 | dry_run | boolean | no | false | Preview without applying changes |
+
+#### Action: `fts_rebuild`
+
+Rebuild the full-text search index from the `memories` table by dropping and re-inserting every row. Use when `health` reports `fts5_in_sync: false`, or to recover from content-level index drift that the automatic on-open repair does not detect. Returns `fts_rows_before`, `fts_rows_after`, and `memories_count`. No additional parameters.
 
 #### Action: `clear_session`
 

@@ -180,6 +180,15 @@ pub(crate) async fn memory_lifecycle(
                 json!({"session_id": sid, "removed": removed}).to_string(),
             )]))
         }
+        "fts_rebuild" => {
+            let result = storage
+                .rebuild_fts()
+                .await
+                .map_err(|e| McpError::internal_error(format!("fts_rebuild failed: {e}"), None))?;
+            Ok(CallToolResult::success(vec![Content::text(
+                result.to_string(),
+            )]))
+        }
         "backup" => {
             let info = <SqliteStorage as BackupManager>::create_backup(storage)
                 .await
@@ -214,7 +223,7 @@ pub(crate) async fn memory_lifecycle(
         }
         other => Err(McpError::invalid_params(
             format!(
-                "unknown lifecycle action: {other} (expected sweep|health|consolidate|compact|auto_compact|clear_session|backup|backup_list)"
+                "unknown lifecycle action: {other} (expected sweep|health|consolidate|compact|auto_compact|fts_rebuild|clear_session|backup|backup_list)"
             ),
             None,
         )),

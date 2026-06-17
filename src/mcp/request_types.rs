@@ -128,7 +128,7 @@ pub(crate) struct FeedbackRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub(crate) struct LifecycleRequest {
-    /// Action: "sweep" (default, TTL expiration), "health", "consolidate", "compact", "auto_compact", "clear_session".
+    /// Action: "sweep" (default, TTL expiration), "health", "consolidate", "compact", "auto_compact", "fts_rebuild", "clear_session".
     pub action: Option<String>,
     pub warn_mb: Option<f64>,
     pub critical_mb: Option<f64>,
@@ -255,7 +255,7 @@ pub(crate) struct MemoryManageRequest {
     pub max_hops: Option<usize>,
     pub min_weight: Option<f64>,
     // ── lifecycle fields ──
-    /// Sub-action for action=lifecycle: "sweep" (default), "health", "consolidate", "compact", "auto_compact", "clear_session", "backup", "backup_list".
+    /// Sub-action for action=lifecycle: "sweep" (default), "health", "consolidate", "compact", "auto_compact", "fts_rebuild", "clear_session", "backup", "backup_list".
     pub lifecycle_action: Option<String>,
     pub warn_mb: Option<f64>,
     pub critical_mb: Option<f64>,
