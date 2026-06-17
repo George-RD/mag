@@ -147,6 +147,22 @@ fn ttl_policy_dead_when_expired() {
     assert!(!policy.is_alive(&candidate));
 }
 
+#[test]
+fn ttl_policy_dead_when_expires_at_invalid_string() {
+    let policy = TtlExpirationPolicy;
+    let mut candidate = make_candidate("x", 1.0);
+    candidate.result.metadata = serde_json::json!({"expires_at": "not-an-rfc3339-timestamp"});
+    assert!(!policy.is_alive(&candidate));
+}
+
+#[test]
+fn ttl_policy_dead_when_expires_at_non_string() {
+    let policy = TtlExpirationPolicy;
+    let mut candidate = make_candidate("x", 1.0);
+    candidate.result.metadata = serde_json::json!({"expires_at": 12345});
+    assert!(!policy.is_alive(&candidate));
+}
+
 #[tokio::test]
 async fn multi_factor_scorer_does_not_panic() {
     let scorer = MultiFactorScorer;
