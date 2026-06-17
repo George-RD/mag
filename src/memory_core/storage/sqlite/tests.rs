@@ -7884,6 +7884,46 @@ async fn test_rebuild_fts_recovers_content_drift() {
     assert_eq!(fts_match_count(&storage, "original"), 1);
     assert_eq!(fts_match_count(&storage, "garbage"), 0);
 }
+/// `rebuild_fts` repairs a structurally corrupt FTS5 index: a damaged
+/// `memories_fts_data` segment tree makes ordinary reads fail, so the manual
+/// rebuild must drop and recreate the virtual table from the `memories`
+/// source of truth.
+#[tokio::test]
+async fn test_rebuild_fts_repairs_structural_corruption() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "struct-1",
+        "happy cat",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    // Damage the FTS5 segment tree so the index is structurally unreadable.
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts_data", [])
+            .unwrap();
+    }
+
+    // A manual full rebuild should succeed despite the corruption.
+    let report = <SqliteStorage as MaintenanceManager>::rebuild_fts(&storage)
+        .await
+        .expect("rebuild_fts must repair a structurally corrupt FTS5 index");
+    assert_eq!(report["fts_rows_after"], 1);
+    assert_eq!(report["memories_count"], 1);
+
+    // Searchability is restored.
+    let results = storage.search("cats", 10, &SearchOptions::default()).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "struct-1");
+
+    // The rebuilt index is internally consistent.
+    let conn = storage.test_conn().unwrap();
+    conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')", [])
+        .expect("rebuilt FTS5 index must pass integrity-check");
+}
 
 /// `check_health` surfaces FTS divergence: `fts5_in_sync` flips to false and a
 /// warning is emitted (status is at least "warning") when the index drifts.

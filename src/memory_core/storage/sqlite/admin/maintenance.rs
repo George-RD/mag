@@ -598,23 +598,21 @@ impl MaintenanceManager for SqliteStorage {
         let result = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
 
+            // A structurally corrupt index can make the pre-rebuild count fail;
+            // tolerate that and report what we can rather than aborting the repair.
             let before: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
-                .context("failed to count FTS5 rows")?;
+                .unwrap_or(0);
             let memories: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
                 .context("failed to count memory rows")?;
 
-            let tx = retry_on_lock(|| conn.unchecked_transaction())
-                .context("failed to start FTS rebuild transaction")?;
-            tx.execute("DELETE FROM memories_fts", [])
-                .context("failed to clear FTS5 index during rebuild")?;
-            tx.execute(
-                "INSERT INTO memories_fts(id, content) SELECT id, content FROM memories",
-                [],
-            )
-            .context("failed to repopulate FTS5 index during rebuild")?;
-            tx.commit().context("failed to commit FTS rebuild")?;
+            // Full DROP + recreate + repopulate from `memories`. A surgical
+            // DELETE + re-INSERT leaves residual shadow-table damage on a
+            // structurally corrupt index, so the safe path rebuilds the virtual
+            // table from scratch (issue #343).
+            let reindexed = super::super::schema::rebuild_fts_from_source(&conn)
+                .context("failed to rebuild FTS5 index from source")?;
 
             let after: i64 = conn
                 .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
@@ -625,6 +623,7 @@ impl MaintenanceManager for SqliteStorage {
                 "fts_rows_before": before,
                 "fts_rows_after": after,
                 "memories_count": memories,
+                "reindexed": reindexed,
             }))
         })
         .await

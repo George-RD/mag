@@ -585,7 +585,7 @@ pub(super) fn ensure_fts_sync(conn: &Connection) -> Result<usize> {
 /// leave residual shadow-table damage that still fails `integrity-check`. The
 /// full `DROP`+recreate+repopulate restores a clean, internally consistent
 /// index. Returns the number of rows reindexed.
-fn rebuild_fts_from_source(conn: &Connection) -> Result<usize> {
+pub(super) fn rebuild_fts_from_source(conn: &Connection) -> Result<usize> {
     // Atomic so a crash mid-rebuild can never leave a half-populated index
     // visible: either the whole DROP+recreate+repopulate lands or none of it.
     let tx = retry_on_lock(|| conn.unchecked_transaction())
