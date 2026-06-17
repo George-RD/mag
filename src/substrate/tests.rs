@@ -1,9 +1,11 @@
 use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};
 use crate::substrate::traits::{
-    FusionStrategy, LifecyclePolicy, MultiFactorScorer, RrfFusion, Scorer, TtlExpirationPolicy,
+    FusionStrategy, LifecyclePolicy, MultiFactorScorer, RetrievalStrategy, RrfFusion, Scorer,
+    TtlExpirationPolicy,
 };
-use crate::substrate::types::{QueryContext, ScoredCandidate};
-use std::collections::HashMap;
+use crate::substrate::types::{CandidateSet, QueryContext, ScoredCandidate};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 fn make_candidate(id: &str, score: f64) -> ScoredCandidate {
     ScoredCandidate {
@@ -230,4 +232,106 @@ fn cross_encoder_rejects_mismatched_ids_and_scores() {
             "candidate {id} must not be mutated when id/score lengths mismatch"
         );
     }
+}
+#[tokio::test]
+async fn search_pipeline_populates_query_tokens_for_scorer() {
+    // Regression: SearchPipeline must lazily populate QueryContext.query_tokens
+    // before invoking scorers. Without this, scorers that rely on the token set
+    // have to re-derive it or silently operate without word-overlap signals.
+    use crate::memory_core::scoring::token_set;
+    use crate::substrate::SearchPipeline;
+    use async_trait::async_trait;
+
+    struct FakeRetrieval;
+
+    #[async_trait]
+    impl RetrievalStrategy for FakeRetrieval {
+        fn name(&self) -> &str {
+            "fake"
+        }
+
+        async fn collect(&self, _ctx: &QueryContext) -> anyhow::Result<CandidateSet> {
+            Ok(vec![("a".to_string(), 1.0, make_candidate("a", 1.0))])
+        }
+    }
+
+    struct FakeFusion;
+
+    impl FusionStrategy for FakeFusion {
+        fn fuse(
+            &self,
+            candidates: HashMap<&str, CandidateSet>,
+            _scoring_params: &ScoringParams,
+        ) -> Vec<ScoredCandidate> {
+            candidates
+                .into_values()
+                .flat_map(|set| set.into_iter().map(|(_, _, candidate)| candidate))
+                .collect()
+        }
+    }
+
+    struct TokenSpy {
+        tokens: Arc<Mutex<Option<HashSet<String>>>>,
+    }
+
+    #[async_trait]
+    impl Scorer for TokenSpy {
+        fn name(&self) -> &str {
+            "token_spy"
+        }
+
+        async fn score_batch(
+            &self,
+            candidates: &mut HashMap<String, ScoredCandidate>,
+            ctx: &QueryContext,
+        ) -> anyhow::Result<()> {
+            *self.tokens.lock().unwrap() = ctx.query_tokens.clone();
+            // Drive text_overlap above the abstention gate so the assertion below
+            // is about the scorer's input, not an empty result from abstention.
+            for candidate in candidates.values_mut() {
+                candidate.text_overlap = 1.0;
+            }
+            Ok(())
+        }
+    }
+
+    let observed: Arc<Mutex<Option<HashSet<String>>>> = Arc::new(Mutex::new(None));
+    let pipeline = SearchPipeline {
+        retrieval: vec![Box::new(FakeRetrieval)],
+        fusion: Box::new(FakeFusion),
+        scorers: vec![Box::new(TokenSpy {
+            tokens: observed.clone(),
+        })],
+        lifecycle: None,
+        abstention_min_text: 0.15,
+    };
+
+    let query = "rust memory search";
+    let ctx = QueryContext {
+        query: query.to_string(),
+        limit: 10,
+        opts: SearchOptions::default(),
+        scoring_params: ScoringParams::default(),
+        query_embedding: None,
+        query_tokens: None,
+        include_superseded: false,
+    };
+
+    let results = pipeline.search(ctx).await.expect("search should succeed");
+    assert!(
+        !results.is_empty(),
+        "expected results after scorer ran; abstention gate may have hidden the scorer input"
+    );
+
+    let observed_tokens = observed.lock().unwrap().take();
+    assert!(
+        observed_tokens.is_some(),
+        "scorer observed QueryContext.query_tokens = None, but SearchPipeline must populate it"
+    );
+    let observed_tokens = observed_tokens.unwrap();
+    let expected_tokens = token_set(query, 3);
+    assert_eq!(
+        observed_tokens, expected_tokens,
+        "SearchPipeline must populate QueryContext.query_tokens before calling scorers"
+    );
 }
