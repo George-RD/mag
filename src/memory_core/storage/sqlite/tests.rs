@@ -3615,6 +3615,26 @@ fn test_reminder_invalid_duration() {
     }
 }
 
+#[test]
+fn test_reminder_duration_overflow_is_err() {
+    // Values that fit in i64 but overflow chrono::Duration must yield an Err,
+    // not panic. Reachable from user-supplied session-expiry strings.
+    for input in [
+        "999999999999999999w",
+        "999999999999999999d",
+        "999999999999999999h",
+        "999999999999999999m",
+    ] {
+        assert!(
+            parse_duration(input).is_err(),
+            "expected Err for overflowing duration {input:?}"
+        );
+    }
+    // Components individually valid but summing past the i64-second range
+    // must also error rather than panic.
+    assert!(parse_duration("10000000000000w50000000000000d").is_err());
+}
+
 #[tokio::test]
 async fn test_lessons_query_basic() {
     let storage = SqliteStorage::new_in_memory().unwrap();
