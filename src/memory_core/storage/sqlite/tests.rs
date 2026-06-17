@@ -7794,9 +7794,14 @@ async fn test_reopen_rebuilds_structurally_corrupt_fts() {
             std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
         )
         .unwrap();
-        <SqliteStorage as Storage>::store(&storage, "corrupt-1", "happy cat", &MemoryInput::default())
-            .await
-            .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "corrupt-1",
+            "happy cat",
+            &MemoryInput::default(),
+        )
+        .await
+        .unwrap();
         // Wipe the fts5 segment b-tree to simulate post-crash corruption: the
         // index becomes unreadable while the `memories` table stays intact.
         {
