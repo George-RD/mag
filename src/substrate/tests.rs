@@ -335,3 +335,102 @@ async fn search_pipeline_populates_query_tokens_for_scorer() {
         "SearchPipeline must populate QueryContext.query_tokens before calling scorers"
     );
 }
+
+#[tokio::test]
+async fn search_pipeline_explain_mode_uses_documented_metadata_key() {
+    use crate::substrate::SearchPipeline;
+    use async_trait::async_trait;
+
+    struct FakeRetrieval;
+
+    #[async_trait]
+    impl RetrievalStrategy for FakeRetrieval {
+        fn name(&self) -> &str {
+            "fake"
+        }
+
+        async fn collect(&self, _ctx: &QueryContext) -> anyhow::Result<CandidateSet> {
+            let mut candidate = make_candidate("a", 1.0);
+            candidate.explain = Some(serde_json::json!({
+                "strategy": "fake",
+                "raw_score": 1.0,
+            }));
+            Ok(vec![("a".to_string(), 1.0, candidate)])
+        }
+    }
+
+    struct FakeFusion;
+
+    impl FusionStrategy for FakeFusion {
+        fn fuse(
+            &self,
+            candidates: HashMap<&str, CandidateSet>,
+            _scoring_params: &ScoringParams,
+        ) -> Vec<ScoredCandidate> {
+            candidates
+                .into_values()
+                .flat_map(|set| set.into_iter().map(|(_, _, candidate)| candidate))
+                .collect()
+        }
+    }
+
+    struct PassThroughScorer;
+
+    #[async_trait]
+    impl Scorer for PassThroughScorer {
+        fn name(&self) -> &str {
+            "pass_through"
+        }
+
+        async fn score_batch(
+            &self,
+            candidates: &mut HashMap<String, ScoredCandidate>,
+            _ctx: &QueryContext,
+        ) -> anyhow::Result<()> {
+            for candidate in candidates.values_mut() {
+                candidate.text_overlap = 1.0;
+            }
+            Ok(())
+        }
+    }
+
+    let pipeline = SearchPipeline {
+        retrieval: vec![Box::new(FakeRetrieval)],
+        fusion: Box::new(FakeFusion),
+        scorers: vec![Box::new(PassThroughScorer)],
+        lifecycle: None,
+        abstention_min_text: 0.15,
+    };
+
+    let results = pipeline
+        .search(QueryContext {
+            query: "rust memory search".to_string(),
+            limit: 1,
+            opts: SearchOptions {
+                explain: Some(true),
+                ..SearchOptions::default()
+            },
+            scoring_params: ScoringParams::default(),
+            query_embedding: None,
+            query_tokens: None,
+            include_superseded: false,
+        })
+        .await
+        .expect("search should succeed");
+
+    assert_eq!(results.len(), 1, "expected a single explain-mode result");
+
+    let metadata = results[0]
+        .metadata
+        .as_object()
+        .expect("search results should carry object metadata");
+    let explain = metadata
+        .get("_explain")
+        .expect("explain-mode results must expose explanation metadata under _explain");
+    assert_eq!(explain["strategy"], serde_json::json!("fake"));
+    assert_eq!(explain["raw_score"], serde_json::json!(1.0));
+    assert!(
+        !metadata.contains_key("explain"),
+        "legacy explain metadata key must not be present"
+    );
+}
