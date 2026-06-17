@@ -129,7 +129,7 @@ impl SearchPipeline {
                         if let Some(ref explain) = candidate.explain
                             && let Some(obj) = meta.as_object_mut()
                         {
-                            obj.insert("explain".to_string(), explain.clone());
+                            obj.insert("_explain".to_string(), explain.clone());
                         }
                         meta
                     };
