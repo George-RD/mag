@@ -107,3 +107,8 @@ required-features = ["real-embeddings"]
 name = "substrate_bench"
 path = "benches/substrate_bench.rs"
 required-features = ["substrate"]
+
+[[bin]]
+name = "phase2_bench"
+path = "benches/phase2_bench.rs"
+required-features = ["llm", "substrate"]
