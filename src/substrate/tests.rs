@@ -55,6 +55,84 @@ fn rrf_fusion_ranks_candidates() {
 }
 
 #[test]
+fn rrf_fusion_pure_rank_ignores_raw_score() {
+    // Regression: the current implementation incorrectly multiplies the
+    // candidate's raw per-strategy score into the RRF term.  The documented
+    // contract is `rrf_score(rank) = weight / (k + rank + 1)`; raw scores
+    // should influence the result only through their rank position.
+    let fusion = RrfFusion;
+    let mut sets = HashMap::new();
+    // Vector order: low raw score is ranked first, huge raw score is second.
+    // A pure rank-based fusion must still prefer the first-ranked candidate.
+    sets.insert(
+        "vector",
+        vec![
+            (
+                "low_raw_first".to_string(),
+                0.01,
+                make_candidate("low_raw_first", 0.01),
+            ),
+            (
+                "high_raw_second".to_string(),
+                100.0,
+                make_candidate("high_raw_second", 100.0),
+            ),
+            ("dual".to_string(), 0.5, make_candidate("dual", 0.5)),
+        ],
+    );
+    // FTS order: the dual-match candidate is ranked first with a huge raw score.
+    // Its dual-match boost should not hide the fact that RRF itself is rank-only.
+    sets.insert(
+        "fts",
+        vec![("dual".to_string(), 999.0, make_candidate("dual", 999.0))],
+    );
+
+    let result = fusion.fuse(sets, &ScoringParams::default());
+    assert_eq!(result.len(), 3);
+    let by_id: HashMap<String, f64> = result
+        .iter()
+        .map(|c| (c.result.id.clone(), c.score))
+        .collect();
+
+    let k = ScoringParams::default().rrf_k;
+    let vec_rank_0 = 1.0 / (k + 0.0 + 1.0); // low_raw_first
+    let vec_rank_1 = 1.0 / (k + 1.0 + 1.0); // high_raw_second
+    let vec_rank_2 = 1.0 / (k + 2.0 + 1.0); // dual (vector arm)
+    let fts_rank_0 = 1.0 / (k + 0.0 + 1.0); // dual (fts arm)
+    let dual_boost = 1.5 + (1.0 / (1.0 + 0.0)) * 0.5;
+
+    let expected_low_raw_first = vec_rank_0;
+    let expected_high_raw_second = vec_rank_1;
+    let expected_dual = (vec_rank_2 + fts_rank_0) * dual_boost;
+
+    let eps = 1e-12;
+    assert!(
+        (by_id["low_raw_first"] - expected_low_raw_first).abs() < eps,
+        "low_raw_first score {} != expected {}",
+        by_id["low_raw_first"],
+        expected_low_raw_first
+    );
+    assert!(
+        (by_id["high_raw_second"] - expected_high_raw_second).abs() < eps,
+        "high_raw_second score {} != expected {}",
+        by_id["high_raw_second"],
+        expected_high_raw_second
+    );
+    assert!(
+        (by_id["dual"] - expected_dual).abs() < eps,
+        "dual score {} != expected {}",
+        by_id["dual"],
+        expected_dual
+    );
+
+    // Rank-based ordering: dual match wins, and the first-ranked vector-only
+    // candidate beats the second-ranked vector-only candidate even though its
+    // raw score is much smaller.
+    let ids: Vec<&str> = result.iter().map(|c| c.result.id.as_str()).collect();
+    assert_eq!(ids, vec!["dual", "low_raw_first", "high_raw_second"]);
+}
+
+#[test]
 fn ttl_policy_alive_by_default() {
     let policy = TtlExpirationPolicy;
     let candidate = make_candidate("x", 1.0);

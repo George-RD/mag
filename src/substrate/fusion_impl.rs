@@ -30,10 +30,10 @@ impl FusionStrategy for super::traits::RrfFusion {
                 }
                 match output.entry(id) {
                     std::collections::hash_map::Entry::Occupied(mut e) => {
-                        e.get_mut().score += candidate.score * rrf_score;
+                        e.get_mut().score += rrf_score;
                     }
                     std::collections::hash_map::Entry::Vacant(e) => {
-                        candidate.score *= rrf_score;
+                        candidate.score = rrf_score;
                         e.insert(candidate);
                     }
                 }
