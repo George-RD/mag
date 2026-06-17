@@ -4,6 +4,331 @@ use crate::memory_core::storage::sqlite::pipeline::scoring::bump_token_cache_gen
 #[async_trait]
 impl Storage for SqliteStorage {
     async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()> {
+        self.store_internal(id, data, input, None).await
+    }
+}
+
+#[async_trait]
+impl Retriever for SqliteStorage {
+    async fn retrieve(&self, id: &str) -> Result<String> {
+        let pool = Arc::clone(&self.pool);
+        let id = id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.writer()?;
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
+                .context("failed to start sqlite transaction")?;
+
+            let content: Option<String> = tx
+                .query_row(
+                    "SELECT content FROM memories WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to query memory content")?;
+
+            let content = content.ok_or_else(|| anyhow!("memory not found for id={id}"))?;
+
+            tx.execute(
+                "UPDATE memories
+                 SET
+                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                     access_count = access_count + 1
+                 WHERE id = ?1",
+                params![id],
+            )
+            .context("failed to update last_accessed_at")?;
+
+            tx.commit().context("failed to commit sqlite transaction")?;
+            Ok::<_, anyhow::Error>(content)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+#[async_trait]
+impl Deleter for SqliteStorage {
+    async fn delete(&self, id: &str) -> Result<bool> {
+        let pool = Arc::clone(&self.pool);
+        let id = id.to_string();
+
+        let deleted = tokio::task::spawn_blocking(move || {
+            let conn = pool.writer()?;
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
+                .context("failed to start delete transaction")?;
+            tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
+                .context("failed to delete memory from FTS index")?;
+
+            #[cfg(feature = "sqlite-vec")]
+            vec_delete(&tx, &id)?;
+
+            let changes = tx
+                .execute("DELETE FROM memories WHERE id = ?1", params![id])
+                .context("failed to delete memory")?;
+            tx.commit().context("failed to commit delete transaction")?;
+            drop(conn); // Release writer Mutex before note_write to avoid deadlock
+            pool.note_write();
+            Ok::<_, anyhow::Error>(changes > 0)
+        })
+        .await
+        .context("spawn_blocking join error")??;
+        bump_token_cache_gen();
+        self.invalidate_query_cache();
+        self.refresh_hot_cache_best_effort();
+        Ok(deleted)
+    }
+}
+
+#[async_trait]
+impl Updater for SqliteStorage {
+    async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
+        if input.content.is_none()
+            && input.tags.is_none()
+            && input.importance.is_none()
+            && input.metadata.is_none()
+            && input.event_type.is_none()
+            && input.priority.is_none()
+        {
+            return Err(anyhow!(
+                "at least one of content, tags, importance, metadata, event_type, or priority must be provided"
+            ));
+        }
+
+        let tags_json = input
+            .tags
+            .as_ref()
+            .map(|tags| serde_json::to_string(tags).context("failed to serialize tags"))
+            .transpose()?;
+        let metadata_json = input
+            .metadata
+            .as_ref()
+            .map(|metadata| serde_json::to_string(metadata).context("failed to serialize metadata"))
+            .transpose()?;
+        let event_type = event_type_to_sql(&input.event_type);
+        let priority = input.priority;
+        let importance = input.importance;
+        let content = input.content.clone();
+
+        let pool = Arc::clone(&self.pool);
+        let embedder = Arc::clone(&self.embedder);
+        let id = id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let content_fields = match content.as_deref() {
+                Some(new_content) => {
+                    let hash = content_hash(new_content);
+                    let canonical = canonical_hash(new_content);
+                    let emb = encode_embedding(&embedder.embed(new_content)?);
+                    Some((new_content.to_string(), hash, canonical, emb))
+                }
+                None => None,
+            };
+            use rusqlite::types::Value as SqlValue;
+
+            let conn = pool.writer()?;
+
+            let mut set_clauses = Vec::new();
+            let mut values: Vec<SqlValue> = Vec::new();
+            let mut next_param_index = 2;
+
+            if let Some((new_content, hash, canonical, embedding)) = &content_fields {
+                set_clauses.push(format!("content = ?{next_param_index}"));
+                values.push(SqlValue::Text(new_content.clone()));
+                next_param_index += 1;
+
+                set_clauses.push(format!("content_hash = ?{next_param_index}"));
+                values.push(SqlValue::Text(hash.clone()));
+                next_param_index += 1;
+
+                set_clauses.push(format!("embedding = ?{next_param_index}"));
+                values.push(SqlValue::Blob(embedding.clone()));
+                next_param_index += 1;
+
+                set_clauses.push(format!("canonical_hash = ?{next_param_index}"));
+                values.push(SqlValue::Text(canonical.clone()));
+                next_param_index += 1;
+            }
+
+            if let Some(new_tags) = &tags_json {
+                set_clauses.push(format!("tags = ?{next_param_index}"));
+                values.push(SqlValue::Text(new_tags.clone()));
+                next_param_index += 1;
+            }
+
+            if let Some(new_importance) = importance {
+                set_clauses.push(format!("importance = ?{next_param_index}"));
+                values.push(SqlValue::Real(new_importance));
+                next_param_index += 1;
+            }
+
+            if let Some(new_metadata) = &metadata_json {
+                set_clauses.push(format!("metadata = ?{next_param_index}"));
+                values.push(SqlValue::Text(new_metadata.clone()));
+                next_param_index += 1;
+            }
+
+            if let Some(new_event_type) = &event_type {
+                set_clauses.push(format!("event_type = ?{next_param_index}"));
+                values.push(SqlValue::Text(new_event_type.clone()));
+                next_param_index += 1;
+            }
+
+            if let Some(new_priority) = priority {
+                set_clauses.push(format!("priority = ?{next_param_index}"));
+                values.push(SqlValue::Integer(i64::from(new_priority)));
+            }
+
+            let sql = format!(
+                "UPDATE memories SET {},
+                 last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ?1",
+                set_clauses.join(", ")
+            );
+
+            let mut params: Vec<&dyn rusqlite::types::ToSql> = Vec::with_capacity(values.len() + 1);
+            params.push(&id);
+            for value in &values {
+                params.push(value);
+            }
+
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
+                .context("failed to start update transaction")?;
+
+            let changes = tx
+                .execute(&sql, params.as_slice())
+                .context("failed to update memory")?;
+
+            if changes == 0 {
+                return Err(anyhow!("memory not found for id={id}"));
+            }
+
+            if let Some((new_content, _, _, ref _embedding)) = content_fields {
+                tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
+                    .context("failed to delete existing FTS row during update")?;
+                tx.execute(
+                    "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+                    params![id, new_content],
+                )
+                .context("failed to insert FTS row during update")?;
+
+                #[cfg(feature = "sqlite-vec")]
+                vec_upsert(&tx, &id, _embedding)?;
+            }
+
+            tx.commit().context("failed to commit update transaction")?;
+            drop(conn); // Release writer Mutex before note_write to avoid deadlock
+            pool.note_write();
+
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("spawn_blocking join error")??;
+        bump_token_cache_gen();
+        self.invalidate_query_cache();
+        self.refresh_hot_cache_best_effort();
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Tagger for SqliteStorage {
+    async fn get_by_tags(
+        &self,
+        tags: &[String],
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        if tags.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let pool = Arc::clone(&self.pool);
+        let tags = tags.to_vec();
+        let effective_limit = i64::try_from(limit).context("tag search limit exceeds i64")?;
+        let opts = opts.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.reader()?;
+
+            // Build dynamic WHERE clause with dual-read support:
+            // - JSON tags: json_valid + json_each
+            // - Legacy CSV tags: instr-based comma-delimited matching
+            let mut json_conditions = Vec::new();
+            let mut csv_conditions = Vec::new();
+            let mut param_values: Vec<String> = Vec::new();
+            for (i, tag) in tags.iter().enumerate() {
+                let p = i + 1;
+                json_conditions.push(format!(
+                    "EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE value = ?{p})"
+                ));
+                csv_conditions.push(format!(
+                    "instr(',' || memories.tags || ',', ',' || ?{p} || ',') > 0"
+                ));
+                param_values.push(tag.clone());
+            }
+            let json_clause = json_conditions.join(" AND ");
+            let csv_clause = csv_conditions.join(" AND ");
+            let mut sql = format!(
+                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type FROM memories \
+                 WHERE ((json_valid(memories.tags) AND {json_clause}) \
+                         OR (NOT json_valid(memories.tags) AND memories.tags != '' AND {csv_clause})) \
+                 "
+            );
+
+            let mut next_idx = param_values.len();
+            if let Some(ref event_type) = opts.event_type {
+                next_idx += 1;
+                sql.push_str(&format!(" AND event_type = ?{next_idx}"));
+                param_values.push(event_type.to_string());
+            }
+            if let Some(project) = opts.project.clone() {
+                next_idx += 1;
+                sql.push_str(&format!(" AND project = ?{next_idx}"));
+                param_values.push(project);
+            }
+            if let Some(session_id) = opts.session_id.clone() {
+                next_idx += 1;
+                sql.push_str(&format!(" AND session_id = ?{next_idx}"));
+                param_values.push(session_id);
+            }
+            next_idx += 1;
+            sql.push_str(&format!(" ORDER BY last_accessed_at DESC LIMIT ?{next_idx}"));
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .context("failed to prepare tag search query")?;
+
+            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
+            for v in &param_values {
+                param_refs.push(v);
+            }
+            param_refs.push(&effective_limit);
+
+            let rows = stmt
+                .query_map(param_refs.as_slice(), search_result_from_row)
+                .context("failed to execute tag search query")?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.context("failed to decode tag search row")?);
+            }
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error")?
+    }
+}
+
+impl SqliteStorage {
+    pub(crate) async fn store_internal(
+        &self,
+        id: &str,
+        data: &str,
+        input: &MemoryInput,
+        precomputed_embedding: Option<Vec<f32>>,
+    ) -> Result<()> {
         let tags_json =
             serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?;
         let metadata_json = serde_json::to_string(&input.metadata)
@@ -31,6 +356,7 @@ impl Storage for SqliteStorage {
         let source_type = input.source_type.clone();
         let id_for_store = id.clone();
 
+        let precomputed_embedding = precomputed_embedding;
         let (outcome, superseded_ids, final_tags) = tokio::task::spawn_blocking(move || {
             let c_hash = content_hash(&data);
             let normalized_hash = canonical_hash(&data);
@@ -142,7 +468,10 @@ impl Storage for SqliteStorage {
             }
 
             // ── Phase 2: Embedding (the real bottleneck, ~8ms) ──
-            let embedding_vec = embedder.embed(&data)?;
+            let embedding_vec = match precomputed_embedding {
+                Some(vec) => vec,
+                None => embedder.embed(&data)?,
+            };
             let embedding = encode_embedding(&embedding_vec);
 
             // ── Phase 3: Supersession detection ──
@@ -477,322 +806,7 @@ impl Storage for SqliteStorage {
         bump_token_cache_gen();
         Ok(())
     }
-}
 
-#[async_trait]
-impl Retriever for SqliteStorage {
-    async fn retrieve(&self, id: &str) -> Result<String> {
-        let pool = Arc::clone(&self.pool);
-        let id = id.to_string();
-
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.writer()?;
-            let tx = retry_on_lock(|| conn.unchecked_transaction())
-                .context("failed to start sqlite transaction")?;
-
-            let content: Option<String> = tx
-                .query_row(
-                    "SELECT content FROM memories WHERE id = ?1",
-                    params![id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .context("failed to query memory content")?;
-
-            let content = content.ok_or_else(|| anyhow!("memory not found for id={id}"))?;
-
-            tx.execute(
-                "UPDATE memories
-                 SET
-                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                     access_count = access_count + 1
-                 WHERE id = ?1",
-                params![id],
-            )
-            .context("failed to update last_accessed_at")?;
-
-            tx.commit().context("failed to commit sqlite transaction")?;
-            Ok::<_, anyhow::Error>(content)
-        })
-        .await
-        .context("spawn_blocking join error")?
-    }
-}
-
-#[async_trait]
-impl Deleter for SqliteStorage {
-    async fn delete(&self, id: &str) -> Result<bool> {
-        let pool = Arc::clone(&self.pool);
-        let id = id.to_string();
-
-        let deleted = tokio::task::spawn_blocking(move || {
-            let conn = pool.writer()?;
-            let tx = retry_on_lock(|| conn.unchecked_transaction())
-                .context("failed to start delete transaction")?;
-            tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
-                .context("failed to delete memory from FTS index")?;
-
-            #[cfg(feature = "sqlite-vec")]
-            vec_delete(&tx, &id)?;
-
-            let changes = tx
-                .execute("DELETE FROM memories WHERE id = ?1", params![id])
-                .context("failed to delete memory")?;
-            tx.commit().context("failed to commit delete transaction")?;
-            drop(conn); // Release writer Mutex before note_write to avoid deadlock
-            pool.note_write();
-            Ok::<_, anyhow::Error>(changes > 0)
-        })
-        .await
-        .context("spawn_blocking join error")??;
-        bump_token_cache_gen();
-        self.invalidate_query_cache();
-        self.refresh_hot_cache_best_effort();
-        Ok(deleted)
-    }
-}
-
-#[async_trait]
-impl Updater for SqliteStorage {
-    async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
-        if input.content.is_none()
-            && input.tags.is_none()
-            && input.importance.is_none()
-            && input.metadata.is_none()
-            && input.event_type.is_none()
-            && input.priority.is_none()
-        {
-            return Err(anyhow!(
-                "at least one of content, tags, importance, metadata, event_type, or priority must be provided"
-            ));
-        }
-
-        let tags_json = input
-            .tags
-            .as_ref()
-            .map(|tags| serde_json::to_string(tags).context("failed to serialize tags"))
-            .transpose()?;
-        let metadata_json = input
-            .metadata
-            .as_ref()
-            .map(|metadata| serde_json::to_string(metadata).context("failed to serialize metadata"))
-            .transpose()?;
-        let event_type = event_type_to_sql(&input.event_type);
-        let priority = input.priority;
-        let importance = input.importance;
-        let content = input.content.clone();
-
-        let pool = Arc::clone(&self.pool);
-        let embedder = Arc::clone(&self.embedder);
-        let id = id.to_string();
-
-        tokio::task::spawn_blocking(move || {
-            let content_fields = match content.as_deref() {
-                Some(new_content) => {
-                    let hash = content_hash(new_content);
-                    let canonical = canonical_hash(new_content);
-                    let emb = encode_embedding(&embedder.embed(new_content)?);
-                    Some((new_content.to_string(), hash, canonical, emb))
-                }
-                None => None,
-            };
-            use rusqlite::types::Value as SqlValue;
-
-            let conn = pool.writer()?;
-
-            let mut set_clauses = Vec::new();
-            let mut values: Vec<SqlValue> = Vec::new();
-            let mut next_param_index = 2;
-
-            if let Some((new_content, hash, canonical, embedding)) = &content_fields {
-                set_clauses.push(format!("content = ?{next_param_index}"));
-                values.push(SqlValue::Text(new_content.clone()));
-                next_param_index += 1;
-
-                set_clauses.push(format!("content_hash = ?{next_param_index}"));
-                values.push(SqlValue::Text(hash.clone()));
-                next_param_index += 1;
-
-                set_clauses.push(format!("embedding = ?{next_param_index}"));
-                values.push(SqlValue::Blob(embedding.clone()));
-                next_param_index += 1;
-
-                set_clauses.push(format!("canonical_hash = ?{next_param_index}"));
-                values.push(SqlValue::Text(canonical.clone()));
-                next_param_index += 1;
-            }
-
-            if let Some(new_tags) = &tags_json {
-                set_clauses.push(format!("tags = ?{next_param_index}"));
-                values.push(SqlValue::Text(new_tags.clone()));
-                next_param_index += 1;
-            }
-
-            if let Some(new_importance) = importance {
-                set_clauses.push(format!("importance = ?{next_param_index}"));
-                values.push(SqlValue::Real(new_importance));
-                next_param_index += 1;
-            }
-
-            if let Some(new_metadata) = &metadata_json {
-                set_clauses.push(format!("metadata = ?{next_param_index}"));
-                values.push(SqlValue::Text(new_metadata.clone()));
-                next_param_index += 1;
-            }
-
-            if let Some(new_event_type) = &event_type {
-                set_clauses.push(format!("event_type = ?{next_param_index}"));
-                values.push(SqlValue::Text(new_event_type.clone()));
-                next_param_index += 1;
-            }
-
-            if let Some(new_priority) = priority {
-                set_clauses.push(format!("priority = ?{next_param_index}"));
-                values.push(SqlValue::Integer(i64::from(new_priority)));
-            }
-
-            let sql = format!(
-                "UPDATE memories SET {},
-                 last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                 WHERE id = ?1",
-                set_clauses.join(", ")
-            );
-
-            let mut params: Vec<&dyn rusqlite::types::ToSql> = Vec::with_capacity(values.len() + 1);
-            params.push(&id);
-            for value in &values {
-                params.push(value);
-            }
-
-            let tx = retry_on_lock(|| conn.unchecked_transaction())
-                .context("failed to start update transaction")?;
-
-            let changes = tx
-                .execute(&sql, params.as_slice())
-                .context("failed to update memory")?;
-
-            if changes == 0 {
-                return Err(anyhow!("memory not found for id={id}"));
-            }
-
-            if let Some((new_content, _, _, ref _embedding)) = content_fields {
-                tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id])
-                    .context("failed to delete existing FTS row during update")?;
-                tx.execute(
-                    "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
-                    params![id, new_content],
-                )
-                .context("failed to insert FTS row during update")?;
-
-                #[cfg(feature = "sqlite-vec")]
-                vec_upsert(&tx, &id, _embedding)?;
-            }
-
-            tx.commit().context("failed to commit update transaction")?;
-            drop(conn); // Release writer Mutex before note_write to avoid deadlock
-            pool.note_write();
-
-            Ok::<_, anyhow::Error>(())
-        })
-        .await
-        .context("spawn_blocking join error")??;
-        bump_token_cache_gen();
-        self.invalidate_query_cache();
-        self.refresh_hot_cache_best_effort();
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl Tagger for SqliteStorage {
-    async fn get_by_tags(
-        &self,
-        tags: &[String],
-        limit: usize,
-        opts: &SearchOptions,
-    ) -> Result<Vec<SearchResult>> {
-        if tags.is_empty() || limit == 0 {
-            return Ok(Vec::new());
-        }
-
-        let pool = Arc::clone(&self.pool);
-        let tags = tags.to_vec();
-        let effective_limit = i64::try_from(limit).context("tag search limit exceeds i64")?;
-        let opts = opts.clone();
-
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.reader()?;
-
-            // Build dynamic WHERE clause with dual-read support:
-            // - JSON tags: json_valid + json_each
-            // - Legacy CSV tags: instr-based comma-delimited matching
-            let mut json_conditions = Vec::new();
-            let mut csv_conditions = Vec::new();
-            let mut param_values: Vec<String> = Vec::new();
-            for (i, tag) in tags.iter().enumerate() {
-                let p = i + 1;
-                json_conditions.push(format!(
-                    "EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE value = ?{p})"
-                ));
-                csv_conditions.push(format!(
-                    "instr(',' || memories.tags || ',', ',' || ?{p} || ',') > 0"
-                ));
-                param_values.push(tag.clone());
-            }
-            let json_clause = json_conditions.join(" AND ");
-            let csv_clause = csv_conditions.join(" AND ");
-            let mut sql = format!(
-                "SELECT id, content, tags, importance, metadata, event_type, session_id, project, entity_id, agent_type FROM memories \
-                 WHERE ((json_valid(memories.tags) AND {json_clause}) \
-                         OR (NOT json_valid(memories.tags) AND memories.tags != '' AND {csv_clause})) \
-                 "
-            );
-
-            let mut next_idx = param_values.len();
-            if let Some(ref event_type) = opts.event_type {
-                next_idx += 1;
-                sql.push_str(&format!(" AND event_type = ?{next_idx}"));
-                param_values.push(event_type.to_string());
-            }
-            if let Some(project) = opts.project.clone() {
-                next_idx += 1;
-                sql.push_str(&format!(" AND project = ?{next_idx}"));
-                param_values.push(project);
-            }
-            if let Some(session_id) = opts.session_id.clone() {
-                next_idx += 1;
-                sql.push_str(&format!(" AND session_id = ?{next_idx}"));
-                param_values.push(session_id);
-            }
-            next_idx += 1;
-            sql.push_str(&format!(" ORDER BY last_accessed_at DESC LIMIT ?{next_idx}"));
-
-            let mut stmt = conn
-                .prepare(&sql)
-                .context("failed to prepare tag search query")?;
-
-            let mut param_refs: Vec<&dyn rusqlite::types::ToSql> = Vec::new();
-            for v in &param_values {
-                param_refs.push(v);
-            }
-            param_refs.push(&effective_limit);
-
-            let rows = stmt
-                .query_map(param_refs.as_slice(), search_result_from_row)
-                .context("failed to execute tag search query")?;
-
-            let mut results = Vec::new();
-            for row in rows {
-                results.push(row.context("failed to decode tag search row")?);
-            }
-            Ok::<_, anyhow::Error>(results)
-        })
-        .await
-        .context("spawn_blocking join error")?
-    }
-}
-
-impl SqliteStorage {
     /// Batch store multiple memories with optimized embedding computation.
     ///
     /// Pre-warms the embedding LRU cache with a single `embed_batch()` call,
