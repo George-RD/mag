@@ -163,6 +163,14 @@ fn ttl_policy_dead_when_expires_at_non_string() {
     assert!(!policy.is_alive(&candidate));
 }
 
+#[test]
+fn ttl_policy_alive_with_metadata_but_no_expires_at() {
+    let policy = TtlExpirationPolicy;
+    let mut candidate = make_candidate("x", 1.0);
+    candidate.result.metadata = serde_json::json!({"retention": "permanent"});
+    assert!(policy.is_alive(&candidate));
+}
+
 #[tokio::test]
 async fn multi_factor_scorer_does_not_panic() {
     let scorer = MultiFactorScorer;
