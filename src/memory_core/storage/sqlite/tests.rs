@@ -7839,3 +7839,79 @@ async fn test_check_health_reports_fts_out_of_sync() {
         "health warnings should flag the FTS desync, got: {warnings:?}"
     );
 }
+
+/// Regression: equal-count id divergence must still report `fts5_in_sync:
+/// false`. `check_health` previously compared only row counts, so a DB where
+/// one memory is dropped from the index and an unrelated orphan FTS row is added
+/// (counts equal, id sets disjoint) was falsely reported in sync — masking
+/// exactly the divergence class `ensure_fts_sync` exists to repair.
+#[tokio::test]
+async fn test_check_health_detects_equal_count_fts_divergence() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    for (id, content) in [("eq-1", "alpha note"), ("eq-2", "beta note")] {
+        <SqliteStorage as Storage>::store(&storage, id, content, &MemoryInput::default())
+            .await
+            .unwrap();
+    }
+
+    // Drop one indexed row and add an unrelated orphan: counts stay 2 == 2 but
+    // the id sets diverge (eq-2 unindexed, "ghost" orphaned).
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["eq-2"])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+            params!["ghost", "orphaned ghost row"],
+        )
+        .unwrap();
+    }
+
+    let report =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .unwrap();
+    assert_eq!(report["fts5_indexed"], 2, "row counts are deliberately equal");
+    assert_eq!(
+        report["fts5_in_sync"], false,
+        "equal-count id divergence must still report out of sync"
+    );
+    assert_eq!(report["status"], "warning");
+    let warnings = report["warnings"].as_array().unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or("").contains("FTS5 index out of sync")),
+        "health warnings should flag the FTS desync, got: {warnings:?}"
+    );
+}
+
+/// `stats()` shares the same `fts5_in_sync` contract as `check_health` and must
+/// likewise detect equal-count id divergence rather than trusting row counts.
+#[tokio::test]
+async fn test_stats_detects_equal_count_fts_divergence() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    for (id, content) in [("eq-1", "alpha note"), ("eq-2", "beta note")] {
+        <SqliteStorage as Storage>::store(&storage, id, content, &MemoryInput::default())
+            .await
+            .unwrap();
+    }
+
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["eq-2"])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+            params!["ghost", "orphaned ghost row"],
+        )
+        .unwrap();
+    }
+
+    let stats = storage.stats().await.unwrap();
+    assert_eq!(stats["fts5_indexed"], 2, "row counts are deliberately equal");
+    assert_eq!(
+        stats["fts5_in_sync"], false,
+        "equal-count id divergence must still report out of sync"
+    );
+}
