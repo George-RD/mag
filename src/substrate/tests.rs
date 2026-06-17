@@ -188,3 +188,46 @@ async fn multi_factor_scorer_does_not_panic() {
     scorer.score_batch(&mut candidates, &ctx).await.unwrap();
     assert!(!candidates.is_empty());
 }
+
+#[test]
+fn cross_encoder_rejects_mismatched_ids_and_scores() {
+    // Regression: CrossEncoderScorer::score_batch zips requested IDs with the
+    // cross-encoder score vector without checking they have the same length.
+    // A truncated or extra score must be rejected rather than silently ignored.
+    use crate::substrate::enrichment_impl::apply_cross_encoder_scores;
+
+    let mut candidates = HashMap::new();
+    candidates.insert("a".to_string(), make_candidate("a", 0.5));
+    candidates.insert("b".to_string(), make_candidate("b", 0.5));
+
+    let original_scores: HashMap<String, f64> = candidates
+        .iter()
+        .map(|(id, c)| (id.clone(), c.score))
+        .collect();
+
+    let ids = vec!["a".to_string(), "b".to_string()];
+    let ce_scores = vec![0.8f32]; // fewer scores than IDs
+
+    let result = apply_cross_encoder_scores(&mut candidates, &ids, &ce_scores, 0.5);
+    assert!(
+        result.is_err(),
+        "expected mismatched id/score lengths to be rejected"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("2"),
+        "expected error message to mention id count, got: {msg}"
+    );
+    assert!(
+        msg.contains("1"),
+        "expected error message to mention score count, got: {msg}"
+    );
+
+    for (id, original) in original_scores {
+        assert_eq!(
+            candidates.get(&id).unwrap().score,
+            original,
+            "candidate {id} must not be mutated when id/score lengths mismatch"
+        );
+    }
+}
