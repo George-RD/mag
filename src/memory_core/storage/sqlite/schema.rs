@@ -432,6 +432,33 @@ pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Counts FTS5 index divergence from the `memories` table as
+/// `(orphaned, missing)`: `orphaned` is FTS rows with no backing memory and
+/// `missing` is memories absent from the index. Both zero ⇒ the id sets are
+/// identical (in sync).
+///
+/// This is the set-membership signal — two anti-joins — that distinguishes a
+/// truly synced index from an equal-count id mismatch that row counts alone
+/// cannot detect. Shared by `ensure_fts_sync` (repair) and the `fts5_in_sync`
+/// health/stats reports so all three agree on what "in sync" means.
+pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)> {
+    let orphaned: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)",
+            [],
+            |row| row.get(0),
+        )
+        .context("failed to count orphaned FTS5 rows")?;
+    let missing: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE id NOT IN (SELECT id FROM memories_fts)",
+            [],
+            |row| row.get(0),
+        )
+        .context("failed to count unindexed memory rows")?;
+    Ok((orphaned, missing))
+}
+
 /// Detects and repairs divergence between the `memories` table and the
 /// `memories_fts` full-text index, returning the number of FTS rows changed.
 ///
@@ -451,20 +478,7 @@ pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()> {
 /// and is out of scope here; `MaintenanceManager::rebuild_fts` is the
 /// full-rebuild escape hatch for that.
 pub(super) fn ensure_fts_sync(conn: &Connection) -> Result<usize> {
-    let orphaned: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)",
-            [],
-            |row| row.get(0),
-        )
-        .context("failed to count orphaned FTS5 rows")?;
-    let missing: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM memories WHERE id NOT IN (SELECT id FROM memories_fts)",
-            [],
-            |row| row.get(0),
-        )
-        .context("failed to count unindexed memory rows")?;
+    let (orphaned, missing) = fts_divergence(conn)?;
 
     if orphaned == 0 && missing == 0 {
         return Ok(0);

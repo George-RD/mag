@@ -69,10 +69,11 @@ impl MaintenanceManager for SqliteStorage {
                 status = "healthy";
             }
 
-            let fts5_in_sync = fts_count == node_count;
+            let (fts_orphaned, fts_missing) = super::super::schema::fts_divergence(&conn)?;
+            let fts5_in_sync = fts_orphaned == 0 && fts_missing == 0;
             if !fts5_in_sync {
                 warnings.push(format!(
-                    "FTS5 index out of sync: {fts_count} indexed vs {node_count} memories (run `mag maintain --action fts-rebuild`)"
+                    "FTS5 index out of sync: {fts_orphaned} orphaned index rows, {fts_missing} unindexed memories (run `mag maintain --action fts-rebuild`)"
                 ));
                 if status == "healthy" {
                     status = "warning";

@@ -7871,7 +7871,10 @@ async fn test_check_health_detects_equal_count_fts_divergence() {
         <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
             .await
             .unwrap();
-    assert_eq!(report["fts5_indexed"], 2, "row counts are deliberately equal");
+    assert_eq!(
+        report["fts5_indexed"], 2,
+        "row counts are deliberately equal"
+    );
     assert_eq!(
         report["fts5_in_sync"], false,
         "equal-count id divergence must still report out of sync"
@@ -7909,7 +7912,10 @@ async fn test_stats_detects_equal_count_fts_divergence() {
     }
 
     let stats = storage.stats().await.unwrap();
-    assert_eq!(stats["fts5_indexed"], 2, "row counts are deliberately equal");
+    assert_eq!(
+        stats["fts5_indexed"], 2,
+        "row counts are deliberately equal"
+    );
     assert_eq!(
         stats["fts5_in_sync"], false,
         "equal-count id divergence must still report out of sync"

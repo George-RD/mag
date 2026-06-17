@@ -50,7 +50,7 @@ impl super::SqliteStorage {
                 "average_importance": avg_importance,
                 "total_access_count": total_access,
                 "fts5_indexed": fts_count,
-                "fts5_in_sync": fts_count == total_memories,
+                "fts5_in_sync": super::schema::fts_divergence(&conn)? == (0, 0),
                 "paths": build_stats_paths_json(&db_path),
             }))
         })
