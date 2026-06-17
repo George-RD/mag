@@ -432,6 +432,68 @@ pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Detects and repairs divergence between the `memories` table and the
+/// `memories_fts` full-text index, returning the number of FTS rows changed.
+///
+/// The index is maintained inline within each write transaction, so a healthy
+/// database keeps the two row sets identical. Divergence can still arise from
+/// interrupted writes (e.g. a `kill -9`'d process), concurrent writers, or
+/// historical bugs — and once diverged, search silently returns nothing for the
+/// affected rows with no recovery path short of deleting the database
+/// (issue #343). Running this on every file-backed open lets a reused `~/.mag`
+/// self-heal.
+///
+/// Divergence is gated on set membership (two anti-joins), not row counts: an
+/// equal-count id mismatch (one row dropped, an unrelated one orphaned) also
+/// breaks search and must be caught. The repair is bidirectional — orphaned
+/// FTS rows (no backing memory) are deleted and unindexed memories are added.
+/// Content-level drift (matching ids, stale text) is not an id-set divergence
+/// and is out of scope here; `MaintenanceManager::rebuild_fts` is the
+/// full-rebuild escape hatch for that.
+pub(super) fn ensure_fts_sync(conn: &Connection) -> Result<usize> {
+    let orphaned: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)",
+            [],
+            |row| row.get(0),
+        )
+        .context("failed to count orphaned FTS5 rows")?;
+    let missing: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE id NOT IN (SELECT id FROM memories_fts)",
+            [],
+            |row| row.get(0),
+        )
+        .context("failed to count unindexed memory rows")?;
+
+    if orphaned == 0 && missing == 0 {
+        return Ok(0);
+    }
+
+    tracing::warn!(
+        orphaned,
+        missing,
+        "FTS5 index out of sync with memories table; repairing"
+    );
+
+    let deleted = conn
+        .execute(
+            "DELETE FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)",
+            [],
+        )
+        .context("failed to delete orphaned FTS5 rows")?;
+    let inserted = conn
+        .execute(
+            "INSERT INTO memories_fts(id, content) \
+             SELECT id, content FROM memories \
+             WHERE id NOT IN (SELECT id FROM memories_fts)",
+            [],
+        )
+        .context("failed to backfill missing FTS5 rows")?;
+
+    Ok(deleted + inserted)
+}
+
 /// Resolves the default database path: `$HOME/.mag/memory.db`.
 pub(super) fn default_db_path() -> Result<PathBuf> {
     app_paths::resolve_app_paths().map(|paths| paths.database_path)

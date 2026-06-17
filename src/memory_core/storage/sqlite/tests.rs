@@ -7611,3 +7611,146 @@ async fn test_entity_edges_no_self_loops() {
         "should not create self-referential RELATES_TO edge"
     );
 }
+
+// ── FTS5 self-heal on open (issue #343) ─────────────────────────────
+
+/// Counts FTS5 rows matching `query` on the writer connection — the exact
+/// text-search primitive the retrieval pipeline relies on. Used alongside the
+/// behaviour-level `search()` assertions to pin the repair at the index layer.
+fn fts_match_count(storage: &SqliteStorage, query: &str) -> i64 {
+    let conn = storage.test_conn().unwrap();
+    conn.query_row(
+        "SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH ?1",
+        params![query],
+        |r| r.get(0),
+    )
+    .unwrap()
+}
+
+/// Reproduces #343: a reused `~/.mag` whose FTS5 index has diverged from the
+/// `memories` table returns 0 search results for content that is still stored.
+/// Reopening the database must auto-repair the index.
+///
+/// The query (`"cats"` against stored `"happy cat"`) is a porter-stemmed match
+/// that is *not* a literal substring, so `search()`'s `LIKE '%cats%'` fallback
+/// cannot satisfy it — only the FTS index can. That makes the missing-FTS case
+/// a deterministic 0-results repro at the public `search()` boundary, not just
+/// at the raw index.
+#[tokio::test]
+async fn test_reused_db_with_desynced_fts_self_heals_on_open() {
+    let base = std::env::temp_dir().join(format!("mag-fts-heal-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+
+    {
+        let storage = SqliteStorage::new_with_path(
+            db_path.clone(),
+            std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+        )
+        .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "heal-1", "happy cat", &MemoryInput::default())
+            .await
+            .unwrap();
+        // Sanity: the porter-stemmed query resolves via FTS before corruption.
+        let before = storage
+            .search("cats", 10, &SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            before.len(),
+            1,
+            "porter FTS should match 'cats' → 'happy cat'"
+        );
+        assert_eq!(fts_match_count(&storage, "cats"), 1);
+
+        // Simulate FTS divergence: the memory row stays, its FTS entry is lost.
+        {
+            let conn = storage.test_conn().unwrap();
+            conn.execute("DELETE FROM memories_fts", []).unwrap();
+        }
+    } // drop storage → close pool → persist desynced state to disk
+
+    // Reopen the same path — open must self-heal the FTS index.
+    let reopened = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+    let after = reopened
+        .search("cats", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        after.len(),
+        1,
+        "search must find the stored memory after reopening a desynced DB"
+    );
+    assert_eq!(after[0].id, "heal-1");
+    assert_eq!(fts_match_count(&reopened, "cats"), 1);
+
+    let _ = fs::remove_dir_all(base);
+}
+
+/// Partial divergence: one memory missing from FTS plus one orphaned FTS row.
+/// Reopen must backfill the missing row and drop the orphan so counts match.
+#[tokio::test]
+async fn test_reopen_repairs_partial_fts_divergence_and_orphans() {
+    let base = std::env::temp_dir().join(format!("mag-fts-partial-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+
+    {
+        let storage = SqliteStorage::new_with_path(
+            db_path.clone(),
+            std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+        )
+        .unwrap();
+        for (id, content) in [("p-1", "alpha keeper note"), ("p-2", "beta keeper note")] {
+            <SqliteStorage as Storage>::store(&storage, id, content, &MemoryInput::default())
+                .await
+                .unwrap();
+        }
+        // Drop one FTS entry (missing) and add an orphan FTS row (no backing memory).
+        {
+            let conn = storage.test_conn().unwrap();
+            conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["p-2"])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+                params!["ghost", "orphaned ghost row"],
+            )
+            .unwrap();
+        }
+    }
+
+    let reopened = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // Backfilled row is matchable again; orphan no longer matches.
+    assert_eq!(
+        fts_match_count(&reopened, "beta"),
+        1,
+        "missing FTS row must be backfilled on reopen"
+    );
+    assert_eq!(
+        fts_match_count(&reopened, "orphaned"),
+        0,
+        "orphaned FTS row must no longer match"
+    );
+
+    // FTS count equals memories count after reconciliation.
+    {
+        let conn = reopened.test_conn().unwrap();
+        let mem_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memories", [], |r| r.get(0))
+            .unwrap();
+        let fts_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memories_fts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mem_count, 2);
+        assert_eq!(fts_count, 2, "FTS and memories counts must reconcile");
+    }
+
+    let _ = fs::remove_dir_all(base);
+}

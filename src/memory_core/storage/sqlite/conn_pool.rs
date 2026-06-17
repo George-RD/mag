@@ -125,6 +125,14 @@ impl ConnPool {
             tracing::debug!("startup WAL checkpoint skipped: {e}");
         }
 
+        // Self-heal a diverged FTS5 index from a reused database (issue #343).
+        // Non-fatal: a repair failure must not block opening the DB.
+        match super::schema::ensure_fts_sync(&writer) {
+            Ok(0) => {}
+            Ok(repaired) => tracing::warn!(repaired, "repaired out-of-sync FTS5 index on open"),
+            Err(e) => tracing::warn!("FTS5 sync check failed (continuing): {e}"),
+        }
+
         let mut readers = Vec::with_capacity(DEFAULT_READER_COUNT);
         for _ in 0..DEFAULT_READER_COUNT {
             let reader = open_connection(path)?;
