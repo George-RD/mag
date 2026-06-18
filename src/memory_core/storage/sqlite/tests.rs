@@ -7891,20 +7891,14 @@ async fn test_rebuild_fts_recovers_content_drift() {
 #[tokio::test]
 async fn test_rebuild_fts_repairs_structural_corruption() {
     let storage = SqliteStorage::new_in_memory().unwrap();
-    <SqliteStorage as Storage>::store(
-        &storage,
-        "struct-1",
-        "happy cat",
-        &MemoryInput::default(),
-    )
-    .await
-    .unwrap();
+    <SqliteStorage as Storage>::store(&storage, "struct-1", "happy cat", &MemoryInput::default())
+        .await
+        .unwrap();
 
     // Damage the FTS5 segment tree so the index is structurally unreadable.
     {
         let conn = storage.test_conn().unwrap();
-        conn.execute("DELETE FROM memories_fts_data", [])
-            .unwrap();
+        conn.execute("DELETE FROM memories_fts_data", []).unwrap();
     }
 
     // A manual full rebuild should succeed despite the corruption.
@@ -7915,14 +7909,20 @@ async fn test_rebuild_fts_repairs_structural_corruption() {
     assert_eq!(report["memories_count"], 1);
 
     // Searchability is restored.
-    let results = storage.search("cats", 10, &SearchOptions::default()).await.unwrap();
+    let results = storage
+        .search("cats", 10, &SearchOptions::default())
+        .await
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "struct-1");
 
     // The rebuilt index is internally consistent.
     let conn = storage.test_conn().unwrap();
-    conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')", [])
-        .expect("rebuilt FTS5 index must pass integrity-check");
+    conn.execute(
+        "INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')",
+        [],
+    )
+    .expect("rebuilt FTS5 index must pass integrity-check");
 }
 
 /// `check_health` surfaces FTS divergence: `fts5_in_sync` flips to false and a

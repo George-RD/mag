@@ -356,7 +356,6 @@ impl SqliteStorage {
         let source_type = input.source_type.clone();
         let id_for_store = id.clone();
 
-        let precomputed_embedding = precomputed_embedding;
         let (outcome, superseded_ids, final_tags) = tokio::task::spawn_blocking(move || {
             let c_hash = content_hash(&data);
             let normalized_hash = canonical_hash(&data);

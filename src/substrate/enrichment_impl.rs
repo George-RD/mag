@@ -1,8 +1,8 @@
 use crate::substrate::traits::Scorer;
 use crate::substrate::types::{QueryContext, ScoredCandidate};
-use anyhow::Result;
 #[cfg(feature = "real-embeddings")]
 use anyhow::Context;
+use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
 #[cfg(feature = "real-embeddings")]

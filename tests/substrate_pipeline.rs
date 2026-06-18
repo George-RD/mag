@@ -104,7 +104,10 @@ async fn substrate_embed_and_extract_reuses_precomputed_embedding() {
 
     let id = pipeline.ingest(ctx, store.as_ref()).await.unwrap();
     assert_eq!(id, "mem-1");
-    assert_eq!(store.retrieve(&id).await.unwrap(), "rust programming language");
+    assert_eq!(
+        store.retrieve(&id).await.unwrap(),
+        "rust programming language"
+    );
 
     let count = counter.load(Ordering::SeqCst);
     assert_eq!(
