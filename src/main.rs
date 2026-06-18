@@ -860,6 +860,11 @@ async fn main() -> anyhow::Result<()> {
                     <SqliteStorage as MaintenanceManager>::clear_session(&mcp_storage, sid).await?;
                 println!("{}", json!({"session_id": sid, "removed": removed}));
             }
+            "fts-rebuild" | "fts_rebuild" => {
+                let result =
+                    <SqliteStorage as MaintenanceManager>::rebuild_fts(&mcp_storage).await?;
+                println!("{result}");
+            }
             "backup" => {
                 let info = <SqliteStorage as BackupManager>::create_backup(&mcp_storage).await?;
                 <SqliteStorage as BackupManager>::rotate_backups(&mcp_storage, 5).await?;
@@ -902,7 +907,7 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             other => anyhow::bail!(
-                "invalid maintain action: {other} (expected health|consolidate|compact|clear-session|backup|backup-list|backup-restore)"
+                "invalid maintain action: {other} (expected health|consolidate|compact|fts-rebuild|clear-session|backup|backup-list|backup-restore)"
             ),
         },
         Commands::Welcome {

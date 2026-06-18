@@ -176,7 +176,7 @@ pub const TOOL_REGISTRY: &[ToolMeta] = &[
     },
     ToolMeta {
         name: "memory_lifecycle",
-        summary: "System maintenance (action: sweep|health|consolidate|compact|auto_compact|clear_session)",
+        summary: "System maintenance (action: sweep|health|consolidate|compact|auto_compact|fts_rebuild|clear_session)",
         category: "Lifecycle & Feedback",
     },
     // Cross-Session
@@ -452,7 +452,7 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_lifecycle",
-        description = "System maintenance. Actions: 'sweep' (default, expire TTL-based memories), 'health' (diagnostic with thresholds), 'consolidate' (prune stale data), 'compact' (merge near-duplicates), 'auto_compact' (embedding-based dedup), 'clear_session' (remove session data), 'backup' (create binary backup), 'backup_list' (list available backups)."
+        description = "System maintenance. Actions: 'sweep' (default, expire TTL-based memories), 'health' (diagnostic with thresholds, incl. FTS5 sync status), 'consolidate' (prune stale data), 'compact' (merge near-duplicates), 'auto_compact' (embedding-based dedup), 'fts_rebuild' (rebuild the full-text index from source), 'clear_session' (remove session data), 'backup' (create binary backup), 'backup_list' (list available backups)."
     )]
     async fn memory_lifecycle(
         &self,
@@ -526,7 +526,7 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory_manage",
-        description = "Unified manage facade (Wave 2). Routes to update/feedback/relations/lifecycle based on `action` field (default: \"update\"). Sub-actions: relations_action (list|add|traverse|version_chain), lifecycle_action (sweep|health|consolidate|compact|auto_compact|clear_session|backup|backup_list)."
+        description = "Unified manage facade (Wave 2). Routes to update/feedback/relations/lifecycle based on `action` field (default: \"update\"). Sub-actions: relations_action (list|add|traverse|version_chain), lifecycle_action (sweep|health|consolidate|compact|auto_compact|fts_rebuild|clear_session|backup|backup_list)."
     )]
     async fn memory_manage(
         &self,

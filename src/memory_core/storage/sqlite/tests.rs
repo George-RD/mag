@@ -3615,6 +3615,26 @@ fn test_reminder_invalid_duration() {
     }
 }
 
+#[test]
+fn test_reminder_duration_overflow_is_err() {
+    // Values that fit in i64 but overflow chrono::Duration must yield an Err,
+    // not panic. Reachable from user-supplied session-expiry strings.
+    for input in [
+        "999999999999999999w",
+        "999999999999999999d",
+        "999999999999999999h",
+        "999999999999999999m",
+    ] {
+        assert!(
+            parse_duration(input).is_err(),
+            "expected Err for overflowing duration {input:?}"
+        );
+    }
+    // Components individually valid but summing past the i64-second range
+    // must also error rather than panic.
+    assert!(parse_duration("10000000000000w50000000000000d").is_err());
+}
+
 #[tokio::test]
 async fn test_lessons_query_basic() {
     let storage = SqliteStorage::new_in_memory().unwrap();
@@ -7609,5 +7629,514 @@ async fn test_entity_edges_no_self_loops() {
             .debug_has_relationship("self1", "self1", "RELATES_TO")
             .unwrap(),
         "should not create self-referential RELATES_TO edge"
+    );
+}
+
+// ── FTS5 self-heal on open (issue #343) ─────────────────────────────
+
+/// Counts FTS5 rows matching `query` on the writer connection — the exact
+/// text-search primitive the retrieval pipeline relies on. Used alongside the
+/// behaviour-level `search()` assertions to pin the repair at the index layer.
+fn fts_match_count(storage: &SqliteStorage, query: &str) -> i64 {
+    let conn = storage.test_conn().unwrap();
+    conn.query_row(
+        "SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH ?1",
+        params![query],
+        |r| r.get(0),
+    )
+    .unwrap()
+}
+
+/// Reproduces #343: a reused `~/.mag` whose FTS5 index has diverged from the
+/// `memories` table returns 0 search results for content that is still stored.
+/// Reopening the database must auto-repair the index.
+///
+/// The query (`"cats"` against stored `"happy cat"`) is a porter-stemmed match
+/// that is *not* a literal substring, so `search()`'s `LIKE '%cats%'` fallback
+/// cannot satisfy it — only the FTS index can. That makes the missing-FTS case
+/// a deterministic 0-results repro at the public `search()` boundary, not just
+/// at the raw index.
+#[tokio::test]
+async fn test_reused_db_with_desynced_fts_self_heals_on_open() {
+    let base = std::env::temp_dir().join(format!("mag-fts-heal-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+
+    {
+        let storage = SqliteStorage::new_with_path(
+            db_path.clone(),
+            std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+        )
+        .unwrap();
+        <SqliteStorage as Storage>::store(&storage, "heal-1", "happy cat", &MemoryInput::default())
+            .await
+            .unwrap();
+        // Sanity: the porter-stemmed query resolves via FTS before corruption.
+        let before = storage
+            .search("cats", 10, &SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            before.len(),
+            1,
+            "porter FTS should match 'cats' → 'happy cat'"
+        );
+        assert_eq!(fts_match_count(&storage, "cats"), 1);
+
+        // Simulate FTS divergence: the memory row stays, its FTS entry is lost.
+        {
+            let conn = storage.test_conn().unwrap();
+            conn.execute("DELETE FROM memories_fts", []).unwrap();
+        }
+    } // drop storage → close pool → persist desynced state to disk
+
+    // Reopen the same path — open must self-heal the FTS index.
+    let reopened = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+    let after = reopened
+        .search("cats", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        after.len(),
+        1,
+        "search must find the stored memory after reopening a desynced DB"
+    );
+    assert_eq!(after[0].id, "heal-1");
+    assert_eq!(fts_match_count(&reopened, "cats"), 1);
+
+    let _ = fs::remove_dir_all(base);
+}
+
+/// Partial divergence: one memory missing from FTS plus one orphaned FTS row.
+/// Reopen must backfill the missing row and drop the orphan so counts match.
+#[tokio::test]
+async fn test_reopen_repairs_partial_fts_divergence_and_orphans() {
+    let base = std::env::temp_dir().join(format!("mag-fts-partial-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+
+    {
+        let storage = SqliteStorage::new_with_path(
+            db_path.clone(),
+            std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+        )
+        .unwrap();
+        for (id, content) in [("p-1", "alpha keeper note"), ("p-2", "beta keeper note")] {
+            <SqliteStorage as Storage>::store(&storage, id, content, &MemoryInput::default())
+                .await
+                .unwrap();
+        }
+        // Drop one FTS entry (missing) and add an orphan FTS row (no backing memory).
+        {
+            let conn = storage.test_conn().unwrap();
+            conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["p-2"])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+                params!["ghost", "orphaned ghost row"],
+            )
+            .unwrap();
+        }
+    }
+
+    let reopened = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // Backfilled row is matchable again; orphan no longer matches.
+    assert_eq!(
+        fts_match_count(&reopened, "beta"),
+        1,
+        "missing FTS row must be backfilled on reopen"
+    );
+    assert_eq!(
+        fts_match_count(&reopened, "orphaned"),
+        0,
+        "orphaned FTS row must no longer match"
+    );
+
+    // FTS count equals memories count after reconciliation.
+    {
+        let conn = reopened.test_conn().unwrap();
+        let mem_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memories", [], |r| r.get(0))
+            .unwrap();
+        let fts_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memories_fts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mem_count, 2);
+        assert_eq!(fts_count, 2, "FTS and memories counts must reconcile");
+    }
+
+    let _ = fs::remove_dir_all(base);
+}
+
+/// A structurally corrupt FTS5 index — a damaged segment b-tree
+/// (`memories_fts_data`) left by an interrupted write or `kill -9` — makes
+/// *every* index read raise "fts5: corruption found reading blob …", so the
+/// id-set divergence probe itself errors and the prior self-heal gave up,
+/// leaving search permanently broken for a reused database. Reopening must
+/// detect the unreadable index and rebuild it from the `memories` source of
+/// truth. A surgical DELETE+reinsert leaves residual shadow-table damage that
+/// still fails `integrity-check`, so recovery must be a full DROP+repopulate.
+#[tokio::test]
+async fn test_reopen_rebuilds_structurally_corrupt_fts() {
+    let base = std::env::temp_dir().join(format!("mag-fts-corrupt-test-{}", Uuid::new_v4()));
+    let db_path = base.join("memory.db");
+
+    {
+        let storage = SqliteStorage::new_with_path(
+            db_path.clone(),
+            std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+        )
+        .unwrap();
+        <SqliteStorage as Storage>::store(
+            &storage,
+            "corrupt-1",
+            "happy cat",
+            &MemoryInput::default(),
+        )
+        .await
+        .unwrap();
+        // Wipe the fts5 segment b-tree to simulate post-crash corruption: the
+        // index becomes unreadable while the `memories` table stays intact.
+        {
+            let conn = storage.test_conn().unwrap();
+            conn.execute("DELETE FROM memories_fts_data", []).unwrap();
+        }
+    } // drop storage → close pool → persist the corrupt index to disk
+
+    let reopened = SqliteStorage::new_with_path(
+        db_path.clone(),
+        std::sync::Arc::new(crate::memory_core::PlaceholderEmbedder),
+    )
+    .unwrap();
+
+    // `"cats"` is a porter-stemmed match for stored `"happy cat"` but not a
+    // substring, so the `LIKE` fallback cannot satisfy it — only a rebuilt FTS
+    // index can return the row.
+    let results = reopened
+        .search("cats", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        results.len(),
+        1,
+        "structurally corrupt FTS must be rebuilt on open so stored content is findable"
+    );
+    assert_eq!(results[0].id, "corrupt-1");
+    assert_eq!(fts_match_count(&reopened, "cats"), 1);
+
+    // The rebuilt index is internally consistent.
+    {
+        let conn = reopened.test_conn().unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')",
+            [],
+        )
+        .expect("rebuilt FTS index must pass fts5 integrity-check");
+    }
+
+    let _ = fs::remove_dir_all(base);
+}
+
+/// `rebuild_fts` recovers content-level drift (matching ids, stale indexed
+/// text) — a divergence `ensure_fts_sync`'s id anti-joins intentionally do not
+/// detect, so the manual full rebuild is the escape hatch.
+#[tokio::test]
+async fn test_rebuild_fts_recovers_content_drift() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "r1",
+        "original keeper text",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    // Drift the FTS content while keeping the id (counts stay equal, ids match).
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["r1"])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+            params!["r1", "stale drifted garbage"],
+        )
+        .unwrap();
+    }
+    // The drifted index matches the wrong terms and misses the real ones.
+    assert_eq!(fts_match_count(&storage, "original"), 0);
+    assert_eq!(fts_match_count(&storage, "garbage"), 1);
+
+    let report = <SqliteStorage as MaintenanceManager>::rebuild_fts(&storage)
+        .await
+        .unwrap();
+    assert_eq!(report["fts_rows_after"], 1);
+    assert_eq!(report["memories_count"], 1);
+
+    // After a full rebuild the index reflects the source content again.
+    assert_eq!(fts_match_count(&storage, "original"), 1);
+    assert_eq!(fts_match_count(&storage, "garbage"), 0);
+}
+/// `rebuild_fts` repairs a structurally corrupt FTS5 index: a damaged
+/// `memories_fts_data` segment tree makes ordinary reads fail, so the manual
+/// rebuild must drop and recreate the virtual table from the `memories`
+/// source of truth.
+#[tokio::test]
+async fn test_rebuild_fts_repairs_structural_corruption() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(&storage, "struct-1", "happy cat", &MemoryInput::default())
+        .await
+        .unwrap();
+
+    // Damage the FTS5 segment tree so the index is structurally unreadable.
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts_data", []).unwrap();
+    }
+
+    // A manual full rebuild should succeed despite the corruption.
+    let report = <SqliteStorage as MaintenanceManager>::rebuild_fts(&storage)
+        .await
+        .expect("rebuild_fts must repair a structurally corrupt FTS5 index");
+    assert_eq!(report["fts_rows_after"], 1);
+    assert_eq!(report["memories_count"], 1);
+
+    // Searchability is restored.
+    let results = storage
+        .search("cats", 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "struct-1");
+
+    // The rebuilt index is internally consistent.
+    let conn = storage.test_conn().unwrap();
+    conn.execute(
+        "INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')",
+        [],
+    )
+    .expect("rebuilt FTS5 index must pass integrity-check");
+}
+
+/// `check_health` surfaces FTS divergence: `fts5_in_sync` flips to false and a
+/// warning is emitted (status is at least "warning") when the index drifts.
+#[tokio::test]
+async fn test_check_health_reports_fts_out_of_sync() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "h1",
+        "health probe content",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    let healthy =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .unwrap();
+    assert_eq!(healthy["fts5_in_sync"], true);
+    assert_eq!(healthy["fts5_indexed"], 1);
+    assert_eq!(healthy["status"], "healthy");
+
+    // Lose the FTS row → memories(1) vs fts(0).
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts", []).unwrap();
+    }
+
+    let degraded =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .unwrap();
+    assert_eq!(degraded["fts5_in_sync"], false);
+    assert_eq!(degraded["fts5_indexed"], 0);
+    assert_eq!(degraded["status"], "warning");
+    let warnings = degraded["warnings"].as_array().unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or("").contains("FTS5 index out of sync")),
+        "health warnings should flag the FTS desync, got: {warnings:?}"
+    );
+}
+
+/// Regression: equal-count id divergence must still report `fts5_in_sync:
+/// false`. `check_health` previously compared only row counts, so a DB where
+/// one memory is dropped from the index and an unrelated orphan FTS row is added
+/// (counts equal, id sets disjoint) was falsely reported in sync — masking
+/// exactly the divergence class `ensure_fts_sync` exists to repair.
+#[tokio::test]
+async fn test_check_health_detects_equal_count_fts_divergence() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    for (id, content) in [("eq-1", "alpha note"), ("eq-2", "beta note")] {
+        <SqliteStorage as Storage>::store(&storage, id, content, &MemoryInput::default())
+            .await
+            .unwrap();
+    }
+
+    // Drop one indexed row and add an unrelated orphan: counts stay 2 == 2 but
+    // the id sets diverge (eq-2 unindexed, "ghost" orphaned).
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["eq-2"])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+            params!["ghost", "orphaned ghost row"],
+        )
+        .unwrap();
+    }
+
+    let report =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .unwrap();
+    assert_eq!(
+        report["fts5_indexed"], 2,
+        "row counts are deliberately equal"
+    );
+    assert_eq!(
+        report["fts5_in_sync"], false,
+        "equal-count id divergence must still report out of sync"
+    );
+    assert_eq!(report["status"], "warning");
+    let warnings = report["warnings"].as_array().unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or("").contains("FTS5 index out of sync")),
+        "health warnings should flag the FTS desync, got: {warnings:?}"
+    );
+}
+
+/// `stats()` shares the same `fts5_in_sync` contract as `check_health` and must
+/// likewise detect equal-count id divergence rather than trusting row counts.
+#[tokio::test]
+async fn test_stats_detects_equal_count_fts_divergence() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    for (id, content) in [("eq-1", "alpha note"), ("eq-2", "beta note")] {
+        <SqliteStorage as Storage>::store(&storage, id, content, &MemoryInput::default())
+            .await
+            .unwrap();
+    }
+
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts WHERE id = ?1", params!["eq-2"])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+            params!["ghost", "orphaned ghost row"],
+        )
+        .unwrap();
+    }
+
+    let stats = storage.stats().await.unwrap();
+    assert_eq!(
+        stats["fts5_indexed"], 2,
+        "row counts are deliberately equal"
+    );
+    assert_eq!(
+        stats["fts5_in_sync"], false,
+        "equal-count id divergence must still report out of sync"
+    );
+}
+
+/// Structurally corrupt FTS indexes (e.g. a damaged `memories_fts_data` segment
+/// tree) can make `fts_divergence()` itself fail while the `memories` table
+/// remains readable. Maintenance diagnostics must stay callable and report the
+/// FTS problem explicitly instead of returning an opaque error.
+#[tokio::test]
+async fn test_check_health_reports_structurally_corrupt_fts() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "corrupt-diag-1",
+        "happy cat",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts_data", []).unwrap();
+    }
+
+    let report =
+        <SqliteStorage as MaintenanceManager>::check_health(&storage, 1000.0, 2000.0, 100_000)
+            .await
+            .expect("check_health must remain callable when the FTS index is structurally corrupt");
+
+    assert!(
+        report["status"] == "warning" || report["status"] == "critical",
+        "structurally corrupt FTS must degrade the health status"
+    );
+    // NOTE: we do NOT assert `integrity_ok == true` here.  PRAGMA integrity_check
+    // validates the entire database, including FTS5 shadow tables.  Since we
+    // deliberately corrupted the FTS index by deleting from memories_fts_data, the
+    // check may correctly report integrity_ok=false even though the core memories
+    // table is intact.  The actual regression contract (call succeeds, status
+    // degraded, warning flags FTS) is covered by the assertions above and below.
+    let warnings = report["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| {
+            let s = w.as_str().unwrap_or("");
+            s.contains("FTS") && (s.contains("corrupt") || s.contains("out of sync"))
+        }),
+        "warning must explicitly flag the FTS problem; got {:?}",
+        warnings
+    );
+}
+
+/// `stats()` must likewise tolerate a structurally corrupt FTS index and surface
+/// a degraded `fts5_in_sync` report rather than erroring.
+#[tokio::test]
+async fn test_stats_reports_structurally_corrupt_fts() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    <SqliteStorage as Storage>::store(
+        &storage,
+        "corrupt-diag-2",
+        "happy cat",
+        &MemoryInput::default(),
+    )
+    .await
+    .unwrap();
+
+    {
+        let conn = storage.test_conn().unwrap();
+        conn.execute("DELETE FROM memories_fts_data", []).unwrap();
+    }
+
+    let stats = storage
+        .stats()
+        .await
+        .expect("stats must remain callable when the FTS index is structurally corrupt");
+
+    assert_eq!(
+        stats["fts5_in_sync"], false,
+        "structurally corrupt FTS must report fts5_in_sync=false"
+    );
+    assert!(
+        stats.get("fts5_error").is_some()
+            || stats
+                .get("warnings")
+                .and_then(|w| w.as_array())
+                .map(|arr| arr.iter().any(|w| {
+                    let s = w.as_str().unwrap_or("");
+                    s.contains("FTS") && (s.contains("corrupt") || s.contains("out of sync"))
+                }))
+                .unwrap_or(false),
+        "stats must surface a degraded FTS report; got {:?}",
+        stats
     );
 }

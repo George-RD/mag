@@ -27,6 +27,16 @@ impl MemoryStore for SqliteStorage {
         <Self as Storage>::store(self, id, data, input).await
     }
 
+    async fn store_with_embedding(
+        &self,
+        id: &str,
+        data: &str,
+        input: &MemoryInput,
+        embedding: Vec<f32>,
+    ) -> Result<()> {
+        self.store_internal(id, data, input, Some(embedding)).await
+    }
+
     async fn retrieve(&self, id: &str) -> Result<String> {
         <Self as Retriever>::retrieve(self, id).await
     }

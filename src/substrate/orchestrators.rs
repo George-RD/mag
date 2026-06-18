@@ -78,6 +78,12 @@ impl SearchPipeline {
             .map(|c| (c.result.id.clone(), c))
             .collect();
 
+        // Populate query_tokens lazily before scorers, per the QueryContext contract.
+        let mut ctx = ctx;
+        if ctx.query_tokens.is_none() {
+            ctx.query_tokens = Some(crate::memory_core::scoring::token_set(&ctx.query, 3));
+        }
+
         // Step 4: Apply each scorer in order.
         for scorer in &self.scorers {
             scorer.score_batch(&mut candidates, &ctx).await?;
@@ -123,7 +129,7 @@ impl SearchPipeline {
                         if let Some(ref explain) = candidate.explain
                             && let Some(obj) = meta.as_object_mut()
                         {
-                            obj.insert("explain".to_string(), explain.clone());
+                            obj.insert("_explain".to_string(), explain.clone());
                         }
                         meta
                     };

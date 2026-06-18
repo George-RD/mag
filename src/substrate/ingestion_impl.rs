@@ -43,12 +43,15 @@ impl IngestionPipeline for EmbedAndExtractPipeline {
             ctx.assigned_id
         };
 
-        let content = ctx.input.content.clone();
-        let embedder = Arc::clone(&self.embedder);
-
-        let embedding = tokio::task::spawn_blocking(move || embedder.embed(&content))
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {e:?}"))??;
+        let embedding = if let Some(embedding) = ctx.embedding.take() {
+            embedding
+        } else {
+            let content = ctx.input.content.clone();
+            let embedder = Arc::clone(&self.embedder);
+            tokio::task::spawn_blocking(move || embedder.embed(&content))
+                .await
+                .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {e:?}"))??
+        };
         #[cfg(feature = "llm")]
         if let Some(ref llm_backend) = self.llm {
             let extractor = LlmExtractor {

@@ -1,8 +1,11 @@
 use crate::substrate::traits::Scorer;
 use crate::substrate::types::{QueryContext, ScoredCandidate};
-use anyhow::{Context, Result};
+#[cfg(feature = "real-embeddings")]
+use anyhow::Context;
+use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
+#[cfg(feature = "real-embeddings")]
 use std::sync::Arc;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -85,6 +88,32 @@ impl Scorer for crate::substrate::traits::EntityExpansionScorer {
 // CrossEncoderScorer
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Applies cross-encoder scores to the candidate map, pairing each requested
+/// ID with the score at the same position.
+///
+/// Extracted into a pure helper so the ID↔score pairing contract can be
+/// unit-tested without loading an ONNX model.
+pub(crate) fn apply_cross_encoder_scores(
+    candidates: &mut HashMap<String, ScoredCandidate>,
+    ids: &[String],
+    ce_scores: &[f32],
+    alpha: f64,
+) -> Result<()> {
+    if ids.len() != ce_scores.len() {
+        anyhow::bail!(
+            "cross-encoder score count mismatch: ids={} ce_scores={}",
+            ids.len(),
+            ce_scores.len()
+        );
+    }
+    for (id, ce_score) in ids.iter().zip(ce_scores.iter()) {
+        if let Some(candidate) = candidates.get_mut(id) {
+            candidate.score = alpha * candidate.score + (1.0 - alpha) * f64::from(*ce_score);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "real-embeddings")]
 #[async_trait]
 impl Scorer for crate::substrate::traits::CrossEncoderScorer {
@@ -127,11 +156,7 @@ impl Scorer for crate::substrate::traits::CrossEncoderScorer {
         .await
         .context("spawn_blocking join error")??;
 
-        for (id, ce_score) in ids.iter().zip(ce_scores.iter()) {
-            if let Some(candidate) = candidates.get_mut(id) {
-                candidate.score = alpha * candidate.score + (1.0 - alpha) * f64::from(*ce_score);
-            }
-        }
+        apply_cross_encoder_scores(candidates, &ids, &ce_scores, alpha)?;
 
         Ok(())
     }

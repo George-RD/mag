@@ -35,6 +35,15 @@ fn current_schema_version(conn: &Connection) -> Result<i64> {
     .map_err(|e| anyhow!("Failed to read schema version: {e}"))
 }
 
+/// Canonical DDL for the `memories_fts` full-text index, shared by schema
+/// initialization, the porter-tokenizer migration, and corruption recovery so
+/// every path recreates the index with an identical definition.
+const FTS5_TABLE_DDL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    id UNINDEXED,
+    content,
+    tokenize='porter unicode61'
+);";
+
 /// Creates the `memories` and `relationships` tables if they don't exist and enables foreign keys.
 pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")
@@ -113,15 +122,12 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
             key TEXT NOT NULL PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-        );
-
-        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-            id UNINDEXED,
-            content,
-            tokenize='porter unicode61'
         );",
     )
     .context("failed to initialize sqlite schema")?;
+
+    conn.execute_batch(FTS5_TABLE_DDL)
+        .context("failed to create FTS5 index")?;
 
     if current < 1 {
         conn.execute(
@@ -397,14 +403,8 @@ fn migrate_fts_to_porter(conn: &Connection) -> Result<()> {
     conn.execute_batch("DROP TABLE IF EXISTS memories_fts;")
         .context("failed to drop old FTS5 table during porter migration")?;
 
-    conn.execute_batch(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-            id UNINDEXED,
-            content,
-            tokenize='porter unicode61'
-        );",
-    )
-    .context("failed to recreate FTS5 table with porter tokenizer")?;
+    conn.execute_batch(FTS5_TABLE_DDL)
+        .context("failed to recreate FTS5 table with porter tokenizer")?;
 
     // Repopulate from existing memories (rebuild_fts_index will also check, but we do it
     // here so the migration is self-contained).
@@ -430,6 +430,177 @@ pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Counts FTS5 index divergence from the `memories` table as
+/// `(orphaned, missing)`: `orphaned` is FTS rows with no backing memory and
+/// `missing` is memories absent from the index. Both zero ⇒ the id sets are
+/// identical (in sync).
+///
+/// This is the set-membership signal — two anti-joins — that distinguishes a
+/// truly synced index from an equal-count id mismatch that row counts alone
+/// cannot detect. Shared by `ensure_fts_sync` (repair) and the `fts5_in_sync`
+/// health/stats reports so all three agree on what "in sync" means.
+pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)> {
+    let orphaned: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)",
+            [],
+            |row| row.get(0),
+        )
+        .context("failed to count orphaned FTS5 rows")?;
+    let missing: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE id NOT IN (SELECT id FROM memories_fts)",
+            [],
+            |row| row.get(0),
+        )
+        .context("failed to count unindexed memory rows")?;
+    Ok((orphaned, missing))
+}
+/// Read-only diagnostic snapshot of the FTS5 index.
+///
+/// Tolerates a structurally corrupt `memories_fts` virtual table so that
+/// diagnostics paths can report degradation instead of returning an opaque
+/// error.
+pub(super) struct FtsDiagnostic {
+    pub indexed_count: Option<i64>,
+    pub divergence: Option<(i64, i64)>,
+    /// `Some` when the FTS5 virtual table or its shadow tables could not be
+    /// queried, indicating corruption or severe unreadability.
+    pub corruption_error: Option<String>,
+}
+
+impl FtsDiagnostic {
+    pub fn in_sync(&self) -> bool {
+        self.corruption_error.is_none() && self.divergence == Some((0, 0))
+    }
+
+    pub fn warning(&self) -> Option<String> {
+        if let Some(ref err) = self.corruption_error {
+            Some(format!(
+                "FTS5 index corrupt or unreadable: {err} (run `mag maintain --action fts-rebuild`)"
+            ))
+        } else if let Some((orphaned, missing)) = self.divergence {
+            if orphaned != 0 || missing != 0 {
+                Some(format!(
+                    "FTS5 index out of sync: {orphaned} orphaned index rows, {missing} unindexed memories (run `mag maintain --action fts-rebuild`)"
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+/// Returns a read-only diagnostic snapshot of the FTS5 index, catching a
+/// structurally corrupt index instead of propagating the error.
+pub(super) fn fts_diagnostic(conn: &Connection) -> FtsDiagnostic {
+    let indexed_count = conn.query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0));
+    let divergence = fts_divergence(conn);
+
+    let corruption_error = indexed_count
+        .as_ref()
+        .err()
+        .map(|e| e.to_string())
+        .or_else(|| divergence.as_ref().err().map(|e| e.to_string()));
+
+    FtsDiagnostic {
+        indexed_count: indexed_count.ok(),
+        divergence: divergence.ok(),
+        corruption_error,
+    }
+}
+
+/// Detects and repairs divergence between the `memories` table and the
+/// `memories_fts` full-text index, returning the number of FTS rows changed.
+///
+/// The index is maintained inline within each write transaction, so a healthy
+/// database keeps the two row sets identical. Divergence can still arise from
+/// interrupted writes (e.g. a `kill -9`'d process), concurrent writers, or
+/// historical bugs — and once diverged, search silently returns nothing for the
+/// affected rows with no recovery path short of deleting the database
+/// (issue #343). Running this on every file-backed open lets a reused `~/.mag`
+/// self-heal.
+///
+/// Divergence is gated on set membership (two anti-joins), not row counts: an
+/// equal-count id mismatch (one row dropped, an unrelated one orphaned) also
+/// breaks search and must be caught. The repair is bidirectional — orphaned
+/// FTS rows (no backing memory) are deleted and unindexed memories are added.
+///
+/// A structurally corrupt index (e.g. a damaged `memories_fts_data` segment
+/// tree) makes the anti-join probe itself error; there is no surgical repair,
+/// so the whole index is rebuilt from `memories`.
+/// Content-level drift (matching ids, stale text) is not an id-set divergence
+/// and is out of scope here; `MaintenanceManager::rebuild_fts` is the
+/// full-rebuild escape hatch for that.
+pub(super) fn ensure_fts_sync(conn: &Connection) -> Result<usize> {
+    let (orphaned, missing) = match fts_divergence(conn) {
+        Ok(counts) => counts,
+        // An unreadable index — e.g. a corrupt `memories_fts_data` segment tree
+        // left by an interrupted write — makes the divergence probe itself
+        // error. A corrupt segment tree has no surgical repair, so rebuild the
+        // whole index from the `memories` source of truth.
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "FTS5 index unreadable (corrupt); rebuilding from memories table"
+            );
+            return rebuild_fts_from_source(conn);
+        }
+    };
+
+    if orphaned == 0 && missing == 0 {
+        return Ok(0);
+    }
+
+    tracing::warn!(
+        orphaned,
+        missing,
+        "FTS5 index out of sync with memories table; repairing"
+    );
+
+    let deleted = conn
+        .execute(
+            "DELETE FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)",
+            [],
+        )
+        .context("failed to delete orphaned FTS5 rows")?;
+    let inserted = conn
+        .execute(
+            "INSERT INTO memories_fts(id, content) \
+             SELECT id, content FROM memories \
+             WHERE id NOT IN (SELECT id FROM memories_fts)",
+            [],
+        )
+        .context("failed to backfill missing FTS5 rows")?;
+
+    Ok(deleted + inserted)
+}
+
+/// Rebuilds the `memories_fts` index from the `memories` table — the recovery
+/// path for a structurally corrupt index, where a `DELETE`+re-`INSERT` would
+/// leave residual shadow-table damage that still fails `integrity-check`. The
+/// full `DROP`+recreate+repopulate restores a clean, internally consistent
+/// index. Returns the number of rows reindexed.
+pub(super) fn rebuild_fts_from_source(conn: &Connection) -> Result<usize> {
+    // Atomic so a crash mid-rebuild can never leave a half-populated index
+    // visible: either the whole DROP+recreate+repopulate lands or none of it.
+    let tx = retry_on_lock(|| conn.unchecked_transaction())
+        .context("failed to start FTS rebuild transaction")?;
+    tx.execute_batch("DROP TABLE IF EXISTS memories_fts;")
+        .context("failed to drop corrupt FTS5 index during rebuild")?;
+    tx.execute_batch(FTS5_TABLE_DDL)
+        .context("failed to recreate FTS5 index during rebuild")?;
+    tx.execute_batch("INSERT INTO memories_fts(id, content) SELECT id, content FROM memories;")
+        .context("failed to repopulate FTS5 index from memories table")?;
+    let reindexed: i64 = tx
+        .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+        .context("failed to count memories after FTS rebuild")?;
+    tx.commit().context("failed to commit FTS rebuild")?;
+    Ok(usize::try_from(reindexed).unwrap_or(0))
 }
 
 /// Resolves the default database path: `$HOME/.mag/memory.db`.

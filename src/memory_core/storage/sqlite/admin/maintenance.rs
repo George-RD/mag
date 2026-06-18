@@ -24,6 +24,9 @@ impl MaintenanceManager for SqliteStorage {
                 .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
                 .context("failed to count memories")?;
 
+            let fts = super::super::schema::fts_diagnostic(&conn);
+            let fts_count = fts.indexed_count.unwrap_or(0);
+
             let integrity: String = conn
                 .query_row("PRAGMA integrity_check", [], |row| row.get(0))
                 .unwrap_or_else(|_| "error".to_string());
@@ -41,7 +44,7 @@ impl MaintenanceManager for SqliteStorage {
             let db_size_mb = db_size_bytes as f64 / (1024.0 * 1024.0);
 
             let mut warnings: Vec<String> = Vec::new();
-            let status;
+            let mut status;
 
             if !integrity_ok {
                 status = "critical";
@@ -65,12 +68,21 @@ impl MaintenanceManager for SqliteStorage {
                 status = "healthy";
             }
 
+            let fts5_in_sync = fts.in_sync();
+            if let Some(w) = fts.warning() {
+                warnings.push(w);
+                if status == "healthy" {
+                    status = "warning";
+                }
+            }
             Ok::<_, anyhow::Error>(serde_json::json!({
                 "status": status,
                 "db_size_mb": (db_size_mb * 100.0).round() / 100.0,
                 "node_count": node_count,
                 "max_nodes": max_nodes,
                 "integrity_ok": integrity_ok,
+                "fts5_indexed": fts_count,
+                "fts5_in_sync": fts5_in_sync,
                 "warnings": warnings,
             }))
         })
@@ -578,5 +590,48 @@ impl MaintenanceManager for SqliteStorage {
         }
 
         Ok(deleted)
+    }
+
+    async fn rebuild_fts(&self) -> Result<serde_json::Value> {
+        let pool = Arc::clone(&self.pool);
+
+        let result = tokio::task::spawn_blocking(move || {
+            let conn = pool.writer()?;
+
+            // A structurally corrupt index can make the pre-rebuild count fail;
+            // tolerate that and report what we can rather than aborting the repair.
+            let before: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
+                .unwrap_or(0);
+            let memories: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+                .context("failed to count memory rows")?;
+
+            // Full DROP + recreate + repopulate from `memories`. A surgical
+            // DELETE + re-INSERT leaves residual shadow-table damage on a
+            // structurally corrupt index, so the safe path rebuilds the virtual
+            // table from scratch (issue #343).
+            let reindexed = super::super::schema::rebuild_fts_from_source(&conn)
+                .context("failed to rebuild FTS5 index from source")?;
+
+            let after: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
+                .context("failed to count FTS5 rows after rebuild")?;
+
+            tracing::info!(before, after, memories, "rebuilt FTS5 index");
+            Ok::<_, anyhow::Error>(serde_json::json!({
+                "fts_rows_before": before,
+                "fts_rows_after": after,
+                "memories_count": memories,
+                "reindexed": reindexed,
+            }))
+        })
+        .await
+        .context("spawn_blocking join error")??;
+
+        // The index changed underneath any cached results.
+        self.invalidate_query_cache();
+
+        Ok(result)
     }
 }

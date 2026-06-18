@@ -486,10 +486,12 @@ pub fn parse_duration(text: &str) -> Result<chrono::Duration> {
         }
     }
 
-    let total = chrono::Duration::weeks(weeks)
-        + chrono::Duration::days(days)
-        + chrono::Duration::hours(hours)
-        + chrono::Duration::minutes(minutes);
+    let overflow = || anyhow::anyhow!("duration out of range: {text}");
+    let total = chrono::Duration::try_weeks(weeks)
+        .and_then(|t| t.checked_add(&chrono::Duration::try_days(days)?))
+        .and_then(|t| t.checked_add(&chrono::Duration::try_hours(hours)?))
+        .and_then(|t| t.checked_add(&chrono::Duration::try_minutes(minutes)?))
+        .ok_or_else(overflow)?;
 
     if total.num_seconds() <= 0 {
         return Err(anyhow::anyhow!("duration must be greater than zero"));

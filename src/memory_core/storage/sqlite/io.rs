@@ -40,19 +40,21 @@ impl super::SqliteStorage {
                 )
                 .context("failed to get total access count")?;
 
-            let fts_count: i64 = conn
-                .query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0))
-                .context("failed to count FTS5 entries")?;
+            let fts = super::schema::fts_diagnostic(&conn);
 
-            Ok::<_, anyhow::Error>(serde_json::json!({
+            let mut value = serde_json::json!({
                 "total_memories": total_memories,
                 "total_relationships": total_relationships,
                 "average_importance": avg_importance,
                 "total_access_count": total_access,
-                "fts5_indexed": fts_count,
-                "fts5_in_sync": fts_count == total_memories,
+                "fts5_indexed": fts.indexed_count.unwrap_or(0),
+                "fts5_in_sync": fts.in_sync(),
                 "paths": build_stats_paths_json(&db_path),
-            }))
+            });
+            if let Some(ref err) = fts.corruption_error {
+                value["fts5_error"] = serde_json::Value::String(err.clone());
+            }
+            Ok::<_, anyhow::Error>(value)
         })
         .await
         .context("spawn_blocking join error")?

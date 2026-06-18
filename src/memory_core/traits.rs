@@ -231,6 +231,11 @@ pub trait MaintenanceManager: Send + Sync {
         count_threshold: usize,
         dry_run: bool,
     ) -> Result<serde_json::Value>;
+    /// Fully rebuild the FTS5 index from the `memories` table: drop every
+    /// indexed row and re-insert from source. Recovers from any divergence,
+    /// including content-level drift that the on-open `ensure_fts_sync` does
+    /// not detect. Returns `{fts_rows_before, fts_rows_after, memories_count}`.
+    async fn rebuild_fts(&self) -> Result<serde_json::Value>;
 }
 
 /// Session startup briefing provider.
