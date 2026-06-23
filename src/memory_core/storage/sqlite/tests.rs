@@ -5859,6 +5859,62 @@ async fn store_batch_supersedes_earlier_item_in_same_batch() {
     );
 }
 
+#[tokio::test]
+async fn store_batch_chains_temporal_edges_in_input_order() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let session = "sess-batch-temporal";
+    let items: Vec<(String, String, MemoryInput)> = ["t1", "t2", "t3"]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let content = format!("temporal batch event {i} with distinct body {id}");
+            let input = MemoryInput {
+                content: content.clone(),
+                id: Some((*id).to_string()),
+                session_id: Some(session.to_string()),
+                event_type: Some(EventType::Memory),
+                ..Default::default()
+            };
+            ((*id).to_string(), content, input)
+        })
+        .collect();
+
+    storage.store_batch(&items).await.unwrap();
+
+    // Forward chain must follow input order: t1 -> t2 -> t3.
+    assert!(
+        storage
+            .debug_has_relationship("t1", "t2", "PRECEDED_BY")
+            .unwrap(),
+        "expected PRECEDED_BY t1 -> t2"
+    );
+    assert!(
+        storage
+            .debug_has_relationship("t2", "t3", "PRECEDED_BY")
+            .unwrap(),
+        "expected PRECEDED_BY t2 -> t3"
+    );
+    // Deferred post-commit creation must not pick a later batch row as predecessor.
+    assert!(
+        !storage
+            .debug_has_relationship("t2", "t1", "PRECEDED_BY")
+            .unwrap(),
+        "must not create reversed PRECEDED_BY t2 -> t1"
+    );
+    assert!(
+        !storage
+            .debug_has_relationship("t3", "t2", "PRECEDED_BY")
+            .unwrap(),
+        "must not create reversed PRECEDED_BY t3 -> t2"
+    );
+    assert!(
+        !storage
+            .debug_has_relationship("t1", "t3", "PRECEDED_BY")
+            .unwrap(),
+        "must not create skip-level PRECEDED_BY t1 -> t3"
+    );
+}
+
 // ── query cache tests ────────────────────────────────────────────────
 
 #[tokio::test]

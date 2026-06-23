@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::REL_PRECEDED_BY;
 use crate::memory_core::embedder::Embedder;
 use crate::memory_core::storage::sqlite::pipeline::scoring::bump_token_cache_gen;
 
@@ -845,13 +846,38 @@ impl SqliteStorage {
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let owned_items: Vec<(String, String, MemoryInput)> = items.to_vec();
-        let results = tokio::task::spawn_blocking(move || {
+        let (results, session_tails) = tokio::task::spawn_blocking(move || {
             let conn = pool.writer()?;
             let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start sqlite batch transaction")?;
 
+            // Snapshot each session's pre-batch temporal tail (most recent memory)
+            // BEFORE inserting any batch row, so deferred temporal-edge creation can
+            // chain batch items in input order instead of picking a later batch row
+            // as a predecessor (parity with the per-item store() path).
+            let mut session_tails: HashMap<String, String> = HashMap::new();
+            let mut queried_sessions: HashSet<String> = HashSet::new();
+            for (_, _, input) in &owned_items {
+                if let Some(sid) = &input.session_id
+                    && queried_sessions.insert(sid.clone())
+                {
+                    let tail: Option<String> = tx
+                        .query_row(
+                            "SELECT id FROM memories WHERE session_id = ?1 \
+                             ORDER BY created_at DESC LIMIT 1",
+                            params![sid],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .context("failed to snapshot pre-batch session tail")?;
+                    if let Some(tail_id) = tail {
+                        session_tails.insert(sid.clone(), tail_id);
+                    }
+                }
+            }
+
             let mut results: Vec<BatchItemResult> = Vec::with_capacity(owned_items.len());
-            for ((id, data, input), embedding) in owned_items.iter().zip(embeddings.into_iter()) {
+            for ((id, data, input), embedding) in owned_items.iter().zip(embeddings) {
                 let (outcome, superseded_ids, final_tags) = Self::store_one_in_tx(
                     &tx,
                     embedder.as_ref(),
@@ -873,10 +899,10 @@ impl SqliteStorage {
                 .context("failed to commit sqlite batch transaction")?;
 
             // Flush the WAL accumulated by the batch with a single passive checkpoint
-            // (does not block readers). Harmless no-op for in-memory databases.
-            let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+            // (does not block readers). No-op for in-memory databases.
+            pool.checkpoint_passive(&conn);
 
-            Ok::<_, anyhow::Error>(results)
+            Ok::<_, anyhow::Error>((results, session_tails))
         })
         .await
         .context("spawn_blocking join error for store_batch")??;
@@ -887,16 +913,31 @@ impl SqliteStorage {
         self.invalidate_query_cache();
         self.refresh_hot_cache_best_effort();
 
+        // Chain temporal edges in input order, anchored to each session's
+        // pre-batch tail. `session_prev` tracks the last inserted memory per session.
+        let mut session_prev: HashMap<String, String> = session_tails;
+
         for result in &results {
             if matches!(result.outcome, StoreOutcome::Inserted) {
                 if let Err(error) = self.try_auto_relate(&result.id).await {
                     tracing::warn!(memory_id = %result.id, error = %error, "auto-relate failed");
                 }
 
-                if let Some(ref sid) = result.session_id
-                    && let Err(e) = self.try_create_temporal_edges(&result.id, sid).await
-                {
-                    tracing::warn!(memory_id = %result.id, error = %e, "temporal edge creation failed");
+                if let Some(ref sid) = result.session_id {
+                    if let Some(pred_id) = session_prev.get(sid).cloned()
+                        && let Err(e) = self
+                            .add_relationship(
+                                &pred_id,
+                                &result.id,
+                                REL_PRECEDED_BY,
+                                1.0,
+                                &serde_json::json!({"source": "temporal_adjacency"}),
+                            )
+                            .await
+                    {
+                        tracing::warn!(memory_id = %result.id, error = %e, "temporal edge creation failed");
+                    }
+                    session_prev.insert(sid.clone(), result.id.clone());
                 }
 
                 if !result.final_tags.is_empty()
