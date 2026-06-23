@@ -5756,6 +5756,214 @@ async fn store_batch_empty_is_noop() {
     storage.store_batch(&[]).await.unwrap();
 }
 
+#[tokio::test]
+async fn store_batch_dedups_identical_content_within_batch() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let content = "The quick brown fox jumps over the lazy dog repeatedly";
+    let items: Vec<(String, String, MemoryInput)> = ["dup-1", "dup-2"]
+        .iter()
+        .map(|id| {
+            let input = MemoryInput {
+                content: content.to_string(),
+                id: Some((*id).to_string()),
+                event_type: Some(EventType::Memory),
+                ..Default::default()
+            };
+            ((*id).to_string(), content.to_string(), input)
+        })
+        .collect();
+
+    storage.store_batch(&items).await.unwrap();
+
+    // Second item shares the canonical hash of the first (inserted earlier in the
+    // same transaction) so it must dedup — only one row survives.
+    let listed = storage
+        .list(0, 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(listed.total, 1, "expected within-batch canonical dedup");
+    let kept = storage.retrieve("dup-1").await.unwrap();
+    assert!(kept.contains("quick brown fox"));
+}
+
+#[tokio::test]
+async fn store_batch_applies_entity_tags() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let content = "Met with Alice about using React on project `Launchpad`.";
+    let items = vec![(
+        "ent-1".to_string(),
+        content.to_string(),
+        MemoryInput {
+            content: content.to_string(),
+            id: Some("ent-1".to_string()),
+            event_type: Some(EventType::Memory),
+            ..Default::default()
+        },
+    )];
+
+    storage.store_batch(&items).await.unwrap();
+
+    let listed = storage
+        .list(0, 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    let stored = listed
+        .memories
+        .iter()
+        .find(|m| m.id == "ent-1")
+        .expect("ent-1 should be stored");
+    assert!(
+        stored.tags.contains(&"entity:people:alice".to_string()),
+        "entity extraction must run inside the batch transaction: {:?}",
+        stored.tags
+    );
+}
+
+#[tokio::test]
+async fn store_batch_supersedes_earlier_item_in_same_batch() {
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(KeywordEmbedder)).unwrap();
+    let items = vec![
+        (
+            "batch-sup-a".to_string(),
+            "alpha user prefers concise commit messages with why first".to_string(),
+            MemoryInput {
+                content: "alpha user prefers concise commit messages with why first".to_string(),
+                id: Some("batch-sup-a".to_string()),
+                event_type: Some(EventType::UserPreference),
+                ..Default::default()
+            },
+        ),
+        (
+            "batch-sup-b".to_string(),
+            "alpha user now prefers concise commit messages with rationale first".to_string(),
+            MemoryInput {
+                content: "alpha user now prefers concise commit messages with rationale first"
+                    .to_string(),
+                id: Some("batch-sup-b".to_string()),
+                event_type: Some(EventType::UserPreference),
+                ..Default::default()
+            },
+        ),
+    ];
+
+    storage.store_batch(&items).await.unwrap();
+
+    // Supersession is detected within the transaction (batch-sup-a is visible to
+    // batch-sup-b's query) and the SUPERSEDES edge is created in deferred
+    // post-processing after commit.
+    let (superseded_by, chain_a) = storage.debug_get_versioning_fields("batch-sup-a").unwrap();
+    let (_, chain_b) = storage.debug_get_versioning_fields("batch-sup-b").unwrap();
+    assert_eq!(superseded_by.as_deref(), Some("batch-sup-b"));
+    assert_eq!(chain_a, chain_b, "version chains should be merged in batch");
+    assert!(
+        storage
+            .debug_has_relationship("batch-sup-a", "batch-sup-b", "SUPERSEDES")
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn store_batch_chains_temporal_edges_in_input_order() {
+    let storage = SqliteStorage::new_in_memory().unwrap();
+    let session = "sess-batch-temporal";
+    let items: Vec<(String, String, MemoryInput)> = ["t1", "t2", "t3"]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let content = format!("temporal batch event {i} with distinct body {id}");
+            let input = MemoryInput {
+                content: content.clone(),
+                id: Some((*id).to_string()),
+                session_id: Some(session.to_string()),
+                event_type: Some(EventType::Memory),
+                ..Default::default()
+            };
+            ((*id).to_string(), content, input)
+        })
+        .collect();
+
+    storage.store_batch(&items).await.unwrap();
+
+    // Forward chain must follow input order: t1 -> t2 -> t3.
+    assert!(
+        storage
+            .debug_has_relationship("t1", "t2", "PRECEDED_BY")
+            .unwrap(),
+        "expected PRECEDED_BY t1 -> t2"
+    );
+    assert!(
+        storage
+            .debug_has_relationship("t2", "t3", "PRECEDED_BY")
+            .unwrap(),
+        "expected PRECEDED_BY t2 -> t3"
+    );
+    // Deferred post-commit creation must not pick a later batch row as predecessor.
+    assert!(
+        !storage
+            .debug_has_relationship("t2", "t1", "PRECEDED_BY")
+            .unwrap(),
+        "must not create reversed PRECEDED_BY t2 -> t1"
+    );
+    assert!(
+        !storage
+            .debug_has_relationship("t3", "t2", "PRECEDED_BY")
+            .unwrap(),
+        "must not create reversed PRECEDED_BY t3 -> t2"
+    );
+    assert!(
+        !storage
+            .debug_has_relationship("t1", "t3", "PRECEDED_BY")
+            .unwrap(),
+        "must not create skip-level PRECEDED_BY t1 -> t3"
+    );
+}
+
+#[tokio::test]
+async fn store_batch_rejects_embedding_count_mismatch() {
+    #[derive(Debug, Clone)]
+    struct ShortEmbedder;
+    impl Embedder for ShortEmbedder {
+        fn dimension(&self) -> usize {
+            4
+        }
+        fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            Ok(vec![0.0, 0.0, 1.0, 0.0])
+        }
+        fn embed_batch(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+            // Intentionally return fewer embeddings than inputs to trip the guard.
+            Ok(Vec::new())
+        }
+    }
+
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(ShortEmbedder)).unwrap();
+    let items: Vec<(String, String, MemoryInput)> = (0..3)
+        .map(|i| {
+            let id = format!("mm-{i}");
+            let content = format!("mismatch guard item {i}");
+            let input = MemoryInput {
+                content: content.clone(),
+                id: Some(id.clone()),
+                event_type: Some(EventType::Memory),
+                ..Default::default()
+            };
+            (id, content, input)
+        })
+        .collect();
+
+    let result = storage.store_batch(&items).await;
+    assert!(
+        result.is_err(),
+        "store_batch must reject an embedding/item count mismatch"
+    );
+
+    // The guard fires before the transaction opens, so nothing is committed.
+    let listed = storage
+        .list(0, 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(listed.total, 0, "no items should be stored on mismatch");
+}
+
 // ── query cache tests ────────────────────────────────────────────────
 
 #[tokio::test]
