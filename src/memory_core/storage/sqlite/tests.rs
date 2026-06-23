@@ -5827,6 +5827,7 @@ async fn store_batch_supersedes_earlier_item_in_same_batch() {
             "batch-sup-a".to_string(),
             "alpha user prefers concise commit messages with why first".to_string(),
             MemoryInput {
+                content: "alpha user prefers concise commit messages with why first".to_string(),
                 id: Some("batch-sup-a".to_string()),
                 event_type: Some(EventType::UserPreference),
                 ..Default::default()
@@ -5836,6 +5837,8 @@ async fn store_batch_supersedes_earlier_item_in_same_batch() {
             "batch-sup-b".to_string(),
             "alpha user now prefers concise commit messages with rationale first".to_string(),
             MemoryInput {
+                content: "alpha user now prefers concise commit messages with rationale first"
+                    .to_string(),
                 id: Some("batch-sup-b".to_string()),
                 event_type: Some(EventType::UserPreference),
                 ..Default::default()
@@ -5913,6 +5916,52 @@ async fn store_batch_chains_temporal_edges_in_input_order() {
             .unwrap(),
         "must not create skip-level PRECEDED_BY t1 -> t3"
     );
+}
+
+#[tokio::test]
+async fn store_batch_rejects_embedding_count_mismatch() {
+    #[derive(Debug, Clone)]
+    struct ShortEmbedder;
+    impl Embedder for ShortEmbedder {
+        fn dimension(&self) -> usize {
+            4
+        }
+        fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            Ok(vec![0.0, 0.0, 1.0, 0.0])
+        }
+        fn embed_batch(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+            // Intentionally return fewer embeddings than inputs to trip the guard.
+            Ok(Vec::new())
+        }
+    }
+
+    let storage = SqliteStorage::new_in_memory_with_embedder(Arc::new(ShortEmbedder)).unwrap();
+    let items: Vec<(String, String, MemoryInput)> = (0..3)
+        .map(|i| {
+            let id = format!("mm-{i}");
+            let content = format!("mismatch guard item {i}");
+            let input = MemoryInput {
+                content: content.clone(),
+                id: Some(id.clone()),
+                event_type: Some(EventType::Memory),
+                ..Default::default()
+            };
+            (id, content, input)
+        })
+        .collect();
+
+    let result = storage.store_batch(&items).await;
+    assert!(
+        result.is_err(),
+        "store_batch must reject an embedding/item count mismatch"
+    );
+
+    // The guard fires before the transaction opens, so nothing is committed.
+    let listed = storage
+        .list(0, 10, &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(listed.total, 0, "no items should be stored on mismatch");
 }
 
 // ── query cache tests ────────────────────────────────────────────────

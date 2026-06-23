@@ -842,6 +842,16 @@ impl SqliteStorage {
         .await
         .context("spawn_blocking join error for embed_batch")??;
 
+        // The all-or-nothing batch contract requires exactly one embedding per
+        // item; a backend returning a different count would make the zip below
+        // silently truncate, committing a prefix and dropping the rest. Fail fast.
+        anyhow::ensure!(
+            embeddings.len() == items.len(),
+            "embed_batch returned {} embeddings for {} batch items",
+            embeddings.len(),
+            items.len()
+        );
+
         // ── Phase 2: Insert all items inside one transaction. ──
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
