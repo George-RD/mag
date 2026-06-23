@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::embedder::Embedder;
 use crate::memory_core::storage::sqlite::pipeline::scoring::bump_token_cache_gen;
 
 #[async_trait]
@@ -321,6 +322,15 @@ impl Tagger for SqliteStorage {
     }
 }
 
+/// Per-item outcome collected from a single-transaction batch insert.
+#[derive(Debug)]
+struct BatchItemResult {
+    pub id: String,
+    pub outcome: StoreOutcome,
+    pub superseded_ids: Vec<String>,
+    pub final_tags: Vec<String>,
+    pub session_id: Option<String>,
+}
 impl SqliteStorage {
     pub(crate) async fn store_internal(
         &self,
@@ -329,442 +339,34 @@ impl SqliteStorage {
         input: &MemoryInput,
         precomputed_embedding: Option<Vec<f32>>,
     ) -> Result<()> {
-        let tags_json =
-            serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?;
-        let metadata_json = serde_json::to_string(&input.metadata)
-            .context("failed to serialize metadata to JSON")?;
-
-        // Capture filter dimensions for selective cache invalidation.
         let invalidation_event_type = event_type_to_sql(&input.event_type);
         let invalidation_project = input.project.clone();
         let invalidation_session_id = input.session_id.clone();
 
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
+        let post_id = id.to_string();
+        let post_input = input.clone();
         let id = id.to_string();
         let data = data.to_string();
-        let importance = input.importance;
-        let event_type = invalidation_event_type.clone();
-        let event_type_enum = input.event_type.clone();
-        let session_id = input.session_id.clone();
-        let project = input.project.clone();
-        let priority = input.priority;
-        let entity_id = input.entity_id.clone();
-        let agent_type = input.agent_type.clone();
-        let ttl_seconds = input.ttl_seconds;
-        let referenced_date = input.referenced_date.clone();
-        let source_type = input.source_type.clone();
-        let id_for_store = id.clone();
+        let input = input.clone();
 
         let (outcome, superseded_ids, final_tags) = tokio::task::spawn_blocking(move || {
-            let c_hash = content_hash(&data);
-            let normalized_hash = canonical_hash(&data);
             let conn = pool.writer()?;
             let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start sqlite transaction")?;
-
-            // ── Phase 1: Combined canonical-hash + Jaccard dedup (single query) ──
-            //
-            // Fetch the canonical-hash match (if any) AND Jaccard candidates in one
-            // CTE-based round-trip, eliminating the previous two separate SELECTs.
-            let jaccard_threshold = event_type_enum.as_ref().and_then(|et| et.dedup_threshold());
-            // We only need Jaccard candidates when a threshold exists for this event type.
-            let need_jaccard = jaccard_threshold.is_some();
-
-            // result_kind: 'canonical' for a canonical-hash hit, 'jaccard' for a candidate row
-            let mut dedup_stmt = tx
-                .prepare(
-                    "WITH canonical_hit AS (
-                         SELECT id, 'canonical' AS kind
-                         FROM memories
-                         WHERE canonical_hash = ?1
-                           AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
-                         LIMIT 1
-                     ),
-                     jaccard_candidates AS (
-                         SELECT id, content
-                         FROM memories
-                         WHERE ?2 AND event_type = ?3
-                           AND NOT EXISTS (SELECT 1 FROM canonical_hit)
-                           AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
-                         ORDER BY created_at DESC
-                         LIMIT 5
-                     )
-                     SELECT kind, id, NULL AS content FROM canonical_hit
-                     UNION ALL
-                     SELECT 'jaccard' AS kind, id, content FROM jaccard_candidates",
-                )
-                .context("failed to prepare combined dedup query")?;
-
-            let event_type_param = event_type.as_deref().unwrap_or("");
-            let dedup_rows = dedup_stmt
-                .query_map(
-                    params![normalized_hash, need_jaccard, event_type_param],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                        ))
-                    },
-                )
-                .context("failed to execute combined dedup query")?;
-
-            let mut canonical_dedup_id: Option<String> = None;
-            let mut jaccard_candidates: Vec<(String, String)> = Vec::new();
-            for row in dedup_rows {
-                let (kind, row_id, content) = row.context("failed to decode combined dedup row")?;
-                match kind.as_str() {
-                    "canonical" => {
-                        canonical_dedup_id = Some(row_id);
-                    }
-                    _ => {
-                        if let Some(c) = content {
-                            jaccard_candidates.push((row_id, c));
-                        }
-                    }
-                }
-            }
-            drop(dedup_stmt);
-
-            // Canonical-hash early return (cheapest dedup — skips embedding entirely)
-            if let Some(existing_id) = canonical_dedup_id {
-                tx.execute(
-                    "UPDATE memories
-                     SET access_count = access_count + 1,
-                         last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                     WHERE id = ?1",
-                    params![existing_id],
-                )
-                .context("failed to update access_count for canonical dedup")?;
-                tx.commit().context("failed to commit canonical dedup")?;
-                return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new(), Vec::new()));
-            }
-
-            // Jaccard dedup check (Rust-side similarity on pre-fetched candidates)
-            if let Some(threshold) = jaccard_threshold {
-                let matched_id = jaccard_candidates.iter().find_map(|(cid, ccontent)| {
-                    let similarity = jaccard_similarity(&data, ccontent, 3);
-                    if similarity >= threshold {
-                        Some(cid.clone())
-                    } else {
-                        None
-                    }
-                });
-
-                if let Some(existing_id) = matched_id {
-                    tx.execute(
-                        "UPDATE memories
-                         SET access_count = access_count + 1,
-                             last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                         WHERE id = ?1",
-                        params![existing_id],
-                    )
-                    .context("failed to update access_count for Jaccard dedup")?;
-                    tx.commit().context("failed to commit Jaccard dedup")?;
-                    return Ok::<_, anyhow::Error>((StoreOutcome::Deduped, Vec::new(), Vec::new()));
-                }
-            }
-
-            // ── Phase 2: Embedding (the real bottleneck, ~8ms) ──
-            let embedding_vec = match precomputed_embedding {
-                Some(vec) => vec,
-                None => embedder.embed(&data)?,
-            };
-            let embedding = encode_embedding(&embedding_vec);
-
-            // ── Phase 3: Supersession detection ──
-            let mut superseded_ids: Vec<String> = Vec::new();
-            if let Some(ref event_type_value) = event_type
-                && event_type_enum.as_ref().is_some_and(|et| et.is_supersession_type())
-            {
-                // Build supersession query with optional entity_id narrowing
-                let entity_narrowing = if entity_id.is_some() {
-                    " AND entity_id = ?3"
-                } else {
-                    ""
-                };
-                let sup_sql = format!(
-                    "SELECT id, content, embedding FROM memories
-                     WHERE event_type = ?1
-                       AND id != ?2
-                       AND superseded_by_id IS NULL
-                       AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
-                       {entity_narrowing}
-                     ORDER BY created_at DESC LIMIT 10"
-                );
-                let mut sup_stmt = tx
-                    .prepare(&sup_sql)
-                    .context("failed to prepare supersession query")?;
-
-                let row_mapper = |row: &rusqlite::Row<'_>| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<Vec<u8>>>(2).ok().flatten(),
-                    ))
-                };
-                let sup_candidates: Vec<(String, String, Option<Vec<u8>>)> =
-                    if let Some(ref eid) = entity_id {
-                        sup_stmt
-                            .query_map(params![event_type_value, &id_for_store, eid], row_mapper)
-                            .context("failed to execute supersession query")?
-                            .collect::<Result<Vec<_>, _>>()
-                            .context("failed to decode supersession rows")?
-                    } else {
-                        sup_stmt
-                            .query_map(params![event_type_value, &id_for_store], row_mapper)
-                            .context("failed to execute supersession query")?
-                            .collect::<Result<Vec<_>, _>>()
-                            .context("failed to decode supersession rows")?
-                    };
-
-                let emb_data = &embedding_vec;
-                for (candidate_id, candidate_content, candidate_emb) in &sup_candidates {
-
-                    // Primary signal: cosine similarity (catches semantic overlap
-                    // even when wording changes significantly)
-                    let cosine_ok = if let Some(emb_blob) = candidate_emb
-                        && let Ok(candidate_embedding) =
-                            decode_embedding(emb_blob)
-                    {
-                        let cosine = dot_product(emb_data, &candidate_embedding);
-                        cosine >= SUPERSESSION_COSINE_THRESHOLD
-                    } else {
-                        false // No embedding = cannot supersede
-                    };
-                    if !cosine_ok {
-                        continue;
-                    }
-
-                    // Secondary signal: Jaccard word overlap (prevents cross-topic
-                    // false matches from cosine alone)
-                    let jaccard = jaccard_similarity(&data, candidate_content, 3);
-                    if jaccard < SUPERSESSION_JACCARD_THRESHOLD {
-                        continue;
-                    }
-
-                    superseded_ids.push(candidate_id.clone());
-                }
-                drop(sup_stmt);
-            }
-
-            // Use referenced_date for event_at when provided, otherwise default to now.
-            let event_at_value: Option<String> = referenced_date.clone().and_then(|d| {
-                if validate_iso8601(&d) { Some(d) } else { None }
-            });
-
-            // ── Phase 4: INSERT memory + FTS5 sync ──
-            tx.execute(
-                "INSERT INTO memories (
-                    id,
-                    content,
-                    embedding,
-                    parent_id,
-                    event_at,
-                    content_hash,
-                    source_type,
-                    last_accessed_at,
-                    tags,
-                    importance,
-                    metadata,
-                    session_id,
-                    event_type,
-                    project,
-                    priority,
-                    entity_id,
-                    agent_type,
-                    ttl_seconds,
-                    canonical_hash
-                ) VALUES (
-                    ?1,
-                    ?2,
-                    ?3,
-                    NULL,
-                    COALESCE(?16, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-                    ?4,
-                    ?17,
-                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                    ?5,
-                    ?6,
-                    ?7,
-                    ?8,
-                    ?9,
-                    ?10,
-                    ?11,
-                    ?12,
-                    ?13,
-                    ?14,
-                    ?15
-                )
-                ON CONFLICT(id) DO UPDATE SET
-                    content = excluded.content,
-                    embedding = excluded.embedding,
-                    content_hash = excluded.content_hash,
-                    source_type = excluded.source_type,
-                    tags = excluded.tags,
-                    importance = excluded.importance,
-                    metadata = excluded.metadata,
-                    session_id = excluded.session_id,
-                    event_type = excluded.event_type,
-                    project = excluded.project,
-                    priority = excluded.priority,
-                    entity_id = excluded.entity_id,
-                    agent_type = excluded.agent_type,
-                    ttl_seconds = excluded.ttl_seconds,
-                    canonical_hash = excluded.canonical_hash,
-                    event_at = excluded.event_at,
-                    last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                params![
-                    id_for_store,
-                    data,
-                    embedding,
-                    c_hash,
-                    tags_json,
-                    importance,
-                    metadata_json,
-                    session_id,
-                    event_type,
-                    project,
-                    priority,
-                    entity_id,
-                    agent_type,
-                    ttl_seconds,
-                    normalized_hash,
-                    event_at_value,
-                    source_type.as_deref().unwrap_or("cli_input"),
-                ],
-            )
-            .context("failed to insert memory")?;
-
-            tx.execute("DELETE FROM memories_fts WHERE id = ?1", params![id_for_store])
-                .context("failed to delete existing FTS row during store")?;
-            tx.execute(
-                "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
-                params![id_for_store, data],
-            )
-            .context("failed to insert FTS row during store")?;
-
-            // ── Phase 4b: Entity extraction — auto-tag with detected entities ──
-            let entity_tags = super::entities::extract_entities(&data);
-            let final_tags: Vec<String> = if !entity_tags.is_empty() {
-                let mut current_tags: Vec<String> =
-                    serde_json::from_str(&tags_json).unwrap_or_default();
-                for etag in &entity_tags {
-                    if !current_tags.contains(etag) {
-                        current_tags.push(etag.clone());
-                    }
-                }
-                let merged_json = serde_json::to_string(&current_tags)
-                    .unwrap_or_else(|_| tags_json.clone());
-                tx.execute(
-                    "UPDATE memories SET tags = ?1 WHERE id = ?2",
-                    params![merged_json, id_for_store],
-                )
-                .context("failed to update memory with entity tags")?;
-                current_tags
-            } else {
-                serde_json::from_str(&tags_json).unwrap_or_default()
-            };
-
-            #[cfg(feature = "sqlite-vec")]
-            vec_upsert(&tx, &id_for_store, &embedding)?;
-
-            // ── Phase 5: Batched supersession chain management ──
-            if !superseded_ids.is_empty() {
-                let now_str =
-                    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-
-                // Batch-mark all superseded memories and collect their chain_ids in
-                // a single pass (replaces per-id UPDATE + SELECT pair).
-                let mut canonical_chain_id: Option<String> = None;
-                let mut other_chain_ids: Vec<String> = Vec::new();
-
-                // Batch-mark all superseded memories and collect their chain_ids in
-                // a single UPDATE ... IN (...) RETURNING query.
-                let in_clause: String = (0..superseded_ids.len())
-                    .map(|i| format!("?{}", i + 3))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                let batch_update_sql = format!(
-                    "UPDATE memories
-                     SET superseded_by_id = ?1, superseded_at = ?2
-                     WHERE id IN ({in_clause}) AND superseded_by_id IS NULL
-                     RETURNING id, version_chain_id"
-                );
-
-                let mut param_values: Vec<rusqlite::types::Value> = Vec::with_capacity(superseded_ids.len() + 2);
-                param_values.push(rusqlite::types::Value::Text(id_for_store.clone()));
-                param_values.push(rusqlite::types::Value::Text(now_str.clone()));
-                for old_id in &superseded_ids {
-                    param_values.push(rusqlite::types::Value::Text(old_id.clone()));
-                }
-
-                {
-                    let param_refs = to_param_refs(&param_values);
-                    let mut stmt = tx.prepare(&batch_update_sql)?;
-                    let mut rows = stmt.query(param_refs.as_slice())?;
-
-                    while let Some(row) = rows.next()? {
-                        let old_id: String = row.get(0)?;
-                        let old_chain_id: Option<String> = row.get(1)?;
-
-                        match (&canonical_chain_id, &old_chain_id) {
-                            (None, Some(chain)) => canonical_chain_id = Some(chain.clone()),
-                            (None, None) => canonical_chain_id = Some(old_id),
-                            (Some(canonical), Some(chain)) if chain != canonical => {
-                                other_chain_ids.push(chain.clone());
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-
-                let chain_id =
-                    canonical_chain_id.unwrap_or_else(|| id_for_store.clone());
-
-                // Merge divergent chains into the canonical one
-                for other_chain in &other_chain_ids {
-                    tx.execute(
-                        "UPDATE memories SET version_chain_id = ?1 WHERE version_chain_id = ?2",
-                        params![chain_id, other_chain],
-                    )
-                    .context("failed to merge version chains")?;
-                }
-
-                // Batch-set chain_id on old memories that had none + the new memory
-                // in a single UPDATE using IN(...) + OR, replacing N+1 separate UPDATEs.
-                let id_placeholders: String = (0..superseded_ids.len())
-                    .map(|i| format!("?{}", i + 3))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let batch_sql = format!(
-                    "UPDATE memories SET version_chain_id = ?1
-                     WHERE (id IN ({id_placeholders}) AND version_chain_id IS NULL)
-                        OR id = ?2"
-                );
-                let mut param_values: Vec<rusqlite::types::Value> = Vec::with_capacity(
-                    superseded_ids.len() + 2,
-                );
-                param_values
-                    .push(rusqlite::types::Value::Text(chain_id));
-                param_values
-                    .push(rusqlite::types::Value::Text(id_for_store.clone()));
-                for old_id in &superseded_ids {
-                    param_values.push(rusqlite::types::Value::Text(
-                        old_id.clone(),
-                    ));
-                }
-                let param_refs = to_param_refs(&param_values);
-                tx.execute(&batch_sql, param_refs.as_slice())
-                    .context("failed to batch-set version chain ids")?;
-            }
-
+            let r = Self::store_one_in_tx(
+                &tx,
+                embedder.as_ref(),
+                &id,
+                &data,
+                &input,
+                precomputed_embedding,
+            )?;
             tx.commit().context("failed to commit sqlite transaction")?;
             drop(conn); // Release writer Mutex before note_write to avoid deadlock
             pool.note_write();
-            Ok::<_, anyhow::Error>((StoreOutcome::Inserted, superseded_ids, final_tags))
+            Ok::<_, anyhow::Error>(r)
         })
         .await
         .context("spawn_blocking join error")??;
@@ -777,61 +379,551 @@ impl SqliteStorage {
         self.refresh_hot_cache_best_effort();
 
         if matches!(outcome, StoreOutcome::Inserted) {
-            if let Err(error) = self.try_auto_relate(&id).await {
-                tracing::warn!(memory_id = %id, error = %error, "auto-relate failed");
+            if let Err(error) = self.try_auto_relate(&post_id).await {
+                tracing::warn!(memory_id = %post_id, error = %error, "auto-relate failed");
             }
 
-            if let Some(ref sid) = input.session_id
-                && let Err(e) = self.try_create_temporal_edges(&id, sid).await
+            if let Some(ref sid) = post_input.session_id
+                && let Err(e) = self.try_create_temporal_edges(&post_id, sid).await
             {
-                tracing::warn!(memory_id = %id, error = %e, "temporal edge creation failed");
+                tracing::warn!(memory_id = %post_id, error = %e, "temporal edge creation failed");
             }
 
             if !final_tags.is_empty()
-                && let Err(e) = self.try_create_entity_edges(&id, &final_tags).await
+                && let Err(e) = self.try_create_entity_edges(&post_id, &final_tags).await
             {
-                tracing::warn!(memory_id = %id, error = %e, "entity edge creation failed");
+                tracing::warn!(memory_id = %post_id, error = %e, "entity edge creation failed");
             }
         }
 
         for old_id in &superseded_ids {
             if let Err(error) = self
-                .add_relationship(old_id, &id, "SUPERSEDES", 1.0, &serde_json::json!({}))
+                .add_relationship(old_id, &post_id, "SUPERSEDES", 1.0, &serde_json::json!({}))
                 .await
             {
-                tracing::warn!(old_id = %old_id, new_id = %id, error = %error, "failed to create SUPERSEDES edge");
+                tracing::warn!(old_id = %old_id, new_id = %post_id, error = %error, "failed to create SUPERSEDES edge");
             }
         }
         bump_token_cache_gen();
         Ok(())
     }
 
-    /// Batch store multiple memories with optimized embedding computation.
+    fn store_one_in_tx(
+        tx: &rusqlite::Transaction<'_>,
+        embedder: &dyn Embedder,
+        id: &str,
+        data: &str,
+        input: &MemoryInput,
+        precomputed_embedding: Option<Vec<f32>>,
+    ) -> Result<(StoreOutcome, Vec<String>, Vec<String>)> {
+        let tags_json =
+            serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?;
+        let metadata_json = serde_json::to_string(&input.metadata)
+            .context("failed to serialize metadata to JSON")?;
+
+        let event_type = event_type_to_sql(&input.event_type);
+        let event_type_enum = input.event_type.clone();
+        let session_id = input.session_id.clone();
+        let project = input.project.clone();
+        let importance = input.importance;
+        let priority = input.priority;
+        let entity_id = input.entity_id.clone();
+        let agent_type = input.agent_type.clone();
+        let ttl_seconds = input.ttl_seconds;
+        let referenced_date = input.referenced_date.clone();
+        let source_type = input.source_type.clone();
+        let id_for_store = id.to_string();
+
+        let c_hash = content_hash(data);
+        let normalized_hash = canonical_hash(data);
+
+        // ── Phase 1: Combined canonical-hash + Jaccard dedup (single query) ──
+        let jaccard_threshold = event_type_enum.as_ref().and_then(|et| et.dedup_threshold());
+        let need_jaccard = jaccard_threshold.is_some();
+
+        let mut dedup_stmt = tx
+            .prepare(
+                "WITH canonical_hit AS (
+                     SELECT id, 'canonical' AS kind
+                     FROM memories
+                     WHERE canonical_hash = ?1
+                       AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                     LIMIT 1
+                 ),
+                 jaccard_candidates AS (
+                     SELECT id, content
+                     FROM memories
+                     WHERE ?2 AND event_type = ?3
+                       AND NOT EXISTS (SELECT 1 FROM canonical_hit)
+                       AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                     ORDER BY created_at DESC
+                     LIMIT 5
+                 )
+                 SELECT kind, id, NULL AS content FROM canonical_hit
+                 UNION ALL
+                 SELECT 'jaccard' AS kind, id, content FROM jaccard_candidates",
+            )
+            .context("failed to prepare combined dedup query")?;
+
+        let event_type_param = event_type.as_deref().unwrap_or("");
+        let dedup_rows = dedup_stmt
+            .query_map(
+                params![normalized_hash, need_jaccard, event_type_param],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .context("failed to execute combined dedup query")?;
+
+        let mut canonical_dedup_id: Option<String> = None;
+        let mut jaccard_candidates: Vec<(String, String)> = Vec::new();
+        for row in dedup_rows {
+            let (kind, row_id, content) = row.context("failed to decode combined dedup row")?;
+            match kind.as_str() {
+                "canonical" => {
+                    canonical_dedup_id = Some(row_id);
+                }
+                _ => {
+                    if let Some(c) = content {
+                        jaccard_candidates.push((row_id, c));
+                    }
+                }
+            }
+        }
+        drop(dedup_stmt);
+
+        if let Some(existing_id) = canonical_dedup_id {
+            tx.execute(
+                "UPDATE memories
+                 SET access_count = access_count + 1,
+                     last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ?1",
+                params![existing_id],
+            )
+            .context("failed to update access_count for canonical dedup")?;
+            return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+        }
+
+        if let Some(threshold) = jaccard_threshold {
+            let matched_id = jaccard_candidates.iter().find_map(|(cid, ccontent)| {
+                let similarity = jaccard_similarity(data, ccontent, 3);
+                if similarity >= threshold {
+                    Some(cid.clone())
+                } else {
+                    None
+                }
+            });
+
+            if let Some(existing_id) = matched_id {
+                tx.execute(
+                    "UPDATE memories
+                     SET access_count = access_count + 1,
+                         last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     WHERE id = ?1",
+                    params![existing_id],
+                )
+                .context("failed to update access_count for Jaccard dedup")?;
+                return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+            }
+        }
+
+        // ── Phase 2: Embedding ──
+        let embedding_vec = match precomputed_embedding {
+            Some(vec) => vec,
+            None => embedder.embed(data)?,
+        };
+        let embedding = encode_embedding(&embedding_vec);
+
+        // ── Phase 3: Supersession detection ──
+        let mut superseded_ids: Vec<String> = Vec::new();
+        if let Some(ref event_type_value) = event_type
+            && event_type_enum
+                .as_ref()
+                .is_some_and(|et| et.is_supersession_type())
+        {
+            let entity_narrowing = if entity_id.is_some() {
+                " AND entity_id = ?3"
+            } else {
+                ""
+            };
+            let sup_sql = format!(
+                "SELECT id, content, embedding FROM memories
+                 WHERE event_type = ?1
+                   AND id != ?2
+                   AND superseded_by_id IS NULL
+                   AND (ttl_seconds IS NULL OR datetime(created_at, '+' || ttl_seconds || ' seconds') > datetime('now'))
+                   {entity_narrowing}
+                 ORDER BY created_at DESC LIMIT 10"
+            );
+            let mut sup_stmt = tx
+                .prepare(&sup_sql)
+                .context("failed to prepare supersession query")?;
+
+            let row_mapper = |row: &rusqlite::Row<'_>| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<Vec<u8>>>(2).ok().flatten(),
+                ))
+            };
+            let sup_candidates: Vec<(String, String, Option<Vec<u8>>)> =
+                if let Some(ref eid) = entity_id {
+                    sup_stmt
+                        .query_map(params![event_type_value, &id_for_store, eid], row_mapper)
+                        .context("failed to execute supersession query")?
+                        .collect::<Result<Vec<_>, _>>()
+                        .context("failed to decode supersession rows")?
+                } else {
+                    sup_stmt
+                        .query_map(params![event_type_value, &id_for_store], row_mapper)
+                        .context("failed to execute supersession query")?
+                        .collect::<Result<Vec<_>, _>>()
+                        .context("failed to decode supersession rows")?
+                };
+
+            let emb_data = &embedding_vec;
+            for (candidate_id, candidate_content, candidate_emb) in &sup_candidates {
+                let cosine_ok = if let Some(emb_blob) = candidate_emb
+                    && let Ok(candidate_embedding) = decode_embedding(emb_blob)
+                {
+                    let cosine = dot_product(emb_data, &candidate_embedding);
+                    cosine >= SUPERSESSION_COSINE_THRESHOLD
+                } else {
+                    false
+                };
+                if !cosine_ok {
+                    continue;
+                }
+
+                let jaccard = jaccard_similarity(data, candidate_content, 3);
+                if jaccard < SUPERSESSION_JACCARD_THRESHOLD {
+                    continue;
+                }
+
+                superseded_ids.push(candidate_id.clone());
+            }
+            drop(sup_stmt);
+        }
+
+        // ── Phase 4: INSERT memory + FTS5 sync ──
+        let event_at_value: Option<String> = referenced_date
+            .clone()
+            .and_then(|d| if validate_iso8601(&d) { Some(d) } else { None });
+
+        tx.execute(
+            "INSERT INTO memories (
+                id,
+                content,
+                embedding,
+                parent_id,
+                event_at,
+                content_hash,
+                source_type,
+                last_accessed_at,
+                tags,
+                importance,
+                metadata,
+                session_id,
+                event_type,
+                project,
+                priority,
+                entity_id,
+                agent_type,
+                ttl_seconds,
+                canonical_hash
+            ) VALUES (
+                ?1,
+                ?2,
+                ?3,
+                NULL,
+                COALESCE(?16, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                ?4,
+                ?17,
+                strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                ?5,
+                ?6,
+                ?7,
+                ?8,
+                ?9,
+                ?10,
+                ?11,
+                ?12,
+                ?13,
+                ?14,
+                ?15
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                content = excluded.content,
+                embedding = excluded.embedding,
+                content_hash = excluded.content_hash,
+                source_type = excluded.source_type,
+                tags = excluded.tags,
+                importance = excluded.importance,
+                metadata = excluded.metadata,
+                session_id = excluded.session_id,
+                event_type = excluded.event_type,
+                project = excluded.project,
+                priority = excluded.priority,
+                entity_id = excluded.entity_id,
+                agent_type = excluded.agent_type,
+                ttl_seconds = excluded.ttl_seconds,
+                canonical_hash = excluded.canonical_hash,
+                event_at = excluded.event_at,
+                last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            params![
+                id_for_store,
+                data,
+                embedding,
+                c_hash,
+                tags_json,
+                importance,
+                metadata_json,
+                session_id,
+                event_type,
+                project,
+                priority,
+                entity_id,
+                agent_type,
+                ttl_seconds,
+                normalized_hash,
+                event_at_value,
+                source_type.as_deref().unwrap_or("cli_input"),
+            ],
+        )
+        .context("failed to insert memory")?;
+
+        tx.execute(
+            "DELETE FROM memories_fts WHERE id = ?1",
+            params![id_for_store],
+        )
+        .context("failed to delete existing FTS row during store")?;
+        tx.execute(
+            "INSERT INTO memories_fts(id, content) VALUES (?1, ?2)",
+            params![id_for_store, data],
+        )
+        .context("failed to insert FTS row during store")?;
+
+        // ── Phase 4b: Entity extraction ──
+        let entity_tags = super::entities::extract_entities(data);
+        let final_tags: Vec<String> = if !entity_tags.is_empty() {
+            let mut current_tags: Vec<String> =
+                serde_json::from_str(&tags_json).unwrap_or_default();
+            for etag in &entity_tags {
+                if !current_tags.contains(etag) {
+                    current_tags.push(etag.clone());
+                }
+            }
+            let merged_json =
+                serde_json::to_string(&current_tags).unwrap_or_else(|_| tags_json.clone());
+            tx.execute(
+                "UPDATE memories SET tags = ?1 WHERE id = ?2",
+                params![merged_json, id_for_store],
+            )
+            .context("failed to update memory with entity tags")?;
+            current_tags
+        } else {
+            serde_json::from_str(&tags_json).unwrap_or_default()
+        };
+
+        #[cfg(feature = "sqlite-vec")]
+        vec_upsert(tx, &id_for_store, &embedding)?;
+
+        // ── Phase 5: Batched supersession chain management ──
+        if !superseded_ids.is_empty() {
+            let now_str = chrono::Utc::now()
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string();
+
+            let mut canonical_chain_id: Option<String> = None;
+            let mut other_chain_ids: Vec<String> = Vec::new();
+
+            let in_clause: String = (0..superseded_ids.len())
+                .map(|i| format!("?{}", i + 3))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let batch_update_sql = format!(
+                "UPDATE memories
+                 SET superseded_by_id = ?1, superseded_at = ?2
+                 WHERE id IN ({in_clause}) AND superseded_by_id IS NULL
+                 RETURNING id, version_chain_id"
+            );
+
+            let mut param_values: Vec<rusqlite::types::Value> =
+                Vec::with_capacity(superseded_ids.len() + 2);
+            param_values.push(rusqlite::types::Value::Text(id_for_store.clone()));
+            param_values.push(rusqlite::types::Value::Text(now_str.clone()));
+            for old_id in &superseded_ids {
+                param_values.push(rusqlite::types::Value::Text(old_id.clone()));
+            }
+
+            {
+                let param_refs = to_param_refs(&param_values);
+                let mut stmt = tx.prepare(&batch_update_sql)?;
+                let mut rows = stmt.query(param_refs.as_slice())?;
+
+                while let Some(row) = rows.next()? {
+                    let old_id: String = row.get(0)?;
+                    let old_chain_id: Option<String> = row.get(1)?;
+
+                    match (&canonical_chain_id, &old_chain_id) {
+                        (None, Some(chain)) => canonical_chain_id = Some(chain.clone()),
+                        (None, None) => canonical_chain_id = Some(old_id),
+                        (Some(canonical), Some(chain)) if chain != canonical => {
+                            other_chain_ids.push(chain.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let chain_id = canonical_chain_id.unwrap_or_else(|| id_for_store.clone());
+
+            for other_chain in &other_chain_ids {
+                tx.execute(
+                    "UPDATE memories SET version_chain_id = ?1 WHERE version_chain_id = ?2",
+                    params![chain_id, other_chain],
+                )
+                .context("failed to merge version chains")?;
+            }
+
+            let id_placeholders: String = (0..superseded_ids.len())
+                .map(|i| format!("?{}", i + 3))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let batch_sql = format!(
+                "UPDATE memories SET version_chain_id = ?1
+                 WHERE (id IN ({id_placeholders}) AND version_chain_id IS NULL)
+                    OR id = ?2"
+            );
+            let mut param_values: Vec<rusqlite::types::Value> =
+                Vec::with_capacity(superseded_ids.len() + 2);
+            param_values.push(rusqlite::types::Value::Text(chain_id));
+            param_values.push(rusqlite::types::Value::Text(id_for_store.clone()));
+            for old_id in &superseded_ids {
+                param_values.push(rusqlite::types::Value::Text(old_id.clone()));
+            }
+            let param_refs = to_param_refs(&param_values);
+            tx.execute(&batch_sql, param_refs.as_slice())
+                .context("failed to batch-set version chain ids")?;
+        }
+
+        Ok((StoreOutcome::Inserted, superseded_ids, final_tags))
+    }
+
+    /// Batch store multiple memories inside a single SQLite transaction.
     ///
-    /// Pre-warms the embedding LRU cache with a single `embed_batch()` call,
-    /// then loops individual `store()` calls which hit the warm cache.
+    /// Pre-computes embeddings with one batched `embed_batch()` call, then inserts
+    /// every item through [`Self::store_one_in_tx`] within a single transaction.
+    /// This eliminates the per-item transaction overhead — and the mid-batch WAL
+    /// auto-checkpoint / FTS5 segment-merge stalls — that caused pathological
+    /// multi-minute hangs on large batches (issue #342). A single passive WAL
+    /// checkpoint after commit flushes the accumulated WAL without blocking readers.
     ///
-    /// Not atomic: if a store fails mid-batch, previously stored items remain committed.
-    #[allow(dead_code)]
+    /// Atomic: if any item fails, the whole batch rolls back. Graph-edge creation
+    /// and cache invalidation run once after the transaction commits.
     pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()> {
         if items.is_empty() {
             return Ok(());
         }
 
-        // Phase 1: Pre-warm embedding cache with batched ONNX inference.
+        // ── Phase 1: Batched embedding inference (results returned in input order). ──
         let contents: Vec<String> = items.iter().map(|(_, data, _)| data.clone()).collect();
         let embedder = Arc::clone(&self.embedder);
-        tokio::task::spawn_blocking(move || {
+        let embeddings = tokio::task::spawn_blocking(move || {
             let refs: Vec<&str> = contents.iter().map(|s| s.as_str()).collect();
             embedder.embed_batch(&refs)
         })
         .await
         .context("spawn_blocking join error for embed_batch")??;
 
-        // Phase 2: Store each item (hits warm embedding cache).
-        for (id, data, input) in items {
-            <Self as Storage>::store(self, id, data, input).await?;
+        // ── Phase 2: Insert all items inside one transaction. ──
+        let pool = Arc::clone(&self.pool);
+        let embedder = Arc::clone(&self.embedder);
+        let owned_items: Vec<(String, String, MemoryInput)> = items.to_vec();
+        let results = tokio::task::spawn_blocking(move || {
+            let conn = pool.writer()?;
+            let tx = retry_on_lock(|| conn.unchecked_transaction())
+                .context("failed to start sqlite batch transaction")?;
+
+            let mut results: Vec<BatchItemResult> = Vec::with_capacity(owned_items.len());
+            for ((id, data, input), embedding) in owned_items.iter().zip(embeddings.into_iter()) {
+                let (outcome, superseded_ids, final_tags) = Self::store_one_in_tx(
+                    &tx,
+                    embedder.as_ref(),
+                    id,
+                    data,
+                    input,
+                    Some(embedding),
+                )?;
+                results.push(BatchItemResult {
+                    id: id.clone(),
+                    outcome,
+                    superseded_ids,
+                    final_tags,
+                    session_id: input.session_id.clone(),
+                });
+            }
+
+            tx.commit()
+                .context("failed to commit sqlite batch transaction")?;
+
+            // Flush the WAL accumulated by the batch with a single passive checkpoint
+            // (does not block readers). Harmless no-op for in-memory databases.
+            let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+
+            Ok::<_, anyhow::Error>(results)
+        })
+        .await
+        .context("spawn_blocking join error for store_batch")??;
+
+        // ── Phase 3: Deferred post-processing after commit. ──
+        // A batch may span multiple (event_type, project, session) dimensions;
+        // a single full cache clear is simpler and correct for bulk writes.
+        self.invalidate_query_cache();
+        self.refresh_hot_cache_best_effort();
+
+        for result in &results {
+            if matches!(result.outcome, StoreOutcome::Inserted) {
+                if let Err(error) = self.try_auto_relate(&result.id).await {
+                    tracing::warn!(memory_id = %result.id, error = %error, "auto-relate failed");
+                }
+
+                if let Some(ref sid) = result.session_id
+                    && let Err(e) = self.try_create_temporal_edges(&result.id, sid).await
+                {
+                    tracing::warn!(memory_id = %result.id, error = %e, "temporal edge creation failed");
+                }
+
+                if !result.final_tags.is_empty()
+                    && let Err(e) = self
+                        .try_create_entity_edges(&result.id, &result.final_tags)
+                        .await
+                {
+                    tracing::warn!(memory_id = %result.id, error = %e, "entity edge creation failed");
+                }
+            }
+
+            for old_id in &result.superseded_ids {
+                if let Err(error) = self
+                    .add_relationship(
+                        old_id,
+                        &result.id,
+                        "SUPERSEDES",
+                        1.0,
+                        &serde_json::json!({}),
+                    )
+                    .await
+                {
+                    tracing::warn!(old_id = %old_id, new_id = %result.id, error = %error, "failed to create SUPERSEDES edge");
+                }
+            }
         }
+        bump_token_cache_gen();
 
         Ok(())
     }
