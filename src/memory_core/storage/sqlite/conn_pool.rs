@@ -203,17 +203,17 @@ impl ConnPool {
         }
     }
 
-    /// Runs a single passive WAL checkpoint on an already-held writer connection
-    /// and counts it toward checkpoint cadence. Use after a bulk write (e.g. a
-    /// batch transaction) that holds the writer for the whole transaction, to
-    /// flush the accumulated WAL without blocking readers. No-op for in-memory
-    /// databases.
+    /// Runs a passive WAL checkpoint on an already-held writer connection and
+    /// counts it toward checkpoint cadence. Use after a bulk write (e.g. a batch
+    /// transaction) that holds the writer for the whole transaction, to flush the
+    /// accumulated WAL without blocking readers. Retries on transient lock
+    /// contention with bounded backoff; no-op for in-memory databases.
     pub(super) fn checkpoint_passive(&self, conn: &Connection) {
         if !self.is_file_backed {
             return;
         }
         self.write_count.fetch_add(1, Ordering::Relaxed);
-        if let Err(e) = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);") {
+        if let Err(e) = retry_on_lock(|| conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);")) {
             tracing::debug!("batch WAL passive checkpoint failed: {e}");
         }
     }
