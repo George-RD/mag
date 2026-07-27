@@ -19,30 +19,35 @@ use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};
 
 // Dense embeddings have a high similarity floor, so vector similarity alone is
-// unsafe as an abstention signal. A strong top score plus separation from the
-// runner-up is useful, however: it rescues genuine paraphrases that have no
-// lexical overlap without returning an arbitrary nearest neighbour.
+// unsafe as an abstention signal. A unique strong match with clear separation
+// from the runner-up can rescue genuine paraphrases that have no lexical overlap
+// without returning an arbitrary nearest neighbour.
 const SEMANTIC_RESCUE_MIN_SIM: f64 = 0.82;
 const SEMANTIC_RESCUE_MIN_MARGIN: f64 = 0.035;
 
 fn has_confident_semantic_match(candidates: &[RankedSemanticCandidate]) -> bool {
-    let mut similarities: Vec<f64> = candidates
-        .iter()
-        .filter_map(|candidate| candidate.vec_sim)
-        .filter(|similarity| similarity.is_finite())
-        .collect();
-    similarities.sort_unstable_by(|left, right| right.total_cmp(left));
+    let mut top = f64::NEG_INFINITY;
+    let mut runner_up = f64::NEG_INFINITY;
+    let mut strong_matches = 0usize;
 
-    let Some(&top) = similarities.first() else {
-        return false;
-    };
-    if top < SEMANTIC_RESCUE_MIN_SIM {
-        return false;
+    for similarity in candidates.iter().filter_map(|candidate| candidate.vec_sim) {
+        if !similarity.is_finite() {
+            continue;
+        }
+        if similarity >= SEMANTIC_RESCUE_MIN_SIM {
+            strong_matches += 1;
+        }
+        if similarity > top {
+            runner_up = top;
+            top = similarity;
+        } else if similarity > runner_up {
+            runner_up = similarity;
+        }
     }
 
-    similarities
-        .get(1)
-        .is_none_or(|second| top - second >= SEMANTIC_RESCUE_MIN_MARGIN)
+    strong_matches == 1
+        && top >= SEMANTIC_RESCUE_MIN_SIM
+        && (!runner_up.is_finite() || top - runner_up >= SEMANTIC_RESCUE_MIN_MARGIN)
 }
 
 /// Phase 6: collection-level abstention + dedup, plus the final scoring-strategy
@@ -81,11 +86,10 @@ pub(crate) fn abstain_and_dedup(
     }
     let mut deduped: Vec<RankedSemanticCandidate> = by_fingerprint.into_values().collect();
 
-    // Apply abstention on the filtered candidates. Lexical evidence remains the
-    // primary precision guard. When wording differs completely, allow a semantic
-    // rescue only for a strong and unambiguous vector match. This mirrors the
-    // multi-retriever principle used by systems such as Hindsight: one retrieval
-    // channel should not be able to veto a confident result from another.
+    // Lexical evidence remains the primary precision guard. When wording differs
+    // completely, allow a semantic rescue only for one strong, unambiguous vector
+    // match. One retrieval channel should not veto another confident channel, but
+    // several merely-near candidates still indicate that MAG should abstain.
     if !query_tokens.is_empty() {
         let max_text_overlap = deduped
             .iter()
