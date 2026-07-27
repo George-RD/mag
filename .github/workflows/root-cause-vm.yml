@@ -1,0 +1,134 @@
+name: Root Cause VM Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  diagnose:
+    name: MAG Root Cause Diagnostic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run isolated diagnostic
+        shell: bash
+        run: |
+          set +e
+          exec > >(tee diagnostic.txt) 2>&1
+          echo '=== SYSTEM ==='
+          uname -a
+          echo "PWD=$PWD"
+          echo '=== BUILD ==='
+          cargo build --release
+          MAG="$PWD/target/release/mag"
+          "$MAG" --version
+          echo '=== CLI SURFACE ==='
+          "$MAG" --help
+          "$MAG" search --help
+          "$MAG" doctor --help
+          "$MAG" serve --help
+          echo '=== REPOSITORY MODELS ==='
+          find "$PWD" -maxdepth 4 -type f \( -iname '*.onnx' -o -iname '*tokenizer*' -o -iname '*.json' \) -printf '%p %s bytes\n' | sort | head -200
+
+          ROOT="$(mktemp -d)"
+          export HOME="$ROOT/home"
+          export MAG_DATA_ROOT="$ROOT/data"
+          export RUST_LOG=warn
+          mkdir -p "$HOME" "$MAG_DATA_ROOT"
+          echo "HOME=$HOME"
+          echo "MAG_DATA_ROOT=$MAG_DATA_ROOT"
+
+          run() {
+            echo
+            echo "### $*"
+            timeout 30s "$@"
+            rc=$?
+            echo "[exit=$rc]"
+            return 0
+          }
+
+          echo '=== CLEAN STATE ==='
+          run "$MAG" doctor
+          run "$MAG" doctor --json
+          echo 'Files before ingest:'
+          find "$ROOT" -type f -printf '%p %s bytes\n' | sort
+
+          echo '=== INGEST AND SEARCH WITHOUT DAEMON ==='
+          run "$MAG" ingest 'Retries must use exponential backoff with random jitter and stop after five attempts.'
+          echo 'Files after ingest:'
+          find "$ROOT" -type f -printf '%p %s bytes\n' | sort
+          run "$MAG" doctor
+          run "$MAG" search 'Retries must use exponential backoff'
+          run "$MAG" search 'What is our policy when requests keep failing?'
+          run "$MAG" search 'failed request retry policy'
+          run "$MAG" search 'random delay between repeated network attempts'
+          run "$MAG" search 'exponential backoff jitter five attempts'
+
+          echo '=== DATABASE INSPECTION ==='
+          DB=$(find "$MAG_DATA_ROOT" -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) | head -1)
+          echo "DB=$DB"
+          if [ -n "$DB" ]; then
+            sqlite3 "$DB" '.tables'
+            sqlite3 "$DB" '.schema memories'
+            sqlite3 "$DB" "select id, length(content), length(embedding), substr(content,1,120) from memories;"
+            sqlite3 "$DB" "select count(*) as fts_rows from memories_fts;" 2>&1
+          fi
+
+          echo '=== MCP DIRECT SESSION ==='
+          cat > /tmp/mcp_probe.py <<'PY'
+          import json, os, subprocess, sys
+          mag = sys.argv[1]
+          p = subprocess.Popen([mag,'serve'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy())
+          def send(x):
+              p.stdin.write(json.dumps(x)+'\n'); p.stdin.flush()
+          def recv():
+              while True:
+                  line=p.stdout.readline()
+                  if not line: raise RuntimeError('server closed')
+                  try: m=json.loads(line)
+                  except Exception: continue
+                  if 'id' in m: return m
+          send({'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'root-cause','version':'1'}}})
+          print('initialize=',json.dumps(recv()))
+          send({'jsonrpc':'2.0','method':'notifications/initialized'})
+          send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}})
+          tools=recv(); print('tools=',json.dumps(tools))
+          for i,q in enumerate(['Retries must use exponential backoff','What is our policy when requests keep failing?','random delay between repeated network attempts'],3):
+              send({'jsonrpc':'2.0','id':i,'method':'tools/call','params':{'name':'memory_search','arguments':{'query':q,'limit':10}}})
+              print(q,'=',json.dumps(recv()))
+          p.stdin.close(); p.terminate()
+          try: p.wait(timeout=5)
+          except: p.kill()
+          err=p.stderr.read(); print('stderr=',err[-4000:])
+          PY
+          timeout 60s python3 /tmp/mcp_probe.py "$MAG"
+          echo "[mcp exit=$?]"
+
+          echo '=== DAEMON/HTTP VARIANT ==='
+          timeout 5s "$MAG" serve --http > /tmp/mag-http.out 2>/tmp/mag-http.err &
+          DAEMON_PID=$!
+          sleep 2
+          ps -fp "$DAEMON_PID" || true
+          cat /tmp/mag-http.out /tmp/mag-http.err || true
+          run "$MAG" search 'What is our policy when requests keep failing?'
+          kill "$DAEMON_PID" 2>/dev/null || true
+
+          echo '=== COPY REPOSITORY MODELS INTO MAG DATA ROOT ==='
+          mkdir -p "$MAG_DATA_ROOT/models"
+          find "$PWD" -type f \( -iname '*.onnx' -o -iname 'tokenizer.json' -o -iname 'config.json' \) -path '*/models/*' -exec cp -v {} "$MAG_DATA_ROOT/models/" \;
+          find "$MAG_DATA_ROOT/models" -type f -printf '%p %s bytes\n' | sort
+          run "$MAG" doctor
+          run "$MAG" search 'What is our policy when requests keep failing?'
+          run "$MAG" search 'random delay between repeated network attempts'
+
+          echo '=== FINAL ==='
+          echo 'Diagnostic completed; command failures were intentionally non-fatal.'
+      - name: Upload diagnostic transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mag-root-cause-diagnostic
+          path: diagnostic.txt
+          if-no-files-found: error
