@@ -28,50 +28,56 @@ jobs:
           s = p.read_text()
           marker = 'SEMANTIC_RESCUE_MIN_SIM'
           if marker not in s:
-              s = s.replace(
-                  'use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};',
-                  '''use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};\n\n// Dense embeddings have a high similarity floor, so vector similarity alone is\n// unsafe as an abstention signal. A strong top score plus separation from the\n// runner-up is useful, however: it rescues genuine paraphrases that have no\n// lexical overlap without returning an arbitrary nearest neighbour.\nconst SEMANTIC_RESCUE_MIN_SIM: f64 = 0.82;\nconst SEMANTIC_RESCUE_MIN_MARGIN: f64 = 0.035;\n\nfn has_confident_semantic_match(candidates: &[RankedSemanticCandidate]) -> bool {\n    let mut similarities: Vec<f64> = candidates\n        .iter()\n        .filter_map(|candidate| candidate.vec_sim)\n        .filter(|similarity| similarity.is_finite())\n        .collect();\n    similarities.sort_unstable_by(|left, right| right.total_cmp(left));\n\n    let Some(&top) = similarities.first() else {\n        return false;\n    };\n    if top < SEMANTIC_RESCUE_MIN_SIM {\n        return false;\n    }\n\n    similarities\n        .get(1)\n        .is_none_or(|second| top - second >= SEMANTIC_RESCUE_MIN_MARGIN)\n}''')
-              old = '''    // Apply abstention gate on the filtered (in-scope) candidates.\n    if !query_tokens.is_empty() {\n        let max_text_overlap = deduped\n            .iter()\n            .map(|c| c.text_overlap)\n            .fold(0.0f64, f64::max);\n        if max_text_overlap < scoring_params.abstention_min_text {\n            return Ok(Vec::new());\n        }\n    }'''
-              new = '''    // Apply abstention on the filtered candidates. Lexical evidence remains the\n    // primary precision guard. When wording differs completely, allow a semantic\n    // rescue only for a strong and unambiguous vector match. This mirrors the\n    // multi-retriever principle used by systems such as Hindsight: one retrieval\n    // channel should not be able to veto a confident result from another.\n    if !query_tokens.is_empty() {\n        let max_text_overlap = deduped\n            .iter()\n            .map(|c| c.text_overlap)\n            .fold(0.0f64, f64::max);\n        let lexical_match = max_text_overlap >= scoring_params.abstention_min_text;\n        if !lexical_match && !has_confident_semantic_match(&deduped) {\n            return Ok(Vec::new());\n        }\n    }'''
-              if old not in s:
-                  raise SystemExit('abstention block not found')
-              s = s.replace(old, new)
-              p.write_text(s)
+              raise SystemExit('implementation commit missing')
           PY
-          cargo fmt --all
-          if ! git diff --quiet; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add src/memory_core/storage/sqlite/pipeline/abstention.rs
-            git commit -m 'fix(search): rescue confident semantic paraphrases'
-            git push origin HEAD:agent/retrieval-baseline
-          fi
       - name: Quality gates
+        id: quality
+        continue-on-error: true
         run: |
-          cargo fmt --all -- --check
-          cargo clippy --all-targets --all-features -- -D warnings
-          cargo test --all-features
+          set -o pipefail
+          {
+            cargo fmt --all -- --check
+            cargo clippy --all-targets --all-features -- -D warnings
+            cargo test --all-features
+          } 2>&1 | tee /tmp/quality.log
       - name: Product retrieval evaluation
+        id: product
+        continue-on-error: true
         env:
           MAG_DATA_ROOT: ${{ runner.temp }}/mag-eval
           RUST_LOG: warn
         run: |
-          cargo build --release
-          MAG=target/release/mag
-          $MAG ingest 'Retries must use exponential backoff with random jitter and stop after five attempts.'
-          $MAG ingest 'The production database is PostgreSQL and backups run every night at 02:00 UTC.'
-          $MAG ingest 'The design review is held on Wednesdays with Maya and the platform team.'
-          $MAG ingest 'Customer invoices are retained for seven years for compliance.'
-          echo '--- paraphrase expected ---'
-          $MAG advanced-search 'What is our policy when requests keep failing?' --explain | tee /tmp/paraphrase.json
-          grep -q 'exponential backoff' /tmp/paraphrase.json
-          echo '--- unrelated expected abstention ---'
-          $MAG advanced-search 'Which guitar strings should I buy for jazz?' --explain | tee /tmp/unrelated.json
-          python3 - <<'PY'
+          set -o pipefail
+          {
+            cargo build --release
+            MAG=target/release/mag
+            $MAG ingest 'Retries must use exponential backoff with random jitter and stop after five attempts.'
+            $MAG ingest 'The production database is PostgreSQL and backups run every night at 02:00 UTC.'
+            $MAG ingest 'The design review is held on Wednesdays with Maya and the platform team.'
+            $MAG ingest 'Customer invoices are retained for seven years for compliance.'
+            echo '--- paraphrase expected ---'
+            $MAG advanced-search 'What is our policy when requests keep failing?' --explain | tee /tmp/paraphrase.json
+            grep -q 'exponential backoff' /tmp/paraphrase.json
+            echo '--- unrelated expected abstention ---'
+            $MAG advanced-search 'Which guitar strings should I buy for jazz?' --explain | tee /tmp/unrelated.json
+            python3 - <<'PY'
           import json
           d=json.load(open('/tmp/unrelated.json'))
           assert d['results'] == [], d
           PY
-          echo '--- exact and partial queries ---'
-          $MAG search 'nightly production database backups' | grep -q PostgreSQL
-          $MAG search 'how long are invoices kept' | grep -q 'seven years'
+            echo '--- exact and partial queries ---'
+            $MAG search 'nightly production database backups' | grep -q PostgreSQL
+            $MAG search 'how long are invoices kept' | grep -q 'seven years'
+          } 2>&1 | tee /tmp/product.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retrieval-baseline-diagnostics
+          path: |
+            /tmp/quality.log
+            /tmp/product.log
+            /tmp/paraphrase.json
+            /tmp/unrelated.json
+      - name: Enforce results
+        if: steps.quality.outcome != 'success' || steps.product.outcome != 'success'
+        run: exit 1
