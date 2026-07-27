@@ -22,7 +22,14 @@ jobs:
       - name: Rustfmt
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --quiet --all-targets --all-features -- -D warnings
+        run: |
+          set -o pipefail
+          cargo clippy --quiet --all-targets --all-features -- -D warnings 2>&1 | tee /tmp/clippy.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clippy-diagnostics
+          path: /tmp/clippy.log
 
   test:
     name: Test
@@ -32,7 +39,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Run Tests
-        run: cargo test --quiet --all-features
+        run: |
+          set -o pipefail
+          cargo test --quiet --all-features 2>&1 | tee /tmp/test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-diagnostics
+          path: /tmp/test.log
 
   version-check:
     name: Version Consistency
@@ -51,7 +65,6 @@ jobs:
           CARGO_VER=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])")
           NPM_VER=$(python3 -c "import json; print(json.load(open('npm/package.json'))['version'])")
           PYPI_VER_RAW=$(python3 -c "import tomllib; print(tomllib.load(open('python/pyproject.toml','rb'))['project']['version'])")
-          # Normalise PEP 440 dev versions: 0.1.6.dev0 → 0.1.6-dev
           PYPI_VER=$(echo "$PYPI_VER_RAW" | sed 's/\.dev[0-9]*$/-dev/')
           echo "Cargo: $CARGO_VER | npm: $NPM_VER | PyPI: $PYPI_VER (raw: $PYPI_VER_RAW)"
           if [ "$CARGO_VER" != "$NPM_VER" ] || [ "$CARGO_VER" != "$PYPI_VER" ]; then
@@ -66,7 +79,6 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v6
-
       - name: Detect scoring/search changes
         id: filter
         uses: dorny/paths-filter@v3
@@ -77,15 +89,12 @@ jobs:
               - 'src/memory_core/storage/sqlite/search*'
               - 'src/memory_core/storage/sqlite/advanced*'
               - 'src/memory_core/storage/sqlite/pipeline/**'
-
       - name: Install Rust
         if: steps.filter.outputs.scoring == 'true'
         uses: dtolnay/rust-toolchain@stable
-
       - name: Cache Rust build artifacts
         if: steps.filter.outputs.scoring == 'true'
         uses: Swatinem/rust-cache@v2
-
       - name: Run benchmark gate
         if: steps.filter.outputs.scoring == 'true'
         run: ./scripts/bench.sh --gate
@@ -122,9 +131,7 @@ jobs:
       - name: Test npm install
         run: |
           cd npm
-          # Pack and install globally using the local binary
           MAG_BINARY_PATH="$GITHUB_WORKSPACE/target/release/mag" npm install -g "$(npm pack -q)"
-          # Verify the wrapper exists and works
           mag --version
           INSTALLED_VER=$(mag --version | awk '{print $2}')
           CARGO_VER=$(python3 -c "import tomllib; print(tomllib.load(open('../Cargo.toml','rb'))['package']['version'])")
