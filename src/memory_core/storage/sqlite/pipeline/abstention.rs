@@ -18,6 +18,33 @@ use super::super::storage::RankedSemanticCandidate;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
 use crate::memory_core::{ScoringParams, SearchOptions, SemanticResult};
 
+// Dense embeddings have a high similarity floor, so vector similarity alone is
+// unsafe as an abstention signal. A strong top score plus separation from the
+// runner-up is useful, however: it rescues genuine paraphrases that have no
+// lexical overlap without returning an arbitrary nearest neighbour.
+const SEMANTIC_RESCUE_MIN_SIM: f64 = 0.82;
+const SEMANTIC_RESCUE_MIN_MARGIN: f64 = 0.035;
+
+fn has_confident_semantic_match(candidates: &[RankedSemanticCandidate]) -> bool {
+    let mut similarities: Vec<f64> = candidates
+        .iter()
+        .filter_map(|candidate| candidate.vec_sim)
+        .filter(|similarity| similarity.is_finite())
+        .collect();
+    similarities.sort_unstable_by(|left, right| right.total_cmp(left));
+
+    let Some(&top) = similarities.first() else {
+        return false;
+    };
+    if top < SEMANTIC_RESCUE_MIN_SIM {
+        return false;
+    }
+
+    similarities
+        .get(1)
+        .is_none_or(|second| top - second >= SEMANTIC_RESCUE_MIN_MARGIN)
+}
+
 /// Phase 6: collection-level abstention + dedup, plus the final scoring-strategy
 /// pass and result-list shaping (normalization, explain injection).
 #[allow(clippy::too_many_arguments)]
@@ -54,13 +81,18 @@ pub(crate) fn abstain_and_dedup(
     }
     let mut deduped: Vec<RankedSemanticCandidate> = by_fingerprint.into_values().collect();
 
-    // Apply abstention gate on the filtered (in-scope) candidates.
+    // Apply abstention on the filtered candidates. Lexical evidence remains the
+    // primary precision guard. When wording differs completely, allow a semantic
+    // rescue only for a strong and unambiguous vector match. This mirrors the
+    // multi-retriever principle used by systems such as Hindsight: one retrieval
+    // channel should not be able to veto a confident result from another.
     if !query_tokens.is_empty() {
         let max_text_overlap = deduped
             .iter()
             .map(|c| c.text_overlap)
             .fold(0.0f64, f64::max);
-        if max_text_overlap < scoring_params.abstention_min_text {
+        let lexical_match = max_text_overlap >= scoring_params.abstention_min_text;
+        if !lexical_match && !has_confident_semantic_match(&deduped) {
             return Ok(Vec::new());
         }
     }
