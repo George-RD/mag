@@ -1,4 +1,4 @@
-name: Cairn onboarding remediation
+name: Cairn onboarding completion
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  remediate:
+  complete:
     if: github.head_ref == 'agent/cairn-onboard-mag'
     runs-on: ubuntu-24.04
     steps:
@@ -17,10 +17,10 @@ jobs:
           ref: agent/cairn-onboard-mag
           fetch-depth: 0
 
-      - name: Check whether remediation is needed
+      - name: Check whether completion is needed
         id: state
         run: |
-          if [ -f .cairn/onboarding/remediated ]; then
+          if [ -f .github/workflows/cairn.yml ]; then
             echo 'run=false' >> "$GITHUB_OUTPUT"
           else
             echo 'run=true' >> "$GITHUB_OUTPUT"
@@ -33,47 +33,24 @@ jobs:
             https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Resolve blocking first-scan findings
+      - name: Apply final architecture cleanup
         if: steps.state.outputs.run == 'true'
-        run: python3 scripts/remediate-cairn-onboarding.py
+        run: python3 scripts/complete-cairn-onboarding.py
 
-      - name: Reconcile and capture results
+      - name: Verify final Cairn state
         if: steps.state.outputs.run == 'true'
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          mkdir -p .cairn/onboarding
-          set +e
-          cairn scan --json > .cairn/onboarding/scan.json 2> .cairn/onboarding/scan.stderr
-          scan_status=$?
-          cairn lint --json > .cairn/onboarding/lint.json 2> .cairn/onboarding/lint.stderr
-          lint_status=$?
-          cairn status --json > .cairn/onboarding/status.json 2> .cairn/onboarding/status.stderr
-          status_status=$?
-          cairn health --json > .cairn/onboarding/health.json 2> .cairn/onboarding/health.stderr
-          health_status=$?
-          cairn remediate --json > .cairn/onboarding/remediate.json 2> .cairn/onboarding/remediate.stderr
-          remediate_status=$?
-          cairn context --json > .cairn/onboarding/context.json 2> .cairn/onboarding/context.stderr
-          context_status=$?
-          cairn hook all --json > .cairn/onboarding/hooks.json 2> .cairn/onboarding/hooks.stderr
-          hooks_status=$?
-          set -e
-          cat > .cairn/onboarding/exit-codes.txt <<EOF
-          scan=$scan_status
-          lint=$lint_status
-          status=$status_status
-          health=$health_status
-          remediate=$remediate_status
-          context=$context_status
-          hooks=$hooks_status
-          EOF
-          touch .cairn/onboarding/remediated
+          cairn scan
+          cairn lint
+          cairn hook all
+          cairn status --json | tee /tmp/cairn-status.json
 
-      - name: Commit remediation
+      - name: Commit completed onboarding
         if: steps.state.outputs.run == 'true'
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git commit -m 'chore(cairn): resolve blocking onboarding findings'
+          git commit -m 'chore(cairn): complete MAG onboarding and architecture gate'
           git push origin HEAD:agent/cairn-onboard-mag
