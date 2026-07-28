@@ -1,0 +1,20 @@
+targets:
+  - node: mag.integrations.connectors
+    path: ./connectors
+    language: assets
+  - node: mag.integrations.connectors
+    path: ./plugin
+    language: assets
+  - node: mag.integrations.packaging
+    path: ./npm
+    language: assets
+
+gates:
+  - name: format
+    command: cargo fmt --all -- --check
+  - name: clippy
+    command: cargo clippy --all-targets --all-features -- -D warnings
+  - name: test
+    command: cargo test --all-features
+  - name: retrieval-benchmark
+    command: ./scripts/bench.sh --gate

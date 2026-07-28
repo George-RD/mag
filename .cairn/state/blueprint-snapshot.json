@@ -1,0 +1,236 @@
+{
+  "version": 2,
+  "nodes": {
+    "mag": {
+      "kind": "System",
+      "parent": null,
+      "paths": [],
+      "edges": []
+    },
+    "mag.integrations": {
+      "kind": "Container",
+      "parent": "mag",
+      "paths": [],
+      "edges": []
+    },
+    "mag.integrations.connectors": {
+      "kind": "Module",
+      "parent": "mag.integrations",
+      "paths": [
+        "./connectors",
+        "./plugin"
+      ],
+      "edges": []
+    },
+    "mag.integrations.packaging": {
+      "kind": "Module",
+      "parent": "mag.integrations",
+      "paths": [
+        "./npm"
+      ],
+      "edges": []
+    },
+    "mag.integrations.python": {
+      "kind": "Module",
+      "parent": "mag.integrations",
+      "paths": [
+        "./python"
+      ],
+      "edges": [
+        "mag.runtime.mcp"
+      ]
+    },
+    "mag.quality": {
+      "kind": "Container",
+      "parent": "mag",
+      "paths": [],
+      "edges": []
+    },
+    "mag.quality.benchmarks": {
+      "kind": "Module",
+      "parent": "mag.quality",
+      "paths": [
+        "./benches",
+        "./src/benchmarking.rs"
+      ],
+      "edges": [
+        "mag.runtime.memory",
+        "mag.runtime.substrate"
+      ]
+    },
+    "mag.quality.scripts": {
+      "kind": "Module",
+      "parent": "mag.quality",
+      "paths": [
+        "./scripts"
+      ],
+      "edges": [
+        "mag.quality.benchmarks",
+        "mag.quality.tests"
+      ]
+    },
+    "mag.quality.tests": {
+      "kind": "Module",
+      "parent": "mag.quality",
+      "paths": [
+        "./src/test_helpers.rs",
+        "./tests"
+      ],
+      "edges": [
+        "mag.runtime"
+      ]
+    },
+    "mag.runtime": {
+      "kind": "Container",
+      "parent": "mag",
+      "paths": [],
+      "edges": []
+    },
+    "mag.runtime.daemon": {
+      "kind": "Module",
+      "parent": "mag.runtime",
+      "paths": [
+        "./src/auth.rs",
+        "./src/daemon.rs",
+        "./src/idle_timer.rs"
+      ],
+      "edges": [
+        "mag.runtime.mcp"
+      ]
+    },
+    "mag.runtime.entrypoints": {
+      "kind": "Module",
+      "parent": "mag.runtime",
+      "paths": [
+        "./src/cli.rs",
+        "./src/lib.rs",
+        "./src/main.rs"
+      ],
+      "edges": [
+        "mag.runtime.daemon",
+        "mag.runtime.mcp",
+        "mag.runtime.memory.domain",
+        "mag.runtime.memory.models",
+        "mag.runtime.memory.storage.sqlite",
+        "mag.runtime.setup"
+      ]
+    },
+    "mag.runtime.mcp": {
+      "kind": "Module",
+      "parent": "mag.runtime",
+      "paths": [
+        "./src/mcp"
+      ],
+      "edges": [
+        "mag.runtime.memory.domain",
+        "mag.runtime.memory.storage.sqlite"
+      ]
+    },
+    "mag.runtime.memory": {
+      "kind": "Container",
+      "parent": "mag.runtime",
+      "paths": [],
+      "edges": []
+    },
+    "mag.runtime.memory.domain": {
+      "kind": "Module",
+      "parent": "mag.runtime.memory",
+      "paths": [
+        "./src/memory_core/domain.rs",
+        "./src/memory_core/mod.rs",
+        "./src/memory_core/traits.rs"
+      ],
+      "edges": []
+    },
+    "mag.runtime.memory.models": {
+      "kind": "Module",
+      "parent": "mag.runtime.memory",
+      "paths": [
+        "./src/memory_core/embedder.rs",
+        "./src/memory_core/llm.rs"
+      ],
+      "edges": [
+        "mag.runtime.memory.domain"
+      ]
+    },
+    "mag.runtime.memory.retrieval": {
+      "kind": "Module",
+      "parent": "mag.runtime.memory",
+      "paths": [
+        "./src/memory_core/reranker.rs",
+        "./src/memory_core/retrieval_strategy.rs",
+        "./src/memory_core/scoring.rs",
+        "./src/memory_core/scoring_strategy.rs"
+      ],
+      "edges": [
+        "mag.runtime.memory.domain",
+        "mag.runtime.memory.models"
+      ]
+    },
+    "mag.runtime.memory.storage": {
+      "kind": "Container",
+      "parent": "mag.runtime.memory",
+      "paths": [],
+      "edges": []
+    },
+    "mag.runtime.memory.storage.api": {
+      "kind": "Module",
+      "parent": "mag.runtime.memory.storage",
+      "paths": [
+        "./src/memory_core/storage/mod.rs"
+      ],
+      "edges": [
+        "mag.runtime.memory.domain"
+      ]
+    },
+    "mag.runtime.memory.storage.memory": {
+      "kind": "Module",
+      "parent": "mag.runtime.memory.storage",
+      "paths": [
+        "./src/memory_core/storage/memory"
+      ],
+      "edges": [
+        "mag.runtime.memory.domain"
+      ]
+    },
+    "mag.runtime.memory.storage.sqlite": {
+      "kind": "Module",
+      "parent": "mag.runtime.memory.storage",
+      "paths": [
+        "./src/memory_core/storage/sqlite"
+      ],
+      "edges": [
+        "mag.runtime.memory.domain",
+        "mag.runtime.memory.models",
+        "mag.runtime.memory.retrieval"
+      ]
+    },
+    "mag.runtime.setup": {
+      "kind": "Module",
+      "parent": "mag.runtime",
+      "paths": [
+        "./src/app_paths.rs",
+        "./src/config_writer.rs",
+        "./src/setup.rs",
+        "./src/tool_detection.rs",
+        "./src/uninstall.rs"
+      ],
+      "edges": [
+        "mag.integrations.connectors"
+      ]
+    },
+    "mag.runtime.substrate": {
+      "kind": "Module",
+      "parent": "mag.runtime",
+      "paths": [
+        "./src/substrate"
+      ],
+      "edges": [
+        "mag.runtime.memory.domain",
+        "mag.runtime.memory.models",
+        "mag.runtime.memory.retrieval",
+        "mag.runtime.memory.storage.sqlite"
+      ]
+    }
+  }
+}
