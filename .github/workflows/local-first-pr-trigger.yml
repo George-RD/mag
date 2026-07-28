@@ -34,16 +34,25 @@ jobs:
           if not block.startswith(run_marker):
               raise SystemExit('bootstrap run block not found')
           raw = block[len(run_marker):]
-          # Remove the YAML block indentation explicitly. Generic dedent cannot
-          # work because Markdown inside Python triple-quoted strings correctly
-          # contains zero-indented lines.
           script = '\n'.join(
               line[10:] if line.startswith('          ') else line
               for line in raw.splitlines()
           ) + '\n'
           Path('/tmp/apply-local-first.sh').write_text(script)
           PY
-          bash /tmp/apply-local-first.sh
+          set +e
+          bash -x /tmp/apply-local-first.sh 2>&1 | tee /tmp/local-first-bootstrap.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+      - name: Upload bootstrap diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-first-bootstrap-diagnostics
+          path: |
+            /tmp/apply-local-first.sh
+            /tmp/local-first-bootstrap.log
       - name: Validate
         run: |
           cargo fmt --all
