@@ -23,7 +23,6 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import textwrap
 
           source = Path('.github/workflows/local-first-bootstrap.yml').read_text()
           start_marker = '      - name: Apply local-first profile, skill, and roadmap\n'
@@ -34,7 +33,14 @@ jobs:
           run_marker = '        run: |\n'
           if not block.startswith(run_marker):
               raise SystemExit('bootstrap run block not found')
-          script = textwrap.dedent(block[len(run_marker):])
+          raw = block[len(run_marker):]
+          # Remove the YAML block indentation explicitly. Generic dedent cannot
+          # work because Markdown inside Python triple-quoted strings correctly
+          # contains zero-indented lines.
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in raw.splitlines()
+          ) + '\n'
           Path('/tmp/apply-local-first.sh').write_text(script)
           PY
           bash /tmp/apply-local-first.sh
