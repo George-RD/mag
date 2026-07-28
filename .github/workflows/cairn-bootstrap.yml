@@ -33,7 +33,7 @@ jobs:
           find meta/changes/brownfield-init -maxdepth 3 -type f -print | sort > .cairn/bootstrap/generated-files.txt
       - name: Commit proposal
         run: |
-          if git diff --quiet -- . ':!target'; then
+          if [ -z "$(git status --porcelain)" ]; then
             echo "No generated changes"
             exit 0
           fi
