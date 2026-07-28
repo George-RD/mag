@@ -1,4 +1,4 @@
-name: Enable GitHub Pages once
+name: Verify MAG GitHub Pages
 
 on:
   pull_request:
@@ -9,89 +9,27 @@ on:
 
 permissions:
   contents: read
-  actions: write
-  issues: write
 
 jobs:
-  enable:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Enable Pages with GitHub Actions as the source
-        id: enable
-        env:
-          ADMIN_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
+      - name: Verify deployed site
         shell: bash
         run: |
-          set +e
-          if [ -z "$ADMIN_TOKEN" ]; then
-            echo "result=HOMEBREW_TAP_TOKEN is not configured" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          response=$(curl -sS -w '\n%{http_code}' \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $ADMIN_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -X POST "https://api.github.com/repos/$REPOSITORY/pages" \
-            -d '{"build_type":"workflow"}')
-          code=$(printf '%s' "$response" | tail -n1)
-          body=$(printf '%s' "$response" | sed '$d')
-
-          if [ "$code" = "201" ]; then
-            result="Pages enabled with GitHub Actions as the source"
-          elif [ "$code" = "409" ] || [ "$code" = "422" ]; then
-            response=$(curl -sS -w '\n%{http_code}' \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $ADMIN_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              -X PUT "https://api.github.com/repos/$REPOSITORY/pages" \
-              -d '{"build_type":"workflow"}')
-            code=$(printf '%s' "$response" | tail -n1)
-            body=$(printf '%s' "$response" | sed '$d')
-            if [ "$code" = "204" ]; then
-              result="Pages already existed; source set to GitHub Actions"
-            else
-              message=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("message", "unknown error"))' 2>/dev/null)
-              result="Pages update failed (HTTP $code): ${message:-unknown error}"
+          set -u
+          url="https://george-rd.github.io/mag/"
+          for attempt in $(seq 1 18); do
+            status=$(curl -L -sS -o /tmp/mag-page.html -w '%{http_code}' "$url" || true)
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = "200" ] && grep -Fq "Switch AI tools" /tmp/mag-page.html; then
+              echo "MAG Pages site is live: $url"
+              exit 0
             fi
-          else
-            message=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("message", "unknown error"))' 2>/dev/null)
-            result="Pages enablement failed (HTTP $code): ${message:-unknown error}"
+            sleep 10
+          done
+          echo "MAG Pages site is not live at $url"
+          if [ -f /tmp/mag-page.html ]; then
+            head -c 500 /tmp/mag-page.html || true
           fi
-          echo "result=$result" >> "$GITHUB_OUTPUT"
-          echo "$result"
-
-      - name: Trigger the production Pages workflow
-        id: dispatch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set +e
-          output=$(gh workflow run pages.yml --ref main --repo "$GITHUB_REPOSITORY" 2>&1)
-          code=$?
-          if [ "$code" -eq 0 ]; then
-            result="Production Pages workflow dispatched"
-          else
-            result="Workflow dispatch failed: $output"
-          fi
-          echo "result=$result" >> "$GITHUB_OUTPUT"
-          echo "$result"
-
-      - name: Report result on PR 368
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ENABLE_RESULT: ${{ steps.enable.outputs.result }}
-          DISPATCH_RESULT: ${{ steps.dispatch.outputs.result }}
-        shell: bash
-        run: |
-          body=$(cat <<EOF
-          GitHub Pages setup result:
-
-          - $ENABLE_RESULT
-          - $DISPATCH_RESULT
-          - Expected URL: https://george-rd.github.io/mag/
-          EOF
-          )
-          gh api "repos/$GITHUB_REPOSITORY/issues/368/comments" -f body="$body"
+          exit 1
