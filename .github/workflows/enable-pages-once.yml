@@ -1,10 +1,11 @@
 name: Enable GitHub Pages once
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
       - ".github/workflows/enable-pages-once.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -59,6 +60,7 @@ jobs:
             result="Pages enablement failed (HTTP $code): ${message:-unknown error}"
           fi
           echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "$result"
 
       - name: Trigger the production Pages workflow
         id: dispatch
@@ -70,10 +72,12 @@ jobs:
           output=$(gh workflow run pages.yml --ref main --repo "$GITHUB_REPOSITORY" 2>&1)
           code=$?
           if [ "$code" -eq 0 ]; then
-            echo "result=Production Pages workflow dispatched" >> "$GITHUB_OUTPUT"
+            result="Production Pages workflow dispatched"
           else
-            echo "result=Workflow dispatch failed: $output" >> "$GITHUB_OUTPUT"
+            result="Workflow dispatch failed: $output"
           fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "$result"
 
       - name: Report result on PR 368
         env:
