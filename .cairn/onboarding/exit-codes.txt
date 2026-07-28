@@ -1,7 +1,0 @@
-scan=0
-lint=0
-status=0
-health=0
-remediate=0
-context=0
-hooks=0

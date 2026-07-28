@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "b673add52b62e75c",
+  "key": "415d1942c83bc5ec",
   "reports": {
     "python": {
       "claimed_files": {
@@ -17,9 +17,7 @@
           "benches/python_comparison_nocache.py"
         ],
         "mag.quality.scripts": [
-          "scripts/compare_strategies.py",
-          "scripts/finalize-cairn-onboarding.py",
-          "scripts/remediate-cairn-onboarding.py"
+          "scripts/compare_strategies.py"
         ],
         "mag.quality.tests": [
           "tests/python/test_active_strategies.py",
@@ -31,8 +29,6 @@
         "assignment:BETTER_CATEGORY_MAX_REGRESSION",
         "assignment:BETTER_OVERALL_THRESHOLD",
         "assignment:CATEGORY_KEYS",
-        "assignment:DATE",
-        "assignment:DATE",
         "assignment:DEFAULT_OMEGA_REPO",
         "assignment:EQUIVALENT_THRESHOLD",
         "assignment:REGRESSION_THRESHOLD",
@@ -43,7 +39,6 @@
         "assignment:accuracy",
         "assignment:actual",
         "assignment:actual",
-        "assignment:all_leaf_nodes",
         "assignment:all_results",
         "assignment:all_within_equiv",
         "assignment:args",
@@ -79,12 +74,6 @@
         "assignment:binary_path",
         "assignment:bl_overall",
         "assignment:bl_samples",
-        "assignment:blueprint",
-        "assignment:blueprint",
-        "assignment:blueprint",
-        "assignment:blueprint",
-        "assignment:blueprint",
-        "assignment:blueprint_path",
         "assignment:calls",
         "assignment:candidate",
         "assignment:cat",
@@ -130,7 +119,6 @@
         "assignment:context",
         "assignment:context",
         "assignment:context_parts",
-        "assignment:contracts",
         "assignment:count",
         "assignment:count",
         "assignment:data",
@@ -161,7 +149,6 @@
         "assignment:detail",
         "assignment:detail",
         "assignment:detail",
-        "assignment:digest",
         "assignment:dirname",
         "assignment:embedder",
         "assignment:env",
@@ -195,7 +182,6 @@
         "assignment:line",
         "assignment:line",
         "assignment:lines",
-        "assignment:local_sources",
         "assignment:machine",
         "assignment:markdown",
         "assignment:max_cat_regression",
@@ -217,8 +203,6 @@
         "assignment:name",
         "assignment:names",
         "assignment:new_date",
-        "assignment:node",
-        "assignment:node_list",
         "assignment:now",
         "assignment:now",
         "assignment:now_iso",
@@ -382,7 +366,6 @@
         "assignment:sessions",
         "assignment:sessions",
         "assignment:sid",
-        "assignment:sources",
         "assignment:sprint_count",
         "assignment:sprint_num",
         "assignment:st",
@@ -420,12 +403,9 @@
         "assignment:t0",
         "assignment:t1",
         "assignment:target",
-        "assignment:target",
-        "assignment:target",
         "assignment:target, ext",
         "assignment:text",
         "assignment:tmpdir",
-        "assignment:todos",
         "assignment:tools_result",
         "assignment:top_is_old",
         "assignment:top_score",
@@ -521,9 +501,7 @@
         "function_definition:test_seed_sessions",
         "function_definition:test_strategies_registry",
         "function_definition:test_threshold_does_not_expand_when_high_confidence",
-        "function_definition:test_threshold_expands_when_low_confidence",
-        "function_definition:write",
-        "function_definition:write"
+        "function_definition:test_threshold_expands_when_low_confidence"
       ],
       "node_symbols": {
         "mag.integrations.python": [
@@ -856,12 +834,9 @@
           "assignment:BETTER_CATEGORY_MAX_REGRESSION",
           "assignment:BETTER_OVERALL_THRESHOLD",
           "assignment:CATEGORY_KEYS",
-          "assignment:DATE",
-          "assignment:DATE",
           "assignment:EQUIVALENT_THRESHOLD",
           "assignment:REGRESSION_THRESHOLD",
           "assignment:a_name",
-          "assignment:all_leaf_nodes",
           "assignment:all_within_equiv",
           "assignment:args",
           "assignment:b_name",
@@ -876,16 +851,9 @@
           "assignment:baselines_data[strategy_b_id][scoring_mode]",
           "assignment:bl_overall",
           "assignment:bl_samples",
-          "assignment:blueprint",
-          "assignment:blueprint",
-          "assignment:blueprint",
-          "assignment:blueprint",
-          "assignment:blueprint",
-          "assignment:blueprint_path",
           "assignment:cat",
           "assignment:categories",
           "assignment:category_deltas",
-          "assignment:contracts",
           "assignment:data_a",
           "assignment:data_b",
           "assignment:date_str",
@@ -895,20 +863,16 @@
           "assignment:deltas",
           "assignment:deltas",
           "assignment:deltas[key]",
-          "assignment:digest",
           "assignment:dirname",
           "assignment:embedder",
           "assignment:f1_sum",
           "assignment:gate",
           "assignment:json_path",
           "assignment:lines",
-          "assignment:local_sources",
           "assignment:markdown",
           "assignment:max_cat_regression",
           "assignment:md_path",
           "assignment:mode_baseline",
-          "assignment:node",
-          "assignment:node_list",
           "assignment:old_key",
           "assignment:out_path",
           "assignment:overall_delta",
@@ -922,15 +886,11 @@
           "assignment:scores_b",
           "assignment:scoring_mode",
           "assignment:scoring_mode",
-          "assignment:sources",
           "assignment:strategy_a",
           "assignment:strategy_a",
           "assignment:strategy_b",
           "assignment:strategy_b",
           "assignment:strategy_b_id",
-          "assignment:target",
-          "assignment:target",
-          "assignment:todos",
           "assignment:total",
           "assignment:verdict, verdict_reason",
           "function_definition:build_comparison_report",
@@ -940,9 +900,7 @@
           "function_definition:extract_scores",
           "function_definition:format_delta",
           "function_definition:generate_markdown",
-          "function_definition:main",
-          "function_definition:write",
-          "function_definition:write"
+          "function_definition:main"
         ],
         "mag.quality.tests": [
           "assignment:calls",
@@ -3638,22 +3596,6 @@
             "end_line": 30
           },
           {
-            "name": "DATE",
-            "kind": "variable",
-            "signature": "assignment:DATE",
-            "file": "scripts/finalize-cairn-onboarding.py",
-            "line": 14,
-            "end_line": 14
-          },
-          {
-            "name": "DATE",
-            "kind": "variable",
-            "signature": "assignment:DATE",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 13,
-            "end_line": 13
-          },
-          {
             "name": "EQUIVALENT_THRESHOLD",
             "kind": "variable",
             "signature": "assignment:EQUIVALENT_THRESHOLD",
@@ -3676,14 +3618,6 @@
             "file": "scripts/compare_strategies.py",
             "line": 150,
             "end_line": 150
-          },
-          {
-            "name": "all_leaf_nodes",
-            "kind": "variable",
-            "signature": "assignment:all_leaf_nodes",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 112,
-            "end_line": 130
           },
           {
             "name": "all_within_equiv",
@@ -3798,54 +3732,6 @@
             "end_line": 210
           },
           {
-            "name": "blueprint",
-            "kind": "variable",
-            "signature": "assignment:blueprint",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 23,
-            "end_line": 23
-          },
-          {
-            "name": "blueprint",
-            "kind": "variable",
-            "signature": "assignment:blueprint",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 24,
-            "end_line": 27
-          },
-          {
-            "name": "blueprint",
-            "kind": "variable",
-            "signature": "assignment:blueprint",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 28,
-            "end_line": 31
-          },
-          {
-            "name": "blueprint",
-            "kind": "variable",
-            "signature": "assignment:blueprint",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 32,
-            "end_line": 35
-          },
-          {
-            "name": "blueprint",
-            "kind": "variable",
-            "signature": "assignment:blueprint",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 36,
-            "end_line": 39
-          },
-          {
-            "name": "blueprint_path",
-            "kind": "variable",
-            "signature": "assignment:blueprint_path",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 22,
-            "end_line": 22
-          },
-          {
             "name": "cat",
             "kind": "variable",
             "signature": "assignment:cat",
@@ -3868,14 +3754,6 @@
             "file": "scripts/compare_strategies.py",
             "line": 70,
             "end_line": 72
-          },
-          {
-            "name": "contracts",
-            "kind": "variable",
-            "signature": "assignment:contracts",
-            "file": "scripts/finalize-cairn-onboarding.py",
-            "line": 206,
-            "end_line": 297
           },
           {
             "name": "data_a",
@@ -3950,14 +3828,6 @@
             "end_line": 63
           },
           {
-            "name": "digest",
-            "kind": "variable",
-            "signature": "assignment:digest",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 80,
-            "end_line": 80
-          },
-          {
             "name": "dirname",
             "kind": "variable",
             "signature": "assignment:dirname",
@@ -4006,14 +3876,6 @@
             "end_line": 169
           },
           {
-            "name": "local_sources",
-            "kind": "variable",
-            "signature": "assignment:local_sources",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 71,
-            "end_line": 77
-          },
-          {
             "name": "markdown",
             "kind": "variable",
             "signature": "assignment:markdown",
@@ -4044,22 +3906,6 @@
             "file": "scripts/compare_strategies.py",
             "line": 116,
             "end_line": 116
-          },
-          {
-            "name": "node",
-            "kind": "variable",
-            "signature": "assignment:node",
-            "file": "scripts/finalize-cairn-onboarding.py",
-            "line": 300,
-            "end_line": 318
-          },
-          {
-            "name": "node_list",
-            "kind": "variable",
-            "signature": "assignment:node_list",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 131,
-            "end_line": 131
           },
           {
             "name": "old_key",
@@ -4166,14 +4012,6 @@
             "end_line": 316
           },
           {
-            "name": "sources",
-            "kind": "variable",
-            "signature": "assignment:sources",
-            "file": "scripts/finalize-cairn-onboarding.py",
-            "line": 331,
-            "end_line": 362
-          },
-          {
             "name": "strategy_a",
             "kind": "variable",
             "signature": "assignment:strategy_a",
@@ -4212,30 +4050,6 @@
             "file": "scripts/compare_strategies.py",
             "line": 315,
             "end_line": 315
-          },
-          {
-            "name": "target",
-            "kind": "variable",
-            "signature": "assignment:target",
-            "file": "scripts/finalize-cairn-onboarding.py",
-            "line": 18,
-            "end_line": 18
-          },
-          {
-            "name": "target",
-            "kind": "variable",
-            "signature": "assignment:target",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 17,
-            "end_line": 17
-          },
-          {
-            "name": "todos",
-            "kind": "variable",
-            "signature": "assignment:todos",
-            "file": "scripts/finalize-cairn-onboarding.py",
-            "line": 608,
-            "end_line": 725
           },
           {
             "name": "total",
@@ -4316,22 +4130,6 @@
             "file": "scripts/compare_strategies.py",
             "line": 238,
             "end_line": 351
-          },
-          {
-            "name": "write",
-            "kind": "function",
-            "signature": "function_definition:write",
-            "file": "scripts/finalize-cairn-onboarding.py",
-            "line": 17,
-            "end_line": 20
-          },
-          {
-            "name": "write",
-            "kind": "function",
-            "signature": "function_definition:write",
-            "file": "scripts/remediate-cairn-onboarding.py",
-            "line": 16,
-            "end_line": 19
           }
         ],
         "mag.quality.tests": [
@@ -5010,7 +4808,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "4409940759c954aa"
+        "hash": "b15ca04f34ccebe0"
       },
       "findings": []
     },

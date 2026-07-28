@@ -1,4 +1,4 @@
-8930e593b0c1693afc5ea2a72aeeb967a65805a8
+d356d14466536f278beae439752470694d8845ed
 # MAG — reviewed architecture map.
 #
 # Status and work live in node-linked Cairn artefacts. The generated map is a
@@ -56,7 +56,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
             }
 
             Container Storage "Durable and reference memory backends" id "mag.runtime.memory.storage" {
-                Module StorageAPI "Storage module facade and backend boundary" id "mag.runtime.memory.storage.api" {
+                Module StorageAPI "Storage module facade and backend boundary" id "mag.runtime.memory.storage.api" @no-test-coverage {
                     path "./src/memory_core/storage/mod.rs"
                     contract "./meta/contracts/storage.api.md"
                 }
@@ -105,7 +105,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
     }
 
     Container Quality "Tests, benchmarks, and repeatable engineering gates" id "mag.quality" {
-        Module Tests "Hermetic unit, integration, migration, and MCP tests" id "mag.quality.tests" @test {
+        Module Tests "Hermetic unit, integration, migration, and MCP tests" id "mag.quality.tests" @test @no-test-coverage {
             path "./tests"
             path "./src/test_helpers.rs"
             contract "./meta/contracts/quality.tests.md"

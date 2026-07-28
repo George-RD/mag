@@ -2941,9 +2941,7 @@
         "./scripts"
       ],
       "files": [
-        "scripts/compare_strategies.py",
-        "scripts/finalize-cairn-onboarding.py",
-        "scripts/remediate-cairn-onboarding.py"
+        "scripts/compare_strategies.py"
       ],
       "contracts": [
         "./meta/contracts/quality.scripts.md"
@@ -2974,22 +2972,6 @@
           "end_line": 30
         },
         {
-          "name": "DATE",
-          "kind": "variable",
-          "signature": "assignment:DATE",
-          "file": "scripts/finalize-cairn-onboarding.py",
-          "line": 14,
-          "end_line": 14
-        },
-        {
-          "name": "DATE",
-          "kind": "variable",
-          "signature": "assignment:DATE",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 13,
-          "end_line": 13
-        },
-        {
           "name": "EQUIVALENT_THRESHOLD",
           "kind": "variable",
           "signature": "assignment:EQUIVALENT_THRESHOLD",
@@ -3012,14 +2994,6 @@
           "file": "scripts/compare_strategies.py",
           "line": 150,
           "end_line": 150
-        },
-        {
-          "name": "all_leaf_nodes",
-          "kind": "variable",
-          "signature": "assignment:all_leaf_nodes",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 112,
-          "end_line": 130
         },
         {
           "name": "all_within_equiv",
@@ -3134,54 +3108,6 @@
           "end_line": 210
         },
         {
-          "name": "blueprint",
-          "kind": "variable",
-          "signature": "assignment:blueprint",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 23,
-          "end_line": 23
-        },
-        {
-          "name": "blueprint",
-          "kind": "variable",
-          "signature": "assignment:blueprint",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 24,
-          "end_line": 27
-        },
-        {
-          "name": "blueprint",
-          "kind": "variable",
-          "signature": "assignment:blueprint",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 28,
-          "end_line": 31
-        },
-        {
-          "name": "blueprint",
-          "kind": "variable",
-          "signature": "assignment:blueprint",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 32,
-          "end_line": 35
-        },
-        {
-          "name": "blueprint",
-          "kind": "variable",
-          "signature": "assignment:blueprint",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 36,
-          "end_line": 39
-        },
-        {
-          "name": "blueprint_path",
-          "kind": "variable",
-          "signature": "assignment:blueprint_path",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 22,
-          "end_line": 22
-        },
-        {
           "name": "cat",
           "kind": "variable",
           "signature": "assignment:cat",
@@ -3204,14 +3130,6 @@
           "file": "scripts/compare_strategies.py",
           "line": 70,
           "end_line": 72
-        },
-        {
-          "name": "contracts",
-          "kind": "variable",
-          "signature": "assignment:contracts",
-          "file": "scripts/finalize-cairn-onboarding.py",
-          "line": 206,
-          "end_line": 297
         },
         {
           "name": "data_a",
@@ -3286,14 +3204,6 @@
           "end_line": 63
         },
         {
-          "name": "digest",
-          "kind": "variable",
-          "signature": "assignment:digest",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 80,
-          "end_line": 80
-        },
-        {
           "name": "dirname",
           "kind": "variable",
           "signature": "assignment:dirname",
@@ -3342,14 +3252,6 @@
           "end_line": 169
         },
         {
-          "name": "local_sources",
-          "kind": "variable",
-          "signature": "assignment:local_sources",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 71,
-          "end_line": 77
-        },
-        {
           "name": "markdown",
           "kind": "variable",
           "signature": "assignment:markdown",
@@ -3380,22 +3282,6 @@
           "file": "scripts/compare_strategies.py",
           "line": 116,
           "end_line": 116
-        },
-        {
-          "name": "node",
-          "kind": "variable",
-          "signature": "assignment:node",
-          "file": "scripts/finalize-cairn-onboarding.py",
-          "line": 300,
-          "end_line": 318
-        },
-        {
-          "name": "node_list",
-          "kind": "variable",
-          "signature": "assignment:node_list",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 131,
-          "end_line": 131
         },
         {
           "name": "old_key",
@@ -3502,14 +3388,6 @@
           "end_line": 316
         },
         {
-          "name": "sources",
-          "kind": "variable",
-          "signature": "assignment:sources",
-          "file": "scripts/finalize-cairn-onboarding.py",
-          "line": 331,
-          "end_line": 362
-        },
-        {
           "name": "strategy_a",
           "kind": "variable",
           "signature": "assignment:strategy_a",
@@ -3548,30 +3426,6 @@
           "file": "scripts/compare_strategies.py",
           "line": 315,
           "end_line": 315
-        },
-        {
-          "name": "target",
-          "kind": "variable",
-          "signature": "assignment:target",
-          "file": "scripts/finalize-cairn-onboarding.py",
-          "line": 18,
-          "end_line": 18
-        },
-        {
-          "name": "target",
-          "kind": "variable",
-          "signature": "assignment:target",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 17,
-          "end_line": 17
-        },
-        {
-          "name": "todos",
-          "kind": "variable",
-          "signature": "assignment:todos",
-          "file": "scripts/finalize-cairn-onboarding.py",
-          "line": 608,
-          "end_line": 725
         },
         {
           "name": "total",
@@ -3652,22 +3506,6 @@
           "file": "scripts/compare_strategies.py",
           "line": 238,
           "end_line": 351
-        },
-        {
-          "name": "write",
-          "kind": "function",
-          "signature": "function_definition:write",
-          "file": "scripts/finalize-cairn-onboarding.py",
-          "line": 17,
-          "end_line": 20
-        },
-        {
-          "name": "write",
-          "kind": "function",
-          "signature": "function_definition:write",
-          "file": "scripts/remediate-cairn-onboarding.py",
-          "line": 16,
-          "end_line": 19
         }
       ]
     },

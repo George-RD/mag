@@ -1,6 +1,6 @@
 ---
 id: dec.baseline-current-module-boundaries
-nodes: [mag.runtime.entrypoints, mag.runtime.setup, mag.runtime.mcp, mag.runtime.memory.domain, mag.runtime.memory.models, mag.runtime.memory.retrieval, mag.runtime.memory.storage.api, mag.runtime.memory.storage.sqlite, mag.runtime.memory.storage.memory, mag.runtime.substrate, mag.runtime.daemon, mag.integrations.connectors, mag.integrations.python, mag.integrations.packaging, mag.quality.tests, mag.quality.benchmarks, mag.quality.scripts]
+nodes: [mag.runtime.entrypoints, mag.runtime.setup, mag.runtime.doctor, mag.runtime.mcp, mag.runtime.memory.domain, mag.runtime.memory.models, mag.runtime.memory.retrieval, mag.runtime.memory.storage.api, mag.runtime.memory.storage.sqlite, mag.runtime.memory.storage.memory, mag.runtime.substrate, mag.runtime.daemon, mag.integrations.connectors, mag.integrations.python, mag.integrations.packaging, mag.quality.tests, mag.quality.benchmarks, mag.quality.benchmark-data, mag.quality.scripts]
 status: accepted
 date: 2026-07-28
 revisit_triggers:

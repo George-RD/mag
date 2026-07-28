@@ -2,7 +2,7 @@
   "mag.integrations.python:python": "7781ed995f62d08a",
   "mag.quality.benchmarks:benches": "0467f3453b2d1d7e",
   "mag.quality.benchmarks:src/benchmarking.rs": "0467f3453b2d1d7e",
-  "mag.quality.scripts:scripts": "9efe2c0bf05a3e5d",
+  "mag.quality.scripts:scripts": "8a957e7bfe5d3d55",
   "mag.quality.tests:src/test_helpers.rs": "6ea51debc5c18391",
   "mag.quality.tests:tests": "6ea51debc5c18391",
   "mag.runtime.daemon:src/auth.rs": "b67cb97184707890",
