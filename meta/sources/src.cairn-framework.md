@@ -1,7 +1,7 @@
 ---
 id: src.cairn-framework
 file: https://cairn-framework.github.io/cairn/
-verification: verified
+verification: external
 type: project-documentation
 date: 2026-07-28
 ---

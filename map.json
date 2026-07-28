@@ -26,12 +26,50 @@
       "id": "mag.integrations.connectors",
       "kind": "module",
       "name": "Connectors",
-      "state": "ghost",
+      "state": "synced",
       "paths": [
         "./connectors",
         "./plugin"
       ],
-      "files": [],
+      "files": [
+        "connectors/cursor/mag-memory.mdc",
+        "connectors/opencode/skills/memory-checkpoint/SKILL.md",
+        "connectors/opencode/skills/memory-health/SKILL.md",
+        "connectors/opencode/skills/memory-recall/SKILL.md",
+        "connectors/opencode/skills/memory-store/SKILL.md",
+        "connectors/shared/AGENTS.md",
+        "connectors/windsurf/mag-memory.md",
+        "plugin/.claude-plugin/plugin.json",
+        "plugin/CLAUDE.md",
+        "plugin/dev/.claude-plugin/plugin.json",
+        "plugin/dev/hooks/hooks.json",
+        "plugin/dev/mcp.json",
+        "plugin/dev/run-tests.sh",
+        "plugin/dev/scripts/commit-capture.sh",
+        "plugin/dev/scripts/compact-refresh.sh",
+        "plugin/dev/scripts/error-capture.sh",
+        "plugin/dev/scripts/pre-compact.sh",
+        "plugin/dev/scripts/prompt-gate.sh",
+        "plugin/dev/scripts/session-end.sh",
+        "plugin/dev/scripts/session-start.sh",
+        "plugin/dev/scripts/subagent-end.sh",
+        "plugin/dev/setup.sh",
+        "plugin/dev/skills/mag-dev-status.md",
+        "plugin/dev/test-env.sh",
+        "plugin/hooks/hooks.json",
+        "plugin/scripts/commit-capture.sh",
+        "plugin/scripts/compact-refresh.sh",
+        "plugin/scripts/error-capture.sh",
+        "plugin/scripts/pre-compact.sh",
+        "plugin/scripts/prompt-gate.sh",
+        "plugin/scripts/session-end.sh",
+        "plugin/scripts/session-start.sh",
+        "plugin/scripts/subagent-end.sh",
+        "plugin/skills/memory-checkpoint/SKILL.md",
+        "plugin/skills/memory-health/SKILL.md",
+        "plugin/skills/memory-recall/SKILL.md",
+        "plugin/skills/memory-store/SKILL.md"
+      ],
       "contracts": [
         "./meta/contracts/integrations.connectors.md"
       ],
@@ -41,11 +79,16 @@
       "id": "mag.integrations.packaging",
       "kind": "module",
       "name": "Packaging",
-      "state": "ghost",
+      "state": "synced",
       "paths": [
         "./npm"
       ],
-      "files": [],
+      "files": [
+        "npm/README.md",
+        "npm/bin/mag",
+        "npm/install.js",
+        "npm/package.json"
+      ],
       "contracts": [
         "./meta/contracts/integrations.packaging.md"
       ],
@@ -2899,7 +2942,8 @@
       ],
       "files": [
         "scripts/compare_strategies.py",
-        "scripts/finalize-cairn-onboarding.py"
+        "scripts/finalize-cairn-onboarding.py",
+        "scripts/remediate-cairn-onboarding.py"
       ],
       "contracts": [
         "./meta/contracts/quality.scripts.md"
@@ -2938,6 +2982,14 @@
           "end_line": 14
         },
         {
+          "name": "DATE",
+          "kind": "variable",
+          "signature": "assignment:DATE",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 13,
+          "end_line": 13
+        },
+        {
           "name": "EQUIVALENT_THRESHOLD",
           "kind": "variable",
           "signature": "assignment:EQUIVALENT_THRESHOLD",
@@ -2960,6 +3012,14 @@
           "file": "scripts/compare_strategies.py",
           "line": 150,
           "end_line": 150
+        },
+        {
+          "name": "all_leaf_nodes",
+          "kind": "variable",
+          "signature": "assignment:all_leaf_nodes",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 112,
+          "end_line": 130
         },
         {
           "name": "all_within_equiv",
@@ -3074,6 +3134,54 @@
           "end_line": 210
         },
         {
+          "name": "blueprint",
+          "kind": "variable",
+          "signature": "assignment:blueprint",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 23,
+          "end_line": 23
+        },
+        {
+          "name": "blueprint",
+          "kind": "variable",
+          "signature": "assignment:blueprint",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 24,
+          "end_line": 27
+        },
+        {
+          "name": "blueprint",
+          "kind": "variable",
+          "signature": "assignment:blueprint",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 28,
+          "end_line": 31
+        },
+        {
+          "name": "blueprint",
+          "kind": "variable",
+          "signature": "assignment:blueprint",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 32,
+          "end_line": 35
+        },
+        {
+          "name": "blueprint",
+          "kind": "variable",
+          "signature": "assignment:blueprint",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 36,
+          "end_line": 39
+        },
+        {
+          "name": "blueprint_path",
+          "kind": "variable",
+          "signature": "assignment:blueprint_path",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 22,
+          "end_line": 22
+        },
+        {
           "name": "cat",
           "kind": "variable",
           "signature": "assignment:cat",
@@ -3178,6 +3286,14 @@
           "end_line": 63
         },
         {
+          "name": "digest",
+          "kind": "variable",
+          "signature": "assignment:digest",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 80,
+          "end_line": 80
+        },
+        {
           "name": "dirname",
           "kind": "variable",
           "signature": "assignment:dirname",
@@ -3226,6 +3342,14 @@
           "end_line": 169
         },
         {
+          "name": "local_sources",
+          "kind": "variable",
+          "signature": "assignment:local_sources",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 71,
+          "end_line": 77
+        },
+        {
           "name": "markdown",
           "kind": "variable",
           "signature": "assignment:markdown",
@@ -3264,6 +3388,14 @@
           "file": "scripts/finalize-cairn-onboarding.py",
           "line": 300,
           "end_line": 318
+        },
+        {
+          "name": "node_list",
+          "kind": "variable",
+          "signature": "assignment:node_list",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 131,
+          "end_line": 131
         },
         {
           "name": "old_key",
@@ -3426,6 +3558,14 @@
           "end_line": 18
         },
         {
+          "name": "target",
+          "kind": "variable",
+          "signature": "assignment:target",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 17,
+          "end_line": 17
+        },
+        {
           "name": "todos",
           "kind": "variable",
           "signature": "assignment:todos",
@@ -3520,6 +3660,14 @@
           "file": "scripts/finalize-cairn-onboarding.py",
           "line": 17,
           "end_line": 20
+        },
+        {
+          "name": "write",
+          "kind": "function",
+          "signature": "function_definition:write",
+          "file": "scripts/remediate-cairn-onboarding.py",
+          "line": 16,
+          "end_line": 19
         }
       ]
     },
@@ -12020,79 +12168,6 @@
   ],
   "findings": [
     {
-      "code": "CAIRN_ARTEFACT_POINTER_MISSING",
-      "severity": "warning",
-      "message": "artefact pointer `./meta/reviews` is missing",
-      "node": null,
-      "path": "./meta/reviews"
-    },
-    {
-      "code": "CAIRN_SOURCE_SHA256_MISSING",
-      "severity": "error",
-      "message": "verified source `src.cairn-framework` lacks sha256",
-      "node": null,
-      "path": "././meta/sources/src.cairn-framework.md"
-    },
-    {
-      "code": "CAIRN_SOURCE_SHA256_MISSING",
-      "severity": "error",
-      "message": "verified source `src.dead-code-recon` lacks sha256",
-      "node": null,
-      "path": "././meta/sources/src.dead-code-recon.md"
-    },
-    {
-      "code": "CAIRN_SOURCE_SHA256_MISSING",
-      "severity": "error",
-      "message": "verified source `src.hindsight-comparison` lacks sha256",
-      "node": null,
-      "path": "././meta/sources/src.hindsight-comparison.md"
-    },
-    {
-      "code": "CAIRN_SOURCE_SHA256_MISSING",
-      "severity": "error",
-      "message": "verified source `src.local-first-roadmap` lacks sha256",
-      "node": null,
-      "path": "././meta/sources/src.local-first-roadmap.md"
-    },
-    {
-      "code": "CAIRN_SOURCE_SHA256_MISSING",
-      "severity": "error",
-      "message": "verified source `src.mag-agents-guide` lacks sha256",
-      "node": null,
-      "path": "././meta/sources/src.mag-agents-guide.md"
-    },
-    {
-      "code": "CAIRN_SOURCE_SHA256_MISSING",
-      "severity": "error",
-      "message": "verified source `src.source-tree-recon` lacks sha256",
-      "node": null,
-      "path": "././meta/sources/src.source-tree-recon.md"
-    },
-    {
-      "code": "CAIRN_RECONCILE_LANGUAGE_UNKNOWN",
-      "severity": "warning",
-      "message": "Target `mag.integrations.connectors` at `connectors` has unknown language; declare it in targets.",
-      "node": "mag.integrations.connectors",
-      "target": "mag.integrations.connectors:connectors",
-      "path": "connectors"
-    },
-    {
-      "code": "CAIRN_RECONCILE_LANGUAGE_UNKNOWN",
-      "severity": "warning",
-      "message": "Target `mag.integrations.connectors` at `plugin` has unknown language; declare it in targets.",
-      "node": "mag.integrations.connectors",
-      "target": "mag.integrations.connectors:plugin",
-      "path": "plugin"
-    },
-    {
-      "code": "CAIRN_RECONCILE_LANGUAGE_UNKNOWN",
-      "severity": "warning",
-      "message": "Target `mag.integrations.packaging` at `npm` has unknown language; declare it in targets.",
-      "node": "mag.integrations.packaging",
-      "target": "mag.integrations.packaging:npm",
-      "path": "npm"
-    },
-    {
       "code": "CAIRN_RECONCILE_ORPHANED_FILE",
       "severity": "info",
       "message": "Rust file `src/bin/fetch_benchmark_data.rs` is not owned by any eligible node",
@@ -12105,20 +12180,6 @@
       "message": "Rust file `src/doctor_checks.rs` is not owned by any eligible node",
       "node": null,
       "path": "src/doctor_checks.rs"
-    },
-    {
-      "code": "CAIRN_TEST_COVERAGE_MISSING",
-      "severity": "warning",
-      "message": "synced module `mag.quality.tests` has no #[cfg(test)] coverage in its reconciled source",
-      "node": "mag.quality.tests",
-      "path": "src/test_helpers.rs"
-    },
-    {
-      "code": "CAIRN_TEST_COVERAGE_MISSING",
-      "severity": "warning",
-      "message": "synced module `mag.runtime.memory.storage.api` has no #[cfg(test)] coverage in its reconciled source",
-      "node": "mag.runtime.memory.storage.api",
-      "path": "src/memory_core/storage/mod.rs"
     },
     {
       "code": "CAIRN_MODULE_OVERSIZED",
@@ -12329,83 +12390,6 @@
       "message": "module `mag.runtime.setup` claims `src/uninstall.rs` at 1402 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.setup",
       "path": "src/uninstall.rs"
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.integrations.connectors` has no decision artefact explaining why it exists",
-      "node": "mag.integrations.connectors",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.integrations.packaging` has no decision artefact explaining why it exists",
-      "node": "mag.integrations.packaging",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.integrations.python` has no decision artefact explaining why it exists",
-      "node": "mag.integrations.python",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.quality.scripts` has no decision artefact explaining why it exists",
-      "node": "mag.quality.scripts",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.quality.tests` has no decision artefact explaining why it exists",
-      "node": "mag.quality.tests",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.runtime.entrypoints` has no decision artefact explaining why it exists",
-      "node": "mag.runtime.entrypoints",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.runtime.mcp` has no decision artefact explaining why it exists",
-      "node": "mag.runtime.mcp",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.runtime.memory.retrieval` has no decision artefact explaining why it exists",
-      "node": "mag.runtime.memory.retrieval",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.runtime.memory.storage.api` has no decision artefact explaining why it exists",
-      "node": "mag.runtime.memory.storage.api",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.runtime.memory.storage.memory` has no decision artefact explaining why it exists",
-      "node": "mag.runtime.memory.storage.memory",
-      "path": null
-    },
-    {
-      "code": "CAIRN_PROVENANCE_NO_DECISION",
-      "severity": "warning",
-      "message": "node `mag.runtime.setup` has no decision artefact explaining why it exists",
-      "node": "mag.runtime.setup",
-      "path": null
     }
   ]
 }

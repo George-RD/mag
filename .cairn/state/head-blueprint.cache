@@ -1,9 +1,163 @@
-13162205ca30ce4041d9c06109ecad089ec49ac0
-# cairn.blueprint
-# Seeded by `cairn init --from-code`. The discovered modules are merged in when
-# you archive the brownfield extraction:
+8930e593b0c1693afc5ea2a72aeeb967a65805a8
+# MAG — reviewed architecture map.
 #
-#     cairn change apply brownfield-init
-#
-# Refine the map afterwards: nest modules under Systems and Containers, and add
-# decisions, contracts, and edges as the architecture clarifies.
+# Status and work live in node-linked Cairn artefacts. The generated map is a
+# view; this blueprint and its artefacts are the durable source in Git.
+
+System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-first {
+    decisions "./meta/decisions"
+    research "./meta/research"
+    sources "./meta/sources"
+    todos "./meta/todos"
+    reviews "./meta/reviews"
+
+    Container Runtime "Production Rust runtime and memory semantics" id "mag.runtime" @rust {
+        Module Entrypoints "CLI, crate surface, and process orchestration" id "mag.runtime.entrypoints" {
+            path "./src/main.rs"
+            path "./src/lib.rs"
+            path "./src/cli.rs"
+            contract "./meta/contracts/runtime.entrypoints.md"
+        }
+
+        Module Setup "Tool detection, setup, configuration, paths, and uninstall" id "mag.runtime.setup" {
+            path "./src/setup.rs"
+            path "./src/uninstall.rs"
+            path "./src/tool_detection.rs"
+            path "./src/config_writer.rs"
+            path "./src/app_paths.rs"
+            contract "./meta/contracts/runtime.setup.md"
+        }
+
+        Module MCP "Validated MCP stdio tools over memory capabilities" id "mag.runtime.mcp" @mcp {
+            path "./src/mcp"
+            contract "./meta/contracts/runtime.mcp.md"
+        }
+
+        Container Memory "Memory domain, model roles, retrieval, and storage" id "mag.runtime.memory" {
+            Module Domain "Stable memory types, traits, and legacy pipeline surface" id "mag.runtime.memory.domain" {
+                path "./src/memory_core/mod.rs"
+                path "./src/memory_core/domain.rs"
+                path "./src/memory_core/traits.rs"
+                contract "./meta/contracts/memory.domain.md"
+            }
+
+            Module Models "Embedding, generation, and local/remote model adapters" id "mag.runtime.memory.models" @local-inference {
+                path "./src/memory_core/embedder.rs"
+                path "./src/memory_core/llm.rs"
+                contract "./meta/contracts/memory.models.md"
+            }
+
+            Module Retrieval "Candidate retrieval, reranking, scoring, and abstention" id "mag.runtime.memory.retrieval" @benchmark-gated {
+                path "./src/memory_core/reranker.rs"
+                path "./src/memory_core/retrieval_strategy.rs"
+                path "./src/memory_core/scoring.rs"
+                path "./src/memory_core/scoring_strategy.rs"
+                contract "./meta/contracts/memory.retrieval.md"
+            }
+
+            Container Storage "Durable and reference memory backends" id "mag.runtime.memory.storage" {
+                Module StorageAPI "Storage module facade and backend boundary" id "mag.runtime.memory.storage.api" {
+                    path "./src/memory_core/storage/mod.rs"
+                    contract "./meta/contracts/storage.api.md"
+                }
+
+                Module SQLite "Production SQLite, FTS, graph, lifecycle, and query pipeline" id "mag.runtime.memory.storage.sqlite" @source-of-truth {
+                    path "./src/memory_core/storage/sqlite"
+                    contract "./meta/contracts/storage.sqlite.md"
+                }
+
+                Module InMemory "Reference in-memory backend used for parity and tests" id "mag.runtime.memory.storage.memory" {
+                    path "./src/memory_core/storage/memory"
+                    contract "./meta/contracts/storage.memory.md"
+                }
+            }
+        }
+
+        Module Substrate "Newer trait-composed orchestration under evaluation" id "mag.runtime.substrate" @architecture-decision-pending {
+            path "./src/substrate"
+            contract "./meta/contracts/runtime.substrate.md"
+        }
+
+        Module Daemon "Optional authenticated HTTP deployment adapter" id "mag.runtime.daemon" @optional {
+            path "./src/daemon.rs"
+            path "./src/auth.rs"
+            path "./src/idle_timer.rs"
+            contract "./meta/contracts/runtime.daemon.md"
+        }
+    }
+
+    Container Integrations "Agent connectors, Python tooling, and package wrappers" id "mag.integrations" {
+        Module Connectors "Agent-facing setup content and plugin hooks" id "mag.integrations.connectors" {
+            path "./connectors"
+            path "./plugin"
+            contract "./meta/contracts/integrations.connectors.md"
+        }
+
+        Module Python "Python client and active-strategy research harnesses" id "mag.integrations.python" {
+            path "./python"
+            contract "./meta/contracts/integrations.python.md"
+        }
+
+        Module Packaging "npm distribution wrapper and release metadata" id "mag.integrations.packaging" {
+            path "./npm"
+            contract "./meta/contracts/integrations.packaging.md"
+        }
+    }
+
+    Container Quality "Tests, benchmarks, and repeatable engineering gates" id "mag.quality" {
+        Module Tests "Hermetic unit, integration, migration, and MCP tests" id "mag.quality.tests" @test {
+            path "./tests"
+            path "./src/test_helpers.rs"
+            contract "./meta/contracts/quality.tests.md"
+        }
+
+        Module Benchmarks "LongMemEval, LoCoMo, scale, and model evaluation" id "mag.quality.benchmarks" @evaluation {
+            path "./benches"
+            path "./src/benchmarking.rs"
+            contract "./meta/contracts/quality.benchmarks.md"
+        }
+
+        Module Scripts "Repository automation and benchmark entry points" id "mag.quality.scripts" {
+            path "./scripts"
+            contract "./meta/contracts/quality.scripts.md"
+        }
+    }
+}
+
+# Runtime assembly and public surfaces
+mag.runtime.entrypoints -> mag.runtime.setup "Dispatches setup, configuration, and uninstall commands"
+mag.runtime.entrypoints -> mag.runtime.mcp "Starts and hosts the MCP stdio server"
+mag.runtime.entrypoints -> mag.runtime.memory.domain "Builds the public memory pipeline"
+mag.runtime.entrypoints -> mag.runtime.memory.models "Constructs embedding and optional LLM backends"
+mag.runtime.entrypoints -> mag.runtime.memory.storage.sqlite "Constructs the production storage backend"
+mag.runtime.entrypoints -> mag.runtime.daemon "Starts the optional HTTP adapter"
+
+# Memory internals
+mag.runtime.mcp -> mag.runtime.memory.domain "Exposes domain operations as validated tools"
+mag.runtime.mcp -> mag.runtime.memory.storage.sqlite "Delegates tool execution to SQLite storage"
+mag.runtime.memory.models -> mag.runtime.memory.domain "Implements model traits used by memory operations"
+mag.runtime.memory.retrieval -> mag.runtime.memory.domain "Scores and returns domain search results"
+mag.runtime.memory.retrieval -> mag.runtime.memory.models "Uses embeddings and optional rerankers"
+mag.runtime.memory.storage.api -> mag.runtime.memory.domain "Defines backend access around domain contracts"
+mag.runtime.memory.storage.sqlite -> mag.runtime.memory.domain "Persists and queries domain records"
+mag.runtime.memory.storage.sqlite -> mag.runtime.memory.models "Creates and consumes embeddings"
+mag.runtime.memory.storage.sqlite -> mag.runtime.memory.retrieval "Runs the advanced retrieval pipeline"
+mag.runtime.memory.storage.memory -> mag.runtime.memory.domain "Implements the reference backend contract"
+
+# Competing orchestration path to be resolved before more production wiring
+mag.runtime.substrate -> mag.runtime.memory.domain "Composes stable memory traits"
+mag.runtime.substrate -> mag.runtime.memory.models "Uses model-role abstractions"
+mag.runtime.substrate -> mag.runtime.memory.retrieval "Composes retrieval and scoring strategies"
+mag.runtime.substrate -> mag.runtime.memory.storage.sqlite "Bridges to the production backend"
+
+# Deployment and integrations
+mag.runtime.daemon -> mag.runtime.mcp "Serves the same MCP semantics over HTTP"
+mag.runtime.setup -> mag.integrations.connectors "Installs and removes connector content"
+mag.integrations.python -> mag.runtime.mcp "Uses MAG through its protocol surface"
+
+# Verification
+mag.quality.tests -> mag.runtime "Verifies runtime behavior and contracts"
+mag.quality.benchmarks -> mag.runtime.memory "Measures memory quality and latency"
+mag.quality.benchmarks -> mag.runtime.substrate "Compares candidate orchestration paths"
+mag.quality.scripts -> mag.quality.tests "Runs repository quality gates"
+mag.quality.scripts -> mag.quality.benchmarks "Runs benchmark and regression gates"
