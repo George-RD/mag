@@ -613,7 +613,7 @@ impl SqliteStorage {
         // ── Phase 4: INSERT memory + FTS5 sync ──
         let event_at_value: Option<String> = referenced_date
             .clone()
-            .and_then(|d| if validate_iso8601(&d) { Some(d) } else { None });
+            .filter(|date| validate_iso8601(date));
 
         tx.execute(
             "INSERT INTO memories (

@@ -18,6 +18,29 @@ Default: `bge-small-en-v1.5` (int8, 384-dim, ~32 MB on disk, ~180 MB RAM)
 
 Models auto-download on first use and are cached under `~/.mag/models/`. Available models can be selected via benchmark flags. See [Model Comparison](benchmarks/models.md) for the full table.
 
+## Optional Local Generative LLM
+
+MAG's optional `llm` feature currently talks to OpenAI-compatible HTTP endpoints.
+The local-first default profile is **LFM2.5 1.2B Instruct**, exposed through a
+local runtime such as Ollama:
+
+```bash
+ollama pull LiquidAI/lfm2.5-1.2b-instruct
+export MAG_LLM_PROVIDER=ollama
+# Optional overrides:
+# export MAG_LLM_MODEL=LiquidAI/lfm2.5-1.2b-instruct
+# export MAG_LLM_BASE_URL=http://localhost:11434/v1
+```
+
+When `MAG_LLM_PROVIDER=ollama` is set and `MAG_LLM_MODEL` is omitted, MAG uses
+`LiquidAI/lfm2.5-1.2b-instruct`. Cloud and self-hosted OpenAI-compatible endpoints
+remain supported through the same `LlmBackend` boundary.
+
+This is a transport-level default, not yet an in-process causal-model runtime.
+The target direct model is `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`. The smaller
+`LiquidAI/LFM2.5-350M-ONNX` is reserved for later task-by-task optimization after
+the 1.2B quality baseline is established.
+
 ## Scoring Parameters
 
 These parameters control how MAG ranks search results in the advanced multi-phase retrieval pipeline. They are defined in `ScoringParams` and can be tuned for different use cases.

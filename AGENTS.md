@@ -103,6 +103,18 @@ docs/                            Architecture docs, benchmark logs, MCP tool ref
 
 ---
 
+## Repository Skill Routing
+
+Compatible coding agents commonly load this root `AGENTS.md` automatically. Skill
+folder discovery varies by client, so this file explicitly routes environment work:
+
+- Before clean VM/container setup, first-run model debugging, local LLM work, or
+  benchmark execution, read `skills/mag-development/SKILL.md`.
+- Treat that skill as the operational supplement to this architecture guide; do
+  not duplicate the full repository overview into the skill.
+
+---
+
 ## Development Commands
 
 ### Build

@@ -3,7 +3,9 @@
 //! Gated by the `llm` feature. When disabled, MAG falls back to rule-based
 //! extraction and retrieval-only answering.
 //!
-//! Providers: OpenAI, Anthropic, Ollama/local (any OpenAI-compatible endpoint).
+//! Providers: OpenAI, Anthropic, and local OpenAI-compatible runtimes.
+//! The local-first default profile is LFM2.5 1.2B Instruct. Direct in-process
+//! ONNX causal generation is a planned backend; embeddings already run in ONNX.
 #![allow(dead_code)]
 // Dead-code allowed: this is new infrastructure (Phase 1). Public APIs will be
 // consumed by Phase 2 (extraction) and Phase 3 (reflection). Removing this
@@ -14,6 +16,18 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Default model exposed by the current local OpenAI-compatible transport.
+///
+/// This is the Ollama model identifier for Liquid AI's LFM2.5 1.2B Instruct
+/// checkpoint. It is intentionally small enough for ordinary modern laptops.
+pub const DEFAULT_LOCAL_LLM_MODEL: &str = "LiquidAI/lfm2.5-1.2b-instruct";
+/// Default endpoint for a local OpenAI-compatible runtime.
+pub const DEFAULT_LOCAL_LLM_BASE_URL: &str = "http://localhost:11434/v1";
+/// Target checkpoint for the planned in-process ONNX causal-LM backend.
+pub const TARGET_ONNX_LOCAL_LLM_MODEL: &str = "LiquidAI/LFM2.5-1.2B-Instruct-ONNX";
+/// Future speed candidate. Do not route production tasks here without eval parity.
+pub const EXPERIMENTAL_SMALL_ONNX_LLM_MODEL: &str = "LiquidAI/LFM2.5-350M-ONNX";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +79,7 @@ impl LlmConfig {
     ///
     /// Variables:
     ///   MAG_LLM_PROVIDER    → openai | anthropic | ollama
-    ///   MAG_LLM_MODEL       → model name
+    ///   MAG_LLM_MODEL       → model name (defaults to LFM2.5 1.2B for ollama)
     ///   MAG_LLM_API_KEY     → API key (optional for local)
     ///   MAG_LLM_BASE_URL    → custom endpoint (optional)
     ///   MAG_LLM_TIMEOUT     → timeout in seconds (default 60)
@@ -79,7 +93,11 @@ impl LlmConfig {
             "ollama" => LlmProvider::Ollama,
             _ => return None,
         };
-        let model = std::env::var("MAG_LLM_MODEL").ok()?;
+        let model = match std::env::var("MAG_LLM_MODEL") {
+            Ok(model) => model,
+            Err(_) if provider == LlmProvider::Ollama => DEFAULT_LOCAL_LLM_MODEL.to_string(),
+            Err(_) => return None,
+        };
         let api_key = std::env::var("MAG_LLM_API_KEY").ok();
         let base_url = std::env::var("MAG_LLM_BASE_URL").ok();
         let timeout_secs = std::env::var("MAG_LLM_TIMEOUT")
@@ -108,6 +126,12 @@ impl LlmConfig {
             concurrency_limit,
         })
     }
+    /// Load explicit environment configuration, otherwise use the local-first
+    /// LFM2.5 1.2B profile.
+    pub fn from_env_or_local_default() -> Self {
+        Self::from_env().unwrap_or_default()
+    }
+
     /// Default OpenAI configuration.
     pub fn openai(model: impl Into<String>, api_key: impl Into<String>) -> Self {
         Self {
@@ -134,6 +158,21 @@ impl LlmConfig {
             temperature: default_temperature(),
             concurrency_limit: None,
         }
+    }
+
+    /// Local-first default: LFM2.5 1.2B Instruct through an OpenAI-compatible
+    /// runtime. This is the temporary transport until direct ONNX generation is
+    /// implemented behind the same `LlmBackend` boundary.
+    pub fn local_default() -> Self {
+        let mut config = Self::ollama(DEFAULT_LOCAL_LLM_MODEL, DEFAULT_LOCAL_LLM_BASE_URL);
+        config.temperature = 0.1;
+        config
+    }
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self::local_default()
     }
 }
 
@@ -438,4 +477,29 @@ pub fn build_llm_backend(config: LlmConfig) -> Result<Arc<dyn LlmBackend>> {
 pub fn llm_backend_from_env() -> Option<Arc<dyn LlmBackend>> {
     let config = LlmConfig::from_env()?;
     build_llm_backend(config).ok()
+}
+
+/// Build the explicit environment backend or the local-first LFM2.5 default.
+pub fn llm_backend_from_env_or_local_default() -> Result<Arc<dyn LlmBackend>> {
+    build_llm_backend(LlmConfig::from_env_or_local_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_is_local_lfm25_1_2b() {
+        let config = LlmConfig::default();
+        assert_eq!(config.provider, LlmProvider::Ollama);
+        assert_eq!(config.model, DEFAULT_LOCAL_LLM_MODEL);
+        assert_eq!(config.base_url.as_deref(), Some(DEFAULT_LOCAL_LLM_BASE_URL));
+        assert_eq!(config.temperature, 0.1);
+    }
+
+    #[test]
+    fn onnx_targets_are_recorded_for_runtime_work() {
+        assert!(TARGET_ONNX_LOCAL_LLM_MODEL.ends_with("-ONNX"));
+        assert!(EXPERIMENTAL_SMALL_ONNX_LLM_MODEL.ends_with("-ONNX"));
+    }
 }
