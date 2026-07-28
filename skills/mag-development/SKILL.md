@@ -9,8 +9,9 @@ metadata:
 
 # MAG development
 
-Read the root `AGENTS.md` first. It is the architecture and coding guide; this
-skill contains the operational details that were easy to misread in a clean VM.
+Read the root `AGENTS.md` first. It is the progressive-disclosure router and
+repository-invariant guide. This skill contains operational details for clean
+environments, model startup, MCP testing, and retrieval validation.
 
 ## Clean-environment baseline
 
