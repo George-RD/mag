@@ -17,28 +17,16 @@ jobs:
           ref: agent/cairn-onboard-mag
           fetch-depth: 0
 
-      - name: Check whether completion is needed
-        id: state
-        run: |
-          if [ -f .github/workflows/cairn.yml ]; then
-            echo 'run=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'run=true' >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Install Cairn 0.9.0
-        if: steps.state.outputs.run == 'true'
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Apply final architecture cleanup
-        if: steps.state.outputs.run == 'true'
         run: python3 scripts/complete-cairn-onboarding.py
 
       - name: Verify final Cairn state
-        if: steps.state.outputs.run == 'true'
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           cairn scan
@@ -46,12 +34,16 @@ jobs:
           cairn hook all
           cairn status --json | tee /tmp/cairn-status.json
 
-      - name: Commit completed onboarding
-        if: steps.state.outputs.run == 'true'
+      - name: Commit verified non-workflow changes
         run: |
+          # GITHUB_TOKEN cannot add/delete workflow files. Keep this temporary
+          # workflow in the generated commit; the connected GitHub app replaces it
+          # with the permanent gate after the branch push.
+          git restore --source=HEAD -- .github/workflows/cairn-bootstrap.yml
+          rm -f .github/workflows/cairn.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git status --short
-          git commit --no-verify -m 'chore(cairn): complete MAG onboarding and architecture gate'
+          git commit --no-verify -m 'chore(cairn): complete MAG onboarding architecture'
           git push origin HEAD:agent/cairn-onboard-mag
