@@ -1,4 +1,4 @@
-name: Cairn onboarding finalization
+name: Cairn onboarding remediation
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  finalize:
+  remediate:
     if: github.head_ref == 'agent/cairn-onboard-mag'
     runs-on: ubuntu-24.04
     steps:
@@ -17,10 +17,10 @@ jobs:
           ref: agent/cairn-onboard-mag
           fetch-depth: 0
 
-      - name: Check whether finalization is needed
+      - name: Check whether remediation is needed
         id: state
         run: |
-          if [ -f .cairn/onboarding/generated ]; then
+          if [ -f .cairn/onboarding/remediated ]; then
             echo 'run=false' >> "$GITHUB_OUTPUT"
           else
             echo 'run=true' >> "$GITHUB_OUTPUT"
@@ -33,18 +33,11 @@ jobs:
             https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Write reviewed MAG architecture and artefacts
+      - name: Resolve blocking first-scan findings
         if: steps.state.outputs.run == 'true'
-        run: python3 scripts/finalize-cairn-onboarding.py
+        run: python3 scripts/remediate-cairn-onboarding.py
 
-      - name: Wire Cairn agent guidance
-        if: steps.state.outputs.run == 'true'
-        run: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          cairn --version | tee .cairn-version
-          cairn init --wire AGENTS.md
-
-      - name: Capture first reconciled state
+      - name: Reconcile and capture results
         if: steps.state.outputs.run == 'true'
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
@@ -74,13 +67,13 @@ jobs:
           context=$context_status
           hooks=$hooks_status
           EOF
-          touch .cairn/onboarding/generated
+          touch .cairn/onboarding/remediated
 
-      - name: Commit curated onboarding
+      - name: Commit remediation
         if: steps.state.outputs.run == 'true'
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git commit -m 'chore(cairn): apply reviewed MAG architecture and roadmap'
+          git commit -m 'chore(cairn): resolve blocking onboarding findings'
           git push origin HEAD:agent/cairn-onboard-mag
