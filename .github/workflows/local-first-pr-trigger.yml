@@ -19,40 +19,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Extract and run bootstrap patch
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          source = Path('.github/workflows/local-first-bootstrap.yml').read_text()
-          start_marker = '      - name: Apply local-first profile, skill, and roadmap\n'
-          end_marker = '      - name: Format and validate\n'
-          start = source.index(start_marker) + len(start_marker)
-          end = source.index(end_marker, start)
-          block = source[start:end]
-          run_marker = '        run: |\n'
-          if not block.startswith(run_marker):
-              raise SystemExit('bootstrap run block not found')
-          raw = block[len(run_marker):]
-          script = '\n'.join(
-              line[10:] if line.startswith('          ') else line
-              for line in raw.splitlines()
-          ) + '\n'
-          Path('/tmp/apply-local-first.sh').write_text(script)
-          PY
-          set +e
-          bash -x /tmp/apply-local-first.sh 2>&1 | tee /tmp/local-first-bootstrap.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
-      - name: Upload bootstrap diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: local-first-bootstrap-diagnostics
-          path: |
-            /tmp/apply-local-first.sh
-            /tmp/local-first-bootstrap.log
+      - name: Apply local-first profile
+        run: python3 scripts/apply-local-first.py
       - name: Validate
         run: |
           cargo fmt --all
