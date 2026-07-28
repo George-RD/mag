@@ -1,0 +1,15 @@
+meta/changes/brownfield-init/blueprint.delta
+meta/changes/brownfield-init/contracts/benches.md
+meta/changes/brownfield-init/contracts/benches_bench-utils.md
+meta/changes/brownfield-init/contracts/benches_locomo.md
+meta/changes/brownfield-init/contracts/benches_longmemeval.md
+meta/changes/brownfield-init/contracts/python_mag-memory.md
+meta/changes/brownfield-init/contracts/src.md
+meta/changes/brownfield-init/contracts/src_mcp.md
+meta/changes/brownfield-init/contracts/src_mcp_tools.md
+meta/changes/brownfield-init/contracts/src_memory-core.md
+meta/changes/brownfield-init/contracts/src_memory-core_storage_sqlite.md
+meta/changes/brownfield-init/contracts/src_substrate.md
+meta/changes/brownfield-init/contracts/tests.md
+meta/changes/brownfield-init/contracts/tests_python.md
+meta/changes/brownfield-init/proposal.md

@@ -1,0 +1,77 @@
+## ADDED Nodes
+Module Benches "Discovered module at benches" id "benches" {
+    path "./benches"
+    contract "./meta/contracts/benches.md"
+}
+
+Module BenchUtils "Discovered module at benches/bench_utils" id "benches.bench-utils" {
+    path "./benches/bench_utils"
+    contract "./meta/contracts/benches_bench-utils.md"
+}
+
+Module Locomo "Discovered module at benches/locomo" id "benches.locomo" {
+    path "./benches/locomo"
+    contract "./meta/contracts/benches_locomo.md"
+}
+
+Module Longmemeval "Discovered module at benches/longmemeval" id "benches.longmemeval" {
+    path "./benches/longmemeval"
+    contract "./meta/contracts/benches_longmemeval.md"
+}
+
+Module MagMemory "Discovered module at python/mag_memory" id "python.mag-memory" {
+    path "./python/mag_memory"
+    contract "./meta/contracts/python_mag-memory.md"
+}
+
+Module Src "Discovered module at src" id "src" {
+    path "./src"
+    contract "./meta/contracts/src.md"
+}
+
+Module Mcp "Discovered module at src/mcp" id "src.mcp" {
+    path "./src/mcp"
+    contract "./meta/contracts/src_mcp.md"
+}
+
+Module Tools "Discovered module at src/mcp/tools" id "src.mcp.tools" {
+    path "./src/mcp/tools"
+    contract "./meta/contracts/src_mcp_tools.md"
+}
+
+Module MemoryCore "Discovered module at src/memory_core" id "src.memory-core" {
+    path "./src/memory_core"
+    contract "./meta/contracts/src_memory-core.md"
+}
+
+Module Sqlite "Discovered module at src/memory_core/storage/sqlite" id "src.memory-core.storage.sqlite" {
+    path "./src/memory_core/storage/sqlite"
+    contract "./meta/contracts/src_memory-core_storage_sqlite.md"
+}
+
+Module Substrate "Discovered module at src/substrate" id "src.substrate" {
+    path "./src/substrate"
+    contract "./meta/contracts/src_substrate.md"
+}
+
+Module Tests "Discovered module at tests" id "tests" {
+    path "./tests"
+    contract "./meta/contracts/tests.md"
+}
+
+Module Python "Discovered module at tests/python" id "tests.python" {
+    path "./tests/python"
+    contract "./meta/contracts/tests_python.md"
+}
+
+## ADDED Edges
+src.mcp -> src.memory-core "Observed imports of memory core (3 in code)"
+src.mcp.tools -> src.mcp "Observed imports of mcp (36 in code)"
+src.mcp.tools -> src.memory-core "Observed imports of memory core (64 in code)"
+src.memory-core -> src "Observed imports of src (16 in code)"
+src.memory-core -> src.memory-core.storage.sqlite "Observed imports of sqlite (3 in code)"
+src.memory-core.storage.sqlite -> src "Observed imports of src (1 in code)"
+src.memory-core.storage.sqlite -> src.memory-core "Observed imports of memory core (138 in code)"
+src.substrate -> src.memory-core "Observed imports of memory core (60 in code)"
+src.substrate -> src.memory-core.storage.sqlite "Observed imports of sqlite (11 in code)"
+
