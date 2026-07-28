@@ -33,12 +33,13 @@ jobs:
           find meta/changes/brownfield-init -maxdepth 3 -type f -print | sort > .cairn/bootstrap/generated-files.txt
       - name: Commit proposal
         run: |
+          git status --short
           if [ -z "$(git status --porcelain)" ]; then
             echo "No generated changes"
             exit 0
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add cairn.blueprint cairn.config.yaml meta/changes/brownfield-init .cairn/bootstrap
+          git add -A
           git commit -m 'chore(cairn): generate brownfield proposal [cairn-bootstrap]'
           git push origin HEAD:agent/cairn-onboard-mag
