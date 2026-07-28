@@ -1,0 +1,58 @@
+name: Local-first PR trigger
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.head_ref == 'agent/local-first-lfm25'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/local-first-lfm25
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Extract and run bootstrap patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          source = Path('.github/workflows/local-first-bootstrap.yml').read_text()
+          start_marker = '      - name: Apply local-first profile, skill, and roadmap\n'
+          end_marker = '      - name: Format and validate\n'
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          block = source[start:end]
+          run_marker = '        run: |\n'
+          if not block.startswith(run_marker):
+              raise SystemExit('bootstrap run block not found')
+          script = textwrap.dedent(block[len(run_marker):])
+          Path('/tmp/apply-local-first.sh').write_text(script)
+          PY
+          bash /tmp/apply-local-first.sh
+      - name: Validate
+        run: |
+          cargo fmt --all
+          cargo clippy --quiet --all-targets --all-features -- -D warnings
+          cargo test --quiet --all-features
+      - name: Commit changes
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add AGENTS.md docs/configuration.md docs/specs/execution-roadmap.md \
+            docs/specs/local-first-roadmap.md src/memory_core/llm.rs \
+            skills/mag-development/SKILL.md
+          git commit -m 'feat(llm): set LFM2.5 local-first profile'
+          git push origin HEAD:agent/local-first-lfm25
