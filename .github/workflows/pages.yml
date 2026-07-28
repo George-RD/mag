@@ -5,18 +5,16 @@ on:
     branches: [main]
     paths:
       - "site/**"
-      - "README.md"
       - ".github/workflows/pages.yml"
   pull_request:
     branches: [main]
     paths:
       - "site/**"
-      - "README.md"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pages-${{ github.ref }}
@@ -34,6 +32,7 @@ jobs:
           python3 - <<'PY'
           from html.parser import HTMLParser
           from pathlib import Path
+          import struct
           import xml.etree.ElementTree as ET
 
           site = Path("site")
@@ -57,6 +56,7 @@ jobs:
                   self.title = False
                   self.description = False
                   self._in_title = False
+
               def handle_starttag(self, tag, attrs):
                   values = dict(attrs)
                   if tag == "html" and values.get("lang"):
@@ -65,9 +65,11 @@ jobs:
                       self._in_title = True
                   if tag == "meta" and values.get("name") == "description" and values.get("content"):
                       self.description = True
+
               def handle_endtag(self, tag):
                   if tag == "title":
                       self._in_title = False
+
               def handle_data(self, data):
                   if self._in_title and data.strip():
                       self.title = True
@@ -83,7 +85,6 @@ jobs:
           png = (site / "assets" / "og-card.png").read_bytes()
           if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 2_000:
               raise SystemExit("Open Graph image is not a valid PNG payload")
-          import struct
           width, height = struct.unpack(">II", png[16:24])
           if (width, height) != (1200, 630):
               raise SystemExit(f"Open Graph image must be 1200x630, got {width}x{height}")
@@ -91,29 +92,47 @@ jobs:
           print("Static site validation passed")
           PY
 
-  deploy:
+  publish:
     if: github.event_name != 'pull_request'
     needs: validate
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v6
+      - name: Publish site to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          publish_dir=$(mktemp -d)
+          cp -a site/. "$publish_dir/"
+          touch "$publish_dir/.nojekyll"
 
-      - name: Upload static site
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: site
+          cd "$publish_dir"
+          git init
+          git checkout -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "Deploy ${GITHUB_SHA}"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin gh-pages
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Verify public site
+        shell: bash
+        run: |
+          set -u
+          url="https://george-rd.github.io/mag/"
+          for attempt in $(seq 1 18); do
+            status=$(curl -L -sS -o /tmp/mag-page.html -w '%{http_code}' "$url" || true)
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = "200" ] && grep -Fq "Switch AI tools" /tmp/mag-page.html; then
+              echo "MAG Pages site is live: $url"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "MAG Pages verification failed: $url"
+          exit 1
