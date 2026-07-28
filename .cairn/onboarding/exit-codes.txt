@@ -1,0 +1,7 @@
+scan=1
+lint=1
+status=1
+health=0
+remediate=0
+context=0
+hooks=1

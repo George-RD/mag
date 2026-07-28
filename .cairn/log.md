@@ -1,0 +1,1 @@
+- scan: nodes=23, findings=55, errors=6

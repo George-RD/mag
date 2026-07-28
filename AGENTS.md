@@ -348,3 +348,11 @@ Run `prek run` for gates 1-3. Always use `bench.sh` (not raw `cargo run`) so res
 
 ### Codex (OpenAI)
 <!-- Add Codex-specific guidance here as needed -->
+
+<!-- cairn:agent-guide-begin -->
+## Cairn orientation
+
+This project uses cairn to keep its architecture map in sync with code. Read
+`.cairn/AGENTS.md` for full orientation, then follow
+`.claude/skills/cairn-dev/SKILL.md` for the development loop.
+<!-- cairn:agent-guide-end -->

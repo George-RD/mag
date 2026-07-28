@@ -1,0 +1,9 @@
+13162205ca30ce4041d9c06109ecad089ec49ac0
+# cairn.blueprint
+# Seeded by `cairn init --from-code`. The discovered modules are merged in when
+# you archive the brownfield extraction:
+#
+#     cairn change apply brownfield-init
+#
+# Refine the map afterwards: nest modules under Systems and Containers, and add
+# decisions, contracts, and edges as the architecture clarifies.
