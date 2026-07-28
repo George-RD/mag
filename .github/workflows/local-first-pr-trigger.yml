@@ -23,6 +23,7 @@ jobs:
         run: |
           python3 scripts/apply-local-first.py
           python3 scripts/fix-rust-1-97-clippy.py
+          python3 scripts/fix-abstention-test.py
       - name: Format
         run: cargo fmt --all
       - name: Clippy
@@ -57,6 +58,8 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add AGENTS.md docs/configuration.md docs/specs/execution-roadmap.md \
             docs/specs/local-first-roadmap.md src/memory_core/llm.rs \
-            src/memory_core/storage/sqlite/crud.rs skills/mag-development/SKILL.md
+            src/memory_core/storage/sqlite/crud.rs \
+            src/memory_core/storage/sqlite/tests.rs \
+            skills/mag-development/SKILL.md
           git commit -m 'feat(llm): set LFM2.5 local-first profile'
           git push origin HEAD:agent/local-first-lfm25
