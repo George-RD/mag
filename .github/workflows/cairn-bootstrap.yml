@@ -1,0 +1,42 @@
+name: Cairn brownfield bootstrap
+
+on:
+  push:
+    branches: [agent/cairn-onboard-mag]
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    if: ${{ !contains(github.event.head_commit.message, '[cairn-bootstrap]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/cairn-onboard-mag
+          fetch-depth: 0
+      - name: Install Cairn
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/latest/download/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Generate brownfield proposal
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cairn --version
+          cairn init --from-code 2>&1 | tee /tmp/cairn-init.log
+          mkdir -p .cairn/bootstrap
+          cp /tmp/cairn-init.log .cairn/bootstrap/init.log
+          find meta/changes/brownfield-init -maxdepth 3 -type f -print | sort > .cairn/bootstrap/generated-files.txt
+      - name: Commit proposal
+        run: |
+          if git diff --quiet -- . ':!target'; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cairn.blueprint cairn.config.yaml meta/changes/brownfield-init .cairn/bootstrap
+          git commit -m 'chore(cairn): generate brownfield proposal [cairn-bootstrap]'
+          git push origin HEAD:agent/cairn-onboard-mag
