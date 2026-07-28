@@ -1,4 +1,4 @@
-name: Cairn brownfield bootstrap
+name: Cairn onboarding finalization
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  bootstrap:
+  finalize:
     if: github.head_ref == 'agent/cairn-onboard-mag'
     runs-on: ubuntu-24.04
     steps:
@@ -16,30 +16,71 @@ jobs:
         with:
           ref: agent/cairn-onboard-mag
           fetch-depth: 0
-      - name: Install Cairn
-        if: ${{ !hashFiles('cairn.blueprint') }}
+
+      - name: Check whether finalization is needed
+        id: state
+        run: |
+          if [ -f .cairn/onboarding/generated ]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Cairn 0.9.0
+        if: steps.state.outputs.run == 'true'
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/cairn-framework/cairn/releases/latest/download/cairn-installer.sh | sh
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Generate brownfield proposal
-        if: ${{ !hashFiles('cairn.blueprint') }}
+
+      - name: Write reviewed MAG architecture and artefacts
+        if: steps.state.outputs.run == 'true'
+        run: python3 scripts/finalize-cairn-onboarding.py
+
+      - name: Wire Cairn agent guidance
+        if: steps.state.outputs.run == 'true'
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          cairn --version
-          cairn init --from-code 2>&1 | tee /tmp/cairn-init.log
-          mkdir -p .cairn/bootstrap
-          cp /tmp/cairn-init.log .cairn/bootstrap/init.log
-          find meta/changes/brownfield-init -maxdepth 3 -type f -print | sort > .cairn/bootstrap/generated-files.txt
-      - name: Commit proposal
+          cairn --version | tee .cairn-version
+          cairn init --wire AGENTS.md
+
+      - name: Capture first reconciled state
+        if: steps.state.outputs.run == 'true'
         run: |
-          git status --short
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No generated changes"
-            exit 0
-          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          mkdir -p .cairn/onboarding
+          set +e
+          cairn scan --json > .cairn/onboarding/scan.json 2> .cairn/onboarding/scan.stderr
+          scan_status=$?
+          cairn lint --json > .cairn/onboarding/lint.json 2> .cairn/onboarding/lint.stderr
+          lint_status=$?
+          cairn status --json > .cairn/onboarding/status.json 2> .cairn/onboarding/status.stderr
+          status_status=$?
+          cairn health --json > .cairn/onboarding/health.json 2> .cairn/onboarding/health.stderr
+          health_status=$?
+          cairn remediate --json > .cairn/onboarding/remediate.json 2> .cairn/onboarding/remediate.stderr
+          remediate_status=$?
+          cairn context --json > .cairn/onboarding/context.json 2> .cairn/onboarding/context.stderr
+          context_status=$?
+          cairn hook all --json > .cairn/onboarding/hooks.json 2> .cairn/onboarding/hooks.stderr
+          hooks_status=$?
+          set -e
+          cat > .cairn/onboarding/exit-codes.txt <<EOF
+          scan=$scan_status
+          lint=$lint_status
+          status=$status_status
+          health=$health_status
+          remediate=$remediate_status
+          context=$context_status
+          hooks=$hooks_status
+          EOF
+          touch .cairn/onboarding/generated
+
+      - name: Commit curated onboarding
+        if: steps.state.outputs.run == 'true'
+        run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git commit -m 'chore(cairn): generate brownfield proposal [cairn-bootstrap]'
+          git commit -m 'chore(cairn): apply reviewed MAG architecture and roadmap'
           git push origin HEAD:agent/cairn-onboard-mag
