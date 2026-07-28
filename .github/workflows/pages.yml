@@ -1,0 +1,119 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "README.md"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "README.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate static site
+        run: |
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          site = Path("site")
+          html = site / "index.html"
+          required = [
+              html,
+              site / "assets" / "benchmark.svg",
+              site / "assets" / "context-flow.svg",
+              site / "assets" / "favicon.svg",
+              site / "assets" / "readme-header.svg",
+              site / "assets" / "og-card.png",
+          ]
+          missing = [str(path) for path in required if not path.exists()]
+          if missing:
+              raise SystemExit("Missing site files: " + ", ".join(missing))
+
+          class Parser(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.lang = False
+                  self.title = False
+                  self.description = False
+                  self._in_title = False
+              def handle_starttag(self, tag, attrs):
+                  values = dict(attrs)
+                  if tag == "html" and values.get("lang"):
+                      self.lang = True
+                  if tag == "title":
+                      self._in_title = True
+                  if tag == "meta" and values.get("name") == "description" and values.get("content"):
+                      self.description = True
+              def handle_endtag(self, tag):
+                  if tag == "title":
+                      self._in_title = False
+              def handle_data(self, data):
+                  if self._in_title and data.strip():
+                      self.title = True
+
+          parser = Parser()
+          parser.feed(html.read_text(encoding="utf-8"))
+          if not all((parser.lang, parser.title, parser.description)):
+              raise SystemExit("index.html is missing lang, title, or description metadata")
+
+          for svg in (site / "assets").glob("*.svg"):
+              ET.parse(svg)
+
+          png = (site / "assets" / "og-card.png").read_bytes()
+          if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 2_000:
+              raise SystemExit("Open Graph image is not a valid PNG payload")
+          import struct
+          width, height = struct.unpack(">II", png[16:24])
+          if (width, height) != (1200, 630):
+              raise SystemExit(f"Open Graph image must be 1200x630, got {width}x{height}")
+
+          print("Static site validation passed")
+          PY
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

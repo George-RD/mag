@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="620" viewBox="0 0 1400 620" role="img" aria-labelledby="title desc">
+  <title id="title">How MAG connects AI tools to one local memory system</title>
+  <desc id="desc">MCP clients send store and search calls to MAG. MAG keeps source memories and relationships in SQLite, then retrieves them with full-text, semantic and graph signals.</desc>
+  <rect width="1400" height="620" fill="#F8FAFC"/>
+  <rect x="0" y="0" width="1400" height="58" fill="#0B1B35"/>
+  <text x="36" y="37" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800">ONE LOCAL MEMORY SYSTEM</text>
+  <text x="1122" y="37" fill="#FFB703" font-family="monospace" font-size="13" font-weight="700">MCP · SQLITE · ONNX</text>
+
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="68" y="112" fill="#44566F" font-family="monospace" font-size="13" font-weight="700">CLIENTS</text>
+    <text x="500" y="112" fill="#44566F" font-family="monospace" font-size="13" font-weight="700">MAG CORE</text>
+    <text x="1022" y="112" fill="#44566F" font-family="monospace" font-size="13" font-weight="700">RETRIEVAL</text>
+
+    <g transform="translate(68 146)">
+      <rect width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="11" height="70" fill="#165DFF"/>
+      <text x="32" y="43" fill="#0B1B35" font-size="19" font-weight="800">Claude Code</text>
+
+      <rect y="92" width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect y="92" width="11" height="70" fill="#165DFF"/>
+      <text x="32" y="135" fill="#0B1B35" font-size="19" font-weight="800">Cursor</text>
+
+      <rect y="184" width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect y="184" width="11" height="70" fill="#165DFF"/>
+      <text x="32" y="227" fill="#0B1B35" font-size="19" font-weight="800">Codex</text>
+
+      <rect y="276" width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect y="276" width="11" height="70" fill="#FFB703"/>
+      <text x="32" y="319" fill="#0B1B35" font-size="19" font-weight="800">Any MCP client</text>
+    </g>
+
+    <path d="M350 181H432M350 273H432M350 365H432M350 457H432" stroke="#0B41BD" stroke-width="3"/>
+    <path d="M432 181V457" stroke="#0B41BD" stroke-width="3"/>
+    <path d="M432 319H483" stroke="#0B41BD" stroke-width="3"/>
+    <path d="M475 309L487 319L475 329" fill="none" stroke="#0B41BD" stroke-width="3"/>
+    <text x="374" y="300" fill="#0B41BD" font-family="monospace" font-size="12" font-weight="700" transform="rotate(-90 374 300)">MCP CALLS</text>
+
+    <g transform="translate(500 146)">
+      <rect width="404" height="346" fill="#165DFF"/>
+      <rect x="22" y="22" width="360" height="72" fill="#0B41BD"/>
+      <text x="44" y="54" fill="#FFFFFF" font-size="21" font-weight="900">MAG</text>
+      <text x="44" y="78" fill="#DCE8FF" font-family="monospace" font-size="12">store · search · update · maintain</text>
+
+      <rect x="22" y="116" width="360" height="132" fill="#F8FAFC"/>
+      <text x="42" y="149" fill="#44566F" font-family="monospace" font-size="12" font-weight="700">SOURCE RECORDS</text>
+      <text x="42" y="182" fill="#0B1B35" font-size="17" font-weight="800">Content + metadata</text>
+      <text x="42" y="210" fill="#44566F" font-size="14">Projects, sessions, tags, time, importance</text>
+      <text x="42" y="235" fill="#44566F" font-size="14">Relationships, versions, feedback, TTL</text>
+
+      <rect x="22" y="270" width="360" height="54" fill="#0B1B35"/>
+      <text x="42" y="304" fill="#FFFFFF" font-family="monospace" font-size="14" font-weight="700">~/.mag/memory.db</text>
+      <rect x="294" y="282" width="66" height="28" fill="none" stroke="#FFB703" stroke-width="2"/>
+      <text x="306" y="301" fill="#FFB703" font-family="monospace" font-size="11" font-weight="700">LOCAL</text>
+    </g>
+
+    <path d="M904 319H976" stroke="#0B41BD" stroke-width="3"/>
+    <path d="M968 309L980 319L968 329" fill="none" stroke="#0B41BD" stroke-width="3"/>
+
+    <g transform="translate(1000 146)">
+      <rect width="332" height="346" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="332" height="56" fill="#0B1B35"/>
+      <text x="22" y="35" fill="#FFFFFF" font-size="18" font-weight="800">Find the right context</text>
+
+      <g transform="translate(22 82)">
+        <circle cx="15" cy="15" r="15" fill="#165DFF"/>
+        <text x="10" y="20" fill="#FFFFFF" font-family="monospace" font-size="13" font-weight="800">1</text>
+        <text x="48" y="13" fill="#0B1B35" font-size="17" font-weight="800">Full-text</text>
+        <text x="48" y="35" fill="#44566F" font-size="13">Exact terms and BM25 rank</text>
+      </g>
+      <line x1="37" y1="132" x2="37" y2="162" stroke="#BAC8D8" stroke-width="2"/>
+      <g transform="translate(22 164)">
+        <circle cx="15" cy="15" r="15" fill="#165DFF"/>
+        <text x="10" y="20" fill="#FFFFFF" font-family="monospace" font-size="13" font-weight="800">2</text>
+        <text x="48" y="13" fill="#0B1B35" font-size="17" font-weight="800">Semantic</text>
+        <text x="48" y="35" fill="#44566F" font-size="13">Local ONNX embeddings</text>
+      </g>
+      <line x1="37" y1="214" x2="37" y2="244" stroke="#BAC8D8" stroke-width="2"/>
+      <g transform="translate(22 246)">
+        <circle cx="15" cy="15" r="15" fill="#165DFF"/>
+        <text x="10" y="20" fill="#FFFFFF" font-family="monospace" font-size="13" font-weight="800">3</text>
+        <text x="48" y="13" fill="#0B1B35" font-size="17" font-weight="800">Relationships</text>
+        <text x="48" y="35" fill="#44566F" font-size="13">Versions and linked context</text>
+      </g>
+
+      <rect x="22" y="303" width="288" height="25" fill="#FFF0B8"/>
+      <text x="37" y="321" fill="#8B3E16" font-family="monospace" font-size="11" font-weight="700">WEAK MATCH → RETURN NOTHING</text>
+    </g>
+
+    <text x="500" y="554" fill="#44566F" font-size="15">Raw memories remain inspectable. Derived records keep their source provenance.</text>
+  </g>
+</svg>

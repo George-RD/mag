@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="390" viewBox="0 0 1400 390" role="img" aria-labelledby="title desc">
+  <title id="title">MAG and AutoMem LoCoMo retrieval comparison</title>
+  <desc id="desc">MAG scored 90.1 percent and AutoMem reported 90.5 percent in a retrieval-only word-overlap comparison. The difference is 0.4 percentage points.</desc>
+  <rect width="1400" height="390" fill="#F8FAFC"/>
+  <rect x="0" y="0" width="14" height="390" fill="#165DFF"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="52" y="66" fill="#0B1B35" font-size="29" font-weight="900">LoCoMo retrieval-only comparison</text>
+    <text x="52" y="96" fill="#44566F" font-family="monospace" font-size="13">WORD-OVERLAP RECALL · 1,986 QUESTIONS · MARCH 2026</text>
+
+    <text x="52" y="166" fill="#0B1B35" font-size="20" font-weight="800">MAG</text>
+    <rect x="180" y="136" width="1040" height="42" fill="#DCE8FF"/>
+    <rect x="180" y="136" width="937" height="42" fill="#165DFF"/>
+    <text x="1138" y="166" fill="#0B1B35" font-size="27" font-weight="900">90.1%</text>
+
+    <text x="52" y="240" fill="#0B1B35" font-size="20" font-weight="800">AutoMem</text>
+    <rect x="180" y="210" width="1040" height="42" fill="#DCE8FF"/>
+    <rect x="180" y="210" width="941" height="42" fill="#0B41BD"/>
+    <text x="1138" y="240" fill="#0B1B35" font-size="27" font-weight="900">90.5%</text>
+
+    <line x1="52" y1="296" x2="1348" y2="296" stroke="#BAC8D8"/>
+    <rect x="52" y="320" width="260" height="34" fill="#FFF0B8"/>
+    <text x="68" y="342" fill="#8B3E16" font-family="monospace" font-size="12" font-weight="700">0.4 POINTS APART</text>
+    <text x="342" y="342" fill="#44566F" font-size="15">Evidence for retrieval quality, not a blanket claim about end-to-end answers.</text>
+  </g>
+</svg>
