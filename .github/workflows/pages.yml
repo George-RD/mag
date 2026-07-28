@@ -80,8 +80,13 @@ jobs:
           for svg in (site / "assets").glob("*.svg"):
               ET.parse(svg)
 
-          if (site / "assets" / "og-card.png").stat().st_size < 10_000:
-              raise SystemExit("Open Graph image is unexpectedly small")
+          png = (site / "assets" / "og-card.png").read_bytes()
+          if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 2_000:
+              raise SystemExit("Open Graph image is not a valid PNG payload")
+          import struct
+          width, height = struct.unpack(">II", png[16:24])
+          if (width, height) != (1200, 630):
+              raise SystemExit(f"Open Graph image must be 1200x630, got {width}x{height}")
 
           print("Static site validation passed")
           PY
