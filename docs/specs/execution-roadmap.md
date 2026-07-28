@@ -3,6 +3,10 @@
 
 This document is the single source of truth for planned structural improvements to MAG. It covers four phases spanning v0.1.9 through v0.2.2, 15 pull requests, their dependencies, quality gates, risk mitigations, and parked items.
 
+> **Current priority overlay:** [`local-first-roadmap.md`](local-first-roadmap.md)
+> governs model-runtime, retrieval-quality, and memory-intelligence sequencing.
+> Where the two documents conflict, the local-first roadmap takes precedence.
+
 ---
 
 ## Guiding Principles

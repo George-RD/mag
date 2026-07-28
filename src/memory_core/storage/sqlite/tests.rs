@@ -26,6 +26,32 @@ impl Embedder for KeywordEmbedder {
     }
 }
 
+#[derive(Debug, Clone)]
+struct TopicEmbedder;
+
+impl Embedder for TopicEmbedder {
+    fn dimension(&self) -> usize {
+        4
+    }
+
+    fn embed(&self, text: &str) -> Result<Vec<f32>> {
+        let text = text.to_ascii_lowercase();
+        if ["rust", "tokio", "sqlite"]
+            .iter()
+            .any(|topic| text.contains(topic))
+        {
+            Ok(vec![1.0, 0.0, 0.0, 0.0])
+        } else if ["french", "pastry", "croissant"]
+            .iter()
+            .any(|topic| text.contains(topic))
+        {
+            Ok(vec![0.0, 1.0, 0.0, 0.0])
+        } else {
+            Ok(vec![0.0, 0.0, 1.0, 0.0])
+        }
+    }
+}
+
 #[test]
 fn test_new_with_path_creates_parent_and_db() {
     let base = std::env::temp_dir().join(format!("mag-sqlite-test-{}", Uuid::new_v4()));
@@ -5159,9 +5185,11 @@ async fn test_advanced_search_abstention_returns_empty() {
 #[tokio::test]
 async fn test_abstention_gate_fires_for_unrelated_query() {
     // Store memories about Rust programming, then query about something
-    // completely unrelated (French pastry). The abstention gate should
-    // fire because max text_overlap will be well below the 0.30 threshold.
-    let storage = SqliteStorage::new_in_memory().unwrap();
+    // completely unrelated (French pastry). Use controlled vectors here:
+    // PlaceholderEmbedder is a hash fixture, not a semantic model, and its
+    // all-positive vectors can create accidental high-cosine rescue matches.
+    let storage =
+        SqliteStorage::new_in_memory_with_embedder(std::sync::Arc::new(TopicEmbedder)).unwrap();
     for (id, content) in [
         (
             "abs-gate1",
