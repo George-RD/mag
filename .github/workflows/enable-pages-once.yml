@@ -1,0 +1,93 @@
+name: Enable GitHub Pages once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/enable-pages-once.yml"
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable Pages with GitHub Actions as the source
+        id: enable
+        env:
+          ADMIN_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set +e
+          if [ -z "$ADMIN_TOKEN" ]; then
+            echo "result=HOMEBREW_TAP_TOKEN is not configured" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          response=$(curl -sS -w '\n%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -X POST "https://api.github.com/repos/$REPOSITORY/pages" \
+            -d '{"build_type":"workflow"}')
+          code=$(printf '%s' "$response" | tail -n1)
+          body=$(printf '%s' "$response" | sed '$d')
+
+          if [ "$code" = "201" ]; then
+            result="Pages enabled with GitHub Actions as the source"
+          elif [ "$code" = "409" ] || [ "$code" = "422" ]; then
+            response=$(curl -sS -w '\n%{http_code}' \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -X PUT "https://api.github.com/repos/$REPOSITORY/pages" \
+              -d '{"build_type":"workflow"}')
+            code=$(printf '%s' "$response" | tail -n1)
+            body=$(printf '%s' "$response" | sed '$d')
+            if [ "$code" = "204" ]; then
+              result="Pages already existed; source set to GitHub Actions"
+            else
+              message=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("message", "unknown error"))' 2>/dev/null)
+              result="Pages update failed (HTTP $code): ${message:-unknown error}"
+            fi
+          else
+            message=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("message", "unknown error"))' 2>/dev/null)
+            result="Pages enablement failed (HTTP $code): ${message:-unknown error}"
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger the production Pages workflow
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set +e
+          output=$(gh workflow run pages.yml --ref main --repo "$GITHUB_REPOSITORY" 2>&1)
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "result=Production Pages workflow dispatched" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=Workflow dispatch failed: $output" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report result on PR 368
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENABLE_RESULT: ${{ steps.enable.outputs.result }}
+          DISPATCH_RESULT: ${{ steps.dispatch.outputs.result }}
+        shell: bash
+        run: |
+          body=$(cat <<EOF
+          GitHub Pages setup result:
+
+          - $ENABLE_RESULT
+          - $DISPATCH_RESULT
+          - Expected URL: https://george-rd.github.io/mag/
+          EOF
+          )
+          gh api "repos/$GITHUB_REPOSITORY/issues/368/comments" -f body="$body"
