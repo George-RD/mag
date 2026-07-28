@@ -1,62 +1,48 @@
-# MEMORY CORE MAP
+# `src/memory_core/` scoped agent guide
 
-## OVERVIEW
+Use the root `AGENTS.md` first. This file narrows work inside the memory system;
+Cairn remains the live architecture and decision index.
 
-`memory_core` defines the domain contracts and orchestration for ingest/process/store/retrieve.
-
-## STRUCTURE
-
-```text
-src/memory_core/
-├── mod.rs               # Traits + Pipeline orchestration
-├── embedder.rs          # Embedder trait + PlaceholderEmbedder + OnnxEmbedder
-├── scoring.rs           # Search scoring: type weights, priority factors, time decay, word overlap, Jaccard
-└── storage/
-    ├── mod.rs           # Export surface
-    └── sqlite.rs        # SQLite-backed storage + schema + tests
-```
-
-## WHERE TO LOOK
-
-| Task | File | Notes |
-|---|---|---|
-| Trait contract changes | `src/memory_core/mod.rs` | Update trait + Pipeline usage + tests together |
-| SQLite schema changes | `src/memory_core/storage/sqlite.rs` | Keep migration-safe additive table updates |
-| Retrieval semantics | `src/memory_core/storage/sqlite.rs` | `retrieve` updates `last_accessed_at` in one transaction |
-| Relationship behavior | `src/memory_core/storage/sqlite.rs` | FK enforcement + cascade behavior are required |
-| Event type parsing/defaults | `src/memory_core/mod.rs` | `EventType`, `is_valid_event_type()`, and `MemoryInput::apply_event_type_defaults()` |
-| Struct-based signatures | `src/memory_core/mod.rs` | `MemoryInput`, `MemoryUpdate`, `SearchOptions` replace positional params |
-| Embedding generation | `src/memory_core/embedder.rs` | `Embedder` trait with `OnnxEmbedder` (384-dim, feature-gated) and `PlaceholderEmbedder` (32-dim SHA256 fallback) |
-| Search scoring | `src/memory_core/scoring.rs` | Type weights, priority factors, time decay, word overlap, Jaccard similarity |
-| Advanced search | `src/memory_core/storage/sqlite.rs` | Multi-phase scoring: vector + FTS5 + type-weighting + time-decay + word-overlap + importance |
-| Graph traversal | `src/memory_core/storage/sqlite.rs` | BFS with max_hops (1-5), min_weight, edge type filtering |
-| Cross-session profile/checkpoint/reminder/lesson | `src/memory_core/mod.rs`, `src/memory_core/storage/sqlite.rs` | Traits: ProfileManager/CheckpointManager/ReminderManager/LessonQuerier; `user_profile` table |
-| TTL + dedup lifecycle | `src/memory_core/mod.rs`, `src/memory_core/storage/sqlite.rs` | Event-type TTL defaults, canonical hash dedup, Jaccard dedup |
-| Auto-relate + feedback + sweep | `src/memory_core/storage/sqlite.rs` | Best-effort related edges, feedback scoring flags, TTL expiration cleanup |
-| Maintenance + welcome + stats | `src/memory_core/mod.rs`, `src/memory_core/storage/sqlite.rs` | Traits: MaintenanceManager (health/consolidate/compact/clear_session), WelcomeProvider (session briefing), StatsProvider (type/session/digest/access_rate stats) |
-
-## CONVENTIONS
-
-- Keep Pipeline methods thin orchestration; heavy logic belongs in concrete implementations.
-- Preserve id defaulting (`Uuid::new_v4`) in pipeline paths when caller omits id.
-- Schema initialization must enable `PRAGMA foreign_keys = ON` before DDL.
-- SQLite tests should prefer `new_in_memory()` and explicit edge-case assertions.
-
-## ANTI-PATTERNS
-
-- Do not drop/rename existing columns in this phase; favor additive schema evolution.
-- Do not bypass transactional writes for coupled read/update flows.
-- Do not regress hermetic tests by coupling to user HOME paths.
-
-## COMMANDS
+## Select the smallest node
 
 ```bash
-# focused checks for this area
-cargo test memory_core:: --all-features
-cargo test sqlite:: --all-features
-
-# full parity gate
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
+cairn context --scope mag.runtime.memory
+cairn bundle mag.runtime.memory.<domain|models|retrieval>
+cairn bundle mag.runtime.memory.storage.<api|sqlite|memory>
+cairn rationale mag.runtime.memory
 ```
+
+Relevant nodes:
+
+- `mag.runtime.memory.domain` — types, traits, and legacy `Pipeline`;
+- `mag.runtime.memory.models` — embeddings, optional generation, model adapters;
+- `mag.runtime.memory.retrieval` — candidate retrieval, reranking, scoring, abstention;
+- `mag.runtime.memory.storage.sqlite` — production storage and query pipeline;
+- `mag.runtime.memory.storage.memory` — reference backend and parity target;
+- `mag.runtime.substrate` — candidate composition path, outside this directory.
+
+## Current constraint
+
+The production composition root is under active review. Do not add equivalent
+behaviour to both the legacy `Pipeline` path and `substrate`. Before changing
+or deleting either, use:
+
+```bash
+cairn brief todo.audit-current-architecture-and-dead-code
+```
+
+and trace current callers, feature flags, tests, benchmarks, and fallbacks.
+
+## Memory-system invariants
+
+- Preserve raw memories; generated facts, relations, clusters, and summaries are
+  derived records with source provenance.
+- Keep schema changes additive unless an accepted migration decision permits more.
+- Preserve parity between production SQLite and the reference backend where the
+  shared contract requires it.
+- Retrieval, scoring, reranking, or query-pipeline changes require
+  `./scripts/bench.sh --gate`.
+- Use hermetic storage and model paths in tests; never touch the user's MAG data.
+- Run synchronous SQLite work from async paths through `spawn_blocking`.
+
+After focused tests, run `cairn scan` and `cairn hook all`.
