@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">MAG, one local memory for your coding agents</title>
+  <desc id="desc">A context relay links Claude Code through a local MAG memory store to Cursor and Codex.</desc>
+  <rect width="1200" height="630" fill="#f5f7f2"/>
+  <rect x="56" y="50" width="1088" height="530" fill="#0d1b2a"/>
+  <rect x="56" y="50" width="24" height="530" fill="#2457ff"/>
+  <rect x="80" y="50" width="13" height="530" fill="#ff5a36"/>
+  <text x="142" y="148" fill="#ccff3d" font-family="Arial, sans-serif" font-weight="700" font-size="28" letter-spacing="3">MAG · LOCAL CONTEXT RELAY</text>
+  <text x="142" y="250" fill="#ffffff" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="72">YOUR TOOLS CHANGE.</text>
+  <text x="142" y="330" fill="#8fa9ff" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="72">YOUR CONTEXT SHOULDN'T.</text>
+  <line x1="160" y1="428" x2="1018" y2="428" stroke="#ff5a36" stroke-width="4"/>
+  <circle cx="160" cy="428" r="11" fill="#ccff3d"/>
+  <circle cx="590" cy="428" r="11" fill="#ccff3d"/>
+  <circle cx="1018" cy="428" r="11" fill="#ccff3d"/>
+  <rect x="378" y="391" width="424" height="74" fill="#2457ff" stroke="#ccff3d" stroke-width="3"/>
+  <text x="590" y="439" text-anchor="middle" fill="#ffffff" font-family="Arial Black, Arial, sans-serif" font-size="32">ONE LOCAL MEMORY</text>
+  <text x="142" y="526" fill="#cad4dc" font-family="Arial, sans-serif" font-size="25">One Rust binary · One local SQLite store · No account</text>
+</svg>

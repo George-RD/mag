@@ -1,0 +1,81 @@
+    <section class="problem-section">
+      <div class="shell problem-grid">
+        <div class="section-heading">
+          <h2>Most agent context stops at the tool boundary.</h2>
+        </div>
+        <div class="problem-copy">
+          <p>Project files help. Chat history helps. Built-in memory helps. But each source lives in its own place. Switch tools and you often rebuild the same context.</p>
+          <p>MAG carries the small facts that rarely belong in code: why a choice was made, what fixed a hard bug, how you like work to be done, and where the last session stopped.</p>
+        </div>
+      </div>
+
+      <div class="shell context-leak" aria-label="Example of context lost across three coding tools">
+        <div class="leak-session">
+          <span class="leak-time">MON</span>
+          <strong>Claude Code</strong>
+          <p>Decision made</p>
+        </div>
+        <div class="leak-loss"><i aria-hidden="true"></i><span>context lost</span></div>
+        <div class="leak-session faded">
+          <span class="leak-time">WED</span>
+          <strong>Cursor</strong>
+          <p>Decision explained again</p>
+        </div>
+        <div class="leak-loss"><i aria-hidden="true"></i><span>context lost</span></div>
+        <div class="leak-session faded-more">
+          <span class="leak-time">FRI</span>
+          <strong>Codex</strong>
+          <p>Old option proposed again</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mechanism-section" id="mechanism">
+      <div class="shell">
+        <div class="section-heading wide-heading">
+          <h2>One local layer between your tools.</h2>
+          <p>Claude Code can use MAG&rsquo;s hooks. Other clients connect through MCP. The memory stays in the same local store.</p>
+        </div>
+
+        <div class="pipeline" aria-label="MAG capture and recall pipeline">
+          <article class="pipeline-step">
+            <span class="step-number">A</span>
+            <h3>Capture what matters</h3>
+            <p>Choices, root causes, work rules and session handoffs.</p>
+          </article>
+          <div class="pipeline-connector" aria-hidden="true"><i></i></div>
+          <article class="pipeline-step core-step">
+            <span class="step-number">B</span>
+            <h3>Store with links</h3>
+            <p>MAG drops copies, tracks newer facts and links related memories.</p>
+          </article>
+          <div class="pipeline-connector" aria-hidden="true"><i></i></div>
+          <article class="pipeline-step">
+            <span class="step-number">C</span>
+            <h3>Recall by meaning</h3>
+            <p>Text, meaning and graph signals work together. Weak matches can be dropped.</p>
+          </article>
+          <div class="pipeline-connector" aria-hidden="true"><i></i></div>
+          <article class="pipeline-step">
+            <span class="step-number">D</span>
+            <h3>See why it matched</h3>
+            <p>Explain mode shows why a memory matched and what shaped its score.</p>
+          </article>
+        </div>
+
+        <div class="differentiator-grid">
+          <div class="diff-copy">
+            <h3>Not another chat archive.</h3>
+            <p>A chat archive waits for you to find the old thread. MAG finds a small set of useful memories for the task in front of the agent.</p>
+          </div>
+          <div class="query-demo" aria-label="Example of MAG finding a decision from a differently worded query">
+            <div class="query-line"><span>QUERY</span><code>How should failed requests retry?</code></div>
+            <div class="match-line"><span>MATCH</span><strong>Use exponential backoff with jitter.</strong></div>
+            <div class="signal-line">
+              <span>meaning 0.91</span><span>keyword 0.68</span><span>decision 0.84</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+

@@ -1,0 +1,78 @@
+    <section class="tradeoff-section" id="tradeoffs">
+      <div class="shell">
+        <div class="section-heading wide-heading inverse-heading">
+          <h2>What you gain. What you accept.</h2>
+          <p>Local-first removes one trade-off and adds another. The useful choice is the honest one.</p>
+        </div>
+
+        <div class="tradeoff-grid">
+          <div class="gain-side">
+            <h3>MAG is a good fit when&hellip;</h3>
+            <ul class="fit-list positive-list">
+              <li>You switch between coding agents and want context to follow.</li>
+              <li>You work with client or private data that should stay on the machine.</li>
+              <li>You want a memory store you can inspect, export and keep.</li>
+              <li>You prefer an open local tool over another hosted account.</li>
+            </ul>
+          </div>
+          <div class="accept-side">
+            <h3>Choose something else when&hellip;</h3>
+            <ul class="fit-list caution-list">
+              <li>You need team-wide cloud sync now.</li>
+              <li>You need the app itself to encrypt its data.</li>
+              <li>You want a browser service with no local model download or setup.</li>
+              <li>You expect memory to decide what matters with no guidance or cleanup.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="constraint-strip">
+          <p><strong>Current limits:</strong> MAG is a 0.1.x project. APIs and setup may still move. The local search model takes about 32 MB on disk and roughly 180 MB peak memory when loaded. Windows builds exist, but Windows has had less testing than macOS and Linux. The SQLite database is plaintext.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="roadmap-section" id="roadmap">
+      <div class="shell">
+        <div class="roadmap-heading">
+          <h2>Built in public. No invented dates.</h2>
+          <p>These are working directions, not promises. Each item links to its issue.</p>
+        </div>
+
+        <div class="roadmap-track">
+          <article class="roadmap-phase active-phase">
+            <div class="phase-status"><i aria-hidden="true"></i><span>NOW</span></div>
+            <h3>Make capture and recall reliable</h3>
+            <p>Fix hooks, session IDs, recall after compaction, subagent capture and missing-model warnings.</p>
+            <div class="issue-links">
+              <a href="https://github.com/George-RD/mag/issues/247">#247</a>
+              <a href="https://github.com/George-RD/mag/issues/257">#257</a>
+              <a href="https://github.com/George-RD/mag/issues/258">#258</a>
+              <a href="https://github.com/George-RD/mag/issues/243">#243</a>
+            </div>
+          </article>
+          <article class="roadmap-phase">
+            <div class="phase-status"><span>NEXT</span></div>
+            <h3>Make new tool support easier</h3>
+            <p>Define each connector once, adapt it per tool, sync native memories and test automatic recall.</p>
+            <div class="issue-links">
+              <a href="https://github.com/George-RD/mag/issues/234">#234</a>
+              <a href="https://github.com/George-RD/mag/issues/236">#236</a>
+              <a href="https://github.com/George-RD/mag/issues/266">#266</a>
+              <a href="https://github.com/George-RD/mag/issues/341">#341</a>
+            </div>
+          </article>
+          <article class="roadmap-phase">
+            <div class="phase-status"><span>EXPLORE</span></div>
+            <h3>Carry more than chat memory</h3>
+            <p>Add local code search, codebase knowledge and portable skills without turning MAG into a cloud service.</p>
+            <div class="issue-links">
+              <a href="https://github.com/George-RD/mag/issues/210">#210</a>
+              <a href="https://github.com/George-RD/mag/issues/212">#212</a>
+              <a href="https://github.com/George-RD/mag/issues/213">#213</a>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
+  <title id="title">MAG, one local memory for coding agents</title>
+  <desc id="desc">A signal path carries context from Claude Code through a local MAG SQLite store to Cursor and Codex.</desc>
+  <rect width="1200" height="430" fill="#0d1b2a"/>
+  <rect x="0" y="0" width="18" height="430" fill="#2457ff"/>
+  <rect x="18" y="0" width="10" height="430" fill="#ff5a36"/>
+  <g transform="translate(72 64)">
+    <rect x="0" y="16" width="10" height="22" fill="#2457ff"/>
+    <rect x="15" y="0" width="10" height="38" fill="#ff5a36"/>
+    <rect x="30" y="10" width="10" height="28" fill="#2457ff"/>
+    <text x="58" y="35" fill="#ffffff" font-family="Arial Black, Arial, sans-serif" font-size="37" font-weight="900">MAG</text>
+    <text x="170" y="31" fill="#ccff3d" font-family="Courier New, monospace" font-size="16" letter-spacing="2">LOCAL CONTEXT RELAY</text>
+  </g>
+  <text x="72" y="180" fill="#ffffff" font-family="Arial Black, Arial, sans-serif" font-size="61" font-weight="900" letter-spacing="-2">YOUR TOOLS CHANGE.</text>
+  <text x="72" y="245" fill="#90aaff" font-family="Arial Black, Arial, sans-serif" font-size="61" font-weight="900" letter-spacing="-2">YOUR CONTEXT SHOULDN'T.</text>
+  <text x="74" y="293" fill="#c6d1d9" font-family="Arial, sans-serif" font-size="24">One local memory for Claude Code, Cursor, Codex and other MCP clients.</text>
+  <g transform="translate(72 342)">
+    <circle cx="8" cy="8" r="8" fill="#ccff3d"/>
+    <line x1="16" y1="8" x2="330" y2="8" stroke="#ff5a36" stroke-width="3"/>
+    <rect x="330" y="-18" width="355" height="52" fill="#2457ff" stroke="#ccff3d" stroke-width="2"/>
+    <text x="507" y="15" text-anchor="middle" fill="#ffffff" font-family="Arial Black, Arial, sans-serif" font-size="23">~/.mag/memory.db</text>
+    <line x1="685" y1="8" x2="999" y2="8" stroke="#ff5a36" stroke-width="3"/>
+    <circle cx="1007" cy="8" r="8" fill="#ccff3d"/>
+    <text x="0" y="50" fill="#aebdca" font-family="Courier New, monospace" font-size="14">CLAUDE CODE</text>
+    <text x="842" y="50" fill="#aebdca" font-family="Courier New, monospace" font-size="14">CURSOR · CODEX · MCP</text>
+  </g>
+</svg>

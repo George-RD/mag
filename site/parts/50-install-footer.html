@@ -1,0 +1,68 @@
+    <section class="install-section" id="install">
+      <div class="shell install-grid">
+        <div class="install-copy">
+          <h2>Give the next session a head start.</h2>
+          <p>Install MAG, let it set up known tools, then store one real choice and search for it in different words.</p>
+        </div>
+        <div class="install-terminal">
+          <div class="terminal-head"><span>TERMINAL</span><span>macOS · Linux</span></div>
+          <pre><code><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
+<span class="prompt">$</span> mag ingest "Use exponential backoff with jitter" \
+    --tags decision,project:api-gateway
+<span class="prompt">$</span> mag advanced-search "How should failed requests retry?" --explain</code></pre>
+          <button class="copy-button terminal-copy" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh">
+            <span class="copy-label">Copy install command</span>
+          </button>
+        </div>
+      </div>
+      <div class="shell package-row" aria-label="Other install methods">
+        <span>Also available:</span>
+        <code>brew install George-RD/mag/mag</code>
+        <code>npm install -g mag-memory</code>
+        <code>cargo install mag-memory</code>
+        <code>uv tool install mag-memory</code>
+      </div>
+    </section>
+
+    <section class="faq-section">
+      <div class="shell faq-grid">
+        <h2>Questions worth asking first.</h2>
+        <div class="faq-list">
+          <details>
+            <summary>Why not keep everything in project docs?</summary>
+            <p>Keep source-of-truth facts in project docs. MAG is better for context that changes often, spans projects or should follow you between tools. The two approaches work together.</p>
+          </details>
+          <details>
+            <summary>Does any memory data leave my machine?</summary>
+            <p>Not in the default setup. Search runs locally and needs no cloud API. First use downloads the model. API models only run when you set them up.</p>
+          </details>
+          <details>
+            <summary>Is the database encrypted?</summary>
+            <p>No. MAG stores memories in a plaintext SQLite file. Use full-disk encryption and do not store secrets.</p>
+          </details>
+          <details>
+            <summary>Will it remember the right things by itself?</summary>
+            <p>MAG can save and recall context, but memory quality still depends on what is stored. Clear rules for decisions, bug fixes and handoffs produce better results than saving everything.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-grid">
+      <div>
+        <a class="brand footer-brand" href="#top"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>MAG</span></a>
+        <p>Local memory for coding agents.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/George-RD/mag">GitHub</a>
+        <a href="https://github.com/George-RD/mag/tree/main/docs">Docs</a>
+        <a href="https://github.com/George-RD/mag/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/George-RD/mag/issues">Issues</a>
+      </div>
+      <p class="footer-meta">MIT licensed. Built in the open.</p>
+    </div>
+  </footer>
+</body>
+</html>

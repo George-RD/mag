@@ -1,0 +1,59 @@
+    <section class="comparison-section">
+      <div class="shell">
+        <div class="section-heading wide-heading">
+          <h2>Use the memory model that fits the work.</h2>
+          <p>MAG is strongest when context must follow you, stay local and work across tools.</p>
+        </div>
+
+        <div class="comparison-wrap" role="region" aria-label="Comparison of built-in agent memory, MAG and a typical cloud memory service" tabindex="0">
+          <table>
+            <thead>
+              <tr><th scope="col">Need</th><th scope="col">Built-in tool memory</th><th scope="col" class="mag-column">MAG</th><th scope="col">Typical cloud layer</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Works across tools</th><td>Usually no</td><td class="mag-column"><strong>Yes, through one store</strong></td><td>Often</td></tr>
+              <tr><th scope="row">Runs locally by default</th><td>Vendor controlled</td><td class="mag-column"><strong>Yes</strong></td><td>Usually no</td></tr>
+              <tr><th scope="row">Data you can inspect</th><td>Limited</td><td class="mag-column"><strong>One SQLite file</strong></td><td>Service dependent</td></tr>
+              <tr><th scope="row">Account required</th><td>Vendor account</td><td class="mag-column"><strong>No</strong></td><td>Yes</td></tr>
+              <tr><th scope="row">Team sync today</th><td>Vendor dependent</td><td class="mag-column"><strong>Not built in</strong></td><td>Often</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="benchmark-section" id="evidence">
+      <div class="shell benchmark-grid">
+        <div class="benchmark-copy">
+          <h2>Measured, not magic.</h2>
+          <p>MAG scored <strong>90.1% word-overlap recall</strong> on the full LoCoMo run: 1,986 questions across 10 long conversations.</p>
+          <p>AutoMem reports 90.5% in its own similar run. The scores are close. That does not prove one tool always wins. It shows that local recall can be strong.</p>
+          <div class="benchmark-actions">
+            <a class="button button-dark" href="https://github.com/George-RD/mag/blob/main/docs/benchmarks/methodology.md">Read the method</a>
+            <a class="text-link" href="https://github.com/George-RD/mag/tree/main/docs/benchmarks">See all benchmark notes <span aria-hidden="true">↗</span></a>
+          </div>
+          <p class="fine-print">This test measures recall. It does not cover every agent task, model or real workload.</p>
+        </div>
+
+        <div class="benchmark-board" aria-label="LoCoMo recall comparison between MAG and AutoMem">
+          <div class="board-head"><span>LoCoMo word-overlap recall</span><span>Higher is better</span></div>
+          <div class="bar-group">
+            <div class="bar-label"><span>MAG</span><strong>90.1%</strong></div>
+            <div class="bar-track"><i class="bar mag-bar" style="--bar:90.1%"></i></div>
+          </div>
+          <div class="bar-group">
+            <div class="bar-label"><span>AutoMem</span><strong>90.5%</strong></div>
+            <div class="bar-track"><i class="bar reference-bar" style="--bar:90.5%"></i></div>
+          </div>
+          <div class="category-lines">
+            <div><span>Single-hop</span><strong>86.9</strong></div>
+            <div><span>Temporal</span><strong>85.0</strong></div>
+            <div><span>Multi-hop</span><strong>56.2</strong></div>
+            <div><span>Open-domain</span><strong>95.7</strong></div>
+            <div><span>Adversarial</span><strong>92.6</strong></div>
+          </div>
+          <p>MAG score by question type</p>
+        </div>
+      </div>
+    </section>
+

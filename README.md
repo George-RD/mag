@@ -1,149 +1,116 @@
-<div align="center">
-  <h1>MAG</h1>
-  <p><em>Open any tool. Your context is already there.</em></p>
-  <p>
-    <a href="https://github.com/George-RD/mag/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/George-RD/mag/ci.yml?branch=main" alt="CI"></a>
-    <a href="https://crates.io/crates/mag-memory"><img src="https://img.shields.io/crates/v/mag-memory" alt="crates.io"></a>
-    <a href="https://www.npmjs.com/package/mag-memory"><img src="https://img.shields.io/npm/v/mag-memory" alt="npm"></a>
-    <a href="https://github.com/George-RD/mag/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
-    <a href="https://github.com/George-RD/mag"><img src="https://img.shields.io/github/stars/George-RD/mag" alt="GitHub Stars"></a>
-  </p>
-  <p>
-    <a href="https://github.com/George-RD/mag/tree/main/docs">Documentation</a> |
-    <a href="https://github.com/George-RD/mag/issues">Issues</a> |
-    <a href="https://github.com/George-RD/mag/blob/main/docs/benchmarks/methodology.md">Benchmarks</a> |
-    <a href="https://github.com/George-RD/mag/blob/main/SECURITY.md">Security</a>
-  </p>
-</div>
+<picture>
+  <img src="docs/readme-hero.svg" width="100%" alt="MAG. Your tools change. Your context should not. One local memory connects Claude Code, Cursor, Codex and other MCP clients." />
+</picture>
 
----
+<p align="center">
+  <a href="https://george-rd.github.io/mag/"><strong>See the landing page</strong></a>
+  ·
+  <a href="#quick-start"><strong>Install</strong></a>
+  ·
+  <a href="#how-mag-works"><strong>How it works</strong></a>
+  ·
+  <a href="#trade-offs"><strong>Trade-offs</strong></a>
+  ·
+  <a href="#roadmap"><strong>Roadmap</strong></a>
+</p>
 
-Every new session, your AI starts from zero. The decisions you made yesterday, the patterns you taught it, the bugs you already solved together - gone. You re-explain. It re-discovers. You lose hours every week to an assistant with no long-term memory.
+<p align="center">
+  <a href="https://github.com/George-RD/mag/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/George-RD/mag/ci.yml?branch=main" alt="CI status"></a>
+  <a href="https://crates.io/crates/mag-memory"><img src="https://img.shields.io/crates/v/mag-memory" alt="crates.io version"></a>
+  <a href="https://www.npmjs.com/package/mag-memory"><img src="https://img.shields.io/npm/v/mag-memory" alt="npm version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2457ff" alt="MIT licence"></a>
+  <a href="https://github.com/George-RD/mag"><img src="https://img.shields.io/github/stars/George-RD/mag" alt="GitHub stars"></a>
+</p>
 
-MAG fixes this. It gives your AI tools persistent memory that survives across sessions, across projects, and across tools. Open Claude on Monday. It already knows what you decided on Friday.
+Built-in memory helps inside one tool. The harder problem starts when you switch tools, start fresh, or come back next week.
 
----
+**MAG is a local memory layer for coding agents.** It stores useful choices, bug fixes, work rules and handoffs in one SQLite file, then returns the right pieces through MCP. Claude Code can also use native hooks to save and recall context.
 
-## Quick Start
+One Rust binary. One SQLite memory store. No account.
+
+Save a decision in Claude Code. Recall it later in Cursor or Codex.
+
+## Quick start
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
 ```
 
-That's it. The installer auto-detects your AI tools and wires MAG in automatically — no manual JSON editing needed. Open your coding tool and your assistant already has persistent memory.
+The installer gets the right binary, finds known tools and runs `mag setup`.
 
-To store or search memories directly from the CLI:
-
-```bash
-mag ingest "The retry logic should use exponential backoff with jitter"
-mag search "how should retries work?"
-# → "The retry logic should use exponential backoff with jitter" (score: 0.94)
-```
-
----
-
-## Why Developers Choose MAG
-
-- **Switch from Claude to Cursor. Your context came with you.** One memory store works across every MCP-compatible tool on your machine.
-- **Finds what you stored, even when you search differently than how you saved it.** Hybrid retrieval fuses full-text, semantic, and graph search so you don't need exact wording.
-- **No accounts. No intermediaries. No "free tier."** A single Rust binary, a single SQLite file. Install it, use it, own it.
-- **Your client signed an NDA with you. Not with Mem0's infrastructure.** Zero third-party data routing by default. Your memory data never touches servers you don't control.
-- **Your memory, not your vendor's.** Claude, Cursor, and ChatGPT are all building their own memory - but it stays inside their tool. MAG bridges all of them. One memory store, every tool, portable forever.
-
----
-
-## Works With
-
-| Tool | macOS | Linux | Auto-configured |
-|---|---|---|---|
-| Claude Code | ✅ | ✅ | `mag setup` |
-| Claude Desktop | ✅ | ✅ | `mag setup` |
-| Cursor | ✅ | ✅ | `mag setup` |
-| VS Code + Copilot | ✅ | ✅ | `mag setup` |
-| Windsurf | ✅ | ✅ | `mag setup` |
-| Cline | ✅ | ✅ | `mag setup` |
-| Gemini CLI | ✅ | ✅ | `mag setup` |
-| Zed | ✅ | ✅ | Manual |
-| Codex (OpenAI) | ✅ | ✅ | `mag setup` |
-
-Any tool that supports MCP can connect to MAG. Windows is untested - [report your results](https://github.com/George-RD/mag/issues).
-
----
-
-## Benchmarks
-
-**90.1% retrieval accuracy on the LoCoMo memory benchmark.** Don't trust our number - [run it yourself](docs/benchmarks/methodology.md#running-the-benchmark):
+Save one real choice. Then search for it in new words:
 
 ```bash
-./scripts/bench.sh
+mag ingest "Use exponential backoff with jitter for retries" \
+  --tags decision,project:api-gateway
+
+mag advanced-search "How should failed requests retry?" --explain
 ```
 
-AutoMem's published score on the same benchmark is 90.5%. Full methodology, model comparisons, and historical runs in [docs/benchmarks/](docs/benchmarks/).
+```text
+Use exponential backoff with jitter for retries
+score: 0.94
+```
 
----
+## Why MAG exists
 
-## Your Data, Your Control
+Built-in tool memory is useful. Project docs are useful. Cloud memory services are useful. They solve different parts of the problem.
 
-Your memory data never touches third-party servers. Not ours, not anyone else's. Same guarantee whether you run MAG on your laptop or deploy it on your own infrastructure.
+MAG is for people who want context to move between coding tools while the data stays on their machine.
 
-- Zero third-party data routing (API embedding models are optional, off by default)
-- Single SQLite file, portable and inspectable
-- Export everything with one command. Open it with any SQLite browser.
-- MIT licensed, no tiers, no vendor lock-in
-- The binary keeps working whether we maintain this project or not
-
-See [SECURITY.md](SECURITY.md) for the full data-flow audit.
-
----
-
-## Deploy Your Way
-
-| Mode | Description |
+| What matters | What MAG does |
 |---|---|
-| **Local** (default) | Single binary on your machine. Zero config. |
-| **Daemon** | `mag serve --http` for persistent HTTP access. Same binary, same file. |
-| **Self-hosted** | Deploy on your own server or cloud. Same privacy guarantees at scale. |
-| **MAG Cloud** | Coming soon. We run the infrastructure. You own the data. Same guarantees. |
+| Switch between coding agents | The same memory store is available through MCP. |
+| Keep private work local | Embeddings and recall run on your machine by default. |
+| Find a decision without exact wording | Text, meaning and graph signals work together. |
+| Keep control of the data | Memories live in one SQLite file that you can inspect and export. |
+| Understand why something matched | `--explain` shows the signals behind each result. |
+| Start without a new account | Install the binary and run `mag setup`. |
 
-Every mode: zero third-party data access, full data portability, MIT licensed.
+MAG does not replace project docs. Stable facts and contracts still belong in Git. MAG is for context that changes, spans projects, or should follow you between tools.
 
----
+## How MAG works
 
-## Install
+<picture>
+  <img src="docs/readme-flow.svg" width="100%" alt="MAG captures a decision in one coding tool, stores it in a local SQLite database, recalls it by meaning and returns it to another tool." />
+</picture>
 
-| Method | Command |
-|---|---|
-| **Shell** (macOS / Linux) | `curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh \| sh` |
-| **Homebrew** | `brew install George-RD/mag/mag` |
-| **npm** | `npm install -g mag-memory` |
-| **uv** | `uv tool install mag-memory` |
-| **pip** | `pip install mag-memory` |
-| **Cargo** | `cargo install mag-memory` |
+### Capture
 
-**From source (latest main):** `cargo install --git https://github.com/George-RD/mag.git`
+Store choices, root causes, work rules and session handoffs. MAG can be called from the CLI or through its MCP tools. The Claude Code plugin adds lifecycle hooks for automatic capture and context injection.
 
-**Prebuilt binaries:** macOS (x64, ARM), Linux (x64, ARM), Windows (x64) on the [Releases page](https://github.com/George-RD/mag/releases).
+### Store
 
----
+Before writing a memory, MAG checks for copies. It can mark old facts as replaced, build version chains, tag key names and link related memories.
 
-## Configure Your AI Tools
+### Recall
 
-The installer runs `mag setup` automatically. To reconfigure at any time:
+Advanced search runs meaning and full-text search at the same time. It joins the results, adds linked context and drops weak matches.
 
-```bash
-mag setup
-```
+### Explain
 
-This detects installed AI tools, shows their configuration status, and writes the correct MCP config for each one. Use `--non-interactive` for CI or scripted environments.
+Use `mag advanced-search "query" --explain` to see meaning match, text rank, overlap, graph links and the final score.
 
-**Let your AI set it up:** Paste this into any AI assistant and it will handle install + configuration for you:
+See [How MAG works](docs/architecture.md) for the full storage and recall pipelines.
 
-> Install and configure MAG by following https://github.com/George-RD/mag/blob/main/docs/SETUP.md
+## Tool support
 
-<details>
-<summary>Manual configuration</summary>
+`mag setup` knows these clients. MCP is the common layer; some tools get extra native guidance.
 
-MAG runs as an MCP server. Add it to your client's config file:
+| Tool | Connection | Extra integration |
+|---|---|---|
+| Claude Code | MCP | Native plugin and lifecycle hooks |
+| Claude Desktop | MCP | None |
+| Cursor | MCP | Project rules |
+| VS Code + Copilot | MCP | None |
+| Windsurf | MCP | Project rules |
+| Cline | MCP | None |
+| Zed | MCP | None |
+| Codex | MCP | `AGENTS.md` guidance |
+| Gemini CLI | MCP | `AGENTS.md` guidance |
+| OpenCode | MCP | Skill definitions |
+
+Any other client that supports MCP can connect manually:
 
 ```json
 {
@@ -156,41 +123,114 @@ MAG runs as an MCP server. Add it to your client's config file:
 }
 ```
 
-**Claude Code:** `claude mcp add mag -- mag serve`
+## Measured performance
 
-**npx (no install):**
+MAG scored **90.1% word-overlap recall** on the full LoCoMo run: 1,986 questions across 10 long conversations.
 
-```json
-{
-  "mcpServers": {
-    "mag": {
-      "command": "npx",
-      "args": ["-y", "mag-memory", "serve"]
-    }
-  }
-}
+AutoMem reports 90.5% in its own similar run. The scores are close. This is not proof that one system wins every workload. It shows that a fully local recall stack can be strong.
+
+| LoCoMo category | MAG | AutoMem |
+|---|---:|---:|
+| Single-hop QA | 86.9% | 79.8% |
+| Temporal reasoning | 85.0% | 85.1% |
+| Multi-hop QA | 56.2% | 50.0% |
+| Open-domain | 95.7% | 95.8% |
+| Adversarial | 92.6% | 100.0% |
+| **Overall** | **90.1%** | **90.5%** |
+
+The same run averaged about 7 ms per query. These are recall results, not a score for every agent task, model or real workload.
+
+Read the [benchmark method and environment](docs/benchmarks/methodology.md), then run it yourself:
+
+```bash
+./scripts/bench.sh
 ```
 
-Per-tool setup guides: [Claude Desktop](docs/setup/claude-desktop.md) | [Cursor](docs/setup/cursor.md) | [Claude Code](docs/setup/claude-code.md) | [Windsurf](docs/setup/windsurf.md) | [Cline](docs/setup/cline.md)
+## Trade-offs
 
-</details>
+Local-first removes one class of trade-off and adds another.
 
----
+| You gain | You accept |
+|---|---|
+| One memory store across tools | Team-wide cloud sync is not built in today. |
+| No outside calls when you search | The local search model must be downloaded and loaded. |
+| Data in a portable SQLite file | The database is plaintext. Use full-disk encryption. |
+| No account or hosted dependency | You own backups, upgrades and local storage. |
+| Search that works beyond exact words | Memory quality still depends on what you choose to store. |
+| An open 0.1.x codebase | APIs and setup may still change. |
 
-## Learn More
+The local search model uses about 32 MB on disk and roughly 180 MB peak memory when loaded. Windows binaries are published, but Windows has had less testing than macOS and Linux.
 
-- [MCP Tools](docs/mcp-tools.md) - all 19 tools MAG exposes over MCP
-- [Architecture](docs/architecture.md) - search pipeline, scoring, modules
-- [Benchmarks](docs/benchmarks/) - full results, model comparisons, methodology
-- [Security](SECURITY.md) - data-flow audit, threat model
-- [What to Store](docs/what-to-store.md) - get the most out of persistent memory
-- [Setup Guide](docs/SETUP.md) - install, configure, and best practices
-- [Per-Tool Guides](docs/setup/) - detailed per-tool configuration
-- [Changelog](CHANGELOG.md) - recent changes
-- [AGENTS.md](AGENTS.md) - conventions, development commands
+### Good fit
 
----
+MAG makes sense when you use several coding agents, work with private or client data, want local ownership, or need decisions to survive beyond one session.
 
-## License
+### Wrong fit
 
-MIT
+Choose a different approach when you need managed team sync now, encrypted app storage, a browser-only service with no local setup, or automatic memory with no curation.
+
+## Roadmap
+
+The roadmap is a direction, not a release promise. There are no invented dates.
+
+| Stage | Direction | Current issues |
+|---|---|---|
+| **Now** | Make capture and recall reliable across real sessions. Fix session IDs, recall after compaction, subagent capture and missing-model warnings. | [#247](https://github.com/George-RD/mag/issues/247), [#257](https://github.com/George-RD/mag/issues/257), [#258](https://github.com/George-RD/mag/issues/258), [#243](https://github.com/George-RD/mag/issues/243) |
+| **Next** | Define connectors once, adapt them per tool, sync native memories and test automatic recall. | [#234](https://github.com/George-RD/mag/issues/234), [#236](https://github.com/George-RD/mag/issues/236), [#266](https://github.com/George-RD/mag/issues/266), [#341](https://github.com/George-RD/mag/issues/341) |
+| **Explore** | Add local code search, codebase knowledge and portable skills without turning MAG into a cloud service. | [#210](https://github.com/George-RD/mag/issues/210), [#212](https://github.com/George-RD/mag/issues/212), [#213](https://github.com/George-RD/mag/issues/213) |
+
+Track the working backlog in [GitHub Issues](https://github.com/George-RD/mag/issues).
+
+## Install options
+
+| Method | Command |
+|---|---|
+| Shell, macOS or Linux | `curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh \| sh` |
+| Homebrew | `brew install George-RD/mag/mag` |
+| npm | `npm install -g mag-memory` |
+| uv | `uv tool install mag-memory` |
+| pip | `pip install mag-memory` |
+| Cargo | `cargo install mag-memory` |
+| Source | `cargo install --git https://github.com/George-RD/mag.git` |
+
+Prebuilt macOS, Linux and Windows binaries are on the [Releases page](https://github.com/George-RD/mag/releases).
+
+Package-manager installs do not run setup automatically:
+
+```bash
+mag setup
+```
+
+## Data and security
+
+By default, MAG stores data under `~/.mag/`:
+
+```text
+~/.mag/memory.db   # memories, embeddings and metadata
+~/.mag/models/     # local ONNX models
+```
+
+No memory data leaves the machine in the default setup. The first model download needs network access. API models only run when you set them up.
+
+The SQLite database is not encrypted. Do not store passwords, API keys or tokens. Use FileVault, LUKS or BitLocker when the threat model requires encryption at rest.
+
+See [SECURITY.md](SECURITY.md) for the data-flow and disclosure policy.
+
+## Documentation
+
+- [Setup guide](docs/SETUP.md)
+- [How MAG works](docs/architecture.md)
+- [MCP tools](docs/mcp-tools.md)
+- [What to store](docs/what-to-store.md)
+- [Benchmarks](docs/benchmarks/)
+- [Security](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Development conventions](AGENTS.md)
+
+## Contributing
+
+Bug reports, benchmark challenges and pull requests are welcome. Start with [open issues](https://github.com/George-RD/mag/issues) or read [AGENTS.md](AGENTS.md) before changing the codebase.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,72 @@
+    <section class="hero" id="top">
+      <div class="shell hero-grid">
+        <div class="hero-copy">
+          <h1>Your tools change.<br><span>Your context shouldn&rsquo;t.</span></h1>
+          <p class="hero-lead">MAG gives coding agents one local memory. It keeps the choices, fixes and ways of working worth carrying forward, then recalls them in the tool you open next.</p>
+          <p class="hero-facts">One Rust binary. One SQLite memory store. No account.</p>
+
+          <div class="install-strip" role="group" aria-label="Install MAG">
+            <code>curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh</code>
+            <button class="copy-button" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh">
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#install">Install MAG</a>
+            <a class="button button-secondary" href="#mechanism">See the relay</a>
+          </div>
+          <p class="hero-note">The shell installer finds known tools and runs <code>mag setup</code>.</p>
+        </div>
+
+        <div class="relay-stage" aria-label="A decision moving from Claude Code through MAG into Cursor and Codex">
+          <div class="relay-head">
+            <span>LOCAL CONTEXT RELAY</span>
+            <span class="live-state"><i aria-hidden="true"></i> LIVE</span>
+          </div>
+
+          <div class="session-card session-card-a">
+            <div class="session-meta"><span>MON 09:42</span><span>CLAUDE CODE</span></div>
+            <p>Use exponential backoff with jitter for retries.</p>
+            <span class="session-tag">decision · api-gateway</span>
+          </div>
+
+          <div class="relay-line relay-line-a" aria-hidden="true">
+            <span class="relay-dot"></span>
+          </div>
+
+          <div class="mag-core">
+            <div class="core-title"><span>MAG</span><small>~/.mag/memory.db</small></div>
+            <ul>
+              <li><span>01</span> dedupe</li>
+              <li><span>02</span> link versions</li>
+              <li><span>03</span> recall by meaning</li>
+            </ul>
+          </div>
+
+          <div class="relay-line relay-line-b" aria-hidden="true">
+            <span class="relay-dot relay-dot-late"></span>
+          </div>
+
+          <div class="session-card session-card-b">
+            <div class="session-meta"><span>FRI 14:18</span><span>CURSOR</span></div>
+            <p>Retry policy found. Applying the existing decision.</p>
+            <span class="session-tag recalled">recalled · score 0.94</span>
+          </div>
+
+          <div class="tool-junction" aria-hidden="true">
+            <span>CLAUDE</span><i></i><span>CURSOR</span><i></i><span>CODEX</span><i></i><span>MCP</span>
+          </div>
+          <p class="relay-caption">A decision made here is still available there.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="evidence-rail" aria-label="Measured product evidence">
+      <div class="shell rail-grid">
+        <div><strong>90.1%</strong><span>LoCoMo recall score</span></div>
+        <div><strong>1,986</strong><span>questions in the full run</span></div>
+        <div><strong>~7 ms</strong><span>mean query time in that run</span></div>
+        <div><strong>0</strong><span>outside calls in the default search path</span></div>
+      </div>
+    </section>
+
