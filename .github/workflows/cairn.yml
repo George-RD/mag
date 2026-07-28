@@ -1,0 +1,23 @@
+name: Cairn architecture gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  architecture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Verify architecture, decisions, and interfaces
+        run: cairn hook all
