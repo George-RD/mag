@@ -9,12 +9,34 @@ import os
 import shutil
 import subprocess
 import sys
+from importlib.metadata import PackageNotFoundError, version as distribution_version
 
 
-__version__ = "0.1.5"
+_DISTRIBUTION_NAME = "mag-memory"
+_UNKNOWN_VERSION = "0+unknown"
 
-# Version of the Rust binary to download (kept in sync with __version__)
-_BINARY_VERSION = "0.1.5"
+
+def _read_distribution_version():
+    # type: () -> str
+    """Read the installed package version without maintaining a second source."""
+    try:
+        return distribution_version(_DISTRIBUTION_NAME)
+    except PackageNotFoundError:
+        return _UNKNOWN_VERSION
+
+
+__version__ = _read_distribution_version()
+
+
+def _binary_version():
+    # type: () -> str
+    """Return the release version that must back this installed wrapper."""
+    if __version__ == _UNKNOWN_VERSION:
+        raise RuntimeError(
+            "Cannot resolve the MAG binary version from installed package metadata. "
+            "Install mag-memory before running the wrapper."
+        )
+    return __version__
 
 
 def _binary_dir():
@@ -38,8 +60,13 @@ def _is_rust_binary(path):
         with open(path, "rb") as f:
             header = f.read(4)
             # Mach-O (macOS), ELF (Linux), MZ (Windows PE)
-            return header[:4] in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe",
-                                  b"\x7fELF", b"MZ\x90\x00", b"MZ\x00\x00")
+            return header[:4] in (
+                b"\xcf\xfa\xed\xfe",
+                b"\xce\xfa\xed\xfe",
+                b"\x7fELF",
+                b"MZ\x90\x00",
+                b"MZ\x00\x00",
+            )
     except (IOError, OSError):
         return False
 
@@ -72,7 +99,7 @@ def main():
         try:
             from mag_memory._download import download_binary
 
-            binary = download_binary(_BINARY_VERSION)
+            binary = download_binary(_binary_version())
             print("mag: ready!")
             sys.stdout.flush()
         except Exception as exc:
