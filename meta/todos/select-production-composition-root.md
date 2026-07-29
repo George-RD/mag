@@ -33,6 +33,14 @@ wholesale.
 4. Add separated model roles only after the local evaluation harness exists.
 5. Retire the legacy `Pipeline` construction and duplicate substrate surfaces.
 
+## Verification state
+
+The first Cairn run (`30474382280`) failed only because this decision changed two
+verified sources while their pinned hashes still described the previous bytes.
+The source manifests and generated Cairn snapshots have been refreshed from the
+checked-out files. Exact-head repository and Cairn verification is rerunning on
+the corrected branch.
+
 ## Acceptance criteria
 
 - [x] One production composition root is selected.
