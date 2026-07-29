@@ -30,6 +30,8 @@ mag setup
 
 This detects installed AI tools, shows their status, and writes the correct MCP config for each one. If you used the shell installer, this already ran.
 
+Setup currently writes command transport (`mag serve`) only. HTTP service mode remains a separate optional milestone.
+
 To reconfigure later or add new tools, run `mag setup` again.
 
 ### Manual Configuration (if `mag setup` doesn't support your tool)
@@ -206,6 +208,8 @@ mag setup
 ```
 
 This detects installed AI tools, shows their status, and writes the correct MCP config for each one. If you used the shell installer, this already ran.
+
+Setup currently writes command transport (`mag serve`) only. HTTP service mode remains a separate optional milestone.
 
 To reconfigure later or add new tools, run `mag setup` again.
 

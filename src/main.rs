@@ -102,20 +102,16 @@ async fn main() -> anyhow::Result<()> {
         non_interactive,
         tools,
         transport,
-        port,
-        no_start,
         uninstall,
         force,
         fix_sandbox,
     } = cli.command
     {
-        let transport_mode = mag::setup::parse_transport(&transport, port)?;
+        let transport_mode = mag::setup::parse_transport(&transport)?;
         return mag::setup::run_setup(mag::setup::SetupArgs {
             non_interactive,
             tools,
             transport: transport_mode,
-            port,
-            no_start,
             uninstall,
             force,
             fix_sandbox,
