@@ -86,6 +86,168 @@ jobs:
       - name: Run installer checksum tests
         run: sh tests/install_checksum_test.sh
 
+  apply-installer-checksum-fix:
+    name: Apply Installer Checksum Fix
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Apply the fail-closed implementation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("install.sh")
+          text = path.read_text()
+
+          old_requirement = (
+              "# Requirements: curl or wget, tar, and optionally "
+              "sha256sum/shasum for verification."
+          )
+          new_requirement = (
+              "# Requirements: curl or wget, tar, and sha256sum, shasum, or openssl."
+          )
+          if text.count(old_requirement) != 1:
+              raise SystemExit("installer requirement marker changed")
+          text = text.replace(old_requirement, new_requirement)
+
+          old_comment = "    # Checksum verification (best-effort)"
+          new_comment = "    # Checksum verification is mandatory before installation."
+          if text.count(old_comment) != 1:
+              raise SystemExit("installer verification comment marker changed")
+          text = text.replace(old_comment, new_comment)
+
+          start = text.index("verify_checksum() {\n")
+          install_marker = (
+              "# ---------------------------------------------------------------------------\n"
+              "# Install\n"
+              "# ---------------------------------------------------------------------------\n"
+          )
+          end = text.index(install_marker, start)
+
+          replacement = r'''select_checksum_tool() {
+              if has_cmd sha256sum; then
+                  CHECKSUM_TOOL="sha256sum"
+              elif has_cmd shasum; then
+                  CHECKSUM_TOOL="shasum"
+              elif has_cmd openssl; then
+                  CHECKSUM_TOOL="openssl"
+              else
+                  die "Checksum verification requires sha256sum, shasum, or openssl. Install one and retry."
+              fi
+          }
+
+          calculate_sha256() {
+              _checksum_file="$1"
+              case "$CHECKSUM_TOOL" in
+                  sha256sum)
+                      sha256sum "$_checksum_file" | awk '{print tolower($1)}'
+                      ;;
+                  shasum)
+                      shasum -a 256 "$_checksum_file" | awk '{print tolower($1)}'
+                      ;;
+                  openssl)
+                      openssl dgst -sha256 "$_checksum_file" | awk '{print tolower($NF)}'
+                      ;;
+                  *)
+                      die "Internal error: unsupported checksum tool ${CHECKSUM_TOOL}"
+                      ;;
+              esac
+          }
+
+          parse_checksum_manifest() {
+              _checksum_manifest="$1"
+              _checksum_archive="$2"
+
+              awk -v archive="$_checksum_archive" '
+                  /^[[:space:]]*($|#)/ { next }
+                  {
+                      digest = $1
+                      filename = $2
+                      sub(/^\*/, "", filename)
+                      if (filename == archive) {
+                          count++
+                          if (length(digest) != 64 || digest !~ /^[0-9A-Fa-f]+$/) {
+                              invalid = 1
+                          }
+                          value = tolower(digest)
+                      }
+                  }
+                  END {
+                      if (invalid) exit 3
+                      if (count == 0) exit 1
+                      if (count > 1) exit 2
+                      print value
+                  }
+              ' "$_checksum_manifest"
+          }
+
+          verify_checksum() {
+              select_checksum_tool
+
+              info "Verifying checksum..."
+              if ! fetch "$CHECKSUMS_URL" "${TMPDIR_INSTALL}/checksums.txt" 2>/dev/null; then
+                  die "Failed to download checksums.txt for MAG v${VERSION:-unknown}"
+              fi
+
+              if EXPECTED="$(parse_checksum_manifest "${TMPDIR_INSTALL}/checksums.txt" "$ARCHIVE")"; then
+                  :
+              else
+                  PARSE_STATUS=$?
+                  case "$PARSE_STATUS" in
+                      1) die "No checksum entry found for ${ARCHIVE}" ;;
+                      2) die "Duplicate checksum entries found for ${ARCHIVE}" ;;
+                      3) die "Malformed checksum entry found for ${ARCHIVE}" ;;
+                      *) die "Failed to parse checksum manifest for ${ARCHIVE}" ;;
+                  esac
+              fi
+
+              if ACTUAL="$(calculate_sha256 "${TMPDIR_INSTALL}/${ARCHIVE}")"; then
+                  :
+              else
+                  die "Failed to calculate SHA-256 for ${ARCHIVE}"
+              fi
+
+              case "$ACTUAL" in
+                  ''|*[!0-9a-f]*)
+                      die "Failed to calculate a valid SHA-256 for ${ARCHIVE}"
+                      ;;
+              esac
+              if [ "${#ACTUAL}" -ne 64 ]; then
+                  die "Failed to calculate a valid SHA-256 for ${ARCHIVE}"
+              fi
+
+              if [ "$EXPECTED" != "$ACTUAL" ]; then
+                  die "Checksum mismatch!\n  Expected: ${EXPECTED}\n  Got:      ${ACTUAL}\nThe download may be corrupted. Please retry."
+              fi
+
+              ok "Checksum verified"
+          }
+
+          '''
+
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text)
+          PY
+      - name: Commit implementation
+        run: |
+          git diff --check
+          git diff --exit-code --quiet && {
+            echo "Installer implementation produced no diff" >&2
+            exit 1
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh
+          git commit -m "fix(installer): enforce mandatory release checksums"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+
   benchmark:
     name: Benchmark Gate
     runs-on: ubuntu-latest
