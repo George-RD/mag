@@ -1,0 +1,36 @@
+name: Refresh selected runtime blueprint state
+
+on:
+  push:
+    branches:
+      - docs/select-local-runtime-root
+    paths:
+      - .github/workflows/refresh-composition-blueprint.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: docs/select-local-runtime-root
+          fetch-depth: 0
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Refresh generated architecture state
+        run: cairn scan
+      - name: Commit refreshed state
+        run: |
+          rm .github/workflows/refresh-composition-blueprint.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "chore(cairn): refresh selected runtime blueprint state"
+          git push origin HEAD:docs/select-local-runtime-root
