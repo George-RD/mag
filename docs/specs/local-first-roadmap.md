@@ -59,7 +59,7 @@ here; doing so would create two status sources.
    BGE remains the compact default until MAG-specific evaluation says otherwise.
 9. LFM2.5 ColBERT is evaluated first as a bounded reranker. A full multi-vector
    index requires a separate evidence-backed storage decision.
-10. Retriever and generative fine-tuning follows stable architecture and
+10. Retriever and generative fine-tuning follow stable architecture and
     held-out evaluations. Evaluation runs begin collecting training evidence
     before training begins.
 
