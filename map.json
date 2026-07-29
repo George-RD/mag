@@ -109,6 +109,7 @@
         "python/mag_memory/active_strategies.py",
         "python/mag_memory/longmemeval_runner.py",
         "python/mag_memory/mcp_client.py",
+        "python/tests/test_download_integrity.py",
         "python/tests/test_version_provenance.py"
       ],
       "contracts": [
@@ -132,12 +133,84 @@
           "end_line": 33
         },
         {
+          "name": "actual_digest",
+          "kind": "variable",
+          "signature": "assignment:actual_digest",
+          "file": "python/mag_memory/_download.py",
+          "line": 133,
+          "end_line": 133
+        },
+        {
           "name": "all_results",
           "kind": "variable",
           "signature": "assignment:all_results",
           "file": "python/mag_memory/active_strategies.py",
           "line": 152,
           "end_line": 152
+        },
+        {
+          "name": "archive",
+          "kind": "variable",
+          "signature": "assignment:archive",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 53,
+          "end_line": 53
+        },
+        {
+          "name": "archive",
+          "kind": "variable",
+          "signature": "assignment:archive",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 59,
+          "end_line": 59
+        },
+        {
+          "name": "archive",
+          "kind": "variable",
+          "signature": "assignment:archive",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 67,
+          "end_line": 67
+        },
+        {
+          "name": "archive",
+          "kind": "variable",
+          "signature": "assignment:archive",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 98,
+          "end_line": 98
+        },
+        {
+          "name": "archive",
+          "kind": "variable",
+          "signature": "assignment:archive",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 131,
+          "end_line": 131
+        },
+        {
+          "name": "archive_name",
+          "kind": "variable",
+          "signature": "assignment:archive_name",
+          "file": "python/mag_memory/_download.py",
+          "line": 214,
+          "end_line": 214
+        },
+        {
+          "name": "archive_name",
+          "kind": "variable",
+          "signature": "assignment:archive_name",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 130,
+          "end_line": 130
+        },
+        {
+          "name": "archive_url",
+          "kind": "variable",
+          "signature": "assignment:archive_url",
+          "file": "python/mag_memory/_download.py",
+          "line": 216,
+          "end_line": 220
         },
         {
           "name": "args",
@@ -192,16 +265,16 @@
           "kind": "variable",
           "signature": "assignment:basename",
           "file": "python/mag_memory/_download.py",
-          "line": 90,
-          "end_line": 90
+          "line": 151,
+          "end_line": 151
         },
         {
           "name": "basename",
           "kind": "variable",
           "signature": "assignment:basename",
           "file": "python/mag_memory/_download.py",
-          "line": 123,
-          "end_line": 123
+          "line": 184,
+          "end_line": 184
         },
         {
           "name": "batch",
@@ -232,64 +305,80 @@
           "kind": "variable",
           "signature": "assignment:binary_member",
           "file": "python/mag_memory/_download.py",
-          "line": 88,
-          "end_line": 88
+          "line": 149,
+          "end_line": 149
         },
         {
           "name": "binary_member",
           "kind": "variable",
           "signature": "assignment:binary_member",
           "file": "python/mag_memory/_download.py",
-          "line": 92,
-          "end_line": 92
+          "line": 153,
+          "end_line": 153
         },
         {
           "name": "binary_member",
           "kind": "variable",
           "signature": "assignment:binary_member",
           "file": "python/mag_memory/_download.py",
-          "line": 121,
-          "end_line": 121
+          "line": 182,
+          "end_line": 182
         },
         {
           "name": "binary_member",
           "kind": "variable",
           "signature": "assignment:binary_member",
           "file": "python/mag_memory/_download.py",
-          "line": 125,
-          "end_line": 125
+          "line": 186,
+          "end_line": 186
         },
         {
           "name": "binary_name",
           "kind": "variable",
           "signature": "assignment:binary_name",
           "file": "python/mag_memory/_download.py",
-          "line": 84,
-          "end_line": 84
+          "line": 145,
+          "end_line": 145
         },
         {
           "name": "binary_name",
           "kind": "variable",
           "signature": "assignment:binary_name",
           "file": "python/mag_memory/_download.py",
-          "line": 118,
-          "end_line": 118
+          "line": 179,
+          "end_line": 179
         },
         {
           "name": "binary_path",
           "kind": "variable",
           "signature": "assignment:binary_path",
           "file": "python/mag_memory/_download.py",
-          "line": 169,
-          "end_line": 169
+          "line": 244,
+          "end_line": 244
         },
         {
           "name": "binary_path",
           "kind": "variable",
           "signature": "assignment:binary_path",
           "file": "python/mag_memory/_download.py",
-          "line": 171,
-          "end_line": 171
+          "line": 246,
+          "end_line": 246
+        },
+        {
+          "name": "binary_path",
+          "kind": "variable",
+          "signature": "assignment:binary_path",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 122,
+          "end_line": 122
+        },
+        {
+          "name": "binary_path",
+          "kind": "variable",
+          "signature": "assignment:binary_path",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 157,
+          "end_line": 157
         },
         {
           "name": "candidate",
@@ -338,6 +427,14 @@
           "file": "python/mag_memory/longmemeval_runner.py",
           "line": 35,
           "end_line": 35
+        },
+        {
+          "name": "checksum_url",
+          "kind": "variable",
+          "signature": "assignment:checksum_url",
+          "file": "python/mag_memory/_download.py",
+          "line": 215,
+          "end_line": 215
         },
         {
           "name": "client",
@@ -440,8 +537,8 @@
           "kind": "variable",
           "signature": "assignment:data",
           "file": "python/mag_memory/_download.py",
-          "line": 157,
-          "end_line": 157
+          "line": 229,
+          "end_line": 229
         },
         {
           "name": "deadline",
@@ -456,24 +553,80 @@
           "kind": "variable",
           "signature": "assignment:dest_dir",
           "file": "python/mag_memory/_download.py",
-          "line": 164,
-          "end_line": 164
+          "line": 240,
+          "end_line": 240
+        },
+        {
+          "name": "dest_dir",
+          "kind": "variable",
+          "signature": "assignment:dest_dir",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 71,
+          "end_line": 71
+        },
+        {
+          "name": "dest_dir",
+          "kind": "variable",
+          "signature": "assignment:dest_dir",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 103,
+          "end_line": 103
+        },
+        {
+          "name": "dest_dir",
+          "kind": "variable",
+          "signature": "assignment:dest_dir",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 136,
+          "end_line": 136
         },
         {
           "name": "dest_path",
           "kind": "variable",
           "signature": "assignment:dest_path",
           "file": "python/mag_memory/_download.py",
-          "line": 108,
-          "end_line": 108
+          "line": 169,
+          "end_line": 169
         },
         {
           "name": "dest_path",
           "kind": "variable",
           "signature": "assignment:dest_path",
           "file": "python/mag_memory/_download.py",
-          "line": 135,
-          "end_line": 135
+          "line": 196,
+          "end_line": 196
+        },
+        {
+          "name": "digest",
+          "kind": "variable",
+          "signature": "assignment:digest",
+          "file": "python/mag_memory/_download.py",
+          "line": 110,
+          "end_line": 110
+        },
+        {
+          "name": "digest",
+          "kind": "variable",
+          "signature": "assignment:digest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 99,
+          "end_line": 99
+        },
+        {
+          "name": "digest",
+          "kind": "variable",
+          "signature": "assignment:digest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 132,
+          "end_line": 132
+        },
+        {
+          "name": "digest, filename",
+          "kind": "variable",
+          "signature": "assignment:digest, filename",
+          "file": "python/mag_memory/_download.py",
+          "line": 109,
+          "end_line": 109
         },
         {
           "name": "env",
@@ -516,12 +669,36 @@
           "end_line": 97
         },
         {
+          "name": "expected",
+          "kind": "variable",
+          "signature": "assignment:expected",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 18,
+          "end_line": 18
+        },
+        {
+          "name": "expected",
+          "kind": "variable",
+          "signature": "assignment:expected",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 54,
+          "end_line": 54
+        },
+        {
           "name": "expected_answer",
           "kind": "variable",
           "signature": "assignment:expected_answer",
           "file": "python/mag_memory/longmemeval_runner.py",
           "line": 19,
           "end_line": 19
+        },
+        {
+          "name": "expected_digest",
+          "kind": "variable",
+          "signature": "assignment:expected_digest",
+          "file": "python/mag_memory/_download.py",
+          "line": 225,
+          "end_line": 225
         },
         {
           "name": "expected_str",
@@ -536,8 +713,8 @@
           "kind": "variable",
           "signature": "assignment:ext",
           "file": "python/mag_memory/_download.py",
-          "line": 62,
-          "end_line": 62
+          "line": 68,
+          "end_line": 68
         },
         {
           "name": "extra_results",
@@ -564,12 +741,28 @@
           "end_line": 44
         },
         {
+          "name": "filename",
+          "kind": "variable",
+          "signature": "assignment:filename",
+          "file": "python/mag_memory/_download.py",
+          "line": 111,
+          "end_line": 111
+        },
+        {
+          "name": "filename",
+          "kind": "variable",
+          "signature": "assignment:filename",
+          "file": "python/mag_memory/_download.py",
+          "line": 113,
+          "end_line": 113
+        },
+        {
           "name": "fileobj",
           "kind": "variable",
           "signature": "assignment:fileobj",
           "file": "python/mag_memory/_download.py",
-          "line": 104,
-          "end_line": 104
+          "line": 165,
+          "end_line": 165
         },
         {
           "name": "found",
@@ -600,8 +793,8 @@
           "kind": "variable",
           "signature": "assignment:key",
           "file": "python/mag_memory/_download.py",
-          "line": 53,
-          "end_line": 53
+          "line": 59,
+          "end_line": 59
         },
         {
           "name": "kwargs",
@@ -639,6 +832,14 @@
           "name": "line",
           "kind": "variable",
           "signature": "assignment:line",
+          "file": "python/mag_memory/_download.py",
+          "line": 97,
+          "end_line": 97
+        },
+        {
+          "name": "line",
+          "kind": "variable",
+          "signature": "assignment:line",
           "file": "python/mag_memory/mcp_client.py",
           "line": 225,
           "end_line": 225
@@ -656,24 +857,96 @@
           "kind": "variable",
           "signature": "assignment:machine",
           "file": "python/mag_memory/_download.py",
-          "line": 51,
-          "end_line": 51
+          "line": 57,
+          "end_line": 57
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/mag_memory/_download.py",
+          "line": 224,
+          "end_line": 224
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 19,
+          "end_line": 22
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 30,
+          "end_line": 30
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 36,
+          "end_line": 39
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 45,
+          "end_line": 45
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 68,
+          "end_line": 68
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 100,
+          "end_line": 100
+        },
+        {
+          "name": "manifest",
+          "kind": "variable",
+          "signature": "assignment:manifest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 133,
+          "end_line": 133
+        },
+        {
+          "name": "matches",
+          "kind": "variable",
+          "signature": "assignment:matches",
+          "file": "python/mag_memory/_download.py",
+          "line": 95,
+          "end_line": 95
         },
         {
           "name": "member",
           "kind": "variable",
           "signature": "assignment:member",
           "file": "python/mag_memory/_download.py",
-          "line": 103,
-          "end_line": 103
+          "line": 164,
+          "end_line": 164
         },
         {
           "name": "members",
           "kind": "variable",
           "signature": "assignment:members",
           "file": "python/mag_memory/_download.py",
-          "line": 87,
-          "end_line": 87
+          "line": 148,
+          "end_line": 148
         },
         {
           "name": "memory_id",
@@ -768,8 +1041,8 @@
           "kind": "variable",
           "signature": "assignment:names",
           "file": "python/mag_memory/_download.py",
-          "line": 120,
-          "end_line": 120
+          "line": 181,
+          "end_line": 181
         },
         {
           "name": "packaged",
@@ -786,6 +1059,14 @@
           "file": "python/longmemeval_active_runner.py",
           "line": 50,
           "end_line": 50
+        },
+        {
+          "name": "parts",
+          "kind": "variable",
+          "signature": "assignment:parts",
+          "file": "python/mag_memory/_download.py",
+          "line": 101,
+          "end_line": 101
         },
         {
           "name": "passed",
@@ -824,8 +1105,24 @@
           "kind": "variable",
           "signature": "assignment:path",
           "file": "python/mag_memory/_download.py",
-          "line": 186,
-          "end_line": 186
+          "line": 261,
+          "end_line": 261
+        },
+        {
+          "name": "path",
+          "kind": "variable",
+          "signature": "assignment:path",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 108,
+          "end_line": 108
+        },
+        {
+          "name": "path",
+          "kind": "variable",
+          "signature": "assignment:path",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 141,
+          "end_line": 141
         },
         {
           "name": "pkg_bin",
@@ -840,16 +1137,16 @@
           "kind": "variable",
           "signature": "assignment:plat",
           "file": "python/mag_memory/_download.py",
-          "line": 46,
-          "end_line": 46
+          "line": 52,
+          "end_line": 52
         },
         {
           "name": "plat",
           "kind": "variable",
           "signature": "assignment:plat",
           "file": "python/mag_memory/_download.py",
-          "line": 49,
-          "end_line": 49
+          "line": 55,
+          "end_line": 55
         },
         {
           "name": "project_debug",
@@ -968,8 +1265,8 @@
           "kind": "variable",
           "signature": "assignment:req",
           "file": "python/mag_memory/_download.py",
-          "line": 69,
-          "end_line": 69
+          "line": 75,
+          "end_line": 75
         },
         {
           "name": "req_id",
@@ -978,14 +1275,6 @@
           "file": "python/mag_memory/mcp_client.py",
           "line": 207,
           "end_line": 207
-        },
-        {
-          "name": "resp",
-          "kind": "variable",
-          "signature": "assignment:resp",
-          "file": "python/mag_memory/_download.py",
-          "line": 71,
-          "end_line": 71
         },
         {
           "name": "resp",
@@ -1440,8 +1729,8 @@
           "kind": "variable",
           "signature": "assignment:st",
           "file": "python/mag_memory/_download.py",
-          "line": 175,
-          "end_line": 175
+          "line": 250,
+          "end_line": 250
         },
         {
           "name": "strategies",
@@ -1536,16 +1825,32 @@
           "kind": "variable",
           "signature": "assignment:target",
           "file": "python/mag_memory/_download.py",
-          "line": 54,
-          "end_line": 54
+          "line": 60,
+          "end_line": 60
+        },
+        {
+          "name": "target",
+          "kind": "variable",
+          "signature": "assignment:target",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 129,
+          "end_line": 129
         },
         {
           "name": "target, ext",
           "kind": "variable",
           "signature": "assignment:target, ext",
           "file": "python/mag_memory/_download.py",
-          "line": 152,
-          "end_line": 152
+          "line": 213,
+          "end_line": 213
+        },
+        {
+          "name": "text",
+          "kind": "variable",
+          "signature": "assignment:text",
+          "file": "python/mag_memory/_download.py",
+          "line": 91,
+          "end_line": 91
         },
         {
           "name": "text",
@@ -1588,20 +1893,20 @@
           "end_line": 115
         },
         {
-          "name": "url",
-          "kind": "variable",
-          "signature": "assignment:url",
-          "file": "python/mag_memory/_download.py",
-          "line": 153,
-          "end_line": 153
-        },
-        {
           "name": "ver",
           "kind": "variable",
           "signature": "assignment:ver",
           "file": "python/mag_memory/_download.py",
-          "line": 185,
-          "end_line": 185
+          "line": 260,
+          "end_line": 260
+        },
+        {
+          "name": "ArchiveChecksumTests",
+          "kind": "class",
+          "signature": "class_definition:ArchiveChecksumTests",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 51,
+          "end_line": 62
         },
         {
           "name": "BoundaryStrategy",
@@ -1610,6 +1915,14 @@
           "file": "python/mag_memory/active_strategies.py",
           "line": 114,
           "end_line": 164
+        },
+        {
+          "name": "ChecksumManifestTests",
+          "kind": "class",
+          "signature": "class_definition:ChecksumManifestTests",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 16,
+          "end_line": 48
         },
         {
           "name": "LongMemEvalRunner",
@@ -1692,6 +2005,14 @@
           "end_line": 111
         },
         {
+          "name": "VerifiedDownloadFlowTests",
+          "kind": "class",
+          "signature": "class_definition:VerifiedDownloadFlowTests",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 65,
+          "end_line": 160
+        },
+        {
           "name": "VersionProvenanceTests",
           "kind": "class",
           "signature": "class_definition:VersionProvenanceTests",
@@ -1728,8 +2049,8 @@
           "kind": "function",
           "signature": "function_definition:download_binary",
           "file": "python/mag_memory/_download.py",
-          "line": 142,
-          "end_line": 180
+          "line": 203,
+          "end_line": 255
         },
         {
           "name": "evaluate_question",
@@ -1738,6 +2059,22 @@
           "file": "python/mag_memory/longmemeval_runner.py",
           "line": 88,
           "end_line": 130
+        },
+        {
+          "name": "extract",
+          "kind": "function",
+          "signature": "function_definition:extract",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 105,
+          "end_line": 111
+        },
+        {
+          "name": "extract",
+          "kind": "function",
+          "signature": "function_definition:extract",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 138,
+          "end_line": 144
         },
         {
           "name": "load_longmemeval_dataset",
@@ -1892,6 +2229,14 @@
           "end_line": 152
         },
         {
+          "name": "test_accepts_matching_archive_bytes",
+          "kind": "function",
+          "signature": "function_definition:test_accepts_matching_archive_bytes",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 52,
+          "end_line": 56
+        },
+        {
           "name": "test_binary_version_fails_closed_without_distribution_metadata",
           "kind": "function",
           "signature": "function_definition:test_binary_version_fails_closed_without_distribution_metadata",
@@ -1908,12 +2253,76 @@
           "end_line": 19
         },
         {
+          "name": "test_checksum_failure_happens_before_install_side_effects",
+          "kind": "function",
+          "signature": "function_definition:test_checksum_failure_happens_before_install_side_effects",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 66,
+          "end_line": 94
+        },
+        {
           "name": "test_public_version_matches_installed_distribution",
           "kind": "function",
           "signature": "function_definition:test_public_version_matches_installed_distribution",
           "file": "python/tests/test_version_provenance.py",
           "line": 9,
           "end_line": 13
+        },
+        {
+          "name": "test_rejects_a_malformed_digest",
+          "kind": "function",
+          "signature": "function_definition:test_rejects_a_malformed_digest",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 44,
+          "end_line": 48
+        },
+        {
+          "name": "test_rejects_a_missing_archive_entry",
+          "kind": "function",
+          "signature": "function_definition:test_rejects_a_missing_archive_entry",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 29,
+          "end_line": 33
+        },
+        {
+          "name": "test_rejects_duplicate_archive_entries",
+          "kind": "function",
+          "signature": "function_definition:test_rejects_duplicate_archive_entries",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 35,
+          "end_line": 42
+        },
+        {
+          "name": "test_rejects_mismatched_archive_bytes",
+          "kind": "function",
+          "signature": "function_definition:test_rejects_mismatched_archive_bytes",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 58,
+          "end_line": 62
+        },
+        {
+          "name": "test_selects_the_exact_archive_entry",
+          "kind": "function",
+          "signature": "function_definition:test_selects_the_exact_archive_entry",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 17,
+          "end_line": 27
+        },
+        {
+          "name": "test_verified_tar_archive_is_installed_after_checksum_validation",
+          "kind": "function",
+          "signature": "function_definition:test_verified_tar_archive_is_installed_after_checksum_validation",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 97,
+          "end_line": 126
+        },
+        {
+          "name": "test_verified_zip_archive_uses_the_windows_extractor",
+          "kind": "function",
+          "signature": "function_definition:test_verified_zip_archive_uses_the_windows_extractor",
+          "file": "python/tests/test_download_integrity.py",
+          "line": 128,
+          "end_line": 160
         },
         {
           "name": "test_wrapper_has_no_independent_binary_version_constant",
