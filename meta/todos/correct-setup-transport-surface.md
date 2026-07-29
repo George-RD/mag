@@ -1,6 +1,6 @@
 ---
 node: mag.runtime.setup
-status: open
+status: in_progress
 created: 2026-07-29
 ---
 # Correct setup transport surface
