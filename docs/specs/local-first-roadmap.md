@@ -1,6 +1,6 @@
 # MAG local-first development roadmap
 
-<!-- Revised: 2026-07-28 | Status is held in Cairn todo artefacts -->
+<!-- Revised: 2026-07-29 | Status is held in Cairn todo artefacts -->
 
 ## Mission
 
@@ -48,12 +48,20 @@ here; doing so would create two status sources.
 1. Cairn is the queryable development-context and work-status layer.
 2. LFM2.5 1.2B Instruct is the local generative quality reference.
 3. LFM2.5 350M is eligible only after task-level parity against 1.2B.
-4. Generation, embedding, and reranking are separate model roles.
+4. Generation, dense embedding, cross-encoding, and late-interaction reranking
+   are separate model roles.
 5. Current generation is HTTP-local; direct ONNX generation is a candidate
    runtime, not a preselected outcome.
 6. Derived facts, relationships, clusters, and summaries never overwrite raw
    memories and retain provenance.
 7. Cleanup is evidence-based; stale recon reports are inputs, not authority.
+8. LFM2.5 Embedding is an optional multilingual dense-retrieval candidate;
+   BGE remains the compact default until MAG-specific evaluation says otherwise.
+9. LFM2.5 ColBERT is evaluated first as a bounded reranker. A full multi-vector
+   index requires a separate evidence-backed storage decision.
+10. Retriever and generative fine-tuning follows stable architecture and
+    held-out evaluations. Evaluation runs begin collecting training evidence
+    before training begins.
 
 ## Contradictions resolved
 
@@ -76,6 +84,26 @@ concentrated modules. Those statements can both be true. The current priority is
 live semantic duplication and composition ambiguity, not deleting code because a
 file is large or feature-gated.
 
+### One model family versus one model role
+
+Using LFM2.5 checkpoints for generation, dense retrieval, and late interaction
+can simplify packaging and future specialization, but the checkpoints have
+different heads, outputs, runtime needs, and licences. MAG therefore shares
+model-profile and evaluation infrastructure without treating them as one
+interchangeable loaded model.
+
+## Dependency and parallelism
+
+P0 is the common gate. After it:
+
+- P1 and P2 form the generative-runtime track.
+- P3 is an independent retrieval track and may proceed once the P0 model
+  boundary and evaluation harness exist; it does not wait for direct generative
+  inference.
+- P4 depends on the P1 production baseline.
+- P5 qualifies smaller generative routing only after P1 and relevant P4 tasks.
+- P6 depends on stable selected behavior from P3 through P5.
+
 ## Ordered development plan
 
 ### P0 — Establish the architecture and evaluation foundation
@@ -84,10 +112,13 @@ file is large or feature-gated.
 - Audit current callers, feature flags, fallback paths, tests, and benchmarks.
 - Choose the production composition root and define the migration/removal path.
 - Separate model role, runtime, and transport in the chosen architecture.
+- Define model profiles with query/document roles, embedding-space identity,
+  dimensions, pooling, runtime, quantization, checksums, and licence metadata.
 - Build the local memory-intelligence evaluation harness and versioned dataset.
 
 **Gate:** one documented production path, no unexplained duplicate semantics,
-bounded Cairn queries for connected context, and a reproducible local scorecard.
+bounded Cairn queries for connected context, explicit model-profile contracts,
+and a reproducible local scorecard.
 
 ### P1 — Establish the local LFM2.5 1.2B production baseline
 
@@ -100,7 +131,7 @@ bounded Cairn queries for connected context, and a reproducible local scorecard.
 **Gate:** the 1.2B profile works end to end without cloud credentials and improves
 memory usefulness over rule-only extraction within local latency/RAM budgets.
 
-### P2 — Evaluate direct local inference
+### P2 — Evaluate direct local generative inference
 
 - Prototype `LiquidAI/LFM2.5-1.2B-Instruct-ONNX` behind the model-runtime boundary.
 - Add manifest, revision, checksums, quantization, tokenizer/chat template,
@@ -112,17 +143,30 @@ memory usefulness over rule-only extraction within local latency/RAM budgets.
 **Decision rule:** direct ONNX becomes default only if it lowers end-to-end
 operational cost without a material quality or portability regression.
 
-### P3 — Calibrate retrieval and reranking
+### P3 — Calibrate retrieval and qualify LFM2.5 retrievers
 
-- Calibrate confidence from semantic score, score margin, lexical/semantic
-  agreement, reranker score, query intent, and candidate diversity.
-- Benchmark the existing cross-encoder within session-start latency limits.
-- Evaluate local embedding/reranker alternatives against the current BGE path.
-- Use dynamic result count and token budget.
+- Complete role-aware retriever profiles and the explicit re-embedding migration
+  tracked by issue #89.
+- Establish the current BGE plus MiniLM/no-reranker baseline on the versioned
+  evaluation set.
+- Evaluate `LFM2.5-Embedding-350M` as a 1024-dimensional multilingual and
+  cross-lingual first-stage profile with correct query/document semantics.
+- Evaluate `LFM2.5-ColBERT-350M` first as a bounded top-N reranker through the
+  existing reranker boundary.
+- Compare on-demand and content-hash-cached ColBERT document embeddings.
+- Run the full matrix: BGE baseline, LFM dense, BGE plus ColBERT, and LFM dense
+  plus ColBERT.
+- Include English, Arabic, and English/Arabic cross-lingual retrieval.
+- Calibrate confidence from semantic score, margin, lexical/semantic agreement,
+  reranker score, query intent, and candidate diversity per model profile.
+- Use dynamic result count and token budget only after calibration.
 - Measure active injection versus passive retrieval on agent-resumption tasks.
 
-**Gate:** useful recall and injection precision improve without exceeding local
-latency, RAM, and context budgets.
+**Gate:** a profile improves useful recall, injection precision, or downstream
+task success without exceeding local latency, RAM, disk/index, migration, and
+licence budgets. BGE remains the default without that evidence. A full ColBERT
+multi-vector index is considered only through a later decision if bounded
+reranking leaves first-stage recall as the measured bottleneck.
 
 ### P4 — Add local memory intelligence
 
@@ -138,14 +182,31 @@ Use the 1.2B model for narrow, evaluated operations:
 **Gate:** derived structures improve downstream task success, retain full source
 lineage, and can be invalidated or regenerated independently of raw memories.
 
-### P5 — Qualify the 350M speed tier
+### P5 — Qualify the 350M generative speed tier
 
 Run the same task-level evaluations with LFM2.5 350M. Promote only tasks within a
 predeclared tolerance of the 1.2B reference. Classification and constrained
 tagging are likely candidates; relationship reasoning and consolidation remain
 on 1.2B unless evidence says otherwise.
 
-### P6 — Add service and cross-device mode
+### P6 — Prepare task-specific LFM specialization
+
+- Freeze the selected production composition, retrieval profiles, candidate
+  semantics, memory schemas, and evaluation datasets before training.
+- Retain provenance-linked query, positive, hard-negative, wrong-time,
+  superseded/current, feedback, and downstream task-outcome examples.
+- Evaluate dense retriever fine-tuning first when retrieval evidence supports it.
+- Fine-tune ColBERT only if its bounded reranker role is selected.
+- Fine-tune 350M and 1.2B generative checkpoints only for narrow tasks with
+  separate quality references.
+- Version datasets, prompts, adapters, model lineage, licence metadata, and
+  rollback behavior.
+
+**Gate:** a fine-tuned profile improves held-out downstream task success over the
+untuned production baseline without hiding an architectural or algorithmic
+failure.
+
+### P7 — Add service and cross-device mode
 
 - Reuse the same model/runtime interfaces behind hosted workers or HTTP.
 - Add authentication, encryption, synchronization, tenancy, and conflict handling
@@ -159,9 +220,11 @@ Every model, runtime, retrieval, or intelligence change reports:
 - extraction schema validity;
 - fact/entity/relationship precision and recall;
 - retrieval Recall@5/10, MRR, and abstention accuracy;
+- English, Arabic, and English/Arabic cross-lingual retrieval where relevant;
 - injected-memory precision and active-injection task-success delta;
 - p50/p95 cold and warm latency;
-- peak RAM, on-disk model size, and model load time;
+- peak RAM, on-disk model size, database/index growth, and model load time;
+- re-embedding or migration time and recovery behavior when vector spaces change;
 - generated tokens and context tokens injected;
 - offline success after model installation;
-- quality delta versus the LFM2.5 1.2B local reference.
+- quality delta versus the relevant untuned local reference.
