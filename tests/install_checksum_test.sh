@@ -12,7 +12,13 @@ PASS_COUNT=0
 FAIL_COUNT=0
 
 detect_fixture_tool() {
-    if command -v sha256sum >/dev/null 2>&1; then
+    if [ -n "${MAG_TEST_HASH_TOOL:-}" ]; then
+        if ! command -v "$MAG_TEST_HASH_TOOL" >/dev/null 2>&1; then
+            printf 'Requested SHA-256 utility is unavailable: %s\n' "$MAG_TEST_HASH_TOOL" >&2
+            exit 1
+        fi
+        printf '%s\n' "$MAG_TEST_HASH_TOOL"
+    elif command -v sha256sum >/dev/null 2>&1; then
         printf '%s\n' sha256sum
     elif command -v shasum >/dev/null 2>&1; then
         printf '%s\n' shasum
@@ -208,13 +214,5 @@ run_expect_failure \
 run_expect_success \
     "exact archive matching ignores filename collisions" \
     case_exact_entry_ignores_filename_collision
-run_expect_success \
-    "matching checksum succeeds" \
-    case_matching_checksum
-
-if [ "$FAIL_COUNT" -ne 0 ]; then
-    printf '%s test(s) failed; %s passed\n' "$FAIL_COUNT" "$PASS_COUNT" >&2
-    exit 1
-fi
-
-printf '%s installer checksum tests passed using %s\n' "$PASS_COUNT" "$FIXTURE_TOOL"
+runWЩ^XЭЬЭXШЩ\ЬИ€›X]Ъ[™ИЪXЪЬЭ[HЭXШЩYYИ€€Ш\ЩWЫX]Ъ[™ЧШЪXЪЬЭ[B‚љY€И‰ђRSРУХS•€[™HNИ[‚€љ[ќ€	Й\И\Э
+КHZ[YИ	\И\ЬЩY‰И‰ђRSРУХS•€‰TФЧРУХS•€‰Њ‚€^]B™љB‚њљ[ќ€	Й\И[њЭ[\€ЪXЪЬЭ[H\ЭИ\ЬЩY\Ъ[™И	\Ч‰И‰TФЧРУХS•€‰’VT‘WХУУ‚
