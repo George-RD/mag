@@ -214,8 +214,7 @@
         "./src/uninstall.rs"
       ],
       "edges": [
-        "mag.integrations.connectors",
-        "mag.runtime.daemon"
+        "mag.integrations.connectors"
       ]
     },
     "mag.runtime.substrate": {

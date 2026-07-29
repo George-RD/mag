@@ -68,7 +68,7 @@ None in Phase 1.
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/session.rs` at 611 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/tests.rs` at 8378 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/config_writer.rs` at 1825 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/setup.rs` at 1977 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/setup.rs` at 1975 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/tool_detection.rs` at 1439 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/uninstall.rs` at 1402 lines, over the 500-line guideline with no allow-list marker
 - info: CAIRN_RECONCILE_ORPHANED_FILE Rust file `src/bin/fetch_benchmark_data.rs` is not owned by any eligible node

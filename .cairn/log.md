@@ -4,3 +4,5 @@
 - scan: nodes=23, findings=32, errors=0
 - scan: nodes=23, findings=32, errors=0
 - scan: nodes=23, findings=32, errors=0
+- scan: nodes=23, findings=32, errors=0
+- scan: nodes=23, findings=32, errors=0

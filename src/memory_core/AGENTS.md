@@ -19,19 +19,26 @@ Relevant nodes:
 - `mag.runtime.memory.retrieval` — candidate retrieval, reranking, scoring, abstention;
 - `mag.runtime.memory.storage.sqlite` — production storage and query pipeline;
 - `mag.runtime.memory.storage.memory` — reference backend and parity target;
-- `mag.runtime.substrate` — candidate composition path, outside this directory.
+- `mag.runtime.substrate` — unselected candidate composition path, outside this directory.
 
 ## Current constraint
 
-The production composition root is under active review. Do not add equivalent
-behaviour to both the legacy `Pipeline` path and `substrate`. Before changing
-or deleting either, use:
+`dec.select-local-runtime-composition-root` selects one entrypoint-owned local
+runtime over the current SQLite-backed implementation. Do not add product
+behaviour to the legacy `Pipeline` or feature-gated substrate. Fold a narrow
+boundary into the live path only through a tracked migration slice with
+public-surface parity coverage.
+
+Before changing or removing a compatibility path, use:
 
 ```bash
-cairn brief todo.audit-current-architecture-and-dead-code
+cairn rationale mag.runtime.memory
+cairn brief todo.introduce-local-memory-runtime-facade
+cairn brief todo.retire-legacy-and-substrate-orchestration
 ```
 
-and trace current callers, feature flags, tests, benchmarks, and fallbacks.
+The legacy `Pipeline`'s observable `processed: ` content remains protected until
+a separate versioned migration decision changes it.
 
 ## Memory-system invariants
 

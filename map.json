@@ -12326,7 +12326,7 @@
     {
       "from": "mag.quality.benchmarks",
       "to": "mag.runtime.substrate",
-      "description": "Measures the candidate orchestration path"
+      "description": "Measures the retained candidate orchestration path"
     },
     {
       "from": "mag.quality.scripts",
@@ -12425,33 +12425,28 @@
     },
     {
       "from": "mag.runtime.setup",
-      "to": "mag.runtime.daemon",
-      "description": "Reads feature-gated daemon metadata; no HTTP process is assembled"
-    },
-    {
-      "from": "mag.runtime.setup",
       "to": "mag.integrations.connectors",
       "description": "Installs and removes connector content"
     },
     {
       "from": "mag.runtime.substrate",
       "to": "mag.runtime.memory.domain",
-      "description": "Composes stable memory traits in tests and benchmarks"
+      "description": "Retains candidate composition over stable traits during migration"
     },
     {
       "from": "mag.runtime.substrate",
       "to": "mag.runtime.memory.models",
-      "description": "Uses embedding and optional LLM abstractions"
+      "description": "Retains experimental model abstraction use; not production wiring"
     },
     {
       "from": "mag.runtime.substrate",
       "to": "mag.runtime.memory.retrieval",
-      "description": "Composes retrieval and scoring strategies"
+      "description": "Retains test and benchmark composition pending retirement"
     },
     {
       "from": "mag.runtime.substrate",
       "to": "mag.runtime.memory.storage.sqlite",
-      "description": "Bridges experiments to the production backend"
+      "description": "Bridges retained tests and benchmarks to the production backend"
     }
   ],
   "findings": [
@@ -12661,7 +12656,7 @@
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.setup` claims `src/setup.rs` at 1977 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.setup` claims `src/setup.rs` at 1975 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.setup",
       "path": "src/setup.rs"
     },

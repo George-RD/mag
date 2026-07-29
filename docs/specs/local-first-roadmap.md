@@ -62,6 +62,9 @@ here; doing so would create two status sources.
 10. Retriever and generative fine-tuning follow stable architecture and
     held-out evaluations. Evaluation runs begin collecting training evidence
     before training begins.
+11. The production composition root is one entrypoint-owned local runtime over
+    the current SQLite-backed implementation. The feature-gated substrate is not
+    promoted wholesale; only proven narrow boundaries move into the live path.
 
 ## Contradictions resolved
 
@@ -110,7 +113,7 @@ P0 is the common gate. After it:
 
 - Onboard and curate Cairn against the actual repository.
 - Audit current callers, feature flags, fallback paths, tests, and benchmarks.
-- Choose the production composition root and define the migration/removal path.
+- Introduce the selected local runtime facade and execute its migration/removal path.
 - Separate model role, runtime, and transport in the chosen architecture.
 - Define model profiles with query/document roles, embedding-space identity,
   dimensions, pooling, runtime, quantization, checksums, and licence metadata.
