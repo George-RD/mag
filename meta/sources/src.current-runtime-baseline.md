@@ -1,12 +1,13 @@
 ---
 id: src.current-runtime-baseline
-file: https://github.com/George-RD/mag/tree/9eba6157a225f244b94eefcf83e883c1309d30ec
+file: meta/sources/current-runtime-baseline.txt
+sha256: 2d478a65b172a28ab0a08afb47969cee6bafe9486c3cdc399e2ab72ceab7d76e
 verification: verified
 type: repository snapshot and static call-path audit
 date: 2026-07-29
 ---
 
-Production entrypoints, feature gates, direct callers, tests, and benchmark
-binaries were traced against this immutable repository commit. The audit treats
+The pinned manifest identifies the immutable repository commit and the exact
+production, feature, test, and benchmark surfaces inspected. The audit treats
 compiled, tested, benchmarked, and production-constructed paths as distinct
 states.
