@@ -12,7 +12,11 @@ nodes:
   - mag.runtime.daemon
   - mag.quality.tests
   - mag.quality.benchmarks
-sources: [src.mag-agents-guide, src.dead-code-recon, src.source-tree-recon]
+sources:
+  - src.current-runtime-baseline
+  - src.mag-agents-guide
+  - src.dead-code-recon
+  - src.source-tree-recon
 date: 2026-07-29
 baseline_commit: 9eba6157a225f244b94eefcf83e883c1309d30ec
 ---
