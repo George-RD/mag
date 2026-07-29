@@ -79,8 +79,12 @@ jobs:
         run: python -m unittest discover -s python/tests -v
 
   shell-installer-test:
-    name: Shell Installer Integrity
-    runs-on: ubuntu-latest
+    name: Shell Installer Integrity (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v6
       - name: Run installer checksum tests
