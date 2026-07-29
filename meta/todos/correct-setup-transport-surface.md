@@ -21,8 +21,9 @@ executable end to end:
   orchestration boundaries before detection or file access, retains the valid
   `mag serve` command entry, removes misleading daemon flags/checks, and updates
   setup help and maintained guidance.
-- Full repository and Cairn verification remains pending on the implementation
-  head before this todo can be completed.
+- The first implementation run exposed a stale full-flow test fixture and the
+  expected Cairn interface-hash change. Both are corrected; full repository and
+  Cairn verification is rerunning on the corrected head.
 
 ## Acceptance criteria
 
