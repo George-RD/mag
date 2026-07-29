@@ -108,7 +108,8 @@
         "python/mag_memory/_download.py",
         "python/mag_memory/active_strategies.py",
         "python/mag_memory/longmemeval_runner.py",
-        "python/mag_memory/mcp_client.py"
+        "python/mag_memory/mcp_client.py",
+        "python/tests/test_version_provenance.py"
       ],
       "contracts": [
         "./meta/contracts/integrations.python.md"
@@ -151,8 +152,8 @@
           "kind": "variable",
           "signature": "assignment:args",
           "file": "python/mag_memory/__init__.py",
-          "line": 87,
-          "end_line": 87
+          "line": 114,
+          "end_line": 114
         },
         {
           "name": "args",
@@ -215,16 +216,16 @@
           "kind": "variable",
           "signature": "assignment:binary",
           "file": "python/mag_memory/__init__.py",
-          "line": 66,
-          "end_line": 66
+          "line": 93,
+          "end_line": 93
         },
         {
           "name": "binary",
           "kind": "variable",
           "signature": "assignment:binary",
           "file": "python/mag_memory/__init__.py",
-          "line": 75,
-          "end_line": 75
+          "line": 102,
+          "end_line": 102
         },
         {
           "name": "binary_member",
@@ -575,16 +576,16 @@
           "kind": "variable",
           "signature": "assignment:found",
           "file": "python/mag_memory/__init__.py",
-          "line": 57,
-          "end_line": 57
+          "line": 84,
+          "end_line": 84
         },
         {
           "name": "header",
           "kind": "variable",
           "signature": "assignment:header",
           "file": "python/mag_memory/__init__.py",
-          "line": 39,
-          "end_line": 39
+          "line": 61,
+          "end_line": 61
         },
         {
           "name": "key",
@@ -775,8 +776,8 @@
           "kind": "variable",
           "signature": "assignment:packaged",
           "file": "python/mag_memory/__init__.py",
-          "line": 51,
-          "end_line": 51
+          "line": 78,
+          "end_line": 78
         },
         {
           "name": "parser",
@@ -1071,8 +1072,8 @@
           "kind": "variable",
           "signature": "assignment:result",
           "file": "python/mag_memory/__init__.py",
-          "line": 93,
-          "end_line": 93
+          "line": 120,
+          "end_line": 120
         },
         {
           "name": "result",
@@ -1691,6 +1692,14 @@
           "end_line": 111
         },
         {
+          "name": "VersionProvenanceTests",
+          "kind": "class",
+          "signature": "class_definition:VersionProvenanceTests",
+          "file": "python/tests/test_version_provenance.py",
+          "line": 8,
+          "end_line": 27
+        },
+        {
           "name": "build_strategy",
           "kind": "function",
           "signature": "function_definition:build_strategy",
@@ -1751,8 +1760,8 @@
           "kind": "function",
           "signature": "function_definition:main",
           "file": "python/mag_memory/__init__.py",
-          "line": 63,
-          "end_line": 94
+          "line": 90,
+          "end_line": 121
         },
         {
           "name": "on_session_stored",
@@ -1881,6 +1890,38 @@
           "file": "python/mag_memory/mcp_client.py",
           "line": 150,
           "end_line": 152
+        },
+        {
+          "name": "test_binary_version_fails_closed_without_distribution_metadata",
+          "kind": "function",
+          "signature": "function_definition:test_binary_version_fails_closed_without_distribution_metadata",
+          "file": "python/tests/test_version_provenance.py",
+          "line": 21,
+          "end_line": 24
+        },
+        {
+          "name": "test_binary_version_matches_installed_distribution",
+          "kind": "function",
+          "signature": "function_definition:test_binary_version_matches_installed_distribution",
+          "file": "python/tests/test_version_provenance.py",
+          "line": 15,
+          "end_line": 19
+        },
+        {
+          "name": "test_public_version_matches_installed_distribution",
+          "kind": "function",
+          "signature": "function_definition:test_public_version_matches_installed_distribution",
+          "file": "python/tests/test_version_provenance.py",
+          "line": 9,
+          "end_line": 13
+        },
+        {
+          "name": "test_wrapper_has_no_independent_binary_version_constant",
+          "kind": "function",
+          "signature": "function_definition:test_wrapper_has_no_independent_binary_version_constant",
+          "file": "python/tests/test_version_provenance.py",
+          "line": 26,
+          "end_line": 27
         }
       ]
     },
