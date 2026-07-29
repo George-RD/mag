@@ -78,6 +78,14 @@ jobs:
       - name: Run wrapper tests
         run: python -m unittest discover -s python/tests -v
 
+  shell-installer-test:
+    name: Shell Installer Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run installer checksum tests
+        run: sh tests/install_checksum_test.sh
+
   benchmark:
     name: Benchmark Gate
     runs-on: ubuntu-latest
