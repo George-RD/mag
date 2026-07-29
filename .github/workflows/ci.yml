@@ -79,12 +79,20 @@ jobs:
         run: python -m unittest discover -s python/tests -v
 
   shell-installer-test:
-    name: Shell Installer Integrity (${{ matrix.os }})
+    name: Shell Installer Integrity (${{ matrix.hash-tool }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            hash-tool: sha256sum
+          - os: macos-latest
+            hash-tool: shasum
+          - os: ubuntu-latest
+            hash-tool: openssl
+    env:
+      MAG_TEST_HASH_TOOL: ${{ matrix.hash-tool }}
     steps:
       - uses: actions/checkout@v6
       - name: Run installer checksum tests
