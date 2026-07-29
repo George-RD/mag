@@ -24,10 +24,10 @@
   "mag.runtime.memory.storage.api:src/memory_core/storage/mod.rs": "b1be532ee79adc24",
   "mag.runtime.memory.storage.memory:src/memory_core/storage/memory": "a3784fc33bac37a3",
   "mag.runtime.memory.storage.sqlite:src/memory_core/storage/sqlite": "557f7de4989312d5",
-  "mag.runtime.setup:src/app_paths.rs": "5359ef6e1ad2b9fa",
-  "mag.runtime.setup:src/config_writer.rs": "5359ef6e1ad2b9fa",
-  "mag.runtime.setup:src/setup.rs": "5359ef6e1ad2b9fa",
-  "mag.runtime.setup:src/tool_detection.rs": "5359ef6e1ad2b9fa",
-  "mag.runtime.setup:src/uninstall.rs": "5359ef6e1ad2b9fa",
+  "mag.runtime.setup:src/app_paths.rs": "256e222bcfbef49e",
+  "mag.runtime.setup:src/config_writer.rs": "256e222bcfbef49e",
+  "mag.runtime.setup:src/setup.rs": "256e222bcfbef49e",
+  "mag.runtime.setup:src/tool_detection.rs": "256e222bcfbef49e",
+  "mag.runtime.setup:src/uninstall.rs": "256e222bcfbef49e",
   "mag.runtime.substrate:src/substrate": "3bd1c06eff4006f4"
 }

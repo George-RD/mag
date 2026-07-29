@@ -49,8 +49,8 @@ None in Phase 1.
 - warning: CAIRN_MODULE_OVERSIZED module `mag.quality.tests` claims `tests/cli_output_smoke.rs` at 583 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.quality.tests` claims `tests/mcp_smoke.rs` at 1099 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.quality.tests` claims `tests/storage_conformance.rs` at 639 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/cli.rs` at 1255 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/main.rs` at 1714 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/cli.rs` at 1271 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/main.rs` at 1710 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/mod.rs` at 764 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/tools/facades.rs` at 796 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.domain` claims `src/memory_core/domain.rs` at 589 lines, over the 500-line guideline with no allow-list marker
@@ -68,7 +68,7 @@ None in Phase 1.
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/session.rs` at 611 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/tests.rs` at 8378 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/config_writer.rs` at 1825 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/setup.rs` at 1969 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/setup.rs` at 1977 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/tool_detection.rs` at 1439 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/uninstall.rs` at 1402 lines, over the 500-line guideline with no allow-list marker
 - info: CAIRN_RECONCILE_ORPHANED_FILE Rust file `src/bin/fetch_benchmark_data.rs` is not owned by any eligible node

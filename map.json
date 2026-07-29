@@ -4530,7 +4530,7 @@
           "signature": "pub enum Commands",
           "file": "src/cli.rs",
           "line": 73,
-          "end_line": 403
+          "end_line": 397
         },
         {
           "name": "FeedbackRating",
@@ -4674,7 +4674,7 @@
           "signature": "pub enum Commands",
           "file": "src/cli.rs",
           "line": 73,
-          "end_line": 403
+          "end_line": 397
         },
         {
           "name": "FeedbackRating",
@@ -4818,7 +4818,7 @@
           "signature": "pub enum Commands",
           "file": "src/cli.rs",
           "line": 73,
-          "end_line": 403
+          "end_line": 397
         },
         {
           "name": "FeedbackRating",
@@ -9996,8 +9996,8 @@
           "kind": "function",
           "signature": "pub async fn run_setup(args: SetupArgs) -> Result<()>",
           "file": "src/setup.rs",
-          "line": 47,
-          "end_line": 117
+          "line": 45,
+          "end_line": 114
         },
         {
           "name": "run_uninstall",
@@ -10170,10 +10170,10 @@
         {
           "name": "parse_transport",
           "kind": "function",
-          "signature": "pub fn parse_transport(s: &str, port: u16) -> Result<TransportMode>",
+          "signature": "pub fn parse_transport(s: &str) -> Result<TransportMode>",
           "file": "src/setup.rs",
-          "line": 928,
-          "end_line": 937
+          "line": 915,
+          "end_line": 922
         },
         {
           "name": "patch_sandbox_allowlist",
@@ -10285,39 +10285,39 @@
           "signature": "pub struct SetupArgs",
           "file": "src/setup.rs",
           "line": 20,
-          "end_line": 30
+          "end_line": 28
         },
         {
           "name": "agents_md_target",
           "kind": "function",
           "signature": "pub(crate) fn agents_md_target( tool: tool_detection::AiTool, home: &Path, ) -> Option<(&'static str, PathBuf)>",
           "file": "src/setup.rs",
-          "line": 605,
-          "end_line": 616
+          "line": 603,
+          "end_line": 614
         },
         {
           "name": "install_agents_md",
           "kind": "function",
           "signature": "pub(crate) fn install_agents_md(tool: tool_detection::AiTool, home: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 641,
-          "end_line": 713
+          "line": 639,
+          "end_line": 711
         },
         {
           "name": "install_rules",
           "kind": "function",
           "signature": "pub(crate) fn install_rules( tool: tool_detection::AiTool, project_root: Option<&std::path::Path>, ) -> anyhow::Result<bool>",
           "file": "src/setup.rs",
-          "line": 765,
-          "end_line": 796
+          "line": 763,
+          "end_line": 794
         },
         {
           "name": "install_skills",
           "kind": "function",
           "signature": "pub(crate) fn install_skills(tool: tool_detection::AiTool, home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 720,
-          "end_line": 755
+          "line": 718,
+          "end_line": 753
         },
         {
           "name": "mcp_key_for_tool",
@@ -10332,24 +10332,24 @@
           "kind": "function",
           "signature": "pub(crate) fn remove_agents_md_section(path: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 801,
-          "end_line": 852
+          "line": 799,
+          "end_line": 850
         },
         {
           "name": "remove_opencode_skills",
           "kind": "function",
           "signature": "pub(crate) fn remove_opencode_skills(home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 859,
-          "end_line": 890
+          "line": 857,
+          "end_line": 888
         },
         {
           "name": "run_setup",
           "kind": "function",
           "signature": "pub async fn run_setup(args: SetupArgs) -> Result<()>",
           "file": "src/setup.rs",
-          "line": 47,
-          "end_line": 117
+          "line": 45,
+          "end_line": 114
         },
         {
           "name": "run_uninstall",
@@ -10522,10 +10522,10 @@
         {
           "name": "parse_transport",
           "kind": "function",
-          "signature": "pub fn parse_transport(s: &str, port: u16) -> Result<TransportMode>",
+          "signature": "pub fn parse_transport(s: &str) -> Result<TransportMode>",
           "file": "src/setup.rs",
-          "line": 928,
-          "end_line": 937
+          "line": 915,
+          "end_line": 922
         },
         {
           "name": "patch_sandbox_allowlist",
@@ -10637,39 +10637,39 @@
           "signature": "pub struct SetupArgs",
           "file": "src/setup.rs",
           "line": 20,
-          "end_line": 30
+          "end_line": 28
         },
         {
           "name": "agents_md_target",
           "kind": "function",
           "signature": "pub(crate) fn agents_md_target( tool: tool_detection::AiTool, home: &Path, ) -> Option<(&'static str, PathBuf)>",
           "file": "src/setup.rs",
-          "line": 605,
-          "end_line": 616
+          "line": 603,
+          "end_line": 614
         },
         {
           "name": "install_agents_md",
           "kind": "function",
           "signature": "pub(crate) fn install_agents_md(tool: tool_detection::AiTool, home: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 641,
-          "end_line": 713
+          "line": 639,
+          "end_line": 711
         },
         {
           "name": "install_rules",
           "kind": "function",
           "signature": "pub(crate) fn install_rules( tool: tool_detection::AiTool, project_root: Option<&std::path::Path>, ) -> anyhow::Result<bool>",
           "file": "src/setup.rs",
-          "line": 765,
-          "end_line": 796
+          "line": 763,
+          "end_line": 794
         },
         {
           "name": "install_skills",
           "kind": "function",
           "signature": "pub(crate) fn install_skills(tool: tool_detection::AiTool, home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 720,
-          "end_line": 755
+          "line": 718,
+          "end_line": 753
         },
         {
           "name": "mcp_key_for_tool",
@@ -10684,24 +10684,24 @@
           "kind": "function",
           "signature": "pub(crate) fn remove_agents_md_section(path: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 801,
-          "end_line": 852
+          "line": 799,
+          "end_line": 850
         },
         {
           "name": "remove_opencode_skills",
           "kind": "function",
           "signature": "pub(crate) fn remove_opencode_skills(home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 859,
-          "end_line": 890
+          "line": 857,
+          "end_line": 888
         },
         {
           "name": "run_setup",
           "kind": "function",
           "signature": "pub async fn run_setup(args: SetupArgs) -> Result<()>",
           "file": "src/setup.rs",
-          "line": 47,
-          "end_line": 117
+          "line": 45,
+          "end_line": 114
         },
         {
           "name": "run_uninstall",
@@ -10874,10 +10874,10 @@
         {
           "name": "parse_transport",
           "kind": "function",
-          "signature": "pub fn parse_transport(s: &str, port: u16) -> Result<TransportMode>",
+          "signature": "pub fn parse_transport(s: &str) -> Result<TransportMode>",
           "file": "src/setup.rs",
-          "line": 928,
-          "end_line": 937
+          "line": 915,
+          "end_line": 922
         },
         {
           "name": "patch_sandbox_allowlist",
@@ -10989,39 +10989,39 @@
           "signature": "pub struct SetupArgs",
           "file": "src/setup.rs",
           "line": 20,
-          "end_line": 30
+          "end_line": 28
         },
         {
           "name": "agents_md_target",
           "kind": "function",
           "signature": "pub(crate) fn agents_md_target( tool: tool_detection::AiTool, home: &Path, ) -> Option<(&'static str, PathBuf)>",
           "file": "src/setup.rs",
-          "line": 605,
-          "end_line": 616
+          "line": 603,
+          "end_line": 614
         },
         {
           "name": "install_agents_md",
           "kind": "function",
           "signature": "pub(crate) fn install_agents_md(tool: tool_detection::AiTool, home: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 641,
-          "end_line": 713
+          "line": 639,
+          "end_line": 711
         },
         {
           "name": "install_rules",
           "kind": "function",
           "signature": "pub(crate) fn install_rules( tool: tool_detection::AiTool, project_root: Option<&std::path::Path>, ) -> anyhow::Result<bool>",
           "file": "src/setup.rs",
-          "line": 765,
-          "end_line": 796
+          "line": 763,
+          "end_line": 794
         },
         {
           "name": "install_skills",
           "kind": "function",
           "signature": "pub(crate) fn install_skills(tool: tool_detection::AiTool, home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 720,
-          "end_line": 755
+          "line": 718,
+          "end_line": 753
         },
         {
           "name": "mcp_key_for_tool",
@@ -11036,24 +11036,24 @@
           "kind": "function",
           "signature": "pub(crate) fn remove_agents_md_section(path: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 801,
-          "end_line": 852
+          "line": 799,
+          "end_line": 850
         },
         {
           "name": "remove_opencode_skills",
           "kind": "function",
           "signature": "pub(crate) fn remove_opencode_skills(home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 859,
-          "end_line": 890
+          "line": 857,
+          "end_line": 888
         },
         {
           "name": "run_setup",
           "kind": "function",
           "signature": "pub async fn run_setup(args: SetupArgs) -> Result<()>",
           "file": "src/setup.rs",
-          "line": 47,
-          "end_line": 117
+          "line": 45,
+          "end_line": 114
         },
         {
           "name": "run_uninstall",
@@ -11226,10 +11226,10 @@
         {
           "name": "parse_transport",
           "kind": "function",
-          "signature": "pub fn parse_transport(s: &str, port: u16) -> Result<TransportMode>",
+          "signature": "pub fn parse_transport(s: &str) -> Result<TransportMode>",
           "file": "src/setup.rs",
-          "line": 928,
-          "end_line": 937
+          "line": 915,
+          "end_line": 922
         },
         {
           "name": "patch_sandbox_allowlist",
@@ -11341,39 +11341,39 @@
           "signature": "pub struct SetupArgs",
           "file": "src/setup.rs",
           "line": 20,
-          "end_line": 30
+          "end_line": 28
         },
         {
           "name": "agents_md_target",
           "kind": "function",
           "signature": "pub(crate) fn agents_md_target( tool: tool_detection::AiTool, home: &Path, ) -> Option<(&'static str, PathBuf)>",
           "file": "src/setup.rs",
-          "line": 605,
-          "end_line": 616
+          "line": 603,
+          "end_line": 614
         },
         {
           "name": "install_agents_md",
           "kind": "function",
           "signature": "pub(crate) fn install_agents_md(tool: tool_detection::AiTool, home: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 641,
-          "end_line": 713
+          "line": 639,
+          "end_line": 711
         },
         {
           "name": "install_rules",
           "kind": "function",
           "signature": "pub(crate) fn install_rules( tool: tool_detection::AiTool, project_root: Option<&std::path::Path>, ) -> anyhow::Result<bool>",
           "file": "src/setup.rs",
-          "line": 765,
-          "end_line": 796
+          "line": 763,
+          "end_line": 794
         },
         {
           "name": "install_skills",
           "kind": "function",
           "signature": "pub(crate) fn install_skills(tool: tool_detection::AiTool, home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 720,
-          "end_line": 755
+          "line": 718,
+          "end_line": 753
         },
         {
           "name": "mcp_key_for_tool",
@@ -11388,24 +11388,24 @@
           "kind": "function",
           "signature": "pub(crate) fn remove_agents_md_section(path: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 801,
-          "end_line": 852
+          "line": 799,
+          "end_line": 850
         },
         {
           "name": "remove_opencode_skills",
           "kind": "function",
           "signature": "pub(crate) fn remove_opencode_skills(home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 859,
-          "end_line": 890
+          "line": 857,
+          "end_line": 888
         },
         {
           "name": "run_setup",
           "kind": "function",
           "signature": "pub async fn run_setup(args: SetupArgs) -> Result<()>",
           "file": "src/setup.rs",
-          "line": 47,
-          "end_line": 117
+          "line": 45,
+          "end_line": 114
         },
         {
           "name": "run_uninstall",
@@ -11578,10 +11578,10 @@
         {
           "name": "parse_transport",
           "kind": "function",
-          "signature": "pub fn parse_transport(s: &str, port: u16) -> Result<TransportMode>",
+          "signature": "pub fn parse_transport(s: &str) -> Result<TransportMode>",
           "file": "src/setup.rs",
-          "line": 928,
-          "end_line": 937
+          "line": 915,
+          "end_line": 922
         },
         {
           "name": "patch_sandbox_allowlist",
@@ -11693,39 +11693,39 @@
           "signature": "pub struct SetupArgs",
           "file": "src/setup.rs",
           "line": 20,
-          "end_line": 30
+          "end_line": 28
         },
         {
           "name": "agents_md_target",
           "kind": "function",
           "signature": "pub(crate) fn agents_md_target( tool: tool_detection::AiTool, home: &Path, ) -> Option<(&'static str, PathBuf)>",
           "file": "src/setup.rs",
-          "line": 605,
-          "end_line": 616
+          "line": 603,
+          "end_line": 614
         },
         {
           "name": "install_agents_md",
           "kind": "function",
           "signature": "pub(crate) fn install_agents_md(tool: tool_detection::AiTool, home: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 641,
-          "end_line": 713
+          "line": 639,
+          "end_line": 711
         },
         {
           "name": "install_rules",
           "kind": "function",
           "signature": "pub(crate) fn install_rules( tool: tool_detection::AiTool, project_root: Option<&std::path::Path>, ) -> anyhow::Result<bool>",
           "file": "src/setup.rs",
-          "line": 765,
-          "end_line": 796
+          "line": 763,
+          "end_line": 794
         },
         {
           "name": "install_skills",
           "kind": "function",
           "signature": "pub(crate) fn install_skills(tool: tool_detection::AiTool, home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 720,
-          "end_line": 755
+          "line": 718,
+          "end_line": 753
         },
         {
           "name": "mcp_key_for_tool",
@@ -11740,16 +11740,16 @@
           "kind": "function",
           "signature": "pub(crate) fn remove_agents_md_section(path: &Path) -> Result<bool>",
           "file": "src/setup.rs",
-          "line": 801,
-          "end_line": 852
+          "line": 799,
+          "end_line": 850
         },
         {
           "name": "remove_opencode_skills",
           "kind": "function",
           "signature": "pub(crate) fn remove_opencode_skills(home: &Path) -> Result<usize>",
           "file": "src/setup.rs",
-          "line": 859,
-          "end_line": 890
+          "line": 857,
+          "end_line": 888
         }
       ]
     },
@@ -12326,7 +12326,7 @@
     {
       "from": "mag.quality.benchmarks",
       "to": "mag.runtime.substrate",
-      "description": "Compares candidate orchestration paths"
+      "description": "Measures the candidate orchestration path"
     },
     {
       "from": "mag.quality.scripts",
@@ -12344,11 +12344,6 @@
       "description": "Verifies runtime behavior and contracts"
     },
     {
-      "from": "mag.runtime.daemon",
-      "to": "mag.runtime.mcp",
-      "description": "Serves the same MCP semantics over HTTP"
-    },
-    {
       "from": "mag.runtime.entrypoints",
       "to": "mag.runtime.setup",
       "description": "Dispatches setup, configuration, and uninstall commands"
@@ -12361,32 +12356,32 @@
     {
       "from": "mag.runtime.entrypoints",
       "to": "mag.runtime.memory.domain",
-      "description": "Builds the public memory pipeline"
+      "description": "Builds the compatibility-sensitive CLI pipeline"
     },
     {
       "from": "mag.runtime.entrypoints",
       "to": "mag.runtime.memory.models",
-      "description": "Constructs embedding and optional LLM backends"
+      "description": "Constructs the production embedding adapter"
+    },
+    {
+      "from": "mag.runtime.entrypoints",
+      "to": "mag.runtime.memory.retrieval",
+      "description": "Optionally constructs the cross-encoder reranker"
     },
     {
       "from": "mag.runtime.entrypoints",
       "to": "mag.runtime.memory.storage.sqlite",
-      "description": "Constructs the production storage backend"
-    },
-    {
-      "from": "mag.runtime.entrypoints",
-      "to": "mag.runtime.daemon",
-      "description": "Starts the optional HTTP adapter"
+      "description": "Constructs the production storage and query backend"
     },
     {
       "from": "mag.runtime.mcp",
       "to": "mag.runtime.memory.domain",
-      "description": "Exposes domain operations as validated tools"
+      "description": "Uses stable domain inputs and outputs"
     },
     {
       "from": "mag.runtime.mcp",
       "to": "mag.runtime.memory.storage.sqlite",
-      "description": "Delegates tool execution to SQLite storage"
+      "description": "Delegates tool execution directly to SQLite capabilities"
     },
     {
       "from": "mag.runtime.memory.models",
@@ -12426,7 +12421,12 @@
     {
       "from": "mag.runtime.memory.storage.sqlite",
       "to": "mag.runtime.memory.retrieval",
-      "description": "Runs the advanced retrieval pipeline"
+      "description": "Runs the production advanced retrieval pipeline"
+    },
+    {
+      "from": "mag.runtime.setup",
+      "to": "mag.runtime.daemon",
+      "description": "Reads feature-gated daemon metadata; no HTTP process is assembled"
     },
     {
       "from": "mag.runtime.setup",
@@ -12436,12 +12436,12 @@
     {
       "from": "mag.runtime.substrate",
       "to": "mag.runtime.memory.domain",
-      "description": "Composes stable memory traits"
+      "description": "Composes stable memory traits in tests and benchmarks"
     },
     {
       "from": "mag.runtime.substrate",
       "to": "mag.runtime.memory.models",
-      "description": "Uses model-role abstractions"
+      "description": "Uses embedding and optional LLM abstractions"
     },
     {
       "from": "mag.runtime.substrate",
@@ -12451,7 +12451,7 @@
     {
       "from": "mag.runtime.substrate",
       "to": "mag.runtime.memory.storage.sqlite",
-      "description": "Bridges to the production backend"
+      "description": "Bridges experiments to the production backend"
     }
   ],
   "findings": [
@@ -12528,14 +12528,14 @@
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.entrypoints` claims `src/cli.rs` at 1255 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.entrypoints` claims `src/cli.rs` at 1271 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.entrypoints",
       "path": "src/cli.rs"
     },
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1714 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1710 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.entrypoints",
       "path": "src/main.rs"
     },
@@ -12661,7 +12661,7 @@
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.setup` claims `src/setup.rs` at 1969 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.setup` claims `src/setup.rs` at 1977 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.setup",
       "path": "src/setup.rs"
     },
