@@ -3,13 +3,17 @@ node: mag.runtime.substrate
 ---
 # mag.runtime.substrate contract
 
-Substrate is a feature-gated candidate composition root, not a second product.
-It is currently constructed by integration tests and benchmark binaries only;
-no CLI or MCP production entrypoint uses it.
+The current feature-gated substrate is not the production composition root. It is
+constructed by tests and benchmark binaries only and must not gain independent
+product behaviour, schemas, retrieval semantics, or model wiring.
 
-Until the composition decision is accepted, new production intelligence must
-not be implemented independently in both substrate and the legacy/direct SQLite
-paths. Promotion requires public CLI/MCP parity, retrieval-quality and resource
-benchmarks, a reversible migration of live callers, and removal or deliberate
-retention of the superseded adapter. If substrate is not selected, only its
-proven useful boundaries should be folded into the production path.
+Useful narrow implementations may be folded into the selected local runtime only
+when a bounded migration slice has public CLI/MCP parity coverage. Retrieval,
+scoring, reranking, or storage changes also require the benchmark and local
+quality gates. Prefer the existing live capability and retrieval boundaries over
+the broad substrate `MemoryStore` supertrait.
+
+After production callers use the local runtime and the compatibility period has
+elapsed, move any retained implementation to the selected vocabulary and remove
+the duplicate substrate orchestrators and types. Keeping substrate as a second
+extension surface without a production caller violates this contract.
