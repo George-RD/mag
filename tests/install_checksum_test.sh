@@ -214,5 +214,13 @@ run_expect_failure \
 run_expect_success \
     "exact archive matching ignores filename collisions" \
     case_exact_entry_ignores_filename_collision
-runWÙ^XÝÜÝXØÙ\ÜÈˆ›X]Ú[™ÈÚXÚÜÝ[HÝXØÙYYÈˆˆØ\ÙWÛX]Ú[™×ØÚXÚÜÝ[B‚šYˆÈ‰RSÐÓÕS•ˆ[™HNÈ[‚ˆš[ˆ	É\È\Ý
-ÊH˜Z[YÈ	\È\ÜÙY‰È‰RSÐÓÕS•ˆ‰TÔ×ÐÓÕS•ˆ‰Œ‚ˆ^]B™šB‚œš[ˆ	É\È[œÝ[\ˆÚXÚÜÝ[H\ÝÈ\ÜÙY\Ú[™È	\×‰È‰TÔ×ÐÓÕS•ˆ‰’VT‘WÕÓÓ‚
+run_expect_success \
+    "matching checksum succeeds" \
+    case_matching_checksum
+
+if [ "$FAIL_COUNT" -ne 0 ]; then
+    printf '%s test(s) failed; %s passed\n' "$FAIL_COUNT" "$PASS_COUNT" >&2
+    exit 1
+fi
+
+printf '%s installer checksum tests passed using %s\n' "$PASS_COUNT" "$FIXTURE_TOOL"
