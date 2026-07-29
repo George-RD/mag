@@ -1,7 +1,7 @@
 ---
 id: src.source-tree-recon
 file: docs/strongholds/recon-source-tree.md
-sha256: cff8592f83d90efa3b420403eee11cf65bc40a7f3ac354ec6af0091ca8c4930f
+sha256: dd5d3105e939eabf49f06a0445810670c2eb2f18c7d8fb13aec53cb5b4844dda
 verification: verified
 type: historical-recon
 date: 2026-07-28

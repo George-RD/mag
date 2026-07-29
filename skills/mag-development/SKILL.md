@@ -63,25 +63,28 @@ bash scripts/smoke-test.sh
 Any change under `src/memory_core/storage/sqlite/pipeline/` is retrieval logic and
 must trigger the benchmark gate.
 
-## Local generative model
+## Experimental local generative backend
 
-The current optional `llm` module uses an OpenAI-compatible HTTP transport. The
-local-first default profile is:
+The optional `llm` module contains HTTP backend clients and configuration, but no
+production CLI or MCP caller currently constructs it. `MAG_LLM_*` variables only
+affect experiments or future code that explicitly loads `LlmConfig`; exporting
+them does not activate generative memory behaviour today.
+
+The local reference profile for bounded backend experiments is:
 
 - model: `LiquidAI/lfm2.5-1.2b-instruct`
 - endpoint: `http://localhost:11434/v1`
-- direct ONNX target: `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`
-
-Example:
+- direct ONNX candidate: `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`
 
 ```bash
 ollama pull LiquidAI/lfm2.5-1.2b-instruct
 export MAG_LLM_PROVIDER=ollama
 ```
 
-Do not describe the current generative path as in-process ONNX. MAG's embeddings
-already use ONNX; causal generation still crosses the `LlmBackend` HTTP boundary.
-Direct ONNX generation is a roadmap item.
+Do not describe this as production wiring or in-process ONNX. MAG's embeddings
+already use ONNX; experimental causal generation crosses the `LlmBackend` HTTP
+boundary. Production wiring follows the selected local runtime and evaluation
+harness; direct ONNX generation remains a roadmap candidate.
 
 The 350M model is an experimental future speed tier only. Establish task-level
 eval parity with 1.2B before routing extraction, relationship creation, grouping,

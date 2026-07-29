@@ -1,5 +1,8 @@
 # Tech Debt Recon
 
+> **Historical snapshot — 2026-04-08.** This report records a completed review, not the repository's current technical-debt queue.
+> Query live Cairn todos and re-check the code before acting on its recommendations or completion claims.
+
 ## Status: Complete (2026-04-08)
 
 ### Summary
