@@ -8,11 +8,15 @@ executor, writes are transactional, migrations are additive and idempotent,
 FTS/vector/graph indexes are repairable, and caches never become durability
 authorities.
 
-In the current runtime, SQLite also implements most live retrieval, graph,
-lifecycle, maintenance, and extended CLI/MCP behaviour. This describes the
-audited implementation; it does not settle the composition-root decision. Any
-future boundary change must preserve these behaviours through parity tests and
-benchmarks before call sites move.
+SQLite currently implements most live retrieval, graph, lifecycle, maintenance,
+and extended CLI/MCP behaviour. The selected local runtime delegates to that
+verified implementation first; it must not rewrite those semantics merely to
+introduce the composition boundary. SQLite is the production backend and current
+semantic implementation, but it is not the application composition root.
+
+Moving an algorithm or caller behind a narrower runtime capability requires
+public parity tests. Retrieval, scoring, reranking, or storage changes require
+the benchmark and local quality gates before the previous path is removed.
 
 The database records the profile and embedding-space identity used for persisted
 vectors. Re-embedding and dimension changes update the memory BLOB and vector
