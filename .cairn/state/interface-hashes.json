@@ -1,5 +1,5 @@
 {
-  "mag.integrations.python:python": "7781ed995f62d08a",
+  "mag.integrations.python:python": "00e1a1d743a82ae7",
   "mag.quality.benchmarks:benches": "0467f3453b2d1d7e",
   "mag.quality.benchmarks:src/benchmarking.rs": "0467f3453b2d1d7e",
   "mag.quality.scripts:scripts": "8a957e7bfe5d3d55",
