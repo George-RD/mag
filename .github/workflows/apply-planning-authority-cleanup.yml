@@ -6,6 +6,7 @@ on:
       - docs/rationalize-stale-planning
     paths:
       - .github/workflows/apply-planning-authority-cleanup.yml
+      - scripts/apply_planning_authority_cleanup.py
 
 permissions:
   contents: write
