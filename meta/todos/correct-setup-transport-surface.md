@@ -12,6 +12,18 @@ executable end to end:
 - `stdio` writes `mag serve --stdio`, but `serve` has no `--stdio` argument;
 - `http` writes an HTTP URL, but no HTTP MCP server is assembled.
 
+## TDD evidence
+
+- Red was observed in CI run `30472000458`: 646 tests passed and the three new
+  transport regressions failed because `http`, `stdio`, and direct setup writes
+  were still accepted.
+- The implementation now rejects unsupported modes at parsing and setup
+  orchestration boundaries before detection or file access, retains the valid
+  `mag serve` command entry, removes misleading daemon flags/checks, and updates
+  setup help and maintained guidance.
+- Full repository and Cairn verification remains pending on the implementation
+  head before this todo can be completed.
+
 ## Acceptance criteria
 
 - Tests parse or otherwise validate every generated command against the current
