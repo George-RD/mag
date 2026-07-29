@@ -72,7 +72,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
             }
         }
 
-        Module Substrate "Feature-gated candidate orchestration used by tests and benchmarks" id "mag.runtime.substrate" @architecture-decision-pending @not-production-wired {
+        Module Substrate "Feature-gated unselected orchestration retained during migration" id "mag.runtime.substrate" @not-production-wired @migration-only {
             path "./src/substrate"
             contract "./meta/contracts/runtime.substrate.md"
         }
@@ -143,20 +143,19 @@ mag.runtime.memory.storage.sqlite -> mag.runtime.memory.models "Creates and cons
 mag.runtime.memory.storage.sqlite -> mag.runtime.memory.retrieval "Runs the production advanced retrieval pipeline"
 mag.runtime.memory.storage.memory -> mag.runtime.memory.domain "Implements the reference backend contract"
 
-# Candidate orchestration path to be resolved before more production wiring
-mag.runtime.substrate -> mag.runtime.memory.domain "Composes stable memory traits in tests and benchmarks"
-mag.runtime.substrate -> mag.runtime.memory.models "Uses embedding and optional LLM abstractions"
-mag.runtime.substrate -> mag.runtime.memory.retrieval "Composes retrieval and scoring strategies"
-mag.runtime.substrate -> mag.runtime.memory.storage.sqlite "Bridges experiments to the production backend"
+# Unselected candidate orchestration retained only for migration and retirement
+mag.runtime.substrate -> mag.runtime.memory.domain "Retains candidate composition over stable traits during migration"
+mag.runtime.substrate -> mag.runtime.memory.models "Retains experimental model abstraction use; not production wiring"
+mag.runtime.substrate -> mag.runtime.memory.retrieval "Retains test and benchmark composition pending retirement"
+mag.runtime.substrate -> mag.runtime.memory.storage.sqlite "Bridges retained tests and benchmarks to the production backend"
 
 # Deployment and integrations
-mag.runtime.setup -> mag.runtime.daemon "Reads feature-gated daemon metadata; no HTTP process is assembled"
 mag.runtime.setup -> mag.integrations.connectors "Installs and removes connector content"
 mag.integrations.python -> mag.runtime.mcp "Uses MAG through its protocol surface"
 
 # Verification
 mag.quality.tests -> mag.runtime "Verifies runtime behavior and contracts"
 mag.quality.benchmarks -> mag.runtime.memory "Measures memory quality and latency"
-mag.quality.benchmarks -> mag.runtime.substrate "Measures the candidate orchestration path"
+mag.quality.benchmarks -> mag.runtime.substrate "Measures the retained candidate orchestration path"
 mag.quality.scripts -> mag.quality.tests "Runs repository quality gates"
 mag.quality.scripts -> mag.quality.benchmarks "Runs benchmark and regression gates"
