@@ -12661,7 +12661,7 @@
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.setup` claims `src/setup.rs` at 1977 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.setup` claims `src/setup.rs` at 1975 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.setup",
       "path": "src/setup.rs"
     },

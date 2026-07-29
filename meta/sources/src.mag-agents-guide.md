@@ -1,7 +1,7 @@
 ---
 id: src.mag-agents-guide
 file: AGENTS.md
-sha256: 633a680e4d980a3f0a4d0c26af39964d4ef38ba07bfce92d4ff3f89dbf4b96d7
+sha256: 57b26720b9048f5f96cfb080734ded6535a7db8e76ca70a2651689002bb80671
 verification: verified
 type: repository-guide
 date: 2026-07-28

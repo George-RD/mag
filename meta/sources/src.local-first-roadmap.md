@@ -1,7 +1,7 @@
 ---
 id: src.local-first-roadmap
 file: docs/specs/local-first-roadmap.md
-sha256: 86b62adbc4c6eafe9134cc78d9ac01c214d6b48322b57dad1676dbce478900e0
+sha256: 19929435f7ab3825c5f24cd1320ae78e4330bc28122a799b8af95ff16eb2f891
 verification: verified
 type: roadmap
 date: 2026-07-29
