@@ -19,8 +19,8 @@ Common nodes:
 | Setup, configuration, paths, uninstall | `mag.runtime.setup` |
 | MCP protocol and tools | `mag.runtime.mcp` |
 | Memory domain/models/retrieval/storage | `mag.runtime.memory` |
-| Candidate trait-composed orchestration | `mag.runtime.substrate` |
-| Optional HTTP deployment adapter | `mag.runtime.daemon` |
+| Feature-gated candidate orchestration; tests/benchmarks only | `mag.runtime.substrate` |
+| Feature-gated HTTP support primitives; no assembled server | `mag.runtime.daemon` |
 
 Do not use this file as a source-tree map. The blueprint and node contracts are
 the maintained index.
@@ -31,8 +31,12 @@ the maintained index.
 - MCP stdio reserves stdout for JSON-RPC; send logs to stderr.
 - Public CLI or MCP changes require compatibility consideration and tests.
 - Synchronous SQLite work called from async code must use `spawn_blocking`.
-- Do not duplicate new production behaviour across `memory_core::Pipeline` and
-  `substrate` while the composition decision is unresolved.
+- `SqliteStorage` is the audited current production semantic centre;
+  `memory_core::Pipeline` is a compatibility-sensitive CLI adapter.
+- Do not duplicate new production behaviour across the legacy/direct SQLite path
+  and `substrate` while the composition decision is unresolved.
+- Do not advertise a setup transport unless the current binary serves it
+  end-to-end.
 - New files and cross-node calls must be represented in Cairn.
 
 Finish with focused tests, then `cairn scan` and `cairn hook all`.
