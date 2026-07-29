@@ -1,7 +1,9 @@
 """
-Download the correct mag binary for the current platform from GitHub Releases.
+Download and verify the correct mag binary for the current platform.
 """
 
+import hashlib
+import hmac
 import io
 import os
 import platform
@@ -11,17 +13,21 @@ import tarfile
 import zipfile
 
 try:
-    from urllib.request import urlopen, Request
-    from urllib.error import URLError, HTTPError
+    from urllib.error import HTTPError, URLError
+    from urllib.request import Request, urlopen
 except ImportError:
     # Python 2 fallback (shouldn't happen with >=3.8, but defensive)
-    from urllib2 import urlopen, Request, URLError, HTTPError  # type: ignore[no-redef]
+    from urllib2 import HTTPError, Request, URLError, urlopen  # type: ignore[no-redef]
 
 
 _GITHUB_RELEASE_URL = (
     "https://github.com/George-RD/mag/releases/download/"
     "v{version}/mag-{target}.{ext}"
 )
+_GITHUB_CHECKSUMS_URL = (
+    "https://github.com/George-RD/mag/releases/download/v{version}/checksums.txt"
+)
+_HEX_DIGITS = frozenset("0123456789abcdef")
 
 # Mapping: (sys.platform, platform.machine()) -> Rust target triple
 _TARGET_MAP = {
@@ -68,14 +74,69 @@ def _download_url(url):
     """Download a URL and return its content as bytes."""
     req = Request(url, headers={"User-Agent": "mag-memory-pypi-installer"})
     try:
-        resp = urlopen(req, timeout=120)
-        return resp.read()
+        with urlopen(req, timeout=120) as resp:
+            return resp.read()
     except HTTPError as exc:
         raise RuntimeError(
             "HTTP {} downloading {}: {}".format(exc.code, url, exc.reason)
         )
     except URLError as exc:
         raise RuntimeError("Failed to download {}: {}".format(url, exc.reason))
+
+
+def _parse_checksum_manifest(data, archive_name):
+    # type: (bytes, str) -> str
+    """Return the one SHA-256 digest declared for an exact archive name."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("Malformed checksum manifest: not valid UTF-8") from exc
+
+    matches = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            raise RuntimeError(
+                "Malformed checksum manifest line {}: expected digest and filename".format(
+                    line_number
+                )
+            )
+
+        digest, filename = parts
+        digest = digest.lower()
+        filename = filename.strip()
+        if filename.startswith("*"):
+            filename = filename[1:]
+
+        if len(digest) != 64 or any(char not in _HEX_DIGITS for char in digest):
+            raise RuntimeError(
+                "Malformed checksum on line {} for '{}'".format(line_number, filename)
+            )
+
+        if filename == archive_name:
+            matches.append(digest)
+
+    if not matches:
+        raise RuntimeError("No checksum entry for '{}'".format(archive_name))
+    if len(matches) != 1:
+        raise RuntimeError("Duplicate checksum entries for '{}'".format(archive_name))
+    return matches[0]
+
+
+def _verify_archive_checksum(data, expected_digest, archive_name):
+    # type: (bytes, str, str) -> None
+    """Fail unless archive bytes match the expected SHA-256 digest."""
+    actual_digest = hashlib.sha256(data).hexdigest()
+    if not hmac.compare_digest(actual_digest, expected_digest.lower()):
+        raise RuntimeError(
+            "Checksum mismatch for '{}': expected {}, got {}".format(
+                archive_name, expected_digest, actual_digest
+            )
+        )
 
 
 def _extract_tar_gz(data, dest_dir):
@@ -141,7 +202,7 @@ def _extract_zip(data, dest_dir):
 
 def download_binary(version):
     # type: (str) -> str
-    """Download the mag binary for this platform and return its path.
+    """Download a verified mag binary for this platform and return its path.
 
     Args:
         version: The version string (e.g. "0.1.0")
@@ -150,21 +211,35 @@ def download_binary(version):
         Absolute path to the downloaded binary.
     """
     target, ext = _detect_target()
-    url = _GITHUB_RELEASE_URL.format(version=version, target=target, ext=ext)
+    archive_name = "mag-{}.{}".format(target, ext)
+    checksum_url = _GITHUB_CHECKSUMS_URL.format(version=version)
+    archive_url = _GITHUB_RELEASE_URL.format(
+        version=version,
+        target=target,
+        ext=ext,
+    )
 
-    print("mag: downloading {} ...".format(url))
+    print("mag: fetching release checksums ...")
     sys.stdout.flush()
-    data = _download_url(url)
+    manifest = _download_url(checksum_url)
+    expected_digest = _parse_checksum_manifest(manifest, archive_name)
+
+    print("mag: downloading {} ...".format(archive_url))
+    sys.stdout.flush()
+    data = _download_url(archive_url)
     print("mag: downloaded {:.1f} MB".format(len(data) / (1024.0 * 1024.0)))
     sys.stdout.flush()
 
-    # Ensure destination directory exists
+    _verify_archive_checksum(data, expected_digest, archive_name)
+    print("mag: checksum verified")
+    sys.stdout.flush()
+
+    # Create the destination only after the downloaded archive is verified.
     from mag_memory import _binary_dir
 
     dest_dir = _binary_dir()
     os.makedirs(dest_dir, exist_ok=True)
 
-    # Extract
     if ext == "zip":
         binary_path = _extract_zip(data, dest_dir)
     else:
