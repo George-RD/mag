@@ -11,6 +11,40 @@ awk '/^main "\$@"$/ { exit } { print }' "${ROOT_DIR}/install.sh" > "$INSTALL_LIB
 PASS_COUNT=0
 FAIL_COUNT=0
 
+detect_fixture_tool() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s\n' sha256sum
+    elif command -v shasum >/dev/null 2>&1; then
+        printf '%s\n' shasum
+    elif command -v openssl >/dev/null 2>&1; then
+        printf '%s\n' openssl
+    else
+        printf 'No SHA-256 utility available for installer tests\n' >&2
+        exit 1
+    fi
+}
+
+FIXTURE_TOOL=$(detect_fixture_tool)
+
+fixture_sha256() {
+    _fixture_file="$1"
+    case "$FIXTURE_TOOL" in
+        sha256sum)
+            sha256sum "$_fixture_file" | awk '{print $1}'
+            ;;
+        shasum)
+            shasum -a 256 "$_fixture_file" | awk '{print $1}'
+            ;;
+        openssl)
+            openssl dgst -sha256 "$_fixture_file" | awk '{print $NF}'
+            ;;
+    esac
+}
+
+installer_has_fixture_tool() {
+    [ "$1" = "$FIXTURE_TOOL" ]
+}
+
 pass() {
     PASS_COUNT=$((PASS_COUNT + 1))
     printf 'ok - %s\n' "$1"
@@ -85,7 +119,7 @@ case_missing_hash_tool() (
 case_manifest_download_failure() (
     load_installer
     prepare_archive "${TMP_ROOT}/manifest-download"
-    has_cmd() { [ "$1" = "sha256sum" ]; }
+    has_cmd() { installer_has_fixture_tool "$1"; }
     fetch() { return 1; }
     verify_checksum
 )
@@ -93,7 +127,7 @@ case_manifest_download_failure() (
 case_missing_exact_entry() (
     load_installer
     prepare_archive "${TMP_ROOT}/missing-entry"
-    has_cmd() { [ "$1" = "sha256sum" ]; }
+    has_cmd() { installer_has_fixture_tool "$1"; }
     fetch() {
         printf '%064d  %s\n' 0 "mag-aarch64-unknown-linux-gnu.tar.gz" > "$2"
     }
@@ -103,7 +137,7 @@ case_missing_exact_entry() (
 case_malformed_entry() (
     load_installer
     prepare_archive "${TMP_ROOT}/malformed-entry"
-    has_cmd() { [ "$1" = "sha256sum" ]; }
+    has_cmd() { installer_has_fixture_tool "$1"; }
     fetch() { printf 'not-a-sha256  %s\n' "$ARCHIVE" > "$2"; }
     verify_checksum
 )
@@ -111,8 +145,8 @@ case_malformed_entry() (
 case_duplicate_entry() (
     load_installer
     prepare_archive "${TMP_ROOT}/duplicate-entry"
-    _actual=$(sha256sum "${TMPDIR_INSTALL}/${ARCHIVE}" | awk '{print $1}')
-    has_cmd() { [ "$1" = "sha256sum" ]; }
+    _actual=$(fixture_sha256 "${TMPDIR_INSTALL}/${ARCHIVE}")
+    has_cmd() { installer_has_fixture_tool "$1"; }
     fetch() {
         printf '%s  %s\n%s  %s\n' "$_actual" "$ARCHIVE" "$_actual" "$ARCHIVE" > "$2"
     }
@@ -122,7 +156,7 @@ case_duplicate_entry() (
 case_checksum_mismatch() (
     load_installer
     prepare_archive "${TMP_ROOT}/mismatch"
-    has_cmd() { [ "$1" = "sha256sum" ]; }
+    has_cmd() { installer_has_fixture_tool "$1"; }
     fetch() { printf '%064d  %s\n' 0 "$ARCHIVE" > "$2"; }
     verify_checksum
 )
@@ -130,8 +164,8 @@ case_checksum_mismatch() (
 case_exact_entry_ignores_filename_collision() (
     load_installer
     prepare_archive "${TMP_ROOT}/filename-collision"
-    _actual=$(sha256sum "${TMPDIR_INSTALL}/${ARCHIVE}" | awk '{print $1}')
-    has_cmd() { [ "$1" = "sha256sum" ]; }
+    _actual=$(fixture_sha256 "${TMPDIR_INSTALL}/${ARCHIVE}")
+    has_cmd() { installer_has_fixture_tool "$1"; }
     fetch() {
         printf '%064d  prefix-%s\n%s  %s\n' 0 "$ARCHIVE" "$_actual" "$ARCHIVE" > "$2"
     }
@@ -141,8 +175,8 @@ case_exact_entry_ignores_filename_collision() (
 case_matching_checksum() (
     load_installer
     prepare_archive "${TMP_ROOT}/matching"
-    _actual=$(sha256sum "${TMPDIR_INSTALL}/${ARCHIVE}" | awk '{print $1}')
-    has_cmd() { [ "$1" = "sha256sum" ]; }
+    _actual=$(fixture_sha256 "${TMPDIR_INSTALL}/${ARCHIVE}")
+    has_cmd() { installer_has_fixture_tool "$1"; }
     fetch() { printf '%s  %s\n' "$_actual" "$ARCHIVE" > "$2"; }
     verify_checksum
 )
@@ -183,4 +217,4 @@ if [ "$FAIL_COUNT" -ne 0 ]; then
     exit 1
 fi
 
-printf '%s installer checksum tests passed\n' "$PASS_COUNT"
+printf '%s installer checksum tests passed using %s\n' "$PASS_COUNT" "$FIXTURE_TOOL"
