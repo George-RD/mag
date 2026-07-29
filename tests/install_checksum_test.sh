@@ -38,7 +38,7 @@ run_expect_failure() {
         return
     fi
 
-    pass "$ _name"
+    pass "$_name"
 }
 
 run_expect_success() {
@@ -95,7 +95,7 @@ case_missing_exact_entry() (
     prepare_archive "${TMP_ROOT}/missing-entry"
     has_cmd() { [ "$1" = "sha256sum" ]; }
     fetch() {
-        printf '%s  %s\n' "$(printf 'a%.0s' $(seq 1 64))" "mag-aarch64-unknown-linux-gnu.tar.gz" > "$2"
+        printf '%064d  %s\n' 0 "mag-aarch64-unknown-linux-gnu.tar.gz" > "$2"
     }
     verify_checksum
 )
