@@ -15,7 +15,7 @@
 #   --branch <BRANCH>   — branch to build from (default: main, only with --from-source)
 #   --help              — show usage
 #
-# Requirements: curl or wget, tar, and optionally sha256sum/shasum for verification.
+# Requirements: curl or wget, tar, and sha256sum, shasum, or openssl.
 
 set -eu
 
@@ -281,36 +281,101 @@ download_and_verify() {
 
     ok "Downloaded successfully"
 
-    # Checksum verification (best-effort)
+    # Checksum verification is mandatory before installation.
     verify_checksum
 }
 
-verify_checksum() {
-    SHASUM_CMD=""
+select_checksum_tool() {
     if has_cmd sha256sum; then
-        SHASUM_CMD="sha256sum"
+        CHECKSUM_TOOL="sha256sum"
     elif has_cmd shasum; then
-        SHASUM_CMD="shasum -a 256"
+        CHECKSUM_TOOL="shasum"
+    elif has_cmd openssl; then
+        CHECKSUM_TOOL="openssl"
+    else
+        die "Checksum verification requires sha256sum, shasum, or openssl. Install one and retry."
     fi
+}
 
-    if [ -z "$SHASUM_CMD" ]; then
-        warn "sha256sum/shasum not found — skipping checksum verification"
-        return
-    fi
+calculate_sha256() {
+    _checksum_file="$1"
+    case "$CHECKSUM_TOOL" in
+        sha256sum)
+            sha256sum "$_checksum_file" | awk '{print tolower($1)}'
+            ;;
+        shasum)
+            shasum -a 256 "$_checksum_file" | awk '{print tolower($1)}'
+            ;;
+        openssl)
+            openssl dgst -sha256 "$_checksum_file" | awk '{print tolower($NF)}'
+            ;;
+        *)
+            die "Internal error: unsupported checksum tool ${CHECKSUM_TOOL}"
+            ;;
+    esac
+}
+
+parse_checksum_manifest() {
+    _checksum_manifest="$1"
+    _checksum_archive="$2"
+
+    awk -v archive="$_checksum_archive" '
+        /^[[:space:]]*($|#)/ { next }
+        {
+            digest = $1
+            filename = $2
+            sub(/^\*/, "", filename)
+            if (filename == archive) {
+                count++
+                if (length(digest) != 64 || digest !~ /^[0-9A-Fa-f]+$/) {
+                    invalid = 1
+                }
+                value = tolower(digest)
+            }
+        }
+        END {
+            if (invalid) exit 3
+            if (count == 0) exit 1
+            if (count > 1) exit 2
+            print value
+        }
+    ' "$_checksum_manifest"
+}
+
+verify_checksum() {
+    select_checksum_tool
 
     info "Verifying checksum..."
     if ! fetch "$CHECKSUMS_URL" "${TMPDIR_INSTALL}/checksums.txt" 2>/dev/null; then
-        warn "Could not download checksums.txt — skipping verification"
-        return
+        die "Failed to download checksums.txt for MAG v${VERSION:-unknown}"
     fi
 
-    EXPECTED="$(grep "${ARCHIVE}" "${TMPDIR_INSTALL}/checksums.txt" | awk '{print $1}')"
-    if [ -z "$EXPECTED" ]; then
-        warn "No checksum entry found for ${ARCHIVE} — skipping verification"
-        return
+    if EXPECTED="$(parse_checksum_manifest "${TMPDIR_INSTALL}/checksums.txt" "$ARCHIVE")"; then
+        :
+    else
+        PARSE_STATUS=$?
+        case "$PARSE_STATUS" in
+            1) die "No checksum entry found for ${ARCHIVE}" ;;
+            2) die "Duplicate checksum entries found for ${ARCHIVE}" ;;
+            3) die "Malformed checksum entry found for ${ARCHIVE}" ;;
+            *) die "Failed to parse checksum manifest for ${ARCHIVE}" ;;
+        esac
     fi
 
-    ACTUAL="$(cd "${TMPDIR_INSTALL}" && $SHASUM_CMD "${ARCHIVE}" | awk '{print $1}')"
+    if ACTUAL="$(calculate_sha256 "${TMPDIR_INSTALL}/${ARCHIVE}")"; then
+        :
+    else
+        die "Failed to calculate SHA-256 for ${ARCHIVE}"
+    fi
+
+    case "$ACTUAL" in
+        ''|*[!0-9a-f]*)
+            die "Failed to calculate a valid SHA-256 for ${ARCHIVE}"
+            ;;
+    esac
+    if [ "${#ACTUAL}" -ne 64 ]; then
+        die "Failed to calculate a valid SHA-256 for ${ARCHIVE}"
+    fi
 
     if [ "$EXPECTED" != "$ACTUAL" ]; then
         die "Checksum mismatch!\n  Expected: ${EXPECTED}\n  Got:      ${ACTUAL}\nThe download may be corrupted. Please retry."

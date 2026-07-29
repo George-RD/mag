@@ -78,6 +78,26 @@ jobs:
       - name: Run wrapper tests
         run: python -m unittest discover -s python/tests -v
 
+  shell-installer-test:
+    name: Shell Installer Integrity (${{ matrix.hash-tool }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            hash-tool: sha256sum
+          - os: macos-latest
+            hash-tool: shasum
+          - os: ubuntu-latest
+            hash-tool: openssl
+    env:
+      MAG_TEST_HASH_TOOL: ${{ matrix.hash-tool }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run installer checksum tests
+        run: sh tests/install_checksum_test.sh
+
   benchmark:
     name: Benchmark Gate
     runs-on: ubuntu-latest
