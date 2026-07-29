@@ -32,7 +32,7 @@ It is not a model-file swap for the current embedder:
 - similarity, margin, supersession, fusion, and abstention thresholds must be
   calibrated for the new score distribution.
 
-The raw vector payload is about 2.67 times the current dimension before database
+The raw f32 vector payload is about 2.67 times the current one before database
 and index overhead. It therefore needs an explicit quality-versus-footprint
 decision rather than automatic replacement of BGE.
 
@@ -76,9 +76,9 @@ The same versioned corpus and query set should compare:
 
 | Profile | First-stage dense model | Reranker |
 |---|---|---|
-| Current baseline | BGE-small | MiniLM or none |
+| Current baseline | bge-small-en-v1.5 | MiniLM or none |
 | Multilingual candidate | LFM2.5 Embedding | MiniLM or none |
-| Late-interaction value | BGE-small | LFM2.5 ColBERT |
+| Late-interaction value | bge-small-en-v1.5 | LFM2.5 ColBERT |
 | Full LFM retrieval | LFM2.5 Embedding | LFM2.5 ColBERT |
 
 The scorecard should include Recall@5/10, MRR, abstention accuracy, paraphrase
