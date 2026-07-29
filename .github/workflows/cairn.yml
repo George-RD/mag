@@ -20,4 +20,24 @@ jobs:
             https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Verify architecture, decisions, and interfaces
+        id: verify
+        continue-on-error: true
         run: cairn hook all
+      - name: Regenerate Cairn state after a blocked verification
+        if: steps.verify.outcome == 'failure'
+        run: |
+          cairn scan
+          git status --short
+          git diff --stat
+          git diff --binary > cairn-refresh.patch
+          test -s cairn-refresh.patch
+      - name: Upload regenerated Cairn state
+        if: steps.verify.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: cairn-refresh-patch
+          path: cairn-refresh.patch
+          if-no-files-found: error
+      - name: Preserve the blocking gate result
+        if: steps.verify.outcome == 'failure'
+        run: exit 1
