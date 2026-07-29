@@ -6,6 +6,7 @@ on:
       - docs/select-local-runtime-root
     paths:
       - .github/workflows/apply-composition-root-docs.yml
+      - scripts/apply_composition_root_docs.py
 
 permissions:
   contents: write
