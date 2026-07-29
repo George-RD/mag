@@ -94,7 +94,7 @@ class VerifiedDownloadFlowTests(unittest.TestCase):
             self.assertFalse(os.path.exists(dest_dir))
 
     @unittest.skipIf(os.name == "nt", "Unix executable permissions are tested on Linux CI")
-    def test_verified_archive_is_installed_after_checksum_validation(self):
+    def test_verified_tar_archive_is_installed_after_checksum_validation(self):
         archive = b"verified archive"
         digest = hashlib.sha256(archive).hexdigest()
         manifest = "{}  {}\n".format(digest, _ARCHIVE_NAME).encode("ascii")
@@ -124,6 +124,40 @@ class VerifiedDownloadFlowTests(unittest.TestCase):
             self.assertEqual(os.path.join(dest_dir, "mag"), binary_path)
             extract_archive.assert_called_once_with(archive, dest_dir)
             self.assertTrue(os.stat(binary_path).st_mode & stat.S_IXUSR)
+
+    def test_verified_zip_archive_uses_the_windows_extractor(self):
+        target = "x86_64-pc-windows-msvc"
+        archive_name = "mag-{}.zip".format(target)
+        archive = b"verified zip archive"
+        digest = hashlib.sha256(archive).hexdigest()
+        manifest = "{}  {}\n".format(digest, archive_name).encode("ascii")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_dir = os.path.join(tmp, "bin")
+
+            def extract(data, destination):
+                self.assertEqual(archive, data)
+                self.assertTrue(os.path.isdir(destination))
+                path = os.path.join(destination, "mag.exe")
+                with open(path, "wb") as binary:
+                    binary.write(b"binary")
+                return path
+
+            with mock.patch.object(
+                _download, "_detect_target", return_value=(target, "zip")
+            ), mock.patch.object(
+                _download, "_download_url", side_effect=[manifest, archive]
+            ), mock.patch.object(
+                mag_memory, "_binary_dir", return_value=dest_dir
+            ), mock.patch.object(
+                _download, "_extract_zip", side_effect=extract
+            ) as extract_archive, mock.patch.object(
+                _download.sys, "platform", "win32"
+            ):
+                binary_path = _download.download_binary("1.2.3")
+
+            self.assertEqual(os.path.join(dest_dir, "mag.exe"), binary_path)
+            extract_archive.assert_called_once_with(archive, dest_dir)
 
 
 if __name__ == "__main__":
