@@ -18,28 +18,34 @@ Default: `bge-small-en-v1.5` (int8, 384-dim, ~32 MB on disk, ~180 MB RAM)
 
 Models auto-download on first use and are cached under `~/.mag/models/`. Available models can be selected via benchmark flags. See [Model Comparison](benchmarks/models.md) for the full table.
 
-## Optional Local Generative LLM
+## Experimental Local Generative LLM Backend
 
-MAG's optional `llm` feature currently talks to OpenAI-compatible HTTP endpoints.
-The local-first default profile is **LFM2.5 1.2B Instruct**, exposed through a
-local runtime such as Ollama:
+The optional `llm` Cargo feature compiles backend clients and can parse
+`MAG_LLM_*` configuration. Current production CLI and MCP composition does not
+construct or call that backend. Setting these variables therefore does **not**
+change stored memories, extraction, reflection, retrieval, or answer generation
+in the current runtime.
+
+For isolated backend experiments, the local reference profile is **LFM2.5 1.2B
+Instruct** through an OpenAI-compatible runtime such as Ollama:
 
 ```bash
 ollama pull LiquidAI/lfm2.5-1.2b-instruct
 export MAG_LLM_PROVIDER=ollama
-# Optional overrides:
+# Optional overrides consumed only by code that explicitly loads LlmConfig:
 # export MAG_LLM_MODEL=LiquidAI/lfm2.5-1.2b-instruct
 # export MAG_LLM_BASE_URL=http://localhost:11434/v1
 ```
 
-When `MAG_LLM_PROVIDER=ollama` is set and `MAG_LLM_MODEL` is omitted, MAG uses
-`LiquidAI/lfm2.5-1.2b-instruct`. Cloud and self-hosted OpenAI-compatible endpoints
-remain supported through the same `LlmBackend` boundary.
+When experiment code calls `LlmConfig::from_env`, Ollama without an explicit model
+uses `LiquidAI/lfm2.5-1.2b-instruct`. OpenAI, Anthropic, and self-hosted client
+implementations exist behind `LlmBackend`; their presence is not production
+wiring.
 
-This is a transport-level default, not yet an in-process causal-model runtime.
-The target direct model is `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`. The smaller
-`LiquidAI/LFM2.5-350M-ONNX` is reserved for later task-by-task optimization after
-the 1.2B quality baseline is established.
+Production integration is gated by the selected local runtime and evaluation
+harness in the local-first roadmap. Direct in-process generation remains a
+candidate using `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`; the 350M checkpoint remains
+a later task-by-task speed candidate after 1.2B quality parity is established.
 
 ## Scoring Parameters
 
