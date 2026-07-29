@@ -2,7 +2,7 @@
 //!
 //! The `mag setup` subcommand detects installed AI tools, presents their
 //! configuration status, and writes MCP config entries so that each tool
-//! can communicate with the MAG daemon.
+//! can communicate with the MAG stdio server.
 
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -21,8 +21,6 @@ pub struct SetupArgs {
     pub non_interactive: bool,
     pub tools: Option<Vec<String>>,
     pub transport: TransportMode,
-    pub port: u16,
-    pub no_start: bool,
     pub uninstall: bool,
     pub force: bool,
     /// Only patch `~/.claude/settings.json` sandbox allowlist; skip full setup.
@@ -53,6 +51,9 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     if args.fix_sandbox {
         return run_fix_sandbox();
     }
+
+    // Fail before detection, connector installation, model work, or config writes.
+    ensure_setup_transport_available(args.transport)?;
 
     // Detect phase
     println!("\n  Detecting AI coding tools...\n");
@@ -88,7 +89,7 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     // writable even when Claude Code's sandbox is active.
     patch_sandbox_allowlist_with_feedback();
 
-    // Model download phase — always runs; daemon must start after models are ready.
+    // Model download phase — always runs before setup completes.
     #[cfg(feature = "real-embeddings")]
     {
         println!("\n  Downloading models (first run only)...\n");
@@ -108,10 +109,6 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
             ),
         }
     }
-
-    // Daemon phase — starts after models are downloaded.
-    #[cfg(feature = "daemon-http")]
-    maybe_start_daemon(args.port, args.no_start)?;
 
     Ok(())
 }
@@ -388,6 +385,7 @@ fn configure_tools(
     mode: TransportMode,
     all_detected: &[&DetectedTool],
 ) -> Result<ConfigureSummary> {
+    ensure_setup_transport_available(mode)?;
     let mut summary = ConfigureSummary::default();
 
     for tool in tools {
@@ -890,49 +888,36 @@ pub(crate) fn remove_opencode_skills(home: &Path) -> Result<usize> {
 }
 
 // ---------------------------------------------------------------------------
-// Daemon management
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "daemon-http")]
-fn maybe_start_daemon(port: u16, no_start: bool) -> Result<()> {
-    if no_start {
-        tracing::debug!("--no-start: skipping daemon check");
-        return Ok(());
-    }
-
-    // Check if daemon is already running via daemon.json
-    match crate::daemon::DaemonInfo::read() {
-        Ok(Some(info)) if !info.is_stale() => {
-            println!(
-                "  MAG daemon already running (pid {}, port {}).\n",
-                info.pid, info.port
-            );
-            return Ok(());
-        }
-        Err(e) => {
-            tracing::debug!(error = %e, "failed to read daemon info; assuming not running");
-        }
-        _ => {}
-    }
-
-    println!("  Tip: start the MAG daemon with `mag serve` (port {port}).\n");
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Parses a CLI transport string into a `TransportMode`.
-pub fn parse_transport(s: &str, port: u16) -> Result<TransportMode> {
-    match s.to_lowercase().as_str() {
+fn unavailable_setup_transport(mode: &str) -> anyhow::Error {
+    match mode {
+        "http" => anyhow::anyhow!(
+            "HTTP setup transport is not available because MAG does not currently assemble an HTTP MCP server. Use `--transport command`; HTTP remains a separate optional service milestone."
+        ),
+        "stdio" => anyhow::anyhow!(
+            "stdio setup transport is not available because `mag serve` already provides the stdio MCP command and does not accept `--stdio`. Use `--transport command`."
+        ),
+        other => anyhow::anyhow!("setup transport '{other}' is not available"),
+    }
+}
+
+fn ensure_setup_transport_available(mode: TransportMode) -> Result<()> {
+    match mode {
+        TransportMode::Command => Ok(()),
+        TransportMode::Http { .. } => Err(unavailable_setup_transport("http")),
+        TransportMode::Stdio => Err(unavailable_setup_transport("stdio")),
+    }
+}
+
+/// Parses a CLI transport string into the only currently executable setup mode.
+pub fn parse_transport(s: &str) -> Result<TransportMode> {
+    let normalized = s.to_lowercase();
+    match normalized.as_str() {
         "command" | "cmd" => Ok(TransportMode::Command),
-        "http" => Ok(TransportMode::Http { port }),
-        "stdio" => Ok(TransportMode::Stdio),
-        other => {
-            anyhow::bail!("unknown transport mode: '{other}' (expected command, http, or stdio)")
-        }
+        "http" | "stdio" => Err(unavailable_setup_transport(normalized.as_str())),
+        other => anyhow::bail!("unknown transport mode: '{other}' (expected command)"),
     }
 }
 
@@ -964,37 +949,43 @@ mod tests {
 
     #[test]
     fn parse_transport_command() {
-        let mode = parse_transport("command", 4242).unwrap();
+        let mode = parse_transport("command").unwrap();
         assert_eq!(mode, TransportMode::Command);
     }
 
     #[test]
     fn parse_transport_cmd_alias() {
-        let mode = parse_transport("cmd", 4242).unwrap();
+        let mode = parse_transport("cmd").unwrap();
         assert_eq!(mode, TransportMode::Command);
     }
 
     #[test]
-    fn parse_transport_http() {
-        let mode = parse_transport("http", 9090).unwrap();
-        assert_eq!(mode, TransportMode::Http { port: 9090 });
+    fn parse_transport_http_reports_unavailable() {
+        let error = parse_transport("http").unwrap_err().to_string();
+        assert!(
+            error.contains("not available") && error.contains("--transport command"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
-    fn parse_transport_stdio() {
-        let mode = parse_transport("stdio", 4242).unwrap();
-        assert_eq!(mode, TransportMode::Stdio);
+    fn parse_transport_stdio_reports_unavailable() {
+        let error = parse_transport("stdio").unwrap_err().to_string();
+        assert!(
+            error.contains("not available") && error.contains("--transport command"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
-    fn parse_transport_case_insensitive() {
-        let mode = parse_transport("HTTP", 8080).unwrap();
-        assert_eq!(mode, TransportMode::Http { port: 8080 });
+    fn parse_transport_command_is_case_insensitive() {
+        let mode = parse_transport("COMMAND").unwrap();
+        assert_eq!(mode, TransportMode::Command);
     }
 
     #[test]
     fn parse_transport_unknown_errors() {
-        let result = parse_transport("grpc", 4242);
+        let result = parse_transport("grpc");
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -1013,15 +1004,13 @@ mod tests {
             non_interactive: false,
             tools: None,
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: false,
             uninstall: false,
             force: false,
             fix_sandbox: false,
         };
         assert!(!args.non_interactive);
         assert!(args.tools.is_none());
-        assert_eq!(args.port, 4242);
+        assert_eq!(args.transport, TransportMode::Command);
     }
 
     // -----------------------------------------------------------------------
@@ -1051,8 +1040,6 @@ mod tests {
             non_interactive: true,
             tools: None,
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: false,
             fix_sandbox: false,
@@ -1078,8 +1065,6 @@ mod tests {
             non_interactive: true,
             tools: Some(vec!["cursor".to_string()]),
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: false,
             fix_sandbox: false,
@@ -1103,8 +1088,6 @@ mod tests {
             non_interactive: true,
             tools: None,
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: true,
             fix_sandbox: false,
@@ -1127,8 +1110,6 @@ mod tests {
             non_interactive: true,
             tools: None,
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: false,
             fix_sandbox: false,
@@ -1193,6 +1174,41 @@ mod tests {
     // -----------------------------------------------------------------------
     // Integration: configure_tools with temp home
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn configure_tools_rejects_unavailable_transport_before_writing() {
+        with_temp_home(|home| {
+            let config_path = home.join(".cursor/mcp.json");
+            std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            let initial = r#"{"mcpServers":{"existing":{"command":"existing"}}}"#;
+            std::fs::write(&config_path, initial).unwrap();
+
+            let dt = DetectedTool {
+                tool: AiTool::Cursor,
+                config_path: config_path.clone(),
+                scope: ConfigScope::Global,
+                mag_status: MagConfigStatus::NotConfigured,
+            };
+            let tools: Vec<&DetectedTool> = vec![&dt];
+
+            let error = configure_tools(&tools, TransportMode::Stdio, &tools)
+                .unwrap_err()
+                .to_string();
+
+            assert!(
+                error.contains("not available") && error.contains("--transport command"),
+                "unexpected error: {error}"
+            );
+            assert_eq!(std::fs::read_to_string(config_path).unwrap(), initial);
+        });
+    }
+
+    #[test]
+    fn command_transport_generates_current_serve_invocation() {
+        let entry = config_writer::build_mag_entry(AiTool::Cursor, TransportMode::Command);
+        assert_eq!(entry["args"], serde_json::json!(["serve"]));
+        assert!(entry.get("url").is_none());
+    }
 
     #[test]
     fn configure_tools_writes_config() {
@@ -1330,8 +1346,6 @@ mod tests {
                 non_interactive: true,
                 tools: None,
                 transport: TransportMode::Command,
-                port: 4242,
-                no_start: true,
                 uninstall: false,
                 force: false,
                 fix_sandbox: false,
@@ -1405,8 +1419,6 @@ mod tests {
             non_interactive: true,
             tools: Some(vec!["vscode".to_string()]),
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: false,
             fix_sandbox: false,
@@ -1431,8 +1443,6 @@ mod tests {
             non_interactive: true,
             tools: Some(vec!["cursor".to_string(), "windsurf".to_string()]),
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: false,
             fix_sandbox: false,
@@ -1462,8 +1472,6 @@ mod tests {
             non_interactive: true,
             tools: None,
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: false,
             fix_sandbox: false,
@@ -1487,8 +1495,6 @@ mod tests {
             non_interactive: true,
             tools: None,
             transport: TransportMode::Command,
-            port: 4242,
-            no_start: true,
             uninstall: false,
             force: true,
             fix_sandbox: false,

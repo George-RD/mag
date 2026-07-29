@@ -380,15 +380,9 @@ pub enum Commands {
         /// Comma-separated list of tool names to configure (e.g., "cursor,vscode").
         #[arg(long, value_delimiter = ',')]
         tools: Option<Vec<String>>,
-        /// Transport mode: command (default), http, or stdio.
+        /// Transport mode. Only command is currently available.
         #[arg(long, default_value = "command")]
         transport: String,
-        /// Port for HTTP transport mode.
-        #[arg(long, default_value_t = 4242)]
-        port: u16,
-        /// Do not attempt to start or check the MAG daemon.
-        #[arg(long)]
-        no_start: bool,
         /// Remove MAG configuration from all detected tools.
         #[arg(long)]
         uninstall: bool,
@@ -1218,6 +1212,28 @@ mod tests {
             }
             _ => panic!("Expected StatsExtended command"),
         }
+    }
+
+    #[test]
+    fn test_cli_setup_help_exposes_only_command_transport() {
+        let error = match Cli::try_parse_from(["mag", "setup", "--help"]) {
+            Ok(_) => panic!("setup --help should exit through clap"),
+            Err(error) => error,
+        };
+        let help = error.to_string();
+        assert!(
+            help.contains("Only command is currently available"),
+            "unexpected setup help: {help}"
+        );
+        assert!(!help.contains("--port"), "unexpected setup help: {help}");
+        assert!(
+            !help.contains("--no-start"),
+            "unexpected setup help: {help}"
+        );
+        assert!(
+            !help.contains("http, or stdio"),
+            "unexpected setup help: {help}"
+        );
     }
 
     #[test]

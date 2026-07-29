@@ -94,9 +94,7 @@
         "./src/daemon.rs",
         "./src/idle_timer.rs"
       ],
-      "edges": [
-        "mag.runtime.mcp"
-      ]
+      "edges": []
     },
     "mag.runtime.entrypoints": {
       "kind": "Module",
@@ -107,10 +105,10 @@
         "./src/main.rs"
       ],
       "edges": [
-        "mag.runtime.daemon",
         "mag.runtime.mcp",
         "mag.runtime.memory.domain",
         "mag.runtime.memory.models",
+        "mag.runtime.memory.retrieval",
         "mag.runtime.memory.storage.sqlite",
         "mag.runtime.setup"
       ]
@@ -216,7 +214,8 @@
         "./src/uninstall.rs"
       ],
       "edges": [
-        "mag.integrations.connectors"
+        "mag.integrations.connectors",
+        "mag.runtime.daemon"
       ]
     },
     "mag.runtime.substrate": {
