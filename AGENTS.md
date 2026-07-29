@@ -47,13 +47,17 @@ all references.
 
 ## Current architecture constraint
 
-`memory_core::Pipeline` and `substrate` are competing composition paths. Until the
-active architecture audit and composition decision are complete:
+`dec.select-local-runtime-composition-root` selects one entrypoint-owned,
+transport-independent local runtime over the current SQLite-backed implementation.
+Until its migration slices are complete:
 
-- do not wire new production behaviour into both;
-- trace current callers, features, tests, and benchmarks before deleting either;
-- use `cairn brief todo.audit-current-architecture-and-dead-code` for the current
-  work unit.
+- route new production behaviour through the selected runtime boundary;
+- treat direct SQLite callers and `memory_core::Pipeline` as tracked compatibility
+  paths, not new extension points;
+- do not add independent behaviour to the unselected feature-gated substrate;
+- use `cairn brief todo.introduce-local-memory-runtime-facade` for the next
+  implementation unit and `cairn rationale mag.runtime.entrypoints` for the
+  binding decision.
 
 ## Repository invariants
 
