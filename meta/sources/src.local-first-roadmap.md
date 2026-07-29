@@ -1,10 +1,10 @@
 ---
 id: src.local-first-roadmap
 file: docs/specs/local-first-roadmap.md
-sha256: 9e8dc59f61bf5ecd308959845c77afcaf803be293db20f828e52be6064b72db7
+sha256: 86b62adbc4c6eafe9134cc78d9ac01c214d6b48322b57dad1676dbce478900e0
 verification: verified
 type: roadmap
-date: 2026-07-28
+date: 2026-07-29
 ---
 
 Current local-first mission, ordered gates, and Cairn execution model.
