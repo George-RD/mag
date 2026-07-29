@@ -1,0 +1,27 @@
+MAG current runtime baseline
+date: 2026-07-29
+commit: 9eba6157a225f244b94eefcf83e883c1309d30ec
+repository: https://github.com/George-RD/mag
+
+Audited production and feature surfaces:
+- Cargo.toml
+- src/lib.rs
+- src/main.rs
+- src/cli.rs
+- src/setup.rs
+- src/config_writer.rs
+- src/mcp/mod.rs
+- src/memory_core/mod.rs
+- src/memory_core/llm.rs
+- src/memory_core/storage/sqlite
+- src/substrate
+- src/daemon.rs
+- src/auth.rs
+- src/idle_timer.rs
+- tests/substrate_pipeline.rs
+- benches/substrate_bench.rs
+- benches/phase2_bench.rs
+
+Method:
+Production construction, feature gates, direct callers, tests, and benchmark
+callers were classified separately against the immutable commit above.
