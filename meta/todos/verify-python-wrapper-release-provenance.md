@@ -1,5 +1,5 @@
 ---
-node: mag.integrations.packaging
+node: mag.integrations.python
 status: in_progress
 created: 2026-07-29
 priority: high
