@@ -1,8 +1,9 @@
 ---
 node: mag.runtime.substrate
-status: in_progress
+status: done
 created: 2026-07-28
 unblocked: 2026-07-29
+completed: 2026-07-29
 ---
 # Select Production Composition Root
 
@@ -33,13 +34,18 @@ wholesale.
 4. Add separated model roles only after the local evaluation harness exists.
 5. Retire the legacy `Pipeline` construction and duplicate substrate surfaces.
 
-## Verification state
+## Verification
 
-The first Cairn run (`30474382280`) failed only because this decision changed two
-verified sources while their pinned hashes still described the previous bytes.
-The source manifests and generated Cairn snapshots have been refreshed from the
-checked-out files. Exact-head repository and Cairn verification is rerunning on
-the corrected branch.
+- The first Cairn run (`30474382280`) correctly rejected stale hashes for two
+  verified sources changed by the decision. Their manifests and the generated
+  Cairn views were refreshed from the checked-out bytes.
+- Repository CI `30474849387` passed all-feature tests, formatting, Clippy, smoke,
+  npm installation, Python wrappers, version checks, and all installer-integrity
+  variants on the corrected decision and blueprint head.
+- Pinned Cairn 0.9 architecture gate `30474849201` passed on the same head.
+- The generated map was refreshed after replacing the pending substrate label
+  with the accepted migration-only state and removing the stale setup-to-daemon
+  edge.
 
 ## Acceptance criteria
 
@@ -50,4 +56,4 @@ the corrected branch.
   explicit.
 - [x] Existing `processed: ` behaviour remains protected by a separate migration
   decision and regression coverage.
-- [ ] Exact-head repository CI and the pinned Cairn gate pass.
+- [x] Exact-head repository CI and the pinned Cairn gate pass.
