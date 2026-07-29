@@ -89,7 +89,7 @@ pub async fn run_setup(args: SetupArgs) -> Result<()> {
     // writable even when Claude Code's sandbox is active.
     patch_sandbox_allowlist_with_feedback();
 
-    // Model download phase — always runs; daemon must start after models are ready.
+    // Model download phase — always runs before setup completes.
     #[cfg(feature = "real-embeddings")]
     {
         println!("\n  Downloading models (first run only)...\n");
@@ -1346,8 +1346,6 @@ mod tests {
                 non_interactive: true,
                 tools: None,
                 transport: TransportMode::Command,
-                port: 4242,
-                no_start: true,
                 uninstall: false,
                 force: false,
                 fix_sandbox: false,
