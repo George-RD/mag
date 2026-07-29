@@ -1,26 +1,36 @@
 ---
 node: mag.integrations.packaging
-status: in_progress
+status: done
 created: 2026-07-29
+completed: 2026-07-29
 priority: high
 tags: [installer, packaging, integrity, portability]
 ---
 # Enforce release checksums in the shell installer
 
-The POSIX installer currently treats release checksum verification as optional.
-It continues when no hashing utility is available, the checksum manifest cannot
-be downloaded, or the target archive has no manifest entry. Align this path with
-the fail-closed Python installer so every native release install has the same
-integrity boundary.
+The POSIX installer now treats the version-matched release checksum manifest as
+a mandatory install prerequisite. It selects a supported native SHA-256 utility,
+requires one exact archive entry, and verifies the archive before extraction or
+installation continues.
 
 ## Acceptance criteria
 
-- A supported SHA-256 utility is mandatory and missing tooling produces an
+- [x] A supported SHA-256 utility is mandatory and missing tooling produces an
   actionable error.
-- Failure to download `checksums.txt` aborts installation.
-- The exact target archive must have one valid SHA-256 entry.
-- Missing, malformed, duplicate, or mismatched entries abort installation.
-- Substring filename collisions cannot select the wrong digest.
-- A matching checksum continues through the existing installation path.
-- The regression suite runs in pull-request CI.
-- The failing regression is observed before implementation.
+- [x] Failure to download `checksums.txt` aborts installation.
+- [x] The exact target archive must have one valid SHA-256 entry.
+- [x] Missing, malformed, duplicate, or mismatched entries abort installation.
+- [x] Substring filename collisions cannot select the wrong digest.
+- [x] A matching checksum continues through the existing installation path.
+- [x] The regression suite runs in pull-request CI.
+- [x] The failing regression was observed before implementation.
+
+## Verification
+
+- Red: CI run `30454600639` exposed six fail-open or ambiguous behaviours,
+  including missing tooling, unavailable manifests, absent exact entries,
+  malformed and duplicate entries, and filename collisions.
+- Green: CI run `30455636105` passed eight installer integrity cases separately
+  with `sha256sum`, macOS `shasum`, and `openssl`.
+- Cairn 0.9 architecture gate run `30455636100` passed for the completed branch
+  state.
