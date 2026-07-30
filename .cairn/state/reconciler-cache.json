@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "b707e8cd05e52b96",
+  "key": "e3b41fa44ec64772",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5529,6 +5529,7 @@
       "symbols": [
         "pub async fn add_relationship( &self, source_id: &str, target_id: &str, rel_type: &str, weight: f64, metadata: &serde_json::Value, ) -> Result<String>",
         "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
+        "pub async fn delete(&self, id: &str) -> Result<bool>",
         "pub async fn download_bge_small_model() -> Result<PathBuf>",
         "pub async fn download_cross_encoder_model() -> Result<PathBuf>",
         "pub async fn export_all(&self) -> Result<String>",
@@ -5912,6 +5913,7 @@
         "pub(crate) async fn download_file(url: &str, path: &Path) -> Result<()>",
         "pub(crate) async fn store_internal( &self, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<()>",
         "pub(crate) fn agents_md_target( tool: tool_detection::AiTool, home: &Path, ) -> Option<(&'static str, PathBuf)>",
+        "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
         "pub(crate) fn embedding_for_text(input: &str) -> Vec<f32>",
         "pub(crate) fn expand_date_tokens(text: &str) -> String",
         "pub(crate) fn get_synonyms(word: &str) -> &'static [&'static str]",
@@ -6122,6 +6124,7 @@
         ],
         "mag.runtime.entrypoints": [
           "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
+          "pub async fn delete(&self, id: &str) -> Result<bool>",
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
@@ -6143,6 +6146,7 @@
           "pub struct Cli",
           "pub struct LocalMemoryRuntime",
           "pub struct SearchFilterArgs",
+          "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
           "pub(crate) mod config_writer",
           "pub(crate) mod tool_detection"
         ],
@@ -7237,32 +7241,40 @@
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 87,
-            "end_line": 94
+            "line": 84,
+            "end_line": 91
+          },
+          {
+            "name": "delete",
+            "kind": "function",
+            "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 67,
+            "end_line": 69
           },
           {
             "name": "retrieve",
             "kind": "function",
             "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 70,
-            "end_line": 72
+            "line": 62,
+            "end_line": 64
           },
           {
             "name": "search",
             "kind": "function",
             "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 75,
-            "end_line": 84
+            "line": 72,
+            "end_line": 81
           },
           {
             "name": "store",
             "kind": "function",
             "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 65,
-            "end_line": 67
+            "line": 57,
+            "end_line": 59
           },
           {
             "name": "Commands",
@@ -7302,7 +7314,7 @@
             "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
             "file": "src/local_memory_runtime.rs",
             "line": 47,
-            "end_line": 62
+            "end_line": 54
           },
           {
             "name": "new",
@@ -7407,6 +7419,14 @@
             "file": "src/cli.rs",
             "line": 31,
             "end_line": 56
+          },
+          {
+            "name": "compose_compatibility_pipeline",
+            "kind": "function",
+            "signature": "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
+            "file": "src/local_memory_runtime.rs",
+            "line": 97,
+            "end_line": 107
           },
           {
             "name": "config_writer",
@@ -10605,7 +10625,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "2122888108054131"
+        "hash": "e76771025d8fdeb1"
       },
       "findings": [
         {
