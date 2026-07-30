@@ -8,10 +8,10 @@ use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType,
-    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
-    MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, RelationshipQuerier,
-    ReminderManager, SearchOptions, SimilarFinder, StatsProvider, VersionChainQuerier,
-    WelcomeOptions, WelcomeProvider, is_valid_event_type,
+    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager,
+    MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, ReminderManager, SearchOptions,
+    SimilarFinder, StatsProvider, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
+    is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -281,11 +281,11 @@ async fn main() -> anyhow::Result<()> {
         } => {
             info!(offset = *offset, limit = *limit, "Listing memories");
             let opts = build_search_options(filters, false)?;
-            let result = mcp_storage.list(*offset, *limit, &opts).await?;
+            let result = local_runtime.list(*offset, *limit, &opts).await?;
             info!(
                 count = result.memories.len(),
                 total = result.total,
-                "List completed"
+                "Listed through local memory runtime"
             );
             let payload: Vec<_> = result
                 .memories
@@ -309,8 +309,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Relations { id } => {
             info!(memory_id = %id, "Querying relationships");
-            let rels = mcp_storage.get_relationships(id).await?;
-            info!(count = rels.len(), "Relationships retrieved");
+            let rels = local_runtime.get_relationships(id).await?;
+            info!(
+                count = rels.len(),
+                "Relationships retrieved through local memory runtime"
+            );
             let payload: Vec<_> = rels
                 .into_iter()
                 .map(|r| {

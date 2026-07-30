@@ -36,6 +36,8 @@ permitted to hide inside a caller migration.
   content updates, and every supported field remain pinned at the caller and
   facade levels. Optional metadata parsing is shared without collapsing omitted
   metadata into an explicit empty object.
-- [ ] Migrate `list` and the remaining basic CRUD/relationship callers.
+- [x] `list` and `relations` route through `LocalMemoryRuntime`; pagination,
+  filters, exact compact JSON, relationship output, and direct-storage parity
+  remain pinned at caller and facade levels.
 - [ ] Migrate search, semantic/advanced retrieval, graph, session, and
   administration commands.
