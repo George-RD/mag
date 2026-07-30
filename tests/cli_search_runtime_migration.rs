@@ -7,6 +7,7 @@ const QUERY: &str = "searchruntimeanchor";
 #[derive(Clone, Copy)]
 struct SearchContract {
     command: &'static str,
+    query: Option<&'static str>,
     runtime_log: &'static str,
     scored: bool,
     expects_text_overlap: bool,
@@ -14,21 +15,31 @@ struct SearchContract {
 
 const BASIC_SEARCH: SearchContract = SearchContract {
     command: "search",
+    query: Some(QUERY),
     runtime_log: "Search completed through local memory runtime",
     scored: false,
     expects_text_overlap: false,
 };
 const SEMANTIC_SEARCH: SearchContract = SearchContract {
     command: "semantic-search",
+    query: Some(QUERY),
     runtime_log: "Semantic search completed through local memory runtime",
     scored: true,
     expects_text_overlap: false,
 };
 const ADVANCED_SEARCH: SearchContract = SearchContract {
     command: "advanced-search",
+    query: Some(QUERY),
     runtime_log: "Advanced search completed through local memory runtime",
     scored: true,
     expects_text_overlap: true,
+};
+const RECENT: SearchContract = SearchContract {
+    command: "recent",
+    query: None,
+    runtime_log: "Recent list completed through local memory runtime",
+    scored: false,
+    expects_text_overlap: false,
 };
 
 fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
@@ -83,10 +94,12 @@ fn seed_memory(home: &Path) -> anyhow::Result<String> {
     Ok(id)
 }
 
-fn search_args(command: &str) -> Vec<&str> {
-    vec![
-        command,
-        QUERY,
+fn search_args(contract: SearchContract) -> Vec<&'static str> {
+    let mut args = vec![contract.command];
+    if let Some(query) = contract.query {
+        args.push(query);
+    }
+    args.extend([
         "--limit",
         "1",
         "--event-type",
@@ -103,7 +116,8 @@ fn search_args(command: &str) -> Vec<&str> {
         "0.7",
         "--context-tags",
         "runtime",
-    ]
+    ]);
+    args
 }
 
 fn expected_result(id: &str, score: Option<f64>, include_text_overlap: bool) -> serde_json::Value {
@@ -137,7 +151,7 @@ fn assert_search_contract(contract: SearchContract) -> anyhow::Result<()> {
     let home = tempfile::tempdir()?;
     let id = seed_memory(home.path())?;
 
-    let output = run_cli(home.path(), search_args(contract.command).as_slice())?;
+    let output = run_cli(home.path(), search_args(contract).as_slice())?;
     let stdout = String::from_utf8(output.stdout)?;
     let stderr = String::from_utf8(output.stderr)?;
     let payload: serde_json::Value = serde_json::from_str(stdout.trim())?;
@@ -189,4 +203,9 @@ fn semantic_search_command_uses_local_runtime_without_contract_drift() -> anyhow
 #[test]
 fn advanced_search_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
     assert_search_contract(ADVANCED_SEARCH)
+}
+
+#[test]
+fn recent_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+    assert_search_contract(RECENT)
 }
