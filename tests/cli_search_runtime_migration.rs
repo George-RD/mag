@@ -79,13 +79,25 @@ fn search_args(command: &str) -> Vec<&str> {
     ]
 }
 
-fn expected_result(id: &str, score: Option<f64>) -> serde_json::Value {
+fn expected_result(
+    id: &str,
+    score: Option<f64>,
+    include_text_overlap: bool,
+) -> serde_json::Value {
+    let metadata = if include_text_overlap {
+        serde_json::json!({
+            "_text_overlap": 1.0,
+            "source": "cli-search-parity"
+        })
+    } else {
+        serde_json::json!({"source": "cli-search-parity"})
+    };
     let mut result = serde_json::json!({
         "id": id,
         "content": format!("processed: {CONTENT}"),
         "tags": ["runtime", "search"],
         "importance": 0.8,
-        "metadata": {"source": "cli-search-parity"},
+        "metadata": metadata,
         "event_type": "decision",
         "session_id": "search-session",
         "project": "mag",
@@ -112,7 +124,7 @@ fn assert_unscored_search_contract(
     let output = run_cli(&home, search_args(command).as_slice())?;
     let stdout = String::from_utf8(output.stdout)?;
     let stderr = String::from_utf8(output.stderr)?;
-    let expected = serde_json::json!({ "results": [expected_result(&id, None)] });
+    let expected = serde_json::json!({ "results": [expected_result(&id, None, false)] });
     assert_eq!(stdout, format!("{expected}\n"));
     assert!(
         stderr.contains(expected_runtime_log),
@@ -145,7 +157,13 @@ fn assert_scored_search_contract(command: &str, expected_runtime_log: &str) -> a
     let score = results[0]["score"]
         .as_f64()
         .ok_or_else(|| anyhow::anyhow!("missing score in {command} output"))?;
-    let expected = serde_json::json!({ "results": [expected_result(&id, Some(score))] });
+    let expected = serde_json::json!({
+        "results": [expected_result(
+            &id,
+            Some(score),
+            command == "advanced-search"
+        )]
+    });
     assert_eq!(stdout, format!("{expected}\n"));
     assert!(
         stderr.contains(expected_runtime_log),
