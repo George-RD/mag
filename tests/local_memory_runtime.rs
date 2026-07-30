@@ -140,14 +140,6 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     assert_eq!(runtime_relations, direct_relations);
     assert!(runtime_relations.is_empty());
 
-    let runtime_traversal = runtime.traverse(&runtime_id, 2, 0.0, None).await.unwrap();
-    let direct_traversal = legacy_storage
-        .traverse(&legacy_id, 2, 0.0, None)
-        .await
-        .unwrap();
-    assert_eq!(runtime_traversal, direct_traversal);
-    assert!(runtime_traversal.is_empty());
-
     let runtime_chain = runtime.version_chain(&runtime_id).await.unwrap();
     let direct_chain = legacy_storage.get_version_chain(&legacy_id).await.unwrap();
     assert_eq!(runtime_chain, direct_chain);
@@ -168,6 +160,49 @@ async fn local_runtime_preserves_supported_capability_outputs() {
         .unwrap();
     let legacy_related_id = legacy.run(related_content, &related_input).await.unwrap();
     assert_eq!(runtime_related_id, legacy_related_id);
+
+    let relationship_metadata = serde_json::json!({"source": "runtime-traversal-parity"});
+    runtime_storage
+        .add_relationship(
+            &runtime_id,
+            &runtime_related_id,
+            "related",
+            0.75,
+            &relationship_metadata,
+        )
+        .await
+        .unwrap();
+    legacy_storage
+        .add_relationship(
+            &legacy_id,
+            &legacy_related_id,
+            "related",
+            0.75,
+            &relationship_metadata,
+        )
+        .await
+        .unwrap();
+
+    let runtime_traversal = runtime.traverse(&runtime_id, 2, 0.0, None).await.unwrap();
+    let direct_traversal = legacy_storage
+        .traverse(&legacy_id, 2, 0.0, None)
+        .await
+        .unwrap();
+    assert_eq!(runtime_traversal.len(), 1);
+    assert_eq!(runtime_traversal.len(), direct_traversal.len());
+    for (runtime_node, direct_node) in runtime_traversal.iter().zip(&direct_traversal) {
+        assert_eq!(runtime_node.id, direct_node.id);
+        assert_eq!(runtime_node.content, direct_node.content);
+        assert_eq!(runtime_node.event_type, direct_node.event_type);
+        assert_eq!(runtime_node.metadata, direct_node.metadata);
+        assert_eq!(runtime_node.hop, direct_node.hop);
+        assert_eq!(runtime_node.weight, direct_node.weight);
+        assert_eq!(runtime_node.edge_type, direct_node.edge_type);
+    }
+    assert_eq!(runtime_traversal[0].id, runtime_related_id);
+    assert_eq!(runtime_traversal[0].hop, 1);
+    assert_eq!(runtime_traversal[0].weight, 0.75);
+    assert_eq!(runtime_traversal[0].edge_type, "related");
 
     let runtime_similar = runtime.find_similar(&runtime_id, 1).await.unwrap();
     let direct_similar = legacy_storage.find_similar(&legacy_id, 1).await.unwrap();
