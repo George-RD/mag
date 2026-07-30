@@ -1,0 +1,36 @@
+name: Temporary Cairn state refresh
+
+on:
+  push:
+    branches:
+      - agent/cli-delete-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/cli-delete-runtime
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Refresh Cairn state
+        run: cairn scan
+      - name: Commit generated state
+        shell: bash
+        run: |
+          if git diff --quiet -- .cairn; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .cairn
+          git commit -m "chore(cairn): refresh generated state"
+          git push origin HEAD:agent/cli-delete-runtime
