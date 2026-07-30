@@ -69,6 +69,12 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     assert_eq!(runtime_search.len(), 1);
     assert_eq!(runtime_search[0].id, runtime_id);
 
+    let runtime_recent = runtime.recent(10, &options).await.unwrap();
+    let legacy_recent = legacy.recent(10, &options).await.unwrap();
+    assert_eq!(runtime_recent, legacy_recent);
+    assert_eq!(runtime_recent.len(), 1);
+    assert_eq!(runtime_recent[0].id, runtime_id);
+
     let runtime_semantic = runtime
         .semantic_search("portable sqlite", 10, &options)
         .await
