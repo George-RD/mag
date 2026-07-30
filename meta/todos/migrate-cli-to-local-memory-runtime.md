@@ -1,11 +1,12 @@
 ---
 node: mag.runtime.entrypoints
-status: blocked
+status: in_progress
 created: 2026-07-29
+started: 2026-07-30
 ---
 # Migrate CLI command families to the local runtime
 
-Blocked by `todo.introduce-local-memory-runtime-facade`.
+The local facade is merged. Migrate production callers in bounded slices.
 
 Move production CLI callers through the selected runtime in bounded command
 families rather than one large switch:
@@ -19,3 +20,12 @@ Each PR must begin with a failing caller-level parity test, keep the previous
 delegate easy to restore, and preserve JSON/stdout behaviour. Retrieval,
 scoring, reranking, or storage changes require the benchmark gate and are not
 permitted to hide inside a caller migration.
+
+## Progress
+
+- [x] `ingest` and `process` route through `LocalMemoryRuntime`; one shared helper
+  now owns validation and `MemoryInput` assembly while stdout and the current
+  `processed: ` stored-content contract remain pinned by a caller-level test.
+- [ ] Migrate retrieve/delete/update and other basic CRUD.
+- [ ] Migrate search, semantic/advanced retrieval, graph, session, and
+  administration commands.
