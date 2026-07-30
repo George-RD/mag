@@ -22,11 +22,9 @@ fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
 #[tokio::test]
 async fn local_runtime_preserves_store_retrieve_search_and_advanced_search_outputs() {
     let temp = tempfile::tempdir().unwrap();
-    let storage = SqliteStorage::new_with_path(
-        temp.path().join("memory.db"),
-        Arc::new(PlaceholderEmbedder),
-    )
-    .unwrap();
+    let storage =
+        SqliteStorage::new_with_path(temp.path().join("memory.db"), Arc::new(PlaceholderEmbedder))
+            .unwrap();
     let legacy = legacy_pipeline(&storage);
     let runtime = LocalMemoryRuntime::from_storage(storage.clone());
 
@@ -48,8 +46,14 @@ async fn local_runtime_preserves_store_retrieve_search_and_advanced_search_outpu
     assert_eq!(runtime_retrieved, format!("processed: {content}"));
 
     let options = SearchOptions::default();
-    let runtime_search = runtime.search("portable sqlite", 10, &options).await.unwrap();
-    let legacy_search = legacy.search("portable sqlite", 10, &options).await.unwrap();
+    let runtime_search = runtime
+        .search("portable sqlite", 10, &options)
+        .await
+        .unwrap();
+    let legacy_search = legacy
+        .search("portable sqlite", 10, &options)
+        .await
+        .unwrap();
     assert_eq!(runtime_search, legacy_search);
     assert_eq!(runtime_search.len(), 1);
     assert_eq!(runtime_search[0].id, id);
