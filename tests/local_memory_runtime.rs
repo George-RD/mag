@@ -4,8 +4,8 @@ use std::sync::Arc;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
-    AdvancedSearcher, Deleter, EventType, MemoryInput, MemoryUpdate, Pipeline, PlaceholderEmbedder,
-    PlaceholderPipeline, SearchOptions,
+    AdvancedSearcher, Deleter, EventType, Lister, MemoryInput, MemoryUpdate, Pipeline,
+    PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
@@ -97,6 +97,17 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     let legacy_updated = legacy.retrieve(&legacy_id).await.unwrap();
     assert_eq!(runtime_updated, legacy_updated);
     assert_eq!(runtime_updated, updated_content);
+
+    let runtime_list = runtime.list(0, 10, &options).await.unwrap();
+    let direct_list = legacy_storage.list(0, 10, &options).await.unwrap();
+    assert_eq!(runtime_list, direct_list);
+    assert_eq!(runtime_list.total, 1);
+    assert_eq!(runtime_list.memories[0].id, runtime_id);
+
+    let runtime_relations = runtime.get_relationships(&runtime_id).await.unwrap();
+    let direct_relations = legacy_storage.get_relationships(&legacy_id).await.unwrap();
+    assert_eq!(runtime_relations, direct_relations);
+    assert!(runtime_relations.is_empty());
 
     let runtime_deleted = runtime.delete(&runtime_id).await.unwrap();
     let legacy_deleted = legacy_storage.delete(&legacy_id).await.unwrap();

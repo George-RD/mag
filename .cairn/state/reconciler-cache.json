@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "4f47de9781d99ebc",
+  "key": "0581acea379616e1",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5410,6 +5410,7 @@
         "mag.quality.tests": [
           "src/test_helpers.rs",
           "tests/cli_output_smoke.rs",
+          "tests/cli_relations_runtime_migration.rs",
           "tests/cli_store_runtime_migration.rs",
           "tests/local_memory_runtime.rs",
           "tests/longmemeval_regression.rs",
@@ -5536,12 +5537,14 @@
         "pub async fn export_all(&self) -> Result<String>",
         "pub async fn extract(&self, _content: &str) -> Result<ExtractionResult>",
         "pub async fn extract(&self, content: &str) -> Result<ExtractionResult>",
+        "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
         "pub async fn graph_edge_stats(&self) -> Result<Vec<(String, i64)>>",
         "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
         "pub async fn import_all(&self, data: &str) -> Result<usize>",
         "pub async fn ingest(&self, input: MemoryInput) -> Result<String>",
         "pub async fn is_empty(&self) -> bool",
         "pub async fn len(&self) -> usize",
+        "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
         "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
         "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
         "pub async fn optimize(&self) -> Result<()>",
@@ -6126,6 +6129,8 @@
         "mag.runtime.entrypoints": [
           "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "pub async fn delete(&self, id: &str) -> Result<bool>",
+          "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
+          "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
@@ -7243,48 +7248,64 @@
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 89,
-            "end_line": 96
+            "line": 105,
+            "end_line": 112
           },
           {
             "name": "delete",
             "kind": "function",
             "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
             "file": "src/local_memory_runtime.rs",
-            "line": 67,
-            "end_line": 69
+            "line": 68,
+            "end_line": 70
+          },
+          {
+            "name": "get_relationships",
+            "kind": "function",
+            "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 88,
+            "end_line": 90
+          },
+          {
+            "name": "list",
+            "kind": "function",
+            "signature": "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 78,
+            "end_line": 85
           },
           {
             "name": "retrieve",
             "kind": "function",
             "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 62,
-            "end_line": 64
+            "line": 63,
+            "end_line": 65
           },
           {
             "name": "search",
             "kind": "function",
             "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 77,
-            "end_line": 86
+            "line": 93,
+            "end_line": 102
           },
           {
             "name": "store",
             "kind": "function",
             "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 57,
-            "end_line": 59
+            "line": 58,
+            "end_line": 60
           },
           {
             "name": "update",
             "kind": "function",
             "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 72,
-            "end_line": 74
+            "line": 73,
+            "end_line": 75
           },
           {
             "name": "Commands",
@@ -7323,24 +7344,24 @@
             "kind": "function",
             "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
             "file": "src/local_memory_runtime.rs",
-            "line": 47,
-            "end_line": 54
+            "line": 48,
+            "end_line": 55
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
             "file": "src/local_memory_runtime.rs",
-            "line": 28,
-            "end_line": 31
+            "line": 29,
+            "end_line": 32
           },
           {
             "name": "new_with_path",
             "kind": "function",
             "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
             "file": "src/local_memory_runtime.rs",
-            "line": 37,
-            "end_line": 40
+            "line": 38,
+            "end_line": 41
           },
           {
             "name": "app_paths",
@@ -7419,8 +7440,8 @@
             "kind": "struct",
             "signature": "pub struct LocalMemoryRuntime",
             "file": "src/local_memory_runtime.rs",
-            "line": 17,
-            "end_line": 20
+            "line": 18,
+            "end_line": 21
           },
           {
             "name": "SearchFilterArgs",
@@ -7435,8 +7456,8 @@
             "kind": "function",
             "signature": "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
             "file": "src/local_memory_runtime.rs",
-            "line": 102,
-            "end_line": 112
+            "line": 118,
+            "end_line": 128
           },
           {
             "name": "config_writer",
@@ -10635,7 +10656,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "7720bf6bb6e97a1c"
+        "hash": "201eaa1d34c3f2bf"
       },
       "findings": [
         {

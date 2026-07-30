@@ -30,6 +30,49 @@ fn assert_retrieved_content(home: &Path, id: &str, expected: &str) -> anyhow::Re
     Ok(())
 }
 
+fn assert_list_contract(home: &Path, id: &str, expected_content: &str) -> anyhow::Result<()> {
+    let list = run_cli(
+        home,
+        &[
+            "list",
+            "--offset",
+            "0",
+            "--limit",
+            "1",
+            "--event-type",
+            "lesson_learned",
+            "--project",
+            "mag",
+            "--session-id",
+            "session-1",
+        ],
+    )?;
+    let list_stdout = String::from_utf8(list.stdout)?;
+    let list_stderr = String::from_utf8(list.stderr)?;
+    let expected_list = serde_json::json!({
+        "results": [{
+            "id": id,
+            "content": expected_content,
+            "tags": ["updated", "runtime"],
+            "importance": 0.9,
+            "metadata": {"source": "cli-update-parity"},
+            "event_type": "lesson_learned",
+            "session_id": "session-1",
+            "project": "mag",
+            "entity_id": "runtime-facade",
+            "agent_type": "cli"
+        }],
+        "total": 1
+    });
+    assert_eq!(list_stdout, format!("{expected_list}\n"));
+    assert!(
+        list_stderr.contains("Listed through local memory runtime"),
+        "list did not report the selected runtime path: {list_stderr}"
+    );
+
+    Ok(())
+}
+
 fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> anyhow::Result<()> {
     let output = run_cli(
         home,
@@ -109,6 +152,7 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
     );
 
     assert_retrieved_content(home, id, updated_content.as_str())?;
+    assert_list_contract(home, id, updated_content.as_str())?;
 
     let delete = run_cli(home, &["delete", id])?;
     let delete_stdout = String::from_utf8(delete.stdout)?;

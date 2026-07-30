@@ -5,8 +5,9 @@ use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, Embedder, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline,
-    SearchOptions, SearchResult, SemanticResult,
+    AdvancedSearcher, Deleter, Embedder, ListResult, Lister, MemoryInput, MemoryUpdate, Pipeline,
+    PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions, SearchResult,
+    SemanticResult,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -71,6 +72,21 @@ impl LocalMemoryRuntime {
     /// Updates stored fields without changing the current mutation semantics.
     pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
         self.storage.update(id, input).await
+    }
+
+    /// Lists stored memories without changing pagination or filter semantics.
+    pub async fn list(
+        &self,
+        offset: usize,
+        limit: usize,
+        options: &SearchOptions,
+    ) -> Result<ListResult> {
+        self.storage.list(offset, limit, options).await
+    }
+
+    /// Returns stored relationships without changing ordering or payload semantics.
+    pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>> {
+        self.storage.get_relationships(memory_id).await
     }
 
     /// Runs the current basic search implementation.
