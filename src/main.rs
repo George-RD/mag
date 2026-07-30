@@ -40,7 +40,7 @@ mod memory_core;
 #[allow(dead_code)]
 mod test_helpers;
 
-use local_memory_runtime::LocalMemoryRuntime;
+use local_memory_runtime::{LocalMemoryRuntime, compose_compatibility_pipeline};
 use mcp::McpMemoryServer;
 
 #[derive(Clone, Copy)]
@@ -181,6 +181,7 @@ async fn main() -> anyhow::Result<()> {
 
     let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
     let mcp_storage = sqlite_storage.clone();
+    let pipeline = compose_compatibility_pipeline(&sqlite_storage);
 
     match &cli.command {
         Commands::Ingest {
