@@ -1,16 +1,18 @@
-name: Temporary update runtime implementation
+name: Complete update runtime migration
 
 on:
-  push:
-    branches:
-      - agent/cli-update-runtime
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   implement:
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.event.pull_request.head.ref == 'agent/cli-update-runtime' &&
+      github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -27,11 +29,11 @@ jobs:
           text = path.read_text()
 
           old_import = """    ReminderManager, SearchOptions, SimilarFinder, StatsProvider, Updater, VersionChainQuerier,
-    WelcomeOptions, WelcomeProvider, is_valid_event_type,
-"""
+              WelcomeOptions, WelcomeProvider, is_valid_event_type,
+          """
           new_import = """    ReminderManager, SearchOptions, SimilarFinder, StatsProvider, VersionChainQuerier,
-    WelcomeOptions, WelcomeProvider, is_valid_event_type,
-"""
+              WelcomeOptions, WelcomeProvider, is_valid_event_type,
+          """
           if text.count(old_import) != 1:
               raise SystemExit("expected one Updater import block")
           text = text.replace(old_import, new_import)
@@ -41,28 +43,28 @@ jobs:
               re.DOTALL,
           )
           update_replacement = """        Commands::Update {
-            id,
-            content,
-            tags,
-            importance,
-            metadata,
-            event_type,
-            priority,
-        } => {
-            info!(memory_id = %id, "Updating memory");
-            let update = build_memory_update(
-                content.as_deref(),
-                tags.as_deref(),
-                *importance,
-                metadata.as_deref(),
-                event_type.as_deref(),
-                *priority,
-            )?;
-            local_runtime.update(id, &update).await?;
-            info!(memory_id = %id, "Updated through local memory runtime");
-            println!("{}", json!({ "id": id, "updated": true }));
-        }
-        Commands::List {"""
+              id,
+              content,
+              tags,
+              importance,
+              metadata,
+              event_type,
+              priority,
+          } => {
+              info!(memory_id = %id, "Updating memory");
+              let update = build_memory_update(
+                  content.as_deref(),
+                  tags.as_deref(),
+                  *importance,
+                  metadata.as_deref(),
+                  event_type.as_deref(),
+                  *priority,
+              )?;
+              local_runtime.update(id, &update).await?;
+              info!(memory_id = %id, "Updated through local memory runtime");
+              println!("{}", json!({ "id": id, "updated": true }));
+          }
+          Commands::List {"""
           text, replaced = update_pattern.subn(update_replacement, text, count=1)
           if replaced != 1:
               raise SystemExit(f"expected one update command block, replaced {replaced}")
@@ -72,55 +74,55 @@ jobs:
               re.DOTALL,
           )
           metadata_replacement = """fn parse_optional_metadata_arg(
-    metadata: Option<&str>,
-) -> anyhow::Result<Option<serde_json::Value>> {
-    metadata
-        .map(serde_json::from_str::<serde_json::Value>)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("invalid metadata JSON: {e}"))
-}
+              metadata: Option<&str>,
+          ) -> anyhow::Result<Option<serde_json::Value>> {
+              metadata
+                  .map(serde_json::from_str::<serde_json::Value>)
+                  .transpose()
+                  .map_err(|e| anyhow::anyhow!("invalid metadata JSON: {e}"))
+          }
 
-fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {
-    Ok(parse_optional_metadata_arg(metadata)?.unwrap_or_else(|| serde_json::json!({})))
-}
+          fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {
+              Ok(parse_optional_metadata_arg(metadata)?.unwrap_or_else(|| serde_json::json!({})))
+          }
 
-fn build_memory_update(
-    content: Option<&str>,
-    tags: Option<&[String]>,
-    importance: Option<f64>,
-    metadata: Option<&str>,
-    event_type: Option<&str>,
-    priority: Option<i32>,
-) -> anyhow::Result<MemoryUpdate> {
-    let metadata = parse_optional_metadata_arg(metadata)?;
-    if let Some(kind) = event_type
-        && !is_valid_event_type(kind)
-    {
-        anyhow::bail!("invalid --event-type: {kind}");
-    }
-    if content.is_none()
-        && tags.is_none()
-        && importance.is_none()
-        && metadata.is_none()
-        && event_type.is_none()
-        && priority.is_none()
-    {
-        anyhow::bail!(
-            "at least one of --content, --tags, --importance, --metadata, --event-type, or --priority must be provided"
-        );
-    }
+          fn build_memory_update(
+              content: Option<&str>,
+              tags: Option<&[String]>,
+              importance: Option<f64>,
+              metadata: Option<&str>,
+              event_type: Option<&str>,
+              priority: Option<i32>,
+          ) -> anyhow::Result<MemoryUpdate> {
+              let metadata = parse_optional_metadata_arg(metadata)?;
+              if let Some(kind) = event_type
+                  && !is_valid_event_type(kind)
+              {
+                  anyhow::bail!("invalid --event-type: {kind}");
+              }
+              if content.is_none()
+                  && tags.is_none()
+                  && importance.is_none()
+                  && metadata.is_none()
+                  && event_type.is_none()
+                  && priority.is_none()
+              {
+                  anyhow::bail!(
+                      "at least one of --content, --tags, --importance, --metadata, --event-type, or --priority must be provided"
+                  );
+              }
 
-    Ok(MemoryUpdate {
-        content: content.map(str::to_owned),
-        tags: tags.map(|tags| tags.to_vec()),
-        importance,
-        metadata,
-        event_type: EventType::from_optional(event_type),
-        priority,
-    })
-}
+              Ok(MemoryUpdate {
+                  content: content.map(str::to_owned),
+                  tags: tags.map(|tags| tags.to_vec()),
+                  importance,
+                  metadata,
+                  event_type: EventType::from_optional(event_type),
+                  priority,
+              })
+          }
 
-fn build_search_options("""
+          fn build_search_options("""
           text, replaced = metadata_pattern.subn(metadata_replacement, text, count=1)
           if replaced != 1:
               raise SystemExit(f"expected one metadata helper block, replaced {replaced}")
@@ -130,14 +132,31 @@ fn build_search_options("""
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Format and commit
+      - name: Format
+        run: cargo fmt --all
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Refresh and verify Cairn state
         shell: bash
         run: |
-          cargo fmt --all
+          set +e
+          cairn scan
+          scan_status=$?
+          set -e
+          if [ "$scan_status" -gt 1 ]; then
+            exit "$scan_status"
+          fi
+          cairn hook all
+      - name: Commit the completed slice and remove this workflow
+        shell: bash
+        run: |
+          rm .github/workflows/agent-update-runtime.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.rs
+          git add src/main.rs .cairn .github/workflows/agent-update-runtime.yml
+          git diff --cached --check
           git commit -m "refactor(cli): route update through local runtime"
           git push origin HEAD:agent/cli-update-runtime
-
-# Re-triggered to complete the bounded implementation slice.
