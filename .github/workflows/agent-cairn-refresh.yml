@@ -1,0 +1,38 @@
+name: Agent Cairn refresh
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Refresh Cairn state
+        run: |
+          cairn scan
+          git status --short
+      - name: Package refreshed source
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=target \
+            --exclude='.cairn/cache' \
+            -czf /tmp/mag-cairn-scan.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mag-cairn-scan-${{ github.event.pull_request.head.sha }}
+          path: /tmp/mag-cairn-scan.tar.gz
+          if-no-files-found: error
+          retention-days: 1
