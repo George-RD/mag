@@ -75,10 +75,7 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
 
 #[test]
 fn ingest_and_process_use_local_runtime_without_contract_drift() -> anyhow::Result<()> {
-    let home = std::env::temp_dir().join(format!(
-        "mag-cli-store-runtime-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let home = std::env::temp_dir().join(format!("mag-cli-store-runtime-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home)?;
 
     assert_store_command_contract(&home, "ingest", "ingest caller parity")?;
