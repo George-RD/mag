@@ -71,18 +71,18 @@ jobs:
           main = main.replace(old_main_import, new_main_import)
 
           old_caller = """            let results = <SqliteStorage as PhraseSearcher>::phrase_search(
-                              &mcp_storage,
-                              phrase,
-                              *limit,
-                              &opts,
-                          )
-                          .await?;
+              &mcp_storage,
+              phrase,
+              *limit,
+              &opts,
+          )
+          .await?;
           """
           new_caller = """            let results = local_runtime.phrase_search(phrase, *limit, &opts).await?;
-                          info!(
-                              result_count = results.len(),
-                              "Phrase search completed through local memory runtime"
-                          );
+              info!(
+                  result_count = results.len(),
+                  "Phrase search completed through local memory runtime"
+              );
           """
           if main.count(old_caller) != 1:
               raise SystemExit("expected one phrase-search caller block")
