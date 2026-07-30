@@ -17,6 +17,19 @@ fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
     Ok(output)
 }
 
+fn assert_retrieved_content(home: &Path, id: &str, expected: &str) -> anyhow::Result<()> {
+    let retrieve = run_cli(home, &["retrieve", id])?;
+    let retrieve_payload: serde_json::Value = serde_json::from_slice(retrieve.stdout.as_slice())?;
+    let retrieve_stderr = String::from_utf8(retrieve.stderr)?;
+    assert_eq!(retrieve_payload["id"].as_str(), Some(id));
+    assert_eq!(retrieve_payload["content"].as_str(), Some(expected));
+    assert!(
+        retrieve_stderr.contains("Retrieved through local memory runtime"),
+        "retrieve did not report the selected runtime path: {retrieve_stderr}"
+    );
+    Ok(())
+}
+
 fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> anyhow::Result<()> {
     let output = run_cli(
         home,
@@ -61,19 +74,41 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
         "{command} did not report the selected runtime path: {stderr}"
     );
 
-    let retrieve = run_cli(home, &["retrieve", id])?;
-    let retrieve_payload: serde_json::Value = serde_json::from_slice(retrieve.stdout.as_slice())?;
-    let retrieve_stderr = String::from_utf8(retrieve.stderr)?;
     let expected_content = format!("processed: {content}");
-    assert_eq!(retrieve_payload["id"].as_str(), Some(id));
+    assert_retrieved_content(home, id, expected_content.as_str())?;
+
+    let updated_content = format!("{command} updated caller parity");
+    let update = run_cli(
+        home,
+        &[
+            "update",
+            id,
+            "--content",
+            updated_content.as_str(),
+            "--tags",
+            "updated,runtime",
+            "--importance",
+            "0.9",
+            "--metadata",
+            r#"{"source":"cli-update-parity"}"#,
+            "--event-type",
+            "lesson_learned",
+            "--priority",
+            "9",
+        ],
+    )?;
+    let update_stdout = String::from_utf8(update.stdout)?;
+    let update_stderr = String::from_utf8(update.stderr)?;
     assert_eq!(
-        retrieve_payload["content"].as_str(),
-        Some(expected_content.as_str())
+        update_stdout,
+        format!("{}\n", serde_json::json!({ "id": id, "updated": true }))
     );
     assert!(
-        retrieve_stderr.contains("Retrieved through local memory runtime"),
-        "retrieve did not report the selected runtime path: {retrieve_stderr}"
+        update_stderr.contains("Updated through local memory runtime"),
+        "update did not report the selected runtime path: {update_stderr}"
     );
+
+    assert_retrieved_content(home, id, updated_content.as_str())?;
 
     let delete = run_cli(home, &["delete", id])?;
     let delete_stdout = String::from_utf8(delete.stdout)?;
@@ -94,7 +129,7 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
 }
 
 #[test]
-fn store_retrieve_delete_commands_use_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+fn cli_crud_commands_use_local_runtime_without_contract_drift() -> anyhow::Result<()> {
     let home = std::env::temp_dir().join(format!("mag-cli-store-runtime-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home)?;
 

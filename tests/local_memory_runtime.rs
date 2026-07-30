@@ -4,8 +4,8 @@ use std::sync::Arc;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
-    AdvancedSearcher, Deleter, MemoryInput, Pipeline, PlaceholderEmbedder, PlaceholderPipeline,
-    SearchOptions,
+    AdvancedSearcher, Deleter, EventType, MemoryInput, MemoryUpdate, Pipeline, PlaceholderEmbedder,
+    PlaceholderPipeline, SearchOptions,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
@@ -80,6 +80,23 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     assert_eq!(runtime_advanced, direct_advanced);
     assert_eq!(runtime_advanced.len(), 1);
     assert_eq!(runtime_advanced[0].id, runtime_id);
+
+    let updated_content = "portable sqlite context updated through runtime";
+    let update = MemoryUpdate {
+        content: Some(updated_content.to_string()),
+        tags: Some(vec!["runtime".to_string(), "updated".to_string()]),
+        importance: Some(0.9),
+        metadata: Some(serde_json::json!({"source": "runtime-update-parity"})),
+        event_type: Some(EventType::LessonLearned),
+        priority: Some(9),
+    };
+    runtime.update(&runtime_id, &update).await.unwrap();
+    legacy_storage.update(&legacy_id, &update).await.unwrap();
+
+    let runtime_updated = runtime.retrieve(&runtime_id).await.unwrap();
+    let legacy_updated = legacy.retrieve(&legacy_id).await.unwrap();
+    assert_eq!(runtime_updated, legacy_updated);
+    assert_eq!(runtime_updated, updated_content);
 
     let runtime_deleted = runtime.delete(&runtime_id).await.unwrap();
     let legacy_deleted = legacy_storage.delete(&legacy_id).await.unwrap();

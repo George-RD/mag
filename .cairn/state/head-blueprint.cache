@@ -1,4 +1,4 @@
-d356d14466536f278beae439752470694d8845ed
+e17ec4a85030bb30682c6cf7aebf999cff15e4cb
 # MAG — reviewed architecture map.
 #
 # Status and work live in node-linked Cairn artefacts. The generated map is a
@@ -15,6 +15,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
         Module Entrypoints "CLI, crate surface, and process orchestration" id "mag.runtime.entrypoints" {
             path "./src/main.rs"
             path "./src/lib.rs"
+            path "./src/local_memory_runtime.rs"
             path "./src/cli.rs"
             contract "./meta/contracts/runtime.entrypoints.md"
         }
@@ -34,7 +35,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
         }
 
         Container Memory "Memory domain, model roles, retrieval, and storage" id "mag.runtime.memory" {
-            Module Domain "Stable memory types, traits, and legacy pipeline surface" id "mag.runtime.memory.domain" {
+            Module Domain "Stable memory types, traits, and compatibility-sensitive CLI pipeline" id "mag.runtime.memory.domain" {
                 path "./src/memory_core/mod.rs"
                 path "./src/memory_core/domain.rs"
                 path "./src/memory_core/traits.rs"
@@ -73,12 +74,12 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
             }
         }
 
-        Module Substrate "Newer trait-composed orchestration under evaluation" id "mag.runtime.substrate" @architecture-decision-pending {
+        Module Substrate "Feature-gated unselected orchestration retained during migration" id "mag.runtime.substrate" @not-production-wired @migration-only {
             path "./src/substrate"
             contract "./meta/contracts/runtime.substrate.md"
         }
 
-        Module Daemon "Optional authenticated HTTP deployment adapter" id "mag.runtime.daemon" @optional {
+        Module Daemon "Feature-gated HTTP support primitives without an assembled server" id "mag.runtime.daemon" @experimental @not-production-wired {
             path "./src/daemon.rs"
             path "./src/auth.rs"
             path "./src/idle_timer.rs"
@@ -127,37 +128,36 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
 # Runtime assembly and public surfaces
 mag.runtime.entrypoints -> mag.runtime.setup "Dispatches setup, configuration, and uninstall commands"
 mag.runtime.entrypoints -> mag.runtime.mcp "Starts and hosts the MCP stdio server"
-mag.runtime.entrypoints -> mag.runtime.memory.domain "Builds the public memory pipeline"
-mag.runtime.entrypoints -> mag.runtime.memory.models "Constructs embedding and optional LLM backends"
-mag.runtime.entrypoints -> mag.runtime.memory.storage.sqlite "Constructs the production storage backend"
-mag.runtime.entrypoints -> mag.runtime.daemon "Starts the optional HTTP adapter"
+mag.runtime.entrypoints -> mag.runtime.memory.domain "Builds the compatibility-sensitive CLI pipeline"
+mag.runtime.entrypoints -> mag.runtime.memory.models "Constructs the production embedding adapter"
+mag.runtime.entrypoints -> mag.runtime.memory.retrieval "Optionally constructs the cross-encoder reranker"
+mag.runtime.entrypoints -> mag.runtime.memory.storage.sqlite "Constructs the production storage and query backend"
 
 # Memory internals
-mag.runtime.mcp -> mag.runtime.memory.domain "Exposes domain operations as validated tools"
-mag.runtime.mcp -> mag.runtime.memory.storage.sqlite "Delegates tool execution to SQLite storage"
+mag.runtime.mcp -> mag.runtime.memory.domain "Uses stable domain inputs and outputs"
+mag.runtime.mcp -> mag.runtime.memory.storage.sqlite "Delegates tool execution directly to SQLite capabilities"
 mag.runtime.memory.models -> mag.runtime.memory.domain "Implements model traits used by memory operations"
 mag.runtime.memory.retrieval -> mag.runtime.memory.domain "Scores and returns domain search results"
 mag.runtime.memory.retrieval -> mag.runtime.memory.models "Uses embeddings and optional rerankers"
 mag.runtime.memory.storage.api -> mag.runtime.memory.domain "Defines backend access around domain contracts"
 mag.runtime.memory.storage.sqlite -> mag.runtime.memory.domain "Persists and queries domain records"
 mag.runtime.memory.storage.sqlite -> mag.runtime.memory.models "Creates and consumes embeddings"
-mag.runtime.memory.storage.sqlite -> mag.runtime.memory.retrieval "Runs the advanced retrieval pipeline"
+mag.runtime.memory.storage.sqlite -> mag.runtime.memory.retrieval "Runs the production advanced retrieval pipeline"
 mag.runtime.memory.storage.memory -> mag.runtime.memory.domain "Implements the reference backend contract"
 
-# Competing orchestration path to be resolved before more production wiring
-mag.runtime.substrate -> mag.runtime.memory.domain "Composes stable memory traits"
-mag.runtime.substrate -> mag.runtime.memory.models "Uses model-role abstractions"
-mag.runtime.substrate -> mag.runtime.memory.retrieval "Composes retrieval and scoring strategies"
-mag.runtime.substrate -> mag.runtime.memory.storage.sqlite "Bridges to the production backend"
+# Unselected candidate orchestration retained only for migration and retirement
+mag.runtime.substrate -> mag.runtime.memory.domain "Retains candidate composition over stable traits during migration"
+mag.runtime.substrate -> mag.runtime.memory.models "Retains experimental model abstraction use; not production wiring"
+mag.runtime.substrate -> mag.runtime.memory.retrieval "Retains test and benchmark composition pending retirement"
+mag.runtime.substrate -> mag.runtime.memory.storage.sqlite "Bridges retained tests and benchmarks to the production backend"
 
 # Deployment and integrations
-mag.runtime.daemon -> mag.runtime.mcp "Serves the same MCP semantics over HTTP"
 mag.runtime.setup -> mag.integrations.connectors "Installs and removes connector content"
 mag.integrations.python -> mag.runtime.mcp "Uses MAG through its protocol surface"
 
 # Verification
 mag.quality.tests -> mag.runtime "Verifies runtime behavior and contracts"
 mag.quality.benchmarks -> mag.runtime.memory "Measures memory quality and latency"
-mag.quality.benchmarks -> mag.runtime.substrate "Compares candidate orchestration paths"
+mag.quality.benchmarks -> mag.runtime.substrate "Measures the retained candidate orchestration path"
 mag.quality.scripts -> mag.quality.tests "Runs repository quality gates"
 mag.quality.scripts -> mag.quality.benchmarks "Runs benchmark and regression gates"

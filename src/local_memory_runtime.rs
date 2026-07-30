@@ -5,8 +5,8 @@ use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, Embedder, MemoryInput, Pipeline, PlaceholderPipeline, SearchOptions,
-    SearchResult, SemanticResult,
+    AdvancedSearcher, Deleter, Embedder, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline,
+    SearchOptions, SearchResult, SemanticResult,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -66,6 +66,11 @@ impl LocalMemoryRuntime {
     /// Deletes stored content without changing the current boolean result.
     pub async fn delete(&self, id: &str) -> Result<bool> {
         self.storage.delete(id).await
+    }
+
+    /// Updates stored fields without changing the current mutation semantics.
+    pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()> {
+        self.storage.update(id, input).await
     }
 
     /// Runs the current basic search implementation.
