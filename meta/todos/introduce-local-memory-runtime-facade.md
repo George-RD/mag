@@ -1,7 +1,8 @@
 ---
 node: mag.runtime.entrypoints
-status: open
+status: in_progress
 created: 2026-07-29
+started: 2026-07-30
 ---
 # Introduce the local memory runtime facade
 
