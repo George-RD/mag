@@ -3971,6 +3971,7 @@
       "files": [
         "src/test_helpers.rs",
         "tests/cli_output_smoke.rs",
+        "tests/cli_store_runtime_migration.rs",
         "tests/local_memory_runtime.rs",
         "tests/longmemeval_regression.rs",
         "tests/mcp_smoke.rs",
@@ -12869,7 +12870,7 @@
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1710 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1733 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.entrypoints",
       "path": "src/main.rs"
     },

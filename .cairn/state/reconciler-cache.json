@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "c3074f3ad3d54182",
+  "key": "b707e8cd05e52b96",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5410,6 +5410,7 @@
         "mag.quality.tests": [
           "src/test_helpers.rs",
           "tests/cli_output_smoke.rs",
+          "tests/cli_store_runtime_migration.rs",
           "tests/local_memory_runtime.rs",
           "tests/longmemeval_regression.rs",
           "tests/mcp_smoke.rs",

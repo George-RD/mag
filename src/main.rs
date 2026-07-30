@@ -33,12 +33,16 @@ mod doctor_checks;
 #[cfg(feature = "daemon-http")]
 #[allow(dead_code)]
 mod idle_timer;
+// Remaining facade capabilities migrate in later CLI and MCP slices.
+#[allow(dead_code)]
+mod local_memory_runtime;
 mod mcp;
 mod memory_core;
 #[cfg(test)]
 #[allow(dead_code)]
 mod test_helpers;
 
+use local_memory_runtime::LocalMemoryRuntime;
 use mcp::McpMemoryServer;
 
 #[derive(Clone, Copy)]
@@ -54,6 +58,21 @@ struct NormalizedSearchTimeFilters {
     created_before: Option<String>,
     event_after: Option<String>,
     event_before: Option<String>,
+}
+
+struct StoreCommandRequest<'a> {
+    content: &'a str,
+    tags: &'a [String],
+    importance: f64,
+    metadata: Option<&'a str>,
+    event_type: Option<&'a str>,
+    session_id: Option<&'a str>,
+    project: Option<&'a str>,
+    priority: Option<i32>,
+    entity_id: Option<&'a str>,
+    agent_type: Option<&'a str>,
+    ttl_seconds: Option<i64>,
+    referenced_date: Option<&'a str>,
 }
 
 #[tokio::main]
@@ -162,6 +181,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("startup backup failed (non-fatal): {e}");
     }
 
+    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
     let mcp_storage = sqlite_storage.clone();
 
     let pipeline = Pipeline::new(
@@ -187,35 +207,8 @@ async fn main() -> anyhow::Result<()> {
             agent_type,
             ttl_seconds,
             referenced_date,
-        } => {
-            info!(content_len = content.len(), "Ingesting content");
-            let meta = parse_metadata_arg(metadata.as_deref())?;
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let mut input = MemoryInput {
-                content: content.clone(),
-                id: None,
-                tags: tags.clone(),
-                importance: *importance,
-                metadata: meta,
-                session_id: session_id.clone(),
-                project: project.clone(),
-                priority: *priority,
-                entity_id: entity_id.clone(),
-                agent_type: agent_type.clone(),
-                ttl_seconds: *ttl_seconds,
-                referenced_date: referenced_date.clone(),
-                ..MemoryInput::default()
-            };
-            input.apply_event_type_defaults(event_type.as_deref());
-            let id = pipeline.run(content, &input).await?;
-            info!(memory_id = %id, "Successfully processed and stored");
-            println!("{}", json!({ "id": id }));
         }
-        Commands::Process {
+        | Commands::Process {
             content,
             tags,
             importance,
@@ -229,31 +222,31 @@ async fn main() -> anyhow::Result<()> {
             ttl_seconds,
             referenced_date,
         } => {
-            info!(content_len = content.len(), "Processing content directly");
-            let meta = parse_metadata_arg(metadata.as_deref())?;
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            let mut input = MemoryInput {
-                content: content.clone(),
-                id: None,
-                tags: tags.clone(),
-                importance: *importance,
-                metadata: meta,
-                session_id: session_id.clone(),
-                project: project.clone(),
-                priority: *priority,
-                entity_id: entity_id.clone(),
-                agent_type: agent_type.clone(),
-                ttl_seconds: *ttl_seconds,
-                referenced_date: referenced_date.clone(),
-                ..MemoryInput::default()
+            let command = if matches!(&cli.command, Commands::Ingest { .. }) {
+                "ingest"
+            } else {
+                "process"
             };
-            input.apply_event_type_defaults(event_type.as_deref());
-            let id = pipeline.run(content, &input).await?;
-            info!(memory_id = %id, "Process command stored result");
+            info!(command, content_len = content.len(), "Storing content");
+            let id = execute_store_command(
+                &local_runtime,
+                StoreCommandRequest {
+                    content,
+                    tags,
+                    importance: *importance,
+                    metadata: metadata.as_deref(),
+                    event_type: event_type.as_deref(),
+                    session_id: session_id.as_deref(),
+                    project: project.as_deref(),
+                    priority: *priority,
+                    entity_id: entity_id.as_deref(),
+                    agent_type: agent_type.as_deref(),
+                    ttl_seconds: *ttl_seconds,
+                    referenced_date: referenced_date.as_deref(),
+                },
+            )
+            .await?;
+            info!(command, memory_id = %id, "Stored through local memory runtime");
             println!("{}", json!({ "id": id }));
         }
         Commands::Retrieve { id } => {
@@ -1036,6 +1029,36 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn execute_store_command(
+    runtime: &LocalMemoryRuntime,
+    request: StoreCommandRequest<'_>,
+) -> anyhow::Result<String> {
+    let metadata = parse_metadata_arg(request.metadata)?;
+    if let Some(kind) = request.event_type
+        && !is_valid_event_type(kind)
+    {
+        anyhow::bail!("invalid --event-type: {kind}");
+    }
+
+    let mut input = MemoryInput {
+        content: request.content.to_string(),
+        id: None,
+        tags: request.tags.to_vec(),
+        importance: request.importance,
+        metadata,
+        session_id: request.session_id.map(str::to_owned),
+        project: request.project.map(str::to_owned),
+        priority: request.priority,
+        entity_id: request.entity_id.map(str::to_owned),
+        agent_type: request.agent_type.map(str::to_owned),
+        ttl_seconds: request.ttl_seconds,
+        referenced_date: request.referenced_date.map(str::to_owned),
+        ..MemoryInput::default()
+    };
+    input.apply_event_type_defaults(request.event_type);
+    runtime.store(request.content, &input).await
 }
 
 fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {
