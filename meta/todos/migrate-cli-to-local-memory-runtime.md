@@ -51,6 +51,7 @@ permitted to hide inside a caller migration.
 - [x] `version-chain` and `similar` route through `LocalMemoryRuntime`; version
   ordering and metadata augmentation, similarity scores, exact compact JSON, and
   direct-storage parity remain pinned.
-- [x] `traverse` routes through `LocalMemoryRuntime`; hop grouping, exact compact
-  JSON, empty traversal behaviour, and direct-storage parity remain pinned.
+- [x] `traverse` routes through `LocalMemoryRuntime`; exact compact empty-graph
+  JSON, one-hop node hydration, hop, edge type, weight, and direct-storage parity
+  remain pinned.
 - [ ] Migrate session and administration commands.
