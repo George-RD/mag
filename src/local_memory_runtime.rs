@@ -7,7 +7,7 @@ use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
     AdvancedSearcher, Deleter, Embedder, ListResult, Lister, MemoryInput, MemoryUpdate,
     PhraseSearcher, Pipeline, PlaceholderPipeline, Relationship, RelationshipQuerier,
-    SearchOptions, SearchResult, SemanticResult,
+    SearchOptions, SearchResult, SemanticResult, SimilarFinder, VersionChainQuerier,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -136,6 +136,16 @@ impl LocalMemoryRuntime {
         options: &SearchOptions,
     ) -> Result<Vec<SemanticResult>> {
         self.storage.advanced_search(query, limit, options).await
+    }
+
+    /// Returns the current version chain without changing ordering or metadata semantics.
+    pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>> {
+        self.storage.get_version_chain(memory_id).await
+    }
+
+    /// Finds similar memories without changing scoring, filtering, or result fields.
+    pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>> {
+        self.storage.find_similar(memory_id, limit).await
     }
 }
 

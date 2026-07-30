@@ -6,6 +6,7 @@ use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
     AdvancedSearcher, Deleter, EventType, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
     Pipeline, PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
+    SimilarFinder, VersionChainQuerier,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
@@ -138,6 +139,33 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     let direct_relations = legacy_storage.get_relationships(&legacy_id).await.unwrap();
     assert_eq!(runtime_relations, direct_relations);
     assert!(runtime_relations.is_empty());
+
+    let runtime_chain = runtime.version_chain(&runtime_id).await.unwrap();
+    let direct_chain = legacy_storage.get_version_chain(&legacy_id).await.unwrap();
+    assert_eq!(runtime_chain, direct_chain);
+    assert_eq!(runtime_chain.len(), 1);
+    assert_eq!(runtime_chain[0].id, runtime_id);
+
+    let related_content = "offline indexing remains available to future local tools";
+    let related_input = MemoryInput {
+        id: Some("runtime-parity-2".to_string()),
+        content: related_content.to_string(),
+        tags: vec!["runtime".to_string(), "similar".to_string()],
+        metadata: serde_json::json!({"source": "runtime-similar-parity"}),
+        ..Default::default()
+    };
+    let runtime_related_id = runtime
+        .store(related_content, &related_input)
+        .await
+        .unwrap();
+    let legacy_related_id = legacy.run(related_content, &related_input).await.unwrap();
+    assert_eq!(runtime_related_id, legacy_related_id);
+
+    let runtime_similar = runtime.find_similar(&runtime_id, 1).await.unwrap();
+    let direct_similar = legacy_storage.find_similar(&legacy_id, 1).await.unwrap();
+    assert_eq!(runtime_similar, direct_similar);
+    assert_eq!(runtime_similar.len(), 1);
+    assert_eq!(runtime_similar[0].id, runtime_related_id);
 
     let runtime_deleted = runtime.delete(&runtime_id).await.unwrap();
     let legacy_deleted = legacy_storage.delete(&legacy_id).await.unwrap();
