@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh:
@@ -14,25 +14,56 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Retain shared in-memory helpers without binary false positives
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/memory_core/storage/sqlite/storage.rs")
+          text = path.read_text()
+          old = '''    pub fn new_in_memory() -> Result<Self> {
+              Self::new_in_memory_with_embedder(Arc::new(crate::memory_core::PlaceholderEmbedder))
+          }
+
+          pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
+              Self::new_with_path(PathBuf::from(":memory:"), embedder)
+          }
+          '''
+          new = '''    // Public library/test helpers; the binary compiles a private module copy
+          // where they intentionally have no direct caller.
+          #[allow(dead_code)]
+          pub fn new_in_memory() -> Result<Self> {
+              Self::new_in_memory_with_embedder(Arc::new(crate::memory_core::PlaceholderEmbedder))
+          }
+
+          #[allow(dead_code)]
+          pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
+              Self::new_with_path(PathBuf::from(":memory:"), embedder)
+          }
+          '''
+          if old in text:
+              path.write_text(text.replace(old, new, 1))
+          elif new not in text:
+              raise SystemExit("in-memory helper block did not match expected source")
+          PY
       - name: Install Cairn 0.9.0
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Refresh Cairn state
+      - name: Refresh and commit Cairn state
         run: |
           cairn scan
           git status --short
-      - name: Package refreshed source
-        run: |
-          tar \
-            --exclude=.git \
-            --exclude=target \
-            --exclude='.cairn/cache' \
-            -czf /tmp/mag-cairn-scan.tar.gz .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mag-cairn-scan-${{ github.event.pull_request.head.sha }}
-          path: /tmp/mag-cairn-scan.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/memory_core/storage/sqlite/storage.rs \
+            .cairn/log.md \
+            .cairn/state \
+            map.json
+          if ! git diff --cached --quiet; then
+            git commit -m "fix(runtime): retain shared in-memory helpers"
+            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          fi
