@@ -38,88 +38,82 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+          import textwrap
 
           def replace_once(path: str, old: str, new: str) -> None:
               file_path = Path(path)
               text = file_path.read_text()
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"expected one match in {path}, found {count}")
+                  raise SystemExit(f"expected one literal match in {path}, found {count}")
               file_path.write_text(text.replace(old, new, 1))
 
+          def sub_once(path: str, pattern: str, replacement: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              updated, count = re.subn(pattern, lambda _: replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"expected one regex match in {path}, found {count}")
+              file_path.write_text(updated)
+
           replace_once(
               "src/local_memory_runtime.rs",
-              """use crate::memory_core::{
-              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
-              GraphTraverser, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
-              PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions, SearchResult,
-              SemanticResult, SimilarFinder, VersionChainQuerier,
-          };
-          """,
-              """use crate::memory_core::{
-              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
-              GraphTraverser, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
-              PlaceholderPipeline, Relationship, RelationshipQuerier, ReminderManager, SearchOptions,
-              SearchResult, SemanticResult, SimilarFinder, VersionChainQuerier,
-          };
-          """,
+              "RelationshipQuerier, SearchOptions",
+              "RelationshipQuerier, ReminderManager, SearchOptions",
           )
 
+          runtime_methods = textwrap.indent(
+              textwrap.dedent(
+                  """\
+                  /// Creates a reminder without changing duration, metadata, or timestamp semantics.
+                  pub async fn create_reminder(
+                      &self,
+                      text: &str,
+                      duration: &str,
+                      context: Option<&str>,
+                      session_id: Option<&str>,
+                      project: Option<&str>,
+                  ) -> Result<serde_json::Value> {
+                      self.storage
+                          .create_reminder(text, duration, context, session_id, project)
+                          .await
+                  }
+
+                  /// Lists reminders without changing status filters, ordering, or payload fields.
+                  pub async fn list_reminders(
+                      &self,
+                      status: Option<&str>,
+                  ) -> Result<Vec<serde_json::Value>> {
+                      self.storage.list_reminders(status).await
+                  }
+
+                  /// Dismisses a reminder without changing metadata or timestamp semantics.
+                  pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
+                      self.storage.dismiss_reminder(reminder_id).await
+                  }
+
+                  """
+              ),
+              "    ",
+          )
           replace_once(
               "src/local_memory_runtime.rs",
-              """    /// Runs the current basic search implementation.
-          """,
-              """    /// Creates a reminder without changing duration, metadata, or timestamp semantics.
-              pub async fn create_reminder(
-                  &self,
-                  text: &str,
-                  duration: &str,
-                  context: Option<&str>,
-                  session_id: Option<&str>,
-                  project: Option<&str>,
-              ) -> Result<serde_json::Value> {
-                  self.storage
-                      .create_reminder(text, duration, context, session_id, project)
-                      .await
-              }
-
-              /// Lists reminders without changing status filters, ordering, or payload fields.
-              pub async fn list_reminders(
-                  &self,
-                  status: Option<&str>,
-              ) -> Result<Vec<serde_json::Value>> {
-                  self.storage.list_reminders(status).await
-              }
-
-              /// Dismisses a reminder without changing metadata or timestamp semantics.
-              pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
-                  self.storage.dismiss_reminder(reminder_id).await
-              }
-
-              /// Runs the current basic search implementation.
-          """,
+              "    /// Runs the current basic search implementation.\n",
+              runtime_methods + "    /// Runs the current basic search implementation.\n",
           )
 
           replace_once(
               "src/main.rs",
-              """use memory_core::{
-              BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-              LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, ReminderManager,
-              SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider, is_valid_event_type,
-          };
-          """,
-              """use memory_core::{
-              BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-              LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, SearchOptions,
-              StatsProvider, WelcomeOptions, WelcomeProvider, is_valid_event_type,
-          };
-          """,
+              "ProfileManager, ReminderManager,",
+              "ProfileManager,",
           )
 
-          replace_once(
-              "src/main.rs",
-              """                let result = <SqliteStorage as ReminderManager>::create_reminder(
-                          &mcp_storage,
+          create_replacement = textwrap.indent(
+              textwrap.dedent(
+                  """\
+                  let result = local_runtime
+                      .create_reminder(
                           text,
                           duration,
                           context.as_deref(),
@@ -127,75 +121,61 @@ jobs:
                           project.as_deref(),
                       )
                       .await?;
-                      println!(\"{}\", result);
-          """,
-              """                let result = local_runtime
-                          .create_reminder(
-                              text,
-                              duration,
-                              context.as_deref(),
-                              session_id.as_deref(),
-                              project.as_deref(),
-                          )
-                          .await?;
-                      info!(
-                          reminder_id = result[\"reminder_id\"].as_str().unwrap_or_default(),
-                          \"Reminder created through local memory runtime\"
-                      );
-                      println!(\"{}\", result);
-          """,
+                  info!(
+                      reminder_id = result["reminder_id"].as_str().unwrap_or_default(),
+                      "Reminder created through local memory runtime"
+                  );
+                  println!("{}", result);"""
+              ),
+              "                ",
+          )
+          sub_once(
+              "src/main.rs",
+              r'''                let result = <SqliteStorage as ReminderManager>::create_reminder\(.*?                println!\("\{\}", result\);''',
+              create_replacement,
           )
 
-          replace_once(
+          list_replacement = textwrap.indent(
+              textwrap.dedent(
+                  """\
+                  let result = local_runtime.list_reminders(status.as_deref()).await?;
+                  info!(
+                      result_count = result.len(),
+                      status = status.as_deref().unwrap_or("pending"),
+                      "Reminders listed through local memory runtime"
+                  );
+                  println!("{}", json!({ "results": result }));"""
+              ),
+              "                ",
+          )
+          sub_once(
               "src/main.rs",
-              """                let result = <SqliteStorage as ReminderManager>::list_reminders(
-                          &mcp_storage,
-                          status.as_deref(),
-                      )
-                      .await?;
-                      println!(\"{}\", json!({ \"results\": result }));
-          """,
-              """                let result = local_runtime.list_reminders(status.as_deref()).await?;
-                      info!(
-                          result_count = result.len(),
-                          status = status.as_deref().unwrap_or(\"pending\"),
-                          \"Reminders listed through local memory runtime\"
-                      );
-                      println!(\"{}\", json!({ \"results\": result }));
-          """,
+              r'''                let result = <SqliteStorage as ReminderManager>::list_reminders\(.*?                println!\("\{\}", json!\(\{ "results": result \}\)\);''',
+              list_replacement,
           )
 
-          replace_once(
+          dismiss_replacement = textwrap.indent(
+              textwrap.dedent(
+                  """\
+                  let result = local_runtime.dismiss_reminder(reminder_id).await?;
+                  info!(
+                      reminder_id,
+                      "Reminder dismissed through local memory runtime"
+                  );
+                  println!("{}", result);"""
+              ),
+              "                ",
+          )
+          sub_once(
               "src/main.rs",
-              """                let result =
-                          <SqliteStorage as ReminderManager>::dismiss_reminder(&mcp_storage, reminder_id)
-                              .await?;
-                      println!(\"{}\", result);
-          """,
-              """                let result = local_runtime.dismiss_reminder(reminder_id).await?;
-                      info!(
-                          reminder_id,
-                          \"Reminder dismissed through local memory runtime\"
-                      );
-                      println!(\"{}\", result);
-          """,
+              r'''                let result =\s*<SqliteStorage as ReminderManager>::dismiss_reminder\(&mcp_storage, reminder_id\)\s*\.await\?;\s*println!\("\{\}", result\);''',
+              dismiss_replacement,
           )
 
           replace_once(
               "tests/local_memory_runtime.rs",
-              """use mag::memory_core::{
-              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, GraphTraverser,
-              Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderEmbedder,
-              PlaceholderPipeline, RelationshipQuerier, SearchOptions, SimilarFinder, VersionChainQuerier,
-          };
-          """,
-              """use mag::memory_core::{
-              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, GraphTraverser,
-              Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderEmbedder,
-              PlaceholderPipeline, RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder,
-              VersionChainQuerier,
-          };
-          """,
+              "RelationshipQuerier, SearchOptions",
+              "RelationshipQuerier, ReminderManager, SearchOptions",
           )
 
           parity_test = r'''
@@ -334,7 +314,10 @@ jobs:
           }
           '''
           test_path = Path("tests/local_memory_runtime.rs")
-          test_path.write_text(test_path.read_text().rstrip() + parity_test + "\n")
+          current_test = test_path.read_text()
+          if "local_runtime_preserves_reminder_capability_outputs" in current_test:
+              raise SystemExit("reminder parity test already exists")
+          test_path.write_text(current_test.rstrip() + parity_test + "\n")
 
           Path(".github/workflows/agent-apply-reminders-runtime.yml").unlink()
           PY
