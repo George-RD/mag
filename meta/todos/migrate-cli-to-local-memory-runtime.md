@@ -42,5 +42,8 @@ permitted to hide inside a caller migration.
 - [x] `search`, `semantic-search`, and `advanced-search` route through
   `LocalMemoryRuntime`; filters, limits, exact compact JSON, scores, and the
   compatibility-sensitive advanced-search metadata remain pinned at caller and
-  facade levels. The temporary compatibility `Pipeline` remains for `recent`.
+  facade levels.
+- [x] `recent` routes through `LocalMemoryRuntime`; filters, ordering, exact
+  compact JSON, and compatibility-pipeline parity remain pinned. The compatibility
+  `Pipeline` is now private to the runtime composition root.
 - [ ] Migrate related retrieval, graph, session, and administration commands.

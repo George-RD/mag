@@ -40,7 +40,7 @@ mod memory_core;
 #[allow(dead_code)]
 mod test_helpers;
 
-use local_memory_runtime::{LocalMemoryRuntime, compose_compatibility_pipeline};
+use local_memory_runtime::LocalMemoryRuntime;
 use mcp::McpMemoryServer;
 
 #[derive(Clone, Copy)]
@@ -181,7 +181,6 @@ async fn main() -> anyhow::Result<()> {
 
     let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
     let mcp_storage = sqlite_storage.clone();
-    let pipeline = compose_compatibility_pipeline(&sqlite_storage);
 
     match &cli.command {
         Commands::Ingest {
@@ -551,8 +550,11 @@ async fn main() -> anyhow::Result<()> {
         Commands::Recent { limit, filters } => {
             info!(limit = *limit, "Listing recent memories");
             let opts = build_search_options(filters, false)?;
-            let results = pipeline.recent(*limit, &opts).await?;
-            info!(result_count = results.len(), "Recent list completed");
+            let results = local_runtime.recent(*limit, &opts).await?;
+            info!(
+                result_count = results.len(),
+                "Recent list completed through local memory runtime"
+            );
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {

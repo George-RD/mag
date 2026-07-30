@@ -101,6 +101,11 @@ impl LocalMemoryRuntime {
             .await
     }
 
+    /// Lists recent memories without changing filters, ordering, or result fields.
+    pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>> {
+        self.compatibility_pipeline.recent(limit, options).await
+    }
+
     /// Runs the current semantic-search implementation.
     pub async fn semantic_search(
         &self,
@@ -124,10 +129,11 @@ impl LocalMemoryRuntime {
     }
 }
 
-/// Builds the temporary compatibility pipeline used by callers not yet moved
-/// behind [`LocalMemoryRuntime`]. Keep this assembly in one place while the
-/// remaining retrieval callers migrate.
-pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline {
+/// Builds the compatibility pipeline retained inside [`LocalMemoryRuntime`].
+///
+/// Keep this legacy assembly private to the selected composition root while its
+/// delegates are replaced in later bounded slices.
+fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline {
     Pipeline::new(
         Box::new(PlaceholderPipeline),
         Box::new(PlaceholderPipeline),

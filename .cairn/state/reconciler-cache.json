@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "989381094968ef2e",
+  "key": "a150bf71abcf088d",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5549,6 +5549,7 @@
         "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
         "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
         "pub async fn optimize(&self) -> Result<()>",
+        "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn resolve_dataset( kind: DatasetKind, dataset_path: Option<PathBuf>, force_refresh: bool, temporary: bool, ) -> Result<DatasetArtifact>",
         "pub async fn retrieve(&self, id: &str) -> Result<String>",
@@ -5919,7 +5920,6 @@
         "pub(crate) async fn download_file(url: &str, path: &Path) -> Result<()>",
         "pub(crate) async fn store_internal( &self, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<()>",
         "pub(crate) fn agents_md_target( tool: tool_detection::AiTool, home: &Path, ) -> Option<(&'static str, PathBuf)>",
-        "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
         "pub(crate) fn embedding_for_text(input: &str) -> Vec<f32>",
         "pub(crate) fn expand_date_tokens(text: &str) -> String",
         "pub(crate) fn get_synonyms(word: &str) -> &'static [&'static str]",
@@ -6133,6 +6133,7 @@
           "pub async fn delete(&self, id: &str) -> Result<bool>",
           "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
           "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
+          "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
@@ -6156,7 +6157,6 @@
           "pub struct Cli",
           "pub struct LocalMemoryRuntime",
           "pub struct SearchFilterArgs",
-          "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
           "pub(crate) mod config_writer",
           "pub(crate) mod tool_detection"
         ],
@@ -7251,8 +7251,8 @@
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 117,
-            "end_line": 124
+            "line": 122,
+            "end_line": 129
           },
           {
             "name": "delete",
@@ -7279,6 +7279,14 @@
             "end_line": 85
           },
           {
+            "name": "recent",
+            "kind": "function",
+            "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 105,
+            "end_line": 107
+          },
+          {
             "name": "retrieve",
             "kind": "function",
             "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
@@ -7299,8 +7307,8 @@
             "kind": "function",
             "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 105,
-            "end_line": 114
+            "line": 110,
+            "end_line": 119
           },
           {
             "name": "store",
@@ -7461,14 +7469,6 @@
             "file": "src/cli.rs",
             "line": 31,
             "end_line": 56
-          },
-          {
-            "name": "compose_compatibility_pipeline",
-            "kind": "function",
-            "signature": "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
-            "file": "src/local_memory_runtime.rs",
-            "line": 130,
-            "end_line": 140
           },
           {
             "name": "config_writer",
@@ -10667,7 +10667,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "9e10c349ff184a1b"
+        "hash": "74b5693a036716a4"
       },
       "findings": [
         {
