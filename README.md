@@ -64,7 +64,7 @@ The aim is simple: store useful context once, then let another session or tool f
 ## How it works
 
 <picture>
-  <img src="site/assets/context-flow.svg" width="100%" alt="Claude Code, Cursor, Codex and other MCP clients connect to MAG. MAG stores memories in a local SQLite file and retrieves them through full-text, semantic and graph signals." />
+  <img src="site/assets/context-flow.svg" width="100%" alt="Claude Code saves a decision to MAG's local SQLite memory. Cursor later asks the same question in different words, and MAG returns the decision with its Claude Code source using full-text, semantic and relationship signals." />
 </picture>
 
 1. An MCP client stores a decision, bug fix, preference or handoff.

@@ -1,91 +1,90 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="620" viewBox="0 0 1400 620" role="img" aria-labelledby="title desc">
-  <title id="title">How MAG connects AI tools to one local memory system</title>
-  <desc id="desc">MCP clients send store and search calls to MAG. MAG keeps source memories and relationships in SQLite, then retrieves them with full-text, semantic and graph signals.</desc>
+  <title id="title">How MAG carries one decision from one AI tool to another</title>
+  <desc id="desc">Claude Code stores a retry decision in MAG's local SQLite memory. Later, Cursor asks the same question in different words. MAG uses full-text, semantic, and relationship signals to return the earlier decision with its source.</desc>
+
   <rect width="1400" height="620" fill="#F8FAFC"/>
-  <rect x="0" y="0" width="1400" height="58" fill="#0B1B35"/>
-  <text x="36" y="37" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800">ONE LOCAL MEMORY SYSTEM</text>
-  <text x="1122" y="37" fill="#FFB703" font-family="monospace" font-size="13" font-weight="700">MCP · SQLITE · ONNX</text>
+  <rect width="1400" height="62" fill="#0B1B35"/>
+  <text x="38" y="40" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800">ONE DECISION. AVAILABLE IN THE NEXT TOOL.</text>
+  <text x="1110" y="40" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">LOCAL CONTEXT RELAY</text>
 
   <g font-family="Arial, Helvetica, sans-serif">
-    <text x="68" y="112" fill="#44566F" font-family="monospace" font-size="13" font-weight="700">CLIENTS</text>
-    <text x="500" y="112" fill="#44566F" font-family="monospace" font-size="13" font-weight="700">MAG CORE</text>
-    <text x="1022" y="112" fill="#44566F" font-family="monospace" font-size="13" font-weight="700">RETRIEVAL</text>
+    <text x="58" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">01 · CAPTURE</text>
+    <text x="472" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">02 · KEEP</text>
+    <text x="966" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">03 · RECALL</text>
 
-    <g transform="translate(68 146)">
-      <rect width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
-      <rect width="11" height="70" fill="#165DFF"/>
-      <text x="32" y="43" fill="#0B1B35" font-size="19" font-weight="800">Claude Code</text>
+    <g transform="translate(58 138)">
+      <rect width="316" height="292" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="316" height="52" fill="#0B1B35"/>
+      <text x="20" y="33" fill="#FFFFFF" font-size="17" font-weight="800">Claude Code</text>
+      <text x="219" y="32" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">MON 09:42</text>
 
-      <rect y="92" width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
-      <rect y="92" width="11" height="70" fill="#165DFF"/>
-      <text x="32" y="135" fill="#0B1B35" font-size="19" font-weight="800">Cursor</text>
-
-      <rect y="184" width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
-      <rect y="184" width="11" height="70" fill="#165DFF"/>
-      <text x="32" y="227" fill="#0B1B35" font-size="19" font-weight="800">Codex</text>
-
-      <rect y="276" width="282" height="70" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
-      <rect y="276" width="11" height="70" fill="#FFB703"/>
-      <text x="32" y="319" fill="#0B1B35" font-size="19" font-weight="800">Any MCP client</text>
+      <text x="22" y="92" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700">DECISION</text>
+      <text x="22" y="132" fill="#0B1B35" font-size="22" font-weight="800">Use exponential</text>
+      <text x="22" y="163" fill="#0B1B35" font-size="22" font-weight="800">backoff with jitter.</text>
+      <rect x="22" y="190" width="173" height="28" fill="#165DFF"/>
+      <text x="34" y="209" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">decision · api-gateway</text>
+      <line x1="22" y1="244" x2="294" y2="244" stroke="#BAC8D8" stroke-width="1"/>
+      <text x="22" y="270" fill="#44566F" font-size="14">Saved once.</text>
     </g>
 
-    <path d="M350 181H432M350 273H432M350 365H432M350 457H432" stroke="#0B41BD" stroke-width="3"/>
-    <path d="M432 181V457" stroke="#0B41BD" stroke-width="3"/>
-    <path d="M432 319H483" stroke="#0B41BD" stroke-width="3"/>
-    <path d="M475 309L487 319L475 329" fill="none" stroke="#0B41BD" stroke-width="3"/>
-    <text x="374" y="300" fill="#0B41BD" font-family="monospace" font-size="12" font-weight="700" transform="rotate(-90 374 300)">MCP CALLS</text>
+    <path d="M374 284H447" stroke="#FFB703" stroke-width="4"/>
+    <path d="M437 273L450 284L437 295" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <text x="390" y="264" fill="#8B3E16" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">STORE</text>
 
-    <g transform="translate(500 146)">
-      <rect width="404" height="346" fill="#165DFF"/>
-      <rect x="22" y="22" width="360" height="72" fill="#0B41BD"/>
-      <text x="44" y="54" fill="#FFFFFF" font-size="21" font-weight="900">MAG</text>
-      <text x="44" y="78" fill="#DCE8FF" font-family="monospace" font-size="12">store · search · update · maintain</text>
+    <g transform="translate(466 126)">
+      <rect width="420" height="362" fill="#165DFF"/>
+      <rect x="22" y="22" width="376" height="70" fill="#0B41BD"/>
+      <text x="42" y="54" fill="#FFFFFF" font-size="24" font-weight="900">MAG</text>
+      <text x="42" y="76" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13">one local memory for your tools</text>
+      <rect x="300" y="41" width="76" height="28" fill="none" stroke="#FFB703" stroke-width="2"/>
+      <text x="315" y="60" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">LOCAL</text>
 
-      <rect x="22" y="116" width="360" height="132" fill="#F8FAFC"/>
-      <text x="42" y="149" fill="#44566F" font-family="monospace" font-size="12" font-weight="700">SOURCE RECORDS</text>
-      <text x="42" y="182" fill="#0B1B35" font-size="17" font-weight="800">Content + metadata</text>
-      <text x="42" y="210" fill="#44566F" font-size="14">Projects, sessions, tags, time, importance</text>
-      <text x="42" y="235" fill="#44566F" font-size="14">Relationships, versions, feedback, TTL</text>
+      <rect x="22" y="112" width="376" height="120" fill="#F8FAFC"/>
+      <text x="42" y="144" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700">SOURCE RECORD</text>
+      <text x="42" y="177" fill="#0B1B35" font-size="18" font-weight="800">Content, tags, time and links</text>
+      <text x="42" y="207" fill="#44566F" font-size="14">The source stays visible.</text>
 
-      <rect x="22" y="270" width="360" height="54" fill="#0B1B35"/>
-      <text x="42" y="304" fill="#FFFFFF" font-family="monospace" font-size="14" font-weight="700">~/.mag/memory.db</text>
-      <rect x="294" y="282" width="66" height="28" fill="none" stroke="#FFB703" stroke-width="2"/>
-      <text x="306" y="301" fill="#FFB703" font-family="monospace" font-size="11" font-weight="700">LOCAL</text>
+      <rect x="22" y="252" width="376" height="48" fill="#0B1B35"/>
+      <text x="42" y="282" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="14" font-weight="700">~/.mag/memory.db</text>
+
+      <g transform="translate(22 318)" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">
+        <rect width="112" height="24" fill="#FFFFFF"/>
+        <text x="18" y="16" fill="#0B41BD">FULL-TEXT</text>
+        <rect x="122" width="112" height="24" fill="#FFFFFF"/>
+        <text x="145" y="16" fill="#0B41BD">SEMANTIC</text>
+        <rect x="244" width="132" height="24" fill="#FFF0B8"/>
+        <text x="257" y="16" fill="#8B3E16">RELATIONSHIPS</text>
+      </g>
     </g>
 
-    <path d="M904 319H976" stroke="#0B41BD" stroke-width="3"/>
-    <path d="M968 309L980 319L968 329" fill="none" stroke="#0B41BD" stroke-width="3"/>
-
-    <g transform="translate(1000 146)">
-      <rect width="332" height="346" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
-      <rect width="332" height="56" fill="#0B1B35"/>
-      <text x="22" y="35" fill="#FFFFFF" font-size="18" font-weight="800">Find the right context</text>
-
-      <g transform="translate(22 82)">
-        <circle cx="15" cy="15" r="15" fill="#165DFF"/>
-        <text x="10" y="20" fill="#FFFFFF" font-family="monospace" font-size="13" font-weight="800">1</text>
-        <text x="48" y="13" fill="#0B1B35" font-size="17" font-weight="800">Full-text</text>
-        <text x="48" y="35" fill="#44566F" font-size="13">Exact terms and BM25 rank</text>
-      </g>
-      <line x1="37" y1="132" x2="37" y2="162" stroke="#BAC8D8" stroke-width="2"/>
-      <g transform="translate(22 164)">
-        <circle cx="15" cy="15" r="15" fill="#165DFF"/>
-        <text x="10" y="20" fill="#FFFFFF" font-family="monospace" font-size="13" font-weight="800">2</text>
-        <text x="48" y="13" fill="#0B1B35" font-size="17" font-weight="800">Semantic</text>
-        <text x="48" y="35" fill="#44566F" font-size="13">Local ONNX embeddings</text>
-      </g>
-      <line x1="37" y1="214" x2="37" y2="244" stroke="#BAC8D8" stroke-width="2"/>
-      <g transform="translate(22 246)">
-        <circle cx="15" cy="15" r="15" fill="#165DFF"/>
-        <text x="10" y="20" fill="#FFFFFF" font-family="monospace" font-size="13" font-weight="800">3</text>
-        <text x="48" y="13" fill="#0B1B35" font-size="17" font-weight="800">Relationships</text>
-        <text x="48" y="35" fill="#44566F" font-size="13">Versions and linked context</text>
-      </g>
-
-      <rect x="22" y="303" width="288" height="25" fill="#FFF0B8"/>
-      <text x="37" y="321" fill="#8B3E16" font-family="monospace" font-size="11" font-weight="700">WEAK MATCH → RETURN NOTHING</text>
+    <g transform="translate(966 138)">
+      <rect width="376" height="132" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="376" height="44" fill="#0B1B35"/>
+      <text x="18" y="29" fill="#FFFFFF" font-size="16" font-weight="800">Cursor</text>
+      <text x="282" y="28" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">FRI 14:18</text>
+      <text x="18" y="76" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">QUERY</text>
+      <text x="18" y="108" fill="#0B1B35" font-size="19" font-weight="800">How should failed requests retry?</text>
     </g>
 
-    <text x="500" y="554" fill="#44566F" font-size="15">Raw memories remain inspectable. Derived records keep their source provenance.</text>
+    <path d="M966 224H905" stroke="#0B41BD" stroke-width="4"/>
+    <path d="M916 213L902 224L916 235" fill="none" stroke="#0B41BD" stroke-width="4"/>
+    <text x="914" y="204" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">SEARCH</text>
+
+    <path d="M886 392H947" stroke="#FFB703" stroke-width="4"/>
+    <path d="M937 381L951 392L937 403" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <text x="905" y="372" fill="#8B3E16" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">RETURN</text>
+
+    <g transform="translate(966 300)">
+      <rect width="376" height="188" fill="#0B1B35"/>
+      <text x="20" y="34" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">04 · RESUME</text>
+      <text x="20" y="74" fill="#FFFFFF" font-size="20" font-weight="800">Use exponential backoff</text>
+      <text x="20" y="102" fill="#FFFFFF" font-size="20" font-weight="800">with jitter.</text>
+      <rect x="20" y="124" width="118" height="25" fill="#FFB703"/>
+      <text x="30" y="141" fill="#0B1B35" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">SOURCE FOUND</text>
+      <text x="157" y="141" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11">Claude Code · Mon 09:42</text>
+      <text x="20" y="171" fill="#DCE8FF" font-size="13">Codex and other MCP clients can use it too.</text>
+    </g>
+
+    <text x="700" y="554" text-anchor="middle" fill="#44566F" font-size="17" font-weight="800">Different words. Same source record.</text>
   </g>
 </svg>
