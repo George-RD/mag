@@ -32,6 +32,6 @@ permitted to hide inside a caller migration.
 - [x] `delete` routes through `LocalMemoryRuntime`; exact JSON and boolean deletion
   semantics are pinned at the caller and facade levels. Temporary compatibility
   `Pipeline` assembly now has one helper instead of duplicate entrypoint code.
-- [ ] Migrate update and other basic CRUD.
+- [ ] Migrate `update`, `list`, and the remaining basic CRUD/relationship callers.
 - [ ] Migrate search, semantic/advanced retrieval, graph, session, and
   administration commands.
