@@ -18,10 +18,10 @@ jobs:
             --exclude=.git \
             --exclude=target \
             --exclude='.cairn/cache' \
-            -czf mag-source.tar.gz .
+            -czf /tmp/mag-source.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
           name: mag-source-${{ github.event.pull_request.head.sha }}
-          path: mag-source.tar.gz
+          path: /tmp/mag-source.tar.gz
           if-no-files-found: error
           retention-days: 1
