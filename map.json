@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "interface_hash": "879d3dc1943ba2c4",
+  "interface_hash": "c9710a1c97050984",
   "nodes": [
     {
       "id": "mag",
@@ -3973,6 +3973,7 @@
         "tests/cli_checkpoint_runtime_migration.rs",
         "tests/cli_output_smoke.rs",
         "tests/cli_relations_runtime_migration.rs",
+        "tests/cli_reminders_runtime_migration.rs",
         "tests/cli_search_runtime_migration.rs",
         "tests/cli_store_runtime_migration.rs",
         "tests/cli_traverse_runtime_migration.rs",
@@ -4537,8 +4538,16 @@
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 161,
-          "end_line": 168
+          "line": 185,
+          "end_line": 192
+        },
+        {
+          "name": "create_reminder",
+          "kind": "function",
+          "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 122,
+          "end_line": 133
         },
         {
           "name": "delete",
@@ -4549,12 +4558,20 @@
           "end_line": 71
         },
         {
+          "name": "dismiss_reminder",
+          "kind": "function",
+          "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 141,
+          "end_line": 143
+        },
+        {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 176,
-          "end_line": 178
+          "line": 200,
+          "end_line": 202
         },
         {
           "name": "get_relationships",
@@ -4573,20 +4590,28 @@
           "end_line": 86
         },
         {
+          "name": "list_reminders",
+          "kind": "function",
+          "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 136,
+          "end_line": 138
+        },
+        {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 139,
-          "end_line": 146
+          "line": 163,
+          "end_line": 170
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 134,
-          "end_line": 136
+          "line": 158,
+          "end_line": 160
         },
         {
           "name": "resume_task",
@@ -4617,16 +4642,16 @@
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 131
+          "line": 146,
+          "end_line": 155
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 149,
-          "end_line": 158
+          "line": 173,
+          "end_line": 182
         },
         {
           "name": "store",
@@ -4657,8 +4682,8 @@
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 171,
-          "end_line": 173
+          "line": 195,
+          "end_line": 197
         },
         {
           "name": "Commands",
@@ -4825,8 +4850,16 @@
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 161,
-          "end_line": 168
+          "line": 185,
+          "end_line": 192
+        },
+        {
+          "name": "create_reminder",
+          "kind": "function",
+          "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 122,
+          "end_line": 133
         },
         {
           "name": "delete",
@@ -4837,12 +4870,20 @@
           "end_line": 71
         },
         {
+          "name": "dismiss_reminder",
+          "kind": "function",
+          "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 141,
+          "end_line": 143
+        },
+        {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 176,
-          "end_line": 178
+          "line": 200,
+          "end_line": 202
         },
         {
           "name": "get_relationships",
@@ -4861,20 +4902,28 @@
           "end_line": 86
         },
         {
+          "name": "list_reminders",
+          "kind": "function",
+          "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 136,
+          "end_line": 138
+        },
+        {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 139,
-          "end_line": 146
+          "line": 163,
+          "end_line": 170
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 134,
-          "end_line": 136
+          "line": 158,
+          "end_line": 160
         },
         {
           "name": "resume_task",
@@ -4905,16 +4954,16 @@
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 131
+          "line": 146,
+          "end_line": 155
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 149,
-          "end_line": 158
+          "line": 173,
+          "end_line": 182
         },
         {
           "name": "store",
@@ -4945,8 +4994,8 @@
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 171,
-          "end_line": 173
+          "line": 195,
+          "end_line": 197
         },
         {
           "name": "Commands",
@@ -5113,8 +5162,16 @@
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 161,
-          "end_line": 168
+          "line": 185,
+          "end_line": 192
+        },
+        {
+          "name": "create_reminder",
+          "kind": "function",
+          "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 122,
+          "end_line": 133
         },
         {
           "name": "delete",
@@ -5125,12 +5182,20 @@
           "end_line": 71
         },
         {
+          "name": "dismiss_reminder",
+          "kind": "function",
+          "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 141,
+          "end_line": 143
+        },
+        {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 176,
-          "end_line": 178
+          "line": 200,
+          "end_line": 202
         },
         {
           "name": "get_relationships",
@@ -5149,20 +5214,28 @@
           "end_line": 86
         },
         {
+          "name": "list_reminders",
+          "kind": "function",
+          "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 136,
+          "end_line": 138
+        },
+        {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 139,
-          "end_line": 146
+          "line": 163,
+          "end_line": 170
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 134,
-          "end_line": 136
+          "line": 158,
+          "end_line": 160
         },
         {
           "name": "resume_task",
@@ -5193,16 +5266,16 @@
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 131
+          "line": 146,
+          "end_line": 155
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 149,
-          "end_line": 158
+          "line": 173,
+          "end_line": 182
         },
         {
           "name": "store",
@@ -5233,8 +5306,8 @@
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 171,
-          "end_line": 173
+          "line": 195,
+          "end_line": 197
         },
         {
           "name": "Commands",
@@ -5401,8 +5474,16 @@
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 161,
-          "end_line": 168
+          "line": 185,
+          "end_line": 192
+        },
+        {
+          "name": "create_reminder",
+          "kind": "function",
+          "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 122,
+          "end_line": 133
         },
         {
           "name": "delete",
@@ -5413,12 +5494,20 @@
           "end_line": 71
         },
         {
+          "name": "dismiss_reminder",
+          "kind": "function",
+          "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 141,
+          "end_line": 143
+        },
+        {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 176,
-          "end_line": 178
+          "line": 200,
+          "end_line": 202
         },
         {
           "name": "get_relationships",
@@ -5437,20 +5526,28 @@
           "end_line": 86
         },
         {
+          "name": "list_reminders",
+          "kind": "function",
+          "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 136,
+          "end_line": 138
+        },
+        {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 139,
-          "end_line": 146
+          "line": 163,
+          "end_line": 170
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 134,
-          "end_line": 136
+          "line": 158,
+          "end_line": 160
         },
         {
           "name": "resume_task",
@@ -5481,16 +5578,16 @@
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 131
+          "line": 146,
+          "end_line": 155
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 149,
-          "end_line": 158
+          "line": 173,
+          "end_line": 182
         },
         {
           "name": "store",
@@ -5521,8 +5618,8 @@
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 171,
-          "end_line": 173
+          "line": 195,
+          "end_line": 197
         },
         {
           "name": "Commands",
@@ -13258,7 +13355,7 @@
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1749 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1756 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.entrypoints",
       "path": "src/main.rs"
     },

@@ -57,4 +57,8 @@ permitted to hide inside a caller migration.
 - [x] `checkpoint` and `resume-task` route through `LocalMemoryRuntime`; checkpoint
   numbering, content, metadata, project/query filters, exact compact JSON, resume
   markdown, and direct-storage parity remain pinned.
-- [ ] Migrate reminder, lesson, profile, welcome, and administration commands.
+- [x] `remind set`, `remind list`, and `remind dismiss` route through
+  `LocalMemoryRuntime`; exact compact JSON, duration and timestamp fields, stored
+  reminder content and metadata, pending/dismissed status filters, and
+  direct-storage parity remain pinned.
+- [ ] Migrate lesson, profile, welcome, and administration commands.

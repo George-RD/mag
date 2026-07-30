@@ -7,8 +7,8 @@ use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
     GraphTraverser, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
-    PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions, SearchResult,
-    SemanticResult, SimilarFinder, VersionChainQuerier,
+    PlaceholderPipeline, Relationship, RelationshipQuerier, ReminderManager, SearchOptions,
+    SearchResult, SemanticResult, SimilarFinder, VersionChainQuerier,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -116,6 +116,30 @@ impl LocalMemoryRuntime {
         limit: usize,
     ) -> Result<Vec<serde_json::Value>> {
         self.storage.resume_task(query, project, limit).await
+    }
+
+    /// Creates a reminder without changing duration, metadata, or timestamp semantics.
+    pub async fn create_reminder(
+        &self,
+        text: &str,
+        duration: &str,
+        context: Option<&str>,
+        session_id: Option<&str>,
+        project: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.storage
+            .create_reminder(text, duration, context, session_id, project)
+            .await
+    }
+
+    /// Lists reminders without changing status filters, ordering, or payload fields.
+    pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>> {
+        self.storage.list_reminders(status).await
+    }
+
+    /// Dismisses a reminder without changing metadata or timestamp semantics.
+    pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
+        self.storage.dismiss_reminder(reminder_id).await
     }
 
     /// Runs the current basic search implementation.

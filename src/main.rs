@@ -8,8 +8,8 @@ use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-    LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, ReminderManager,
-    SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider, is_valid_event_type,
+    LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, SearchOptions,
+    StatsProvider, WelcomeOptions, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -727,32 +727,39 @@ async fn main() -> anyhow::Result<()> {
                 let duration = duration
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("--duration is required for remind set"))?;
-                let result = <SqliteStorage as ReminderManager>::create_reminder(
-                    &mcp_storage,
-                    text,
-                    duration,
-                    context.as_deref(),
-                    session_id.as_deref(),
-                    project.as_deref(),
-                )
-                .await?;
+                let result = local_runtime
+                    .create_reminder(
+                        text,
+                        duration,
+                        context.as_deref(),
+                        session_id.as_deref(),
+                        project.as_deref(),
+                    )
+                    .await?;
+                info!(
+                    reminder_id = result["reminder_id"].as_str().unwrap_or_default(),
+                    "Reminder created through local memory runtime"
+                );
                 println!("{}", result);
             }
             "list" => {
-                let result = <SqliteStorage as ReminderManager>::list_reminders(
-                    &mcp_storage,
-                    status.as_deref(),
-                )
-                .await?;
+                let result = local_runtime.list_reminders(status.as_deref()).await?;
+                info!(
+                    result_count = result.len(),
+                    status = status.as_deref().unwrap_or("pending"),
+                    "Reminders listed through local memory runtime"
+                );
                 println!("{}", json!({ "results": result }));
             }
             "dismiss" => {
                 let reminder_id = reminder_id.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("--reminder-id is required for remind dismiss")
                 })?;
-                let result =
-                    <SqliteStorage as ReminderManager>::dismiss_reminder(&mcp_storage, reminder_id)
-                        .await?;
+                let result = local_runtime.dismiss_reminder(reminder_id).await?;
+                info!(
+                    reminder_id,
+                    "Reminder dismissed through local memory runtime"
+                );
                 println!("{}", result);
             }
             other => anyhow::bail!("invalid remind action: {other} (expected set|list|dismiss)"),
