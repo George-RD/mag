@@ -4,6 +4,33 @@ use std::process::{Command, Output};
 const CONTENT: &str = "searchruntimeanchor durable local context";
 const QUERY: &str = "searchruntimeanchor";
 
+#[derive(Clone, Copy)]
+struct SearchContract {
+    command: &'static str,
+    runtime_log: &'static str,
+    scored: bool,
+    adds_text_overlap: bool,
+}
+
+const BASIC_SEARCH: SearchContract = SearchContract {
+    command: "search",
+    runtime_log: "Search completed through local memory runtime",
+    scored: false,
+    adds_text_overlap: false,
+};
+const SEMANTIC_SEARCH: SearchContract = SearchContract {
+    command: "semantic-search",
+    runtime_log: "Semantic search completed through local memory runtime",
+    scored: true,
+    adds_text_overlap: false,
+};
+const ADVANCED_SEARCH: SearchContract = SearchContract {
+    command: "advanced-search",
+    runtime_log: "Advanced search completed through local memory runtime",
+    scored: true,
+    adds_text_overlap: true,
+};
+
 fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
     let output = Command::new(env!("CARGO_BIN_EXE_mag"))
         .args(args)
@@ -106,87 +133,60 @@ fn expected_result(id: &str, score: Option<f64>, include_text_overlap: bool) -> 
     result
 }
 
-fn assert_unscored_search_contract(
-    command: &str,
-    expected_runtime_log: &str,
-) -> anyhow::Result<()> {
-    let home = std::env::temp_dir().join(format!(
-        "mag-cli-{command}-runtime-{}",
-        uuid::Uuid::new_v4()
-    ));
-    std::fs::create_dir_all(&home)?;
-    let id = seed_memory(&home)?;
+fn assert_search_contract(contract: SearchContract) -> anyhow::Result<()> {
+    let home = tempfile::tempdir()?;
+    let id = seed_memory(home.path())?;
 
-    let output = run_cli(&home, search_args(command).as_slice())?;
-    let stdout = String::from_utf8(output.stdout)?;
-    let stderr = String::from_utf8(output.stderr)?;
-    let expected = serde_json::json!({ "results": [expected_result(&id, None, false)] });
-    assert_eq!(stdout, format!("{expected}\n"));
-    assert!(
-        stderr.contains(expected_runtime_log),
-        "{command} did not report the selected runtime path: {stderr}"
-    );
-
-    std::fs::remove_dir_all(home)?;
-    Ok(())
-}
-
-fn assert_scored_search_contract(command: &str, expected_runtime_log: &str) -> anyhow::Result<()> {
-    let home = std::env::temp_dir().join(format!(
-        "mag-cli-{command}-runtime-{}",
-        uuid::Uuid::new_v4()
-    ));
-    std::fs::create_dir_all(&home)?;
-    let id = seed_memory(&home)?;
-
-    let output = run_cli(&home, search_args(command).as_slice())?;
+    let output = run_cli(home.path(), search_args(contract.command).as_slice())?;
     let stdout = String::from_utf8(output.stdout)?;
     let stderr = String::from_utf8(output.stderr)?;
     let payload: serde_json::Value = serde_json::from_str(stdout.trim())?;
     let results = payload["results"]
         .as_array()
-        .ok_or_else(|| anyhow::anyhow!("missing results in {command} output"))?;
+        .ok_or_else(|| anyhow::anyhow!("missing results in {} output", contract.command))?;
     anyhow::ensure!(
         results.len() == 1,
-        "unexpected {command} results: {payload}"
+        "unexpected {} results: {payload}",
+        contract.command
     );
-    let score = results[0]["score"]
-        .as_f64()
-        .ok_or_else(|| anyhow::anyhow!("missing score in {command} output"))?;
+    let score = if contract.scored {
+        Some(
+            results[0]["score"]
+                .as_f64()
+                .ok_or_else(|| anyhow::anyhow!("missing score in {} output", contract.command))?,
+        )
+    } else {
+        anyhow::ensure!(
+            results[0].get("score").is_none(),
+            "unexpected score in {} output",
+            contract.command
+        );
+        None
+    };
     let expected = serde_json::json!({
-        "results": [expected_result(
-            &id,
-            Some(score),
-            command == "advanced-search"
-        )]
+        "results": [expected_result(&id, score, contract.adds_text_overlap)]
     });
     assert_eq!(stdout, format!("{expected}\n"));
     assert!(
-        stderr.contains(expected_runtime_log),
-        "{command} did not report the selected runtime path: {stderr}"
+        stderr.contains(contract.runtime_log),
+        "{} did not report the selected runtime path: {stderr}",
+        contract.command
     );
 
-    std::fs::remove_dir_all(home)?;
     Ok(())
 }
 
 #[test]
 fn search_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
-    assert_unscored_search_contract("search", "Search completed through local memory runtime")
+    assert_search_contract(BASIC_SEARCH)
 }
 
 #[test]
 fn semantic_search_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
-    assert_scored_search_contract(
-        "semantic-search",
-        "Semantic search completed through local memory runtime",
-    )
+    assert_search_contract(SEMANTIC_SEARCH)
 }
 
 #[test]
 fn advanced_search_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
-    assert_scored_search_contract(
-        "advanced-search",
-        "Advanced search completed through local memory runtime",
-    )
+    assert_search_contract(ADVANCED_SEARCH)
 }
