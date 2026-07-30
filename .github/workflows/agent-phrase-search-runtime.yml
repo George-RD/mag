@@ -1,0 +1,175 @@
+name: Complete phrase search runtime migration
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: >-
+      github.event.pull_request.head.ref == 'agent/cli-phrase-search-runtime' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/cli-phrase-search-runtime
+      - name: Route phrase search through the local runtime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime_path = Path("src/local_memory_runtime.rs")
+          runtime = runtime_path.read_text()
+          old_runtime_import = """    AdvancedSearcher, Deleter, Embedder, ListResult, Lister, MemoryInput, MemoryUpdate, Pipeline,
+              PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions, SearchResult,
+              SemanticResult,
+          """
+          new_runtime_import = """    AdvancedSearcher, Deleter, Embedder, ListResult, Lister, MemoryInput, MemoryUpdate,
+              PhraseSearcher, Pipeline, PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions,
+              SearchResult, SemanticResult,
+          """
+          if runtime.count(old_runtime_import) != 1:
+              raise SystemExit("expected one local runtime import block")
+          runtime = runtime.replace(old_runtime_import, new_runtime_import)
+
+          semantic_marker = """    /// Runs the current semantic-search implementation.
+              pub async fn semantic_search(
+          """
+          phrase_method = """    /// Runs phrase search without changing filters, ordering, or result fields.
+              pub async fn phrase_search(
+                  &self,
+                  phrase: &str,
+                  limit: usize,
+                  options: &SearchOptions,
+              ) -> Result<Vec<SearchResult>> {
+                  self.storage.phrase_search(phrase, limit, options).await
+              }
+
+              /// Runs the current semantic-search implementation.
+              pub async fn semantic_search(
+          """
+          if runtime.count(semantic_marker) != 1:
+              raise SystemExit("expected one semantic-search marker")
+          runtime_path.write_text(runtime.replace(semantic_marker, phrase_method))
+
+          main_path = Path("src/main.rs")
+          main = main_path.read_text()
+          old_main_import = """    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate,
+              PhraseSearcher, ProfileManager, ReminderManager, SearchOptions, SimilarFinder, StatsProvider,
+          """
+          new_main_import = """    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate,
+              ProfileManager, ReminderManager, SearchOptions, SimilarFinder, StatsProvider,
+          """
+          if main.count(old_main_import) != 1:
+              raise SystemExit("expected one phrase-search trait import block")
+          main = main.replace(old_main_import, new_main_import)
+
+          old_caller = """            let results = <SqliteStorage as PhraseSearcher>::phrase_search(
+                              &mcp_storage,
+                              phrase,
+                              *limit,
+                              &opts,
+                          )
+                          .await?;
+          """
+          new_caller = """            let results = local_runtime.phrase_search(phrase, *limit, &opts).await?;
+                          info!(
+                              result_count = results.len(),
+                              "Phrase search completed through local memory runtime"
+                          );
+          """
+          if main.count(old_caller) != 1:
+              raise SystemExit("expected one phrase-search caller block")
+          main_path.write_text(main.replace(old_caller, new_caller))
+
+          parity_path = Path("tests/local_memory_runtime.rs")
+          parity = parity_path.read_text()
+          old_test_import = """    AdvancedSearcher, Deleter, EventType, Lister, MemoryInput, MemoryUpdate, Pipeline,
+              PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
+          """
+          new_test_import = """    AdvancedSearcher, Deleter, EventType, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
+              Pipeline, PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
+          """
+          if parity.count(old_test_import) != 1:
+              raise SystemExit("expected one runtime parity import block")
+          parity = parity.replace(old_test_import, new_test_import)
+
+          parity_marker = """    assert_eq!(runtime_recent, legacy_recent);
+              assert_eq!(runtime_recent.len(), 1);
+              assert_eq!(runtime_recent[0].id, runtime_id);
+
+              let runtime_semantic = runtime
+          """
+          parity_replacement = """    assert_eq!(runtime_recent, legacy_recent);
+              assert_eq!(runtime_recent.len(), 1);
+              assert_eq!(runtime_recent[0].id, runtime_id);
+
+              let runtime_phrase = runtime
+                  .phrase_search("portable sqlite", 10, &options)
+                  .await
+                  .unwrap();
+              let direct_phrase = legacy_storage
+                  .phrase_search("portable sqlite", 10, &options)
+                  .await
+                  .unwrap();
+              assert_eq!(runtime_phrase, direct_phrase);
+              assert_eq!(runtime_phrase.len(), 1);
+              assert_eq!(runtime_phrase[0].id, runtime_id);
+
+              let runtime_semantic = runtime
+          """
+          if parity.count(parity_marker) != 1:
+              raise SystemExit("expected one runtime parity insertion point")
+          parity_path.write_text(parity.replace(parity_marker, parity_replacement))
+
+          todo_path = Path("meta/todos/migrate-cli-to-local-memory-runtime.md")
+          todo = todo_path.read_text()
+          old_todo = "- [ ] Migrate related retrieval, graph, session, and administration commands.\n"
+          new_todo = """- [x] `phrase-search` routes through `LocalMemoryRuntime`; phrase matching,
+            filters, ordering, exact compact JSON, and direct-storage parity remain pinned.
+          - [ ] Migrate version chains, similarity, graph traversal, session, and
+            administration commands.
+          """
+          if todo.count(old_todo) != 1:
+              raise SystemExit("expected one related-retrieval todo")
+          todo_path.write_text(todo.replace(old_todo, new_todo))
+          PY
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --all
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Refresh and verify Cairn state
+        shell: bash
+        run: |
+          set +e
+          cairn scan
+          scan_status=$?
+          set -e
+          if [ "$scan_status" -gt 1 ]; then
+            exit "$scan_status"
+          fi
+          cairn hook all
+      - name: Commit the completed slice and remove this workflow
+        shell: bash
+        run: |
+          rm .github/workflows/agent-phrase-search-runtime.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.rs src/local_memory_runtime.rs tests/local_memory_runtime.rs \
+            meta/todos/migrate-cli-to-local-memory-runtime.md .cairn \
+            .github/workflows/agent-phrase-search-runtime.yml
+          git diff --cached --check
+          git commit -m "refactor(cli): route phrase search through local runtime"
+          git push origin HEAD:agent/cli-phrase-search-runtime
