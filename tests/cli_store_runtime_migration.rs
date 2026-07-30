@@ -17,11 +17,7 @@ fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
     Ok(output)
 }
 
-fn assert_store_command_contract(
-    home: &Path,
-    command: &str,
-    content: &str,
-) -> anyhow::Result<()> {
+fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> anyhow::Result<()> {
     let output = run_cli(
         home,
         &[
@@ -66,12 +62,12 @@ fn assert_store_command_contract(
     );
 
     let retrieve = run_cli(home, &["retrieve", id])?;
-    let retrieve_payload: serde_json::Value =
-        serde_json::from_slice(retrieve.stdout.as_slice())?;
+    let retrieve_payload: serde_json::Value = serde_json::from_slice(retrieve.stdout.as_slice())?;
+    let expected_content = format!("processed: {content}");
     assert_eq!(retrieve_payload["id"].as_str(), Some(id));
     assert_eq!(
         retrieve_payload["content"].as_str(),
-        Some(format!("processed: {content}").as_str())
+        Some(expected_content.as_str())
     );
 
     Ok(())
