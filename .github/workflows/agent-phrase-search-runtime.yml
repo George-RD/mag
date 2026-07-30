@@ -23,6 +23,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           runtime_path = Path("src/local_memory_runtime.rs")
           runtime = runtime_path.read_text()
@@ -70,23 +71,21 @@ jobs:
               raise SystemExit("expected one phrase-search trait import block")
           main = main.replace(old_main_import, new_main_import)
 
-          old_caller = """            let results = <SqliteStorage as PhraseSearcher>::phrase_search(
-              &mcp_storage,
-              phrase,
-              *limit,
-              &opts,
+          caller_pattern = re.compile(
+              r"            let results = <SqliteStorage as PhraseSearcher>::phrase_search\("
+              r"\s*&mcp_storage,\s*phrase,\s*\*limit,\s*&opts,\s*\)\s*\.await\?;"
           )
-          .await?;
-          """
-          new_caller = """            let results = local_runtime.phrase_search(phrase, *limit, &opts).await?;
-              info!(
-                  result_count = results.len(),
-                  "Phrase search completed through local memory runtime"
-              );
-          """
-          if main.count(old_caller) != 1:
-              raise SystemExit("expected one phrase-search caller block")
-          main_path.write_text(main.replace(old_caller, new_caller))
+          new_caller = (
+              "            let results = local_runtime.phrase_search(phrase, *limit, &opts).await?;\n"
+              "            info!(\n"
+              "                result_count = results.len(),\n"
+              "                \"Phrase search completed through local memory runtime\"\n"
+              "            );"
+          )
+          main, replaced = caller_pattern.subn(new_caller, main, count=1)
+          if replaced != 1:
+              raise SystemExit(f"expected one phrase-search caller block, replaced {replaced}")
+          main_path.write_text(main)
 
           parity_path = Path("tests/local_memory_runtime.rs")
           parity = parity_path.read_text()
