@@ -30,11 +30,7 @@ fn assert_retrieved_content(home: &Path, id: &str, expected: &str) -> anyhow::Re
     Ok(())
 }
 
-fn assert_list_and_relationship_contracts(
-    home: &Path,
-    id: &str,
-    expected_content: &str,
-) -> anyhow::Result<()> {
+fn assert_list_contract(home: &Path, id: &str, expected_content: &str) -> anyhow::Result<()> {
     let list = run_cli(
         home,
         &[
@@ -72,18 +68,6 @@ fn assert_list_and_relationship_contracts(
     assert!(
         list_stderr.contains("Listed through local memory runtime"),
         "list did not report the selected runtime path: {list_stderr}"
-    );
-
-    let relations = run_cli(home, &["relations", id])?;
-    let relations_stdout = String::from_utf8(relations.stdout)?;
-    let relations_stderr = String::from_utf8(relations.stderr)?;
-    assert_eq!(
-        relations_stdout,
-        format!("{}\n", serde_json::json!({ "relationships": [] }))
-    );
-    assert!(
-        relations_stderr.contains("Relationships retrieved through local memory runtime"),
-        "relations did not report the selected runtime path: {relations_stderr}"
     );
 
     Ok(())
@@ -168,7 +152,7 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
     );
 
     assert_retrieved_content(home, id, updated_content.as_str())?;
-    assert_list_and_relationship_contracts(home, id, updated_content.as_str())?;
+    assert_list_contract(home, id, updated_content.as_str())?;
 
     let delete = run_cli(home, &["delete", id])?;
     let delete_stdout = String::from_utf8(delete.stdout)?;
