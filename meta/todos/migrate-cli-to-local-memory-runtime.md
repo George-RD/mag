@@ -52,6 +52,6 @@ permitted to hide inside a caller migration.
   ordering and metadata augmentation, similarity scores, exact compact JSON, and
   direct-storage parity remain pinned.
 - [x] `traverse` routes through `LocalMemoryRuntime`; exact compact empty-graph
-  JSON, one-hop node hydration, hop, edge type, weight, and direct-storage parity
-  remain pinned.
+  JSON, the selected-runtime marker, one-hop node hydration, hop, edge type,
+  weight, and direct-storage parity remain pinned.
 - [ ] Migrate session and administration commands.
