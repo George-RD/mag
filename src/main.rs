@@ -10,7 +10,7 @@ use memory_core::{
     AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType,
     ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
     MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, RelationshipQuerier,
-    ReminderManager, SearchOptions, SimilarFinder, StatsProvider, Updater, VersionChainQuerier,
+    ReminderManager, SearchOptions, SimilarFinder, StatsProvider, VersionChainQuerier,
     WelcomeOptions, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
@@ -262,41 +262,16 @@ async fn main() -> anyhow::Result<()> {
             priority,
         } => {
             info!(memory_id = %id, "Updating memory");
-            // NOTE: We intentionally do NOT use `parse_metadata_arg` here because
-            // Update needs to distinguish `None` (flag omitted → leave unchanged)
-            // from `Some({})` (flag provided → set to empty object). The helper
-            // defaults `None` to `{}`, which would always overwrite metadata.
-            let meta = metadata
-                .as_deref()
-                .map(serde_json::from_str::<serde_json::Value>)
-                .transpose()
-                .map_err(|e| anyhow::anyhow!("invalid metadata JSON: {e}"))?;
-            if let Some(kind) = event_type.as_deref()
-                && !is_valid_event_type(kind)
-            {
-                anyhow::bail!("invalid --event-type: {kind}");
-            }
-            if content.is_none()
-                && tags.is_none()
-                && importance.is_none()
-                && meta.is_none()
-                && event_type.is_none()
-                && priority.is_none()
-            {
-                anyhow::bail!(
-                    "at least one of --content, --tags, --importance, --metadata, --event-type, or --priority must be provided"
-                );
-            }
-            let update = MemoryUpdate {
-                content: content.clone(),
-                tags: tags.clone(),
-                importance: *importance,
-                metadata: meta,
-                event_type: EventType::from_optional(event_type.as_deref()),
-                priority: *priority,
-            };
-            <SqliteStorage as Updater>::update(&mcp_storage, id, &update).await?;
-            info!(memory_id = %id, "Update completed");
+            let update = build_memory_update(
+                content.as_deref(),
+                tags.as_deref(),
+                *importance,
+                metadata.as_deref(),
+                event_type.as_deref(),
+                *priority,
+            )?;
+            local_runtime.update(id, &update).await?;
+            info!(memory_id = %id, "Updated through local memory runtime");
             println!("{}", json!({ "id": id, "updated": true }));
         }
         Commands::List {
@@ -1052,13 +1027,53 @@ async fn execute_store_command(
     runtime.store(request.content, &input).await
 }
 
+fn parse_optional_metadata_arg(
+    metadata: Option<&str>,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    metadata
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("invalid metadata JSON: {e}"))
+}
+
 fn parse_metadata_arg(metadata: Option<&str>) -> anyhow::Result<serde_json::Value> {
-    match metadata {
-        Some(s) => {
-            serde_json::from_str(s).map_err(|e| anyhow::anyhow!("invalid metadata JSON: {e}"))
-        }
-        None => Ok(serde_json::json!({})),
+    Ok(parse_optional_metadata_arg(metadata)?.unwrap_or_else(|| serde_json::json!({})))
+}
+
+fn build_memory_update(
+    content: Option<&str>,
+    tags: Option<&[String]>,
+    importance: Option<f64>,
+    metadata: Option<&str>,
+    event_type: Option<&str>,
+    priority: Option<i32>,
+) -> anyhow::Result<MemoryUpdate> {
+    let metadata = parse_optional_metadata_arg(metadata)?;
+    if let Some(kind) = event_type
+        && !is_valid_event_type(kind)
+    {
+        anyhow::bail!("invalid --event-type: {kind}");
     }
+    if content.is_none()
+        && tags.is_none()
+        && importance.is_none()
+        && metadata.is_none()
+        && event_type.is_none()
+        && priority.is_none()
+    {
+        anyhow::bail!(
+            "at least one of --content, --tags, --importance, --metadata, --event-type, or --priority must be provided"
+        );
+    }
+
+    Ok(MemoryUpdate {
+        content: content.map(str::to_owned),
+        tags: tags.map(|tags| tags.to_vec()),
+        importance,
+        metadata,
+        event_type: EventType::from_optional(event_type),
+        priority,
+    })
 }
 
 fn build_search_options(

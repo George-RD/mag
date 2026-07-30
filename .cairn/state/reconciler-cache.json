@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "e3b41fa44ec64772",
+  "key": "4f47de9781d99ebc",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5563,6 +5563,7 @@
         "pub async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()>",
         "pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
         "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
+        "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
         "pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()>",
         "pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()>",
         "pub const ABSTENTION_MIN_TEXT f64",
@@ -6128,6 +6129,7 @@
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
+          "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
           "pub enum Commands",
           "pub enum FeedbackRating",
           "pub enum InitModeArg",
@@ -7241,8 +7243,8 @@
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 84,
-            "end_line": 91
+            "line": 89,
+            "end_line": 96
           },
           {
             "name": "delete",
@@ -7265,8 +7267,8 @@
             "kind": "function",
             "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 72,
-            "end_line": 81
+            "line": 77,
+            "end_line": 86
           },
           {
             "name": "store",
@@ -7275,6 +7277,14 @@
             "file": "src/local_memory_runtime.rs",
             "line": 57,
             "end_line": 59
+          },
+          {
+            "name": "update",
+            "kind": "function",
+            "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 72,
+            "end_line": 74
           },
           {
             "name": "Commands",
@@ -7425,8 +7435,8 @@
             "kind": "function",
             "signature": "pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline",
             "file": "src/local_memory_runtime.rs",
-            "line": 97,
-            "end_line": 107
+            "line": 102,
+            "end_line": 112
           },
           {
             "name": "config_writer",
@@ -10625,7 +10635,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "e76771025d8fdeb1"
+        "hash": "7720bf6bb6e97a1c"
       },
       "findings": [
         {
