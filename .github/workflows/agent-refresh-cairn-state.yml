@@ -1,0 +1,40 @@
+name: Refresh Cairn state once
+
+on:
+  push:
+    branches:
+      - agent/migrate-cli-traverse-runtime
+    paths:
+      - .github/workflows/agent-refresh-cairn-state.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/migrate-cli-traverse-runtime
+          fetch-depth: 0
+
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Reconcile the intentional interface change
+        run: |
+          cairn scan
+          rm .github/workflows/agent-refresh-cairn-state.yml
+
+      - name: Commit generated Cairn state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .cairn .github/workflows/agent-refresh-cairn-state.yml
+          git commit -m "chore(cairn): reconcile traversal interface"
+          git push origin HEAD:agent/migrate-cli-traverse-runtime
