@@ -106,7 +106,7 @@ impl LocalMemoryRuntime {
         self.compatibility_pipeline.recent(limit, options).await
     }
 
-    /// Runs phrase search without changing filters, ordering, or result fields.
+    /// Runs the current SQLite phrase-search implementation.
     pub async fn phrase_search(
         &self,
         phrase: &str,
