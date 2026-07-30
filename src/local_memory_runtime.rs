@@ -5,10 +5,10 @@ use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, Embedder, GraphNode, GraphTraverser, ListResult, Lister,
-    MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, Relationship,
-    RelationshipQuerier, SearchOptions, SearchResult, SemanticResult, SimilarFinder,
-    VersionChainQuerier,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
+    GraphTraverser, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
+    PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions, SearchResult,
+    SemanticResult, SimilarFinder, VersionChainQuerier,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -101,6 +101,21 @@ impl LocalMemoryRuntime {
         self.storage
             .traverse(start_id, max_hops, min_weight, edge_types)
             .await
+    }
+
+    /// Saves a checkpoint without changing its content, metadata, or numbering semantics.
+    pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+        self.storage.save_checkpoint(input).await
+    }
+
+    /// Returns checkpoint continuity without changing filters, ordering, or payload fields.
+    pub async fn resume_task(
+        &self,
+        query: &str,
+        project: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        self.storage.resume_task(query, project, limit).await
     }
 
     /// Runs the current basic search implementation.

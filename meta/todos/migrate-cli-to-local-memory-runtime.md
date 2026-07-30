@@ -54,4 +54,7 @@ permitted to hide inside a caller migration.
 - [x] `traverse` routes through `LocalMemoryRuntime`; exact compact empty-graph
   JSON, the selected-runtime marker, one-hop node hydration, hop, edge type,
   weight, and direct-storage parity remain pinned.
-- [ ] Migrate session and administration commands.
+- [x] `checkpoint` and `resume-task` route through `LocalMemoryRuntime`; checkpoint
+  numbering, content, metadata, project/query filters, exact compact JSON, resume
+  markdown, and direct-storage parity remain pinned.
+- [ ] Migrate reminder, lesson, profile, welcome, and administration commands.
