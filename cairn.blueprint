@@ -14,6 +14,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
         Module Entrypoints "CLI, crate surface, and process orchestration" id "mag.runtime.entrypoints" {
             path "./src/main.rs"
             path "./src/lib.rs"
+            path "./src/local_memory_runtime.rs"
             path "./src/cli.rs"
             contract "./meta/contracts/runtime.entrypoints.md"
         }

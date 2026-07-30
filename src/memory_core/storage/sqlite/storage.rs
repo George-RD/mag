@@ -196,29 +196,16 @@ impl SqliteStorage {
         <Self as Updater>::update(self, id, input).await
     }
 
-    #[cfg(test)]
+    // Public library/test helpers; the binary compiles a private module copy
+    // where they intentionally have no direct caller.
+    #[allow(dead_code)]
     pub fn new_in_memory() -> Result<Self> {
         Self::new_in_memory_with_embedder(Arc::new(crate::memory_core::PlaceholderEmbedder))
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
-        let pool = ConnPool::open_in_memory(embedder.dimension())?;
-        Ok(Self {
-            db_path: PathBuf::from(":memory:"),
-            pool: Arc::new(pool),
-            embedder,
-            scoring_params: ScoringParams::default(),
-            query_cache: new_query_cache(),
-            hot_cache: Some(HotTierCache::new(
-                HOT_CACHE_CAPACITY,
-                std::time::Duration::from_secs(HOT_CACHE_REFRESH_SECS),
-            )),
-            hot_cache_refresh_guard: Arc::new(()),
-            hot_cache_refresh_started: Arc::new(AtomicBool::new(false)),
-            reranker: None,
-            scoring_strategy: Arc::new(DefaultScoringStrategy::new()),
-        })
+        Self::new_with_path(PathBuf::from(":memory:"), embedder)
     }
 
     /// Returns a guard to the writer connection for test assertions.
