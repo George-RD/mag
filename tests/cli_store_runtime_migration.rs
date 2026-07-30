@@ -75,6 +75,45 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
         "retrieve did not report the selected runtime path: {retrieve_stderr}"
     );
 
+    let updated_content = format!("{command} updated caller parity");
+    let update = run_cli(
+        home,
+        &[
+            "update",
+            id,
+            "--content",
+            updated_content.as_str(),
+            "--tags",
+            "updated,runtime",
+            "--importance",
+            "0.9",
+            "--metadata",
+            r#"{"source":"cli-update-parity"}"#,
+            "--event-type",
+            "lesson_learned",
+            "--priority",
+            "9",
+        ],
+    )?;
+    let update_stdout = String::from_utf8(update.stdout)?;
+    let update_stderr = String::from_utf8(update.stderr)?;
+    assert_eq!(
+        update_stdout,
+        format!("{}\n", serde_json::json!({ "id": id, "updated": true }))
+    );
+    assert!(
+        update_stderr.contains("Updated through local memory runtime"),
+        "update did not report the selected runtime path: {update_stderr}"
+    );
+
+    let retrieve = run_cli(home, &["retrieve", id])?;
+    let retrieve_payload: serde_json::Value = serde_json::from_slice(retrieve.stdout.as_slice())?;
+    assert_eq!(retrieve_payload["id"].as_str(), Some(id));
+    assert_eq!(
+        retrieve_payload["content"].as_str(),
+        Some(updated_content.as_str())
+    );
+
     let delete = run_cli(home, &["delete", id])?;
     let delete_stdout = String::from_utf8(delete.stdout)?;
     let delete_stderr = String::from_utf8(delete.stderr)?;
@@ -94,7 +133,8 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
 }
 
 #[test]
-fn store_retrieve_delete_commands_use_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+fn store_retrieve_update_delete_commands_use_local_runtime_without_contract_drift()
+-> anyhow::Result<()> {
     let home = std::env::temp_dir().join(format!("mag-cli-store-runtime-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home)?;
 
