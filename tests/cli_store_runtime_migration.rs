@@ -75,11 +75,27 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
         "retrieve did not report the selected runtime path: {retrieve_stderr}"
     );
 
+    let delete = run_cli(home, &["delete", id])?;
+    let delete_stdout = String::from_utf8(delete.stdout)?;
+    let delete_stderr = String::from_utf8(delete.stderr)?;
+    let delete_payload: serde_json::Value = serde_json::from_str(delete_stdout.trim())?;
+    assert_eq!(
+        delete_stdout,
+        format!("{}\n", serde_json::json!({ "id": id, "deleted": true }))
+    );
+    assert_eq!(delete_payload["id"].as_str(), Some(id));
+    assert_eq!(delete_payload["deleted"].as_bool(), Some(true));
+    assert!(
+        delete_stderr.contains("Deleted through local memory runtime"),
+        "delete did not report the selected runtime path: {delete_stderr}"
+    );
+
     Ok(())
 }
 
 #[test]
-fn store_and_retrieve_commands_use_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+fn store_retrieve_and_delete_commands_use_local_runtime_without_contract_drift()
+-> anyhow::Result<()> {
     let home = std::env::temp_dir().join(format!("mag-cli-store-runtime-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home)?;
 
