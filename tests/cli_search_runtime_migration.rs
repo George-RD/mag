@@ -9,26 +9,26 @@ struct SearchContract {
     command: &'static str,
     runtime_log: &'static str,
     scored: bool,
-    adds_text_overlap: bool,
+    expects_text_overlap: bool,
 }
 
 const BASIC_SEARCH: SearchContract = SearchContract {
     command: "search",
     runtime_log: "Search completed through local memory runtime",
     scored: false,
-    adds_text_overlap: false,
+    expects_text_overlap: false,
 };
 const SEMANTIC_SEARCH: SearchContract = SearchContract {
     command: "semantic-search",
     runtime_log: "Semantic search completed through local memory runtime",
     scored: true,
-    adds_text_overlap: false,
+    expects_text_overlap: false,
 };
 const ADVANCED_SEARCH: SearchContract = SearchContract {
     command: "advanced-search",
     runtime_log: "Advanced search completed through local memory runtime",
     scored: true,
-    adds_text_overlap: true,
+    expects_text_overlap: true,
 };
 
 fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
@@ -164,7 +164,7 @@ fn assert_search_contract(contract: SearchContract) -> anyhow::Result<()> {
         None
     };
     let expected = serde_json::json!({
-        "results": [expected_result(&id, score, contract.adds_text_overlap)]
+        "results": [expected_result(&id, score, contract.expects_text_overlap)]
     });
     assert_eq!(stdout, format!("{expected}\n"));
     assert!(
