@@ -5,7 +5,7 @@ use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
     AdvancedSearcher, Deleter, EventType, MemoryInput, MemoryUpdate, Pipeline, PlaceholderEmbedder,
-    PlaceholderPipeline, SearchOptions, Updater,
+    PlaceholderPipeline, SearchOptions,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
