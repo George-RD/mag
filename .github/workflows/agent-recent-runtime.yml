@@ -1,0 +1,173 @@
+name: Complete recent runtime migration
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: >-
+      github.event.pull_request.head.ref == 'agent/cli-recent-runtime' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/cli-recent-runtime
+      - name: Route recent through the local runtime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime_path = Path("src/local_memory_runtime.rs")
+          runtime = runtime_path.read_text()
+          semantic_marker = """    /// Runs the current semantic-search implementation.
+              pub async fn semantic_search(
+          """
+          recent_method = """    /// Lists recent memories without changing filters, ordering, or result fields.
+              pub async fn recent(
+                  &self,
+                  limit: usize,
+                  options: &SearchOptions,
+              ) -> Result<Vec<SearchResult>> {
+                  self.compatibility_pipeline.recent(limit, options).await
+              }
+
+              /// Runs the current semantic-search implementation.
+              pub async fn semantic_search(
+          """
+          if runtime.count(semantic_marker) != 1:
+              raise SystemExit("expected one semantic-search marker")
+          runtime = runtime.replace(semantic_marker, recent_method)
+
+          old_helper = """/// Builds the temporary compatibility pipeline used by callers not yet moved
+          /// behind [`LocalMemoryRuntime`]. Keep this assembly in one place while the
+          /// remaining retrieval callers migrate.
+          pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline {
+          """
+          new_helper = """/// Builds the compatibility pipeline retained inside [`LocalMemoryRuntime`].
+          ///
+          /// Keep this legacy assembly private to the selected composition root while its
+          /// delegates are replaced in later bounded slices.
+          fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline {
+          """
+          if runtime.count(old_helper) != 1:
+              raise SystemExit("expected one compatibility-pipeline helper")
+          runtime_path.write_text(runtime.replace(old_helper, new_helper))
+
+          main_path = Path("src/main.rs")
+          main = main_path.read_text()
+          replacements = [
+              (
+                  "use local_memory_runtime::{LocalMemoryRuntime, compose_compatibility_pipeline};\n",
+                  "use local_memory_runtime::LocalMemoryRuntime;\n",
+                  "local runtime import",
+              ),
+              (
+                  "    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());\n"
+                  "    let mcp_storage = sqlite_storage.clone();\n"
+                  "    let pipeline = compose_compatibility_pipeline(&sqlite_storage);\n",
+                  "    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());\n"
+                  "    let mcp_storage = sqlite_storage.clone();\n",
+                  "runtime initialization block",
+              ),
+              (
+                  "            let results = pipeline.recent(*limit, &opts).await?;\n"
+                  "            info!(result_count = results.len(), \"Recent list completed\");\n",
+                  "            let results = local_runtime.recent(*limit, &opts).await?;\n"
+                  "            info!(\n"
+                  "                result_count = results.len(),\n"
+                  "                \"Recent list completed through local memory runtime\"\n"
+                  "            );\n",
+                  "recent caller",
+              ),
+          ]
+          for old, new, label in replacements:
+              if main.count(old) != 1:
+                  raise SystemExit(f"expected one {label}")
+              main = main.replace(old, new)
+          main_path.write_text(main)
+
+          parity_path = Path("tests/local_memory_runtime.rs")
+          parity = parity_path.read_text()
+          parity_marker = """    assert_eq!(runtime_search, legacy_search);
+              assert_eq!(runtime_search.len(), 1);
+              assert_eq!(runtime_search[0].id, runtime_id);
+
+              let runtime_semantic = runtime
+          """
+          parity_replacement = """    assert_eq!(runtime_search, legacy_search);
+              assert_eq!(runtime_search.len(), 1);
+              assert_eq!(runtime_search[0].id, runtime_id);
+
+              let runtime_recent = runtime.recent(10, &options).await.unwrap();
+              let legacy_recent = legacy.recent(10, &options).await.unwrap();
+              assert_eq!(runtime_recent, legacy_recent);
+              assert_eq!(runtime_recent.len(), 1);
+              assert_eq!(runtime_recent[0].id, runtime_id);
+
+              let runtime_semantic = runtime
+          """
+          if parity.count(parity_marker) != 1:
+              raise SystemExit("expected one runtime parity insertion point")
+          parity_path.write_text(parity.replace(parity_marker, parity_replacement))
+
+          todo_path = Path("meta/todos/migrate-cli-to-local-memory-runtime.md")
+          todo = todo_path.read_text()
+          old_todo = """- [x] `search`, `semantic-search`, and `advanced-search` route through
+            `LocalMemoryRuntime`; filters, limits, exact compact JSON, scores, and the
+            compatibility-sensitive advanced-search metadata remain pinned at caller and
+            facade levels. The temporary compatibility `Pipeline` remains for `recent`.
+          - [ ] Migrate related retrieval, graph, session, and administration commands.
+          """
+          new_todo = """- [x] `search`, `semantic-search`, and `advanced-search` route through
+            `LocalMemoryRuntime`; filters, limits, exact compact JSON, scores, and the
+            compatibility-sensitive advanced-search metadata remain pinned at caller and
+            facade levels.
+          - [x] `recent` routes through `LocalMemoryRuntime`; filters, ordering, exact
+            compact JSON, and compatibility-pipeline parity remain pinned. The compatibility
+            `Pipeline` is now private to the runtime composition root.
+          - [ ] Migrate related retrieval, graph, session, and administration commands.
+          """
+          if todo.count(old_todo) != 1:
+              raise SystemExit("expected one recent migration todo")
+          todo_path.write_text(todo.replace(old_todo, new_todo))
+          PY
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --all
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Refresh and verify Cairn state
+        shell: bash
+        run: |
+          set +e
+          cairn scan
+          scan_status=$?
+          set -e
+          if [ "$scan_status" -gt 1 ]; then
+            exit "$scan_status"
+          fi
+          cairn hook all
+      - name: Commit the completed slice and remove this workflow
+        shell: bash
+        run: |
+          rm .github/workflows/agent-recent-runtime.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.rs src/local_memory_runtime.rs tests/local_memory_runtime.rs \
+            meta/todos/migrate-cli-to-local-memory-runtime.md .cairn \
+            .github/workflows/agent-recent-runtime.yml
+          git diff --cached --check
+          git commit -m "refactor(cli): route recent through local runtime"
+          git push origin HEAD:agent/cli-recent-runtime
