@@ -3,11 +3,15 @@ use std::process::{Command, Output};
 
 const CONTENT: &str = "searchruntimeanchor durable local context";
 const QUERY: &str = "searchruntimeanchor";
+const PHRASE_QUERY: &str = "durable local";
+const PHRASE_NEAR_MATCH: &str = "searchruntimeanchor durable remote local context";
 
 #[derive(Clone, Copy)]
 struct RetrievalContract {
     command: &'static str,
     query: Option<&'static str>,
+    limit: &'static str,
+    near_match: Option<&'static str>,
     runtime_log: &'static str,
     scored: bool,
     expects_text_overlap: bool,
@@ -16,6 +20,8 @@ struct RetrievalContract {
 const BASIC_SEARCH: RetrievalContract = RetrievalContract {
     command: "search",
     query: Some(QUERY),
+    limit: "1",
+    near_match: None,
     runtime_log: "Search completed through local memory runtime",
     scored: false,
     expects_text_overlap: false,
@@ -23,6 +29,8 @@ const BASIC_SEARCH: RetrievalContract = RetrievalContract {
 const SEMANTIC_SEARCH: RetrievalContract = RetrievalContract {
     command: "semantic-search",
     query: Some(QUERY),
+    limit: "1",
+    near_match: None,
     runtime_log: "Semantic search completed through local memory runtime",
     scored: true,
     expects_text_overlap: false,
@@ -30,6 +38,8 @@ const SEMANTIC_SEARCH: RetrievalContract = RetrievalContract {
 const ADVANCED_SEARCH: RetrievalContract = RetrievalContract {
     command: "advanced-search",
     query: Some(QUERY),
+    limit: "1",
+    near_match: None,
     runtime_log: "Advanced search completed through local memory runtime",
     scored: true,
     expects_text_overlap: true,
@@ -37,7 +47,18 @@ const ADVANCED_SEARCH: RetrievalContract = RetrievalContract {
 const RECENT: RetrievalContract = RetrievalContract {
     command: "recent",
     query: None,
+    limit: "1",
+    near_match: None,
     runtime_log: "Recent list completed through local memory runtime",
+    scored: false,
+    expects_text_overlap: false,
+};
+const PHRASE_SEARCH: RetrievalContract = RetrievalContract {
+    command: "phrase-search",
+    query: Some(PHRASE_QUERY),
+    limit: "2",
+    near_match: Some(PHRASE_NEAR_MATCH),
+    runtime_log: "Phrase search completed through local memory runtime",
     scored: false,
     expects_text_overlap: false,
 };
@@ -58,12 +79,12 @@ fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
     Ok(output)
 }
 
-fn seed_memory(home: &Path) -> anyhow::Result<String> {
+fn seed_memory(home: &Path, content: &str) -> anyhow::Result<String> {
     let output = run_cli(
         home,
         &[
             "ingest",
-            CONTENT,
+            content,
             "--tags",
             "runtime,search",
             "--importance",
@@ -101,7 +122,7 @@ fn retrieval_args(contract: RetrievalContract) -> Vec<&'static str> {
     }
     args.extend([
         "--limit",
-        "1",
+        contract.limit,
         "--event-type",
         "decision",
         "--project",
@@ -149,7 +170,10 @@ fn expected_result(id: &str, score: Option<f64>, include_text_overlap: bool) -> 
 
 fn assert_retrieval_contract(contract: RetrievalContract) -> anyhow::Result<()> {
     let home = tempfile::tempdir()?;
-    let id = seed_memory(home.path())?;
+    let id = seed_memory(home.path(), CONTENT)?;
+    if let Some(near_match) = contract.near_match {
+        seed_memory(home.path(), near_match)?;
+    }
 
     let output = run_cli(home.path(), retrieval_args(contract).as_slice())?;
     let stdout = String::from_utf8(output.stdout)?;
@@ -208,4 +232,9 @@ fn advanced_search_command_uses_local_runtime_without_contract_drift() -> anyhow
 #[test]
 fn recent_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
     assert_retrieval_contract(RECENT)
+}
+
+#[test]
+fn phrase_search_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+    assert_retrieval_contract(PHRASE_SEARCH)
 }

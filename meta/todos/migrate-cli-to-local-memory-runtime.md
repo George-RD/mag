@@ -46,4 +46,7 @@ permitted to hide inside a caller migration.
 - [x] `recent` routes through `LocalMemoryRuntime`; filters, ordering, exact
   compact JSON, and compatibility-pipeline parity remain pinned. The compatibility
   `Pipeline` is now private to the runtime composition root.
-- [ ] Migrate related retrieval, graph, session, and administration commands.
+- [x] `phrase-search` routes through `LocalMemoryRuntime`; phrase matching,
+  filters, ordering, exact compact JSON, and direct-storage parity remain pinned.
+- [ ] Migrate version chains, similarity, graph traversal, session, and
+  administration commands.

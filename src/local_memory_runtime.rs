@@ -5,9 +5,9 @@ use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, Embedder, ListResult, Lister, MemoryInput, MemoryUpdate, Pipeline,
-    PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions, SearchResult,
-    SemanticResult,
+    AdvancedSearcher, Deleter, Embedder, ListResult, Lister, MemoryInput, MemoryUpdate,
+    PhraseSearcher, Pipeline, PlaceholderPipeline, Relationship, RelationshipQuerier,
+    SearchOptions, SearchResult, SemanticResult,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -104,6 +104,16 @@ impl LocalMemoryRuntime {
     /// Lists recent memories without changing filters, ordering, or result fields.
     pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>> {
         self.compatibility_pipeline.recent(limit, options).await
+    }
+
+    /// Runs the current SQLite phrase-search implementation.
+    pub async fn phrase_search(
+        &self,
+        phrase: &str,
+        limit: usize,
+        options: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        self.storage.phrase_search(phrase, limit, options).await
     }
 
     /// Runs the current semantic-search implementation.

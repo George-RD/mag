@@ -4,8 +4,8 @@ use std::sync::Arc;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
-    AdvancedSearcher, Deleter, EventType, Lister, MemoryInput, MemoryUpdate, Pipeline,
-    PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
+    AdvancedSearcher, Deleter, EventType, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
+    Pipeline, PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
@@ -74,6 +74,18 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     assert_eq!(runtime_recent, legacy_recent);
     assert_eq!(runtime_recent.len(), 1);
     assert_eq!(runtime_recent[0].id, runtime_id);
+
+    let runtime_phrase = runtime
+        .phrase_search("portable sqlite", 10, &options)
+        .await
+        .unwrap();
+    let direct_phrase = legacy_storage
+        .phrase_search("portable sqlite", 10, &options)
+        .await
+        .unwrap();
+    assert_eq!(runtime_phrase, direct_phrase);
+    assert_eq!(runtime_phrase.len(), 1);
+    assert_eq!(runtime_phrase[0].id, runtime_id);
 
     let runtime_semantic = runtime
         .semantic_search("portable sqlite", 10, &options)

@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "a150bf71abcf088d",
+  "key": "389a5dce74752385",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5549,6 +5549,7 @@
         "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
         "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
         "pub async fn optimize(&self) -> Result<()>",
+        "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
         "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn resolve_dataset( kind: DatasetKind, dataset_path: Option<PathBuf>, force_refresh: bool, temporary: bool, ) -> Result<DatasetArtifact>",
@@ -6133,6 +6134,7 @@
           "pub async fn delete(&self, id: &str) -> Result<bool>",
           "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
           "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
+          "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
@@ -7251,8 +7253,8 @@
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 122,
-            "end_line": 129
+            "line": 132,
+            "end_line": 139
           },
           {
             "name": "delete",
@@ -7277,6 +7279,14 @@
             "file": "src/local_memory_runtime.rs",
             "line": 78,
             "end_line": 85
+          },
+          {
+            "name": "phrase_search",
+            "kind": "function",
+            "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 110,
+            "end_line": 117
           },
           {
             "name": "recent",
@@ -7307,8 +7317,8 @@
             "kind": "function",
             "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 110,
-            "end_line": 119
+            "line": 120,
+            "end_line": 129
           },
           {
             "name": "store",
@@ -10667,7 +10677,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "74b5693a036716a4"
+        "hash": "aae53f464f5c480c"
       },
       "findings": [
         {

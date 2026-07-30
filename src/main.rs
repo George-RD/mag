@@ -9,7 +9,7 @@ use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate,
-    PhraseSearcher, ProfileManager, ReminderManager, SearchOptions, SimilarFinder, StatsProvider,
+    ProfileManager, ReminderManager, SearchOptions, SimilarFinder, StatsProvider,
     VersionChainQuerier, WelcomeOptions, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
@@ -521,13 +521,11 @@ async fn main() -> anyhow::Result<()> {
             filters,
         } => {
             let opts = build_search_options(filters, false)?;
-            let results = <SqliteStorage as PhraseSearcher>::phrase_search(
-                &mcp_storage,
-                phrase,
-                *limit,
-                &opts,
-            )
-            .await?;
+            let results = local_runtime.phrase_search(phrase, *limit, &opts).await?;
+            info!(
+                result_count = results.len(),
+                "Phrase search completed through local memory runtime"
+            );
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
