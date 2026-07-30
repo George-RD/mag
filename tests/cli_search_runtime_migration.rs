@@ -41,6 +41,13 @@ const RECENT: RetrievalContract = RetrievalContract {
     scored: false,
     expects_text_overlap: false,
 };
+const PHRASE_SEARCH: RetrievalContract = RetrievalContract {
+    command: "phrase-search",
+    query: Some(QUERY),
+    runtime_log: "Phrase search completed through local memory runtime",
+    scored: false,
+    expects_text_overlap: false,
+};
 
 fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
     let output = Command::new(env!("CARGO_BIN_EXE_mag"))
@@ -208,4 +215,9 @@ fn advanced_search_command_uses_local_runtime_without_contract_drift() -> anyhow
 #[test]
 fn recent_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
     assert_retrieval_contract(RECENT)
+}
+
+#[test]
+fn phrase_search_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+    assert_retrieval_contract(PHRASE_SEARCH)
 }
