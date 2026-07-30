@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "interface_hash": "583e87acc742bd89",
+  "interface_hash": "054eca3561bee0c1",
   "nodes": [
     {
       "id": "mag",
@@ -3971,6 +3971,7 @@
       "files": [
         "src/test_helpers.rs",
         "tests/cli_output_smoke.rs",
+        "tests/local_memory_runtime.rs",
         "tests/longmemeval_regression.rs",
         "tests/mcp_smoke.rs",
         "tests/memory_storage_gaps.rs",
@@ -4513,11 +4514,13 @@
       "paths": [
         "./src/main.rs",
         "./src/lib.rs",
+        "./src/local_memory_runtime.rs",
         "./src/cli.rs"
       ],
       "files": [
         "src/cli.rs",
         "src/lib.rs",
+        "src/local_memory_runtime.rs",
         "src/main.rs"
       ],
       "contracts": [
@@ -4525,148 +4528,36 @@
       ],
       "symbols": [
         {
-          "name": "Commands",
-          "kind": "enum",
-          "signature": "pub enum Commands",
-          "file": "src/cli.rs",
-          "line": 73,
-          "end_line": 397
-        },
-        {
-          "name": "FeedbackRating",
-          "kind": "enum",
-          "signature": "pub enum FeedbackRating",
-          "file": "src/cli.rs",
-          "line": 12,
-          "end_line": 16
-        },
-        {
-          "name": "InitModeArg",
-          "kind": "enum",
-          "signature": "pub enum InitModeArg",
-          "file": "src/cli.rs",
-          "line": 5,
-          "end_line": 8
-        },
-        {
-          "name": "as_str",
+          "name": "advanced_search",
           "kind": "function",
-          "signature": "pub fn as_str(&self) -> &'static str",
-          "file": "src/cli.rs",
-          "line": 20,
-          "end_line": 26
+          "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 87,
+          "end_line": 94
         },
         {
-          "name": "new_in_memory",
+          "name": "retrieve",
           "kind": "function",
-          "signature": "pub fn new_in_memory() -> anyhow::Result<Self>",
-          "file": "src/lib.rs",
-          "line": 18,
-          "end_line": 20
+          "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 70,
+          "end_line": 72
         },
         {
-          "name": "new_in_memory_with_embedder",
+          "name": "search",
           "kind": "function",
-          "signature": "pub fn new_in_memory_with_embedder( embedder: std::sync::Arc<dyn memory_core::embedder::Embedder>, ) -> anyhow::Result<Self>",
-          "file": "src/lib.rs",
-          "line": 22,
-          "end_line": 26
+          "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 75,
+          "end_line": 84
         },
         {
-          "name": "app_paths",
-          "kind": "module",
-          "signature": "pub mod app_paths",
-          "file": "src/lib.rs",
-          "line": 1,
-          "end_line": 1
-        },
-        {
-          "name": "benchmarking",
-          "kind": "module",
-          "signature": "pub mod benchmarking",
-          "file": "src/lib.rs",
-          "line": 2,
-          "end_line": 2
-        },
-        {
-          "name": "daemon",
-          "kind": "module",
-          "signature": "pub mod daemon",
-          "file": "src/lib.rs",
-          "line": 5,
-          "end_line": 5
-        },
-        {
-          "name": "memory_core",
-          "kind": "module",
-          "signature": "pub mod memory_core",
-          "file": "src/lib.rs",
-          "line": 6,
-          "end_line": 6
-        },
-        {
-          "name": "setup",
-          "kind": "module",
-          "signature": "pub mod setup",
-          "file": "src/lib.rs",
-          "line": 7,
-          "end_line": 7
-        },
-        {
-          "name": "substrate",
-          "kind": "module",
-          "signature": "pub mod substrate",
-          "file": "src/lib.rs",
-          "line": 9,
-          "end_line": 9
-        },
-        {
-          "name": "test_helpers",
-          "kind": "module",
-          "signature": "pub mod test_helpers",
-          "file": "src/lib.rs",
-          "line": 14,
-          "end_line": 14
-        },
-        {
-          "name": "uninstall",
-          "kind": "module",
-          "signature": "pub mod uninstall",
-          "file": "src/lib.rs",
-          "line": 11,
-          "end_line": 11
-        },
-        {
-          "name": "Cli",
-          "kind": "struct",
-          "signature": "pub struct Cli",
-          "file": "src/cli.rs",
-          "line": 62,
-          "end_line": 69
-        },
-        {
-          "name": "SearchFilterArgs",
-          "kind": "struct",
-          "signature": "pub struct SearchFilterArgs",
-          "file": "src/cli.rs",
-          "line": 31,
-          "end_line": 56
-        },
-        {
-          "name": "config_writer",
-          "kind": "module",
-          "signature": "pub(crate) mod config_writer",
-          "file": "src/lib.rs",
-          "line": 3,
-          "end_line": 3
-        },
-        {
-          "name": "tool_detection",
-          "kind": "module",
-          "signature": "pub(crate) mod tool_detection",
-          "file": "src/lib.rs",
-          "line": 10,
-          "end_line": 10
+          "name": "store",
+          "kind": "function",
+          "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 65,
+          "end_line": 67
         },
         {
           "name": "Commands",
@@ -4701,20 +4592,28 @@
           "end_line": 26
         },
         {
-          "name": "new_in_memory",
+          "name": "from_storage",
           "kind": "function",
-          "signature": "pub fn new_in_memory() -> anyhow::Result<Self>",
-          "file": "src/lib.rs",
-          "line": 18,
-          "end_line": 20
+          "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
+          "file": "src/local_memory_runtime.rs",
+          "line": 47,
+          "end_line": 62
         },
         {
-          "name": "new_in_memory_with_embedder",
+          "name": "new",
           "kind": "function",
-          "signature": "pub fn new_in_memory_with_embedder( embedder: std::sync::Arc<dyn memory_core::embedder::Embedder>, ) -> anyhow::Result<Self>",
-          "file": "src/lib.rs",
-          "line": 22,
-          "end_line": 26
+          "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 28,
+          "end_line": 31
+        },
+        {
+          "name": "new_with_path",
+          "kind": "function",
+          "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 37,
+          "end_line": 40
         },
         {
           "name": "app_paths",
@@ -4745,40 +4644,40 @@
           "kind": "module",
           "signature": "pub mod memory_core",
           "file": "src/lib.rs",
-          "line": 6,
-          "end_line": 6
+          "line": 7,
+          "end_line": 7
         },
         {
           "name": "setup",
           "kind": "module",
           "signature": "pub mod setup",
           "file": "src/lib.rs",
-          "line": 7,
-          "end_line": 7
+          "line": 8,
+          "end_line": 8
         },
         {
           "name": "substrate",
           "kind": "module",
           "signature": "pub mod substrate",
           "file": "src/lib.rs",
-          "line": 9,
-          "end_line": 9
+          "line": 10,
+          "end_line": 10
         },
         {
           "name": "test_helpers",
           "kind": "module",
           "signature": "pub mod test_helpers",
           "file": "src/lib.rs",
-          "line": 14,
-          "end_line": 14
+          "line": 17,
+          "end_line": 17
         },
         {
           "name": "uninstall",
           "kind": "module",
           "signature": "pub mod uninstall",
           "file": "src/lib.rs",
-          "line": 11,
-          "end_line": 11
+          "line": 12,
+          "end_line": 12
         },
         {
           "name": "Cli",
@@ -4787,6 +4686,14 @@
           "file": "src/cli.rs",
           "line": 62,
           "end_line": 69
+        },
+        {
+          "name": "LocalMemoryRuntime",
+          "kind": "struct",
+          "signature": "pub struct LocalMemoryRuntime",
+          "file": "src/local_memory_runtime.rs",
+          "line": 17,
+          "end_line": 20
         },
         {
           "name": "SearchFilterArgs",
@@ -4809,8 +4716,40 @@
           "kind": "module",
           "signature": "pub(crate) mod tool_detection",
           "file": "src/lib.rs",
-          "line": 10,
-          "end_line": 10
+          "line": 11,
+          "end_line": 11
+        },
+        {
+          "name": "advanced_search",
+          "kind": "function",
+          "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 87,
+          "end_line": 94
+        },
+        {
+          "name": "retrieve",
+          "kind": "function",
+          "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 70,
+          "end_line": 72
+        },
+        {
+          "name": "search",
+          "kind": "function",
+          "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 75,
+          "end_line": 84
+        },
+        {
+          "name": "store",
+          "kind": "function",
+          "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 65,
+          "end_line": 67
         },
         {
           "name": "Commands",
@@ -4845,20 +4784,28 @@
           "end_line": 26
         },
         {
-          "name": "new_in_memory",
+          "name": "from_storage",
           "kind": "function",
-          "signature": "pub fn new_in_memory() -> anyhow::Result<Self>",
-          "file": "src/lib.rs",
-          "line": 18,
-          "end_line": 20
+          "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
+          "file": "src/local_memory_runtime.rs",
+          "line": 47,
+          "end_line": 62
         },
         {
-          "name": "new_in_memory_with_embedder",
+          "name": "new",
           "kind": "function",
-          "signature": "pub fn new_in_memory_with_embedder( embedder: std::sync::Arc<dyn memory_core::embedder::Embedder>, ) -> anyhow::Result<Self>",
-          "file": "src/lib.rs",
-          "line": 22,
-          "end_line": 26
+          "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 28,
+          "end_line": 31
+        },
+        {
+          "name": "new_with_path",
+          "kind": "function",
+          "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 37,
+          "end_line": 40
         },
         {
           "name": "app_paths",
@@ -4889,40 +4836,40 @@
           "kind": "module",
           "signature": "pub mod memory_core",
           "file": "src/lib.rs",
-          "line": 6,
-          "end_line": 6
+          "line": 7,
+          "end_line": 7
         },
         {
           "name": "setup",
           "kind": "module",
           "signature": "pub mod setup",
           "file": "src/lib.rs",
-          "line": 7,
-          "end_line": 7
+          "line": 8,
+          "end_line": 8
         },
         {
           "name": "substrate",
           "kind": "module",
           "signature": "pub mod substrate",
           "file": "src/lib.rs",
-          "line": 9,
-          "end_line": 9
+          "line": 10,
+          "end_line": 10
         },
         {
           "name": "test_helpers",
           "kind": "module",
           "signature": "pub mod test_helpers",
           "file": "src/lib.rs",
-          "line": 14,
-          "end_line": 14
+          "line": 17,
+          "end_line": 17
         },
         {
           "name": "uninstall",
           "kind": "module",
           "signature": "pub mod uninstall",
           "file": "src/lib.rs",
-          "line": 11,
-          "end_line": 11
+          "line": 12,
+          "end_line": 12
         },
         {
           "name": "Cli",
@@ -4931,6 +4878,14 @@
           "file": "src/cli.rs",
           "line": 62,
           "end_line": 69
+        },
+        {
+          "name": "LocalMemoryRuntime",
+          "kind": "struct",
+          "signature": "pub struct LocalMemoryRuntime",
+          "file": "src/local_memory_runtime.rs",
+          "line": 17,
+          "end_line": 20
         },
         {
           "name": "SearchFilterArgs",
@@ -4953,8 +4908,392 @@
           "kind": "module",
           "signature": "pub(crate) mod tool_detection",
           "file": "src/lib.rs",
+          "line": 11,
+          "end_line": 11
+        },
+        {
+          "name": "advanced_search",
+          "kind": "function",
+          "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 87,
+          "end_line": 94
+        },
+        {
+          "name": "retrieve",
+          "kind": "function",
+          "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 70,
+          "end_line": 72
+        },
+        {
+          "name": "search",
+          "kind": "function",
+          "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 75,
+          "end_line": 84
+        },
+        {
+          "name": "store",
+          "kind": "function",
+          "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 65,
+          "end_line": 67
+        },
+        {
+          "name": "Commands",
+          "kind": "enum",
+          "signature": "pub enum Commands",
+          "file": "src/cli.rs",
+          "line": 73,
+          "end_line": 397
+        },
+        {
+          "name": "FeedbackRating",
+          "kind": "enum",
+          "signature": "pub enum FeedbackRating",
+          "file": "src/cli.rs",
+          "line": 12,
+          "end_line": 16
+        },
+        {
+          "name": "InitModeArg",
+          "kind": "enum",
+          "signature": "pub enum InitModeArg",
+          "file": "src/cli.rs",
+          "line": 5,
+          "end_line": 8
+        },
+        {
+          "name": "as_str",
+          "kind": "function",
+          "signature": "pub fn as_str(&self) -> &'static str",
+          "file": "src/cli.rs",
+          "line": 20,
+          "end_line": 26
+        },
+        {
+          "name": "from_storage",
+          "kind": "function",
+          "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
+          "file": "src/local_memory_runtime.rs",
+          "line": 47,
+          "end_line": 62
+        },
+        {
+          "name": "new",
+          "kind": "function",
+          "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 28,
+          "end_line": 31
+        },
+        {
+          "name": "new_with_path",
+          "kind": "function",
+          "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 37,
+          "end_line": 40
+        },
+        {
+          "name": "app_paths",
+          "kind": "module",
+          "signature": "pub mod app_paths",
+          "file": "src/lib.rs",
+          "line": 1,
+          "end_line": 1
+        },
+        {
+          "name": "benchmarking",
+          "kind": "module",
+          "signature": "pub mod benchmarking",
+          "file": "src/lib.rs",
+          "line": 2,
+          "end_line": 2
+        },
+        {
+          "name": "daemon",
+          "kind": "module",
+          "signature": "pub mod daemon",
+          "file": "src/lib.rs",
+          "line": 5,
+          "end_line": 5
+        },
+        {
+          "name": "memory_core",
+          "kind": "module",
+          "signature": "pub mod memory_core",
+          "file": "src/lib.rs",
+          "line": 7,
+          "end_line": 7
+        },
+        {
+          "name": "setup",
+          "kind": "module",
+          "signature": "pub mod setup",
+          "file": "src/lib.rs",
+          "line": 8,
+          "end_line": 8
+        },
+        {
+          "name": "substrate",
+          "kind": "module",
+          "signature": "pub mod substrate",
+          "file": "src/lib.rs",
           "line": 10,
           "end_line": 10
+        },
+        {
+          "name": "test_helpers",
+          "kind": "module",
+          "signature": "pub mod test_helpers",
+          "file": "src/lib.rs",
+          "line": 17,
+          "end_line": 17
+        },
+        {
+          "name": "uninstall",
+          "kind": "module",
+          "signature": "pub mod uninstall",
+          "file": "src/lib.rs",
+          "line": 12,
+          "end_line": 12
+        },
+        {
+          "name": "Cli",
+          "kind": "struct",
+          "signature": "pub struct Cli",
+          "file": "src/cli.rs",
+          "line": 62,
+          "end_line": 69
+        },
+        {
+          "name": "LocalMemoryRuntime",
+          "kind": "struct",
+          "signature": "pub struct LocalMemoryRuntime",
+          "file": "src/local_memory_runtime.rs",
+          "line": 17,
+          "end_line": 20
+        },
+        {
+          "name": "SearchFilterArgs",
+          "kind": "struct",
+          "signature": "pub struct SearchFilterArgs",
+          "file": "src/cli.rs",
+          "line": 31,
+          "end_line": 56
+        },
+        {
+          "name": "config_writer",
+          "kind": "module",
+          "signature": "pub(crate) mod config_writer",
+          "file": "src/lib.rs",
+          "line": 3,
+          "end_line": 3
+        },
+        {
+          "name": "tool_detection",
+          "kind": "module",
+          "signature": "pub(crate) mod tool_detection",
+          "file": "src/lib.rs",
+          "line": 11,
+          "end_line": 11
+        },
+        {
+          "name": "advanced_search",
+          "kind": "function",
+          "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 87,
+          "end_line": 94
+        },
+        {
+          "name": "retrieve",
+          "kind": "function",
+          "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 70,
+          "end_line": 72
+        },
+        {
+          "name": "search",
+          "kind": "function",
+          "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 75,
+          "end_line": 84
+        },
+        {
+          "name": "store",
+          "kind": "function",
+          "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 65,
+          "end_line": 67
+        },
+        {
+          "name": "Commands",
+          "kind": "enum",
+          "signature": "pub enum Commands",
+          "file": "src/cli.rs",
+          "line": 73,
+          "end_line": 397
+        },
+        {
+          "name": "FeedbackRating",
+          "kind": "enum",
+          "signature": "pub enum FeedbackRating",
+          "file": "src/cli.rs",
+          "line": 12,
+          "end_line": 16
+        },
+        {
+          "name": "InitModeArg",
+          "kind": "enum",
+          "signature": "pub enum InitModeArg",
+          "file": "src/cli.rs",
+          "line": 5,
+          "end_line": 8
+        },
+        {
+          "name": "as_str",
+          "kind": "function",
+          "signature": "pub fn as_str(&self) -> &'static str",
+          "file": "src/cli.rs",
+          "line": 20,
+          "end_line": 26
+        },
+        {
+          "name": "from_storage",
+          "kind": "function",
+          "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
+          "file": "src/local_memory_runtime.rs",
+          "line": 47,
+          "end_line": 62
+        },
+        {
+          "name": "new",
+          "kind": "function",
+          "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 28,
+          "end_line": 31
+        },
+        {
+          "name": "new_with_path",
+          "kind": "function",
+          "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 37,
+          "end_line": 40
+        },
+        {
+          "name": "app_paths",
+          "kind": "module",
+          "signature": "pub mod app_paths",
+          "file": "src/lib.rs",
+          "line": 1,
+          "end_line": 1
+        },
+        {
+          "name": "benchmarking",
+          "kind": "module",
+          "signature": "pub mod benchmarking",
+          "file": "src/lib.rs",
+          "line": 2,
+          "end_line": 2
+        },
+        {
+          "name": "daemon",
+          "kind": "module",
+          "signature": "pub mod daemon",
+          "file": "src/lib.rs",
+          "line": 5,
+          "end_line": 5
+        },
+        {
+          "name": "memory_core",
+          "kind": "module",
+          "signature": "pub mod memory_core",
+          "file": "src/lib.rs",
+          "line": 7,
+          "end_line": 7
+        },
+        {
+          "name": "setup",
+          "kind": "module",
+          "signature": "pub mod setup",
+          "file": "src/lib.rs",
+          "line": 8,
+          "end_line": 8
+        },
+        {
+          "name": "substrate",
+          "kind": "module",
+          "signature": "pub mod substrate",
+          "file": "src/lib.rs",
+          "line": 10,
+          "end_line": 10
+        },
+        {
+          "name": "test_helpers",
+          "kind": "module",
+          "signature": "pub mod test_helpers",
+          "file": "src/lib.rs",
+          "line": 17,
+          "end_line": 17
+        },
+        {
+          "name": "uninstall",
+          "kind": "module",
+          "signature": "pub mod uninstall",
+          "file": "src/lib.rs",
+          "line": 12,
+          "end_line": 12
+        },
+        {
+          "name": "Cli",
+          "kind": "struct",
+          "signature": "pub struct Cli",
+          "file": "src/cli.rs",
+          "line": 62,
+          "end_line": 69
+        },
+        {
+          "name": "LocalMemoryRuntime",
+          "kind": "struct",
+          "signature": "pub struct LocalMemoryRuntime",
+          "file": "src/local_memory_runtime.rs",
+          "line": 17,
+          "end_line": 20
+        },
+        {
+          "name": "SearchFilterArgs",
+          "kind": "struct",
+          "signature": "pub struct SearchFilterArgs",
+          "file": "src/cli.rs",
+          "line": 31,
+          "end_line": 56
+        },
+        {
+          "name": "config_writer",
+          "kind": "module",
+          "signature": "pub(crate) mod config_writer",
+          "file": "src/lib.rs",
+          "line": 3,
+          "end_line": 3
+        },
+        {
+          "name": "tool_detection",
+          "kind": "module",
+          "signature": "pub(crate) mod tool_detection",
+          "file": "src/lib.rs",
+          "line": 11,
+          "end_line": 11
         }
       ]
     },
@@ -9355,16 +9694,16 @@
           "kind": "function",
           "signature": "pub fn new_in_memory() -> Result<Self>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 200,
-          "end_line": 202
+          "line": 202,
+          "end_line": 204
         },
         {
           "name": "new_in_memory_with_embedder",
           "kind": "function",
           "signature": "pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 205,
-          "end_line": 222
+          "line": 207,
+          "end_line": 209
         },
         {
           "name": "new_with_path",
@@ -9443,8 +9782,8 @@
           "kind": "struct",
           "signature": "pub struct RankedSemanticCandidate",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 313,
-          "end_line": 330
+          "line": 300,
+          "end_line": 317
         },
         {
           "name": "SqliteStorage",
@@ -9619,40 +9958,40 @@
           "kind": "function",
           "signature": "pub(super) fn debug_force_access_count(&self, id: &str, access_count: i64) -> Result<()>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 279,
-          "end_line": 290
+          "line": 266,
+          "end_line": 277
         },
         {
           "name": "debug_force_last_accessed_at",
           "kind": "function",
           "signature": "pub(super) fn debug_force_last_accessed_at(&self, id: &str, timestamp: &str) -> Result<()>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 250,
-          "end_line": 260
+          "line": 237,
+          "end_line": 247
         },
         {
           "name": "debug_get_access_count",
           "kind": "function",
           "signature": "pub(super) fn debug_get_access_count(&self, id: &str) -> Result<i64>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 263,
-          "end_line": 276
+          "line": 250,
+          "end_line": 263
         },
         {
           "name": "debug_get_last_accessed_at",
           "kind": "function",
           "signature": "pub(super) fn debug_get_last_accessed_at(&self, id: &str) -> Result<String>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 234,
-          "end_line": 247
+          "line": 221,
+          "end_line": 234
         },
         {
           "name": "debug_get_versioning_fields",
           "kind": "function",
           "signature": "pub(super) fn debug_get_versioning_fields( &self, id: &str, ) -> Result<(Option<String>, Option<String>)>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 293,
-          "end_line": 309
+          "line": 280,
+          "end_line": 296
         },
         {
           "name": "debug_has_relationship",
@@ -9883,8 +10222,8 @@
           "kind": "function",
           "signature": "pub(super) fn test_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>>",
           "file": "src/memory_core/storage/sqlite/storage.rs",
-          "line": 229,
-          "end_line": 231
+          "line": 216,
+          "end_line": 218
         },
         {
           "name": "to_param_refs",

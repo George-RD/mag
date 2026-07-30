@@ -196,10 +196,14 @@ impl SqliteStorage {
         <Self as Updater>::update(self, id, input).await
     }
 
+    // Public library/test helpers; the binary compiles a private module copy
+    // where they intentionally have no direct caller.
+    #[allow(dead_code)]
     pub fn new_in_memory() -> Result<Self> {
         Self::new_in_memory_with_embedder(Arc::new(crate::memory_core::PlaceholderEmbedder))
     }
 
+    #[allow(dead_code)]
     pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
         Self::new_with_path(PathBuf::from(":memory:"), embedder)
     }

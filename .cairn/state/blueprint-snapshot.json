@@ -102,6 +102,7 @@
       "paths": [
         "./src/cli.rs",
         "./src/lib.rs",
+        "./src/local_memory_runtime.rs",
         "./src/main.rs"
       ],
       "edges": [
