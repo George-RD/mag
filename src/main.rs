@@ -7,12 +7,11 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Deleter, Embedder,
-    EventType, ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister,
-    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
-    ProfileManager, RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder,
-    StatsProvider, Updater, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
-    is_valid_event_type,
+    AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType,
+    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager,
+    MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, RelationshipQuerier, ReminderManager,
+    SearchOptions, SimilarFinder, StatsProvider, Updater, VersionChainQuerier, WelcomeOptions,
+    WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -42,7 +41,7 @@ mod memory_core;
 #[allow(dead_code)]
 mod test_helpers;
 
-use local_memory_runtime::LocalMemoryRuntime;
+use local_memory_runtime::{LocalMemoryRuntime, compose_compatibility_pipeline};
 use mcp::McpMemoryServer;
 
 #[derive(Clone, Copy)]
@@ -183,16 +182,8 @@ async fn main() -> anyhow::Result<()> {
 
     let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
     let mcp_storage = sqlite_storage.clone();
+    let pipeline = compose_compatibility_pipeline(&sqlite_storage);
 
-    let pipeline = Pipeline::new(
-        Box::new(PlaceholderPipeline),
-        Box::new(PlaceholderPipeline),
-        Box::new(sqlite_storage.clone()),
-        Box::new(sqlite_storage),
-        Box::new(mcp_storage.clone()),
-        Box::new(mcp_storage.clone()),
-        Box::new(mcp_storage.clone()),
-    );
     match &cli.command {
         Commands::Ingest {
             content,
@@ -257,8 +248,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Delete { id } => {
             info!(memory_id = %id, "Deleting memory");
-            let deleted = mcp_storage.delete(id).await?;
-            info!(memory_id = %id, deleted = deleted, "Delete completed");
+            let deleted = local_runtime.delete(id).await?;
+            info!(memory_id = %id, deleted = deleted, "Deleted through local memory runtime");
             println!("{}", json!({ "id": id, "deleted": deleted }));
         }
         Commands::Update {
