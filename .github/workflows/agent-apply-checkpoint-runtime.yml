@@ -1,0 +1,309 @@
+name: Apply checkpoint runtime migration
+
+on:
+  push:
+    branches:
+      - agent/migrate-cli-checkpoint-runtime
+    paths:
+      - .github/workflows/agent-apply-checkpoint-runtime.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/migrate-cli-checkpoint-runtime
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify the caller regression is red before migration
+        shell: bash
+        run: |
+          set +e
+          cargo test --test cli_checkpoint_runtime_migration -- --nocapture > /tmp/checkpoint-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/checkpoint-red.log
+          test "$status" -ne 0
+          grep -F "checkpoint did not report the selected runtime path" /tmp/checkpoint-red.log
+
+      - name: Apply the bounded runtime migration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one match in {path}, found {count}")
+              file_path.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "src/local_memory_runtime.rs",
+              """use crate::memory_core::{
+              AdvancedSearcher, Deleter, Embedder, GraphNode, GraphTraverser, ListResult, Lister,
+              MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, Relationship,
+              RelationshipQuerier, SearchOptions, SearchResult, SemanticResult, SimilarFinder,
+              VersionChainQuerier,
+          };
+          """,
+              """use crate::memory_core::{
+              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
+              GraphTraverser, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
+              PlaceholderPipeline, Relationship, RelationshipQuerier, SearchOptions, SearchResult,
+              SemanticResult, SimilarFinder, VersionChainQuerier,
+          };
+          """,
+          )
+
+          replace_once(
+              "src/local_memory_runtime.rs",
+              """    /// Runs the current basic search implementation.
+          """,
+              """    /// Saves a checkpoint without changing its content, metadata, or numbering semantics.
+              pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+                  self.storage.save_checkpoint(input).await
+              }
+
+              /// Returns checkpoint continuity without changing filters, ordering, or payload fields.
+              pub async fn resume_task(
+                  &self,
+                  query: &str,
+                  project: Option<&str>,
+                  limit: usize,
+              ) -> Result<Vec<serde_json::Value>> {
+                  self.storage.resume_task(query, project, limit).await
+              }
+
+              /// Runs the current basic search implementation.
+          """,
+          )
+
+          replace_once(
+              "src/main.rs",
+              """use memory_core::{
+              BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType, ExpirationSweeper,
+              FeedbackRecorder, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager,
+              ReminderManager, SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider,
+              is_valid_event_type,
+          };
+          """,
+              """use memory_core::{
+              BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
+              LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager,
+              ReminderManager, SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider,
+              is_valid_event_type,
+          };
+          """,
+          )
+
+          replace_once(
+              "src/main.rs",
+              """            let memory_id =
+                          <SqliteStorage as CheckpointManager>::save_checkpoint(&mcp_storage, input).await?;
+          """,
+              """            let memory_id = local_runtime.save_checkpoint(input).await?;
+          """,
+          )
+
+          replace_once(
+              "src/main.rs",
+              """            let latest = <SqliteStorage as CheckpointManager>::resume_task(
+                          &mcp_storage,
+                          task_title,
+                          project.as_deref(),
+                          1,
+                      )
+                      .await?;
+          """,
+              """            let latest = local_runtime
+                          .resume_task(task_title, project.as_deref(), 1)
+                          .await?;
+          """,
+          )
+
+          replace_once(
+              "src/main.rs",
+              """            let checkpoint_number = latest
+                          .first()
+                          .and_then(|entry| entry.get("metadata"))
+                          .and_then(|metadata| metadata.get("checkpoint_number"))
+                          .and_then(serde_json::Value::as_i64)
+                          .unwrap_or(1);
+                      println!(
+          """,
+              """            let checkpoint_number = latest
+                          .first()
+                          .and_then(|entry| entry.get("metadata"))
+                          .and_then(|metadata| metadata.get("checkpoint_number"))
+                          .and_then(serde_json::Value::as_i64)
+                          .unwrap_or(1);
+                      info!(
+                          memory_id = %memory_id,
+                          checkpoint_number,
+                          "Checkpoint saved through local memory runtime"
+                      );
+                      println!(
+          """,
+          )
+
+          replace_once(
+              "src/main.rs",
+              """            let results = <SqliteStorage as CheckpointManager>::resume_task(
+                          &mcp_storage,
+                          &query,
+                          project.as_deref(),
+                          *limit,
+                      )
+                      .await?;
+                      let mut markdown = String::new();
+          """,
+              """            let results = local_runtime
+                          .resume_task(&query, project.as_deref(), *limit)
+                          .await?;
+                      info!(
+                          result_count = results.len(),
+                          "Checkpoint task resumed through local memory runtime"
+                      );
+                      let mut markdown = String::new();
+          """,
+          )
+
+          replace_once(
+              "tests/local_memory_runtime.rs",
+              """use mag::memory_core::{
+              AdvancedSearcher, Deleter, EventType, GraphTraverser, Lister, MemoryInput, MemoryUpdate,
+              PhraseSearcher, Pipeline, PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier,
+              SearchOptions, SimilarFinder, VersionChainQuerier,
+          };
+          """,
+              """use mag::memory_core::{
+              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, GraphTraverser,
+              Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderEmbedder,
+              PlaceholderPipeline, RelationshipQuerier, SearchOptions, SimilarFinder,
+              VersionChainQuerier,
+          };
+          """,
+          )
+
+          replace_once(
+              "tests/local_memory_runtime.rs",
+              """    let runtime_deleted = runtime.delete(&runtime_id).await.unwrap();
+          """,
+              """    let checkpoint_input = CheckpointInput {
+                  task_title: "runtime checkpoint parity".to_string(),
+                  progress: "session state is preserved".to_string(),
+                  plan: Some("keep continuity local".to_string()),
+                  files_touched: Some(serde_json::json!(["src/local_memory_runtime.rs"])),
+                  decisions: Some(vec!["delegate without semantic drift".to_string()]),
+                  key_context: Some("checkpoint parity test".to_string()),
+                  next_steps: Some("migrate reminders next".to_string()),
+                  session_id: Some("runtime-checkpoint-session".to_string()),
+                  project: Some("runtime-checkpoint-project".to_string()),
+              };
+              let runtime_checkpoint_id = runtime
+                  .save_checkpoint(checkpoint_input.clone())
+                  .await
+                  .unwrap();
+              let direct_checkpoint_id = legacy_storage
+                  .save_checkpoint(checkpoint_input)
+                  .await
+                  .unwrap();
+              uuid::Uuid::parse_str(&runtime_checkpoint_id).unwrap();
+              uuid::Uuid::parse_str(&direct_checkpoint_id).unwrap();
+
+              let runtime_checkpoints = runtime
+                  .resume_task(
+                      "runtime checkpoint parity",
+                      Some("runtime-checkpoint-project"),
+                      10,
+                  )
+                  .await
+                  .unwrap();
+              let direct_checkpoints = legacy_storage
+                  .resume_task(
+                      "runtime checkpoint parity",
+                      Some("runtime-checkpoint-project"),
+                      10,
+                  )
+                  .await
+                  .unwrap();
+              assert_eq!(runtime_checkpoints.len(), 1);
+              assert_eq!(direct_checkpoints.len(), 1);
+              assert_eq!(runtime_checkpoints[0]["content"], direct_checkpoints[0]["content"]);
+              assert_eq!(
+                  runtime_checkpoints[0]["metadata"],
+                  direct_checkpoints[0]["metadata"]
+              );
+              assert_eq!(runtime_checkpoints[0]["metadata"]["checkpoint_number"], 1);
+              chrono::DateTime::parse_from_rfc3339(
+                  runtime_checkpoints[0]["created_at"].as_str().unwrap(),
+              )
+              .unwrap();
+              assert!(
+                  runtime
+                      .resume_task(
+                          "runtime checkpoint parity",
+                          Some("other-project"),
+                          10,
+                      )
+                      .await
+                      .unwrap()
+                      .is_empty()
+              );
+              assert!(
+                  runtime
+                      .resume_task("missing checkpoint", None, 10)
+                      .await
+                      .unwrap()
+                      .is_empty()
+              );
+              assert!(
+                  runtime
+                      .resume_task("runtime checkpoint parity", None, 0)
+                      .await
+                      .unwrap()
+                      .is_empty()
+              );
+
+              let runtime_deleted = runtime.delete(&runtime_id).await.unwrap();
+          """,
+          )
+
+          Path(".github/workflows/agent-check-checkpoint-red.yml").unlink(missing_ok=True)
+          Path(".github/workflows/agent-apply-checkpoint-runtime.yml").unlink()
+          PY
+
+          cargo fmt --all
+
+      - name: Verify the focused green path
+        run: |
+          cargo test --test cli_checkpoint_runtime_migration -- --nocapture
+          cargo test --test local_memory_runtime -- --nocapture
+
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Reconcile the intentional runtime interface change
+        run: cairn scan
+
+      - name: Commit the green-stage implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor(cli): route checkpoints through local runtime"
+          git push origin HEAD:agent/migrate-cli-checkpoint-runtime
