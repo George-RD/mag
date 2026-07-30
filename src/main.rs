@@ -251,8 +251,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Retrieve { id } => {
             info!(memory_id = %id, "Retrieving memory");
-            let result = pipeline.retrieve(id).await?;
-            info!(memory_id = %id, content_len = result.len(), "Retrieved memory");
+            let result = local_runtime.retrieve(id).await?;
+            info!(memory_id = %id, content_len = result.len(), "Retrieved through local memory runtime");
             println!("{}", json!({ "id": id, "content": result }));
         }
         Commands::Delete { id } => {
