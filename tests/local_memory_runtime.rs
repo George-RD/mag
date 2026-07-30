@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use mag::LocalMemoryRuntime;
@@ -19,14 +20,23 @@ fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
     )
 }
 
+async fn storage_at(path: PathBuf) -> SqliteStorage {
+    tokio::task::spawn_blocking(move || {
+        SqliteStorage::new_with_path(path, Arc::new(PlaceholderEmbedder))
+    })
+    .await
+    .expect("SQLite initialization task should not panic")
+    .expect("SQLite storage should initialize")
+}
+
 #[tokio::test]
 async fn local_runtime_preserves_store_retrieve_search_and_advanced_search_outputs() {
-    let temp = tempfile::tempdir().unwrap();
-    let storage =
-        SqliteStorage::new_with_path(temp.path().join("memory.db"), Arc::new(PlaceholderEmbedder))
-            .unwrap();
-    let legacy = legacy_pipeline(&storage);
-    let runtime = LocalMemoryRuntime::from_storage(storage.clone());
+    let runtime_temp = tempfile::tempdir().unwrap();
+    let legacy_temp = tempfile::tempdir().unwrap();
+    let runtime_storage = storage_at(runtime_temp.path().join("memory.db")).await;
+    let legacy_storage = storage_at(legacy_temp.path().join("memory.db")).await;
+    let runtime = LocalMemoryRuntime::from_storage(runtime_storage.clone());
+    let legacy = legacy_pipeline(&legacy_storage);
 
     let content = "portable sqlite context survives tool switches";
     let input = MemoryInput {
@@ -37,11 +47,12 @@ async fn local_runtime_preserves_store_retrieve_search_and_advanced_search_outpu
         ..Default::default()
     };
 
-    let id = runtime.store(content, &input).await.unwrap();
-    assert_eq!(id, "runtime-parity-1");
+    let runtime_id = runtime.store(content, &input).await.unwrap();
+    let legacy_id = legacy.run(content, &input).await.unwrap();
+    assert_eq!(runtime_id, legacy_id);
 
-    let runtime_retrieved = runtime.retrieve(&id).await.unwrap();
-    let legacy_retrieved = legacy.retrieve(&id).await.unwrap();
+    let runtime_retrieved = runtime.retrieve(&runtime_id).await.unwrap();
+    let legacy_retrieved = legacy.retrieve(&legacy_id).await.unwrap();
     assert_eq!(runtime_retrieved, legacy_retrieved);
     assert_eq!(runtime_retrieved, format!("processed: {content}"));
 
@@ -56,17 +67,17 @@ async fn local_runtime_preserves_store_retrieve_search_and_advanced_search_outpu
         .unwrap();
     assert_eq!(runtime_search, legacy_search);
     assert_eq!(runtime_search.len(), 1);
-    assert_eq!(runtime_search[0].id, id);
+    assert_eq!(runtime_search[0].id, runtime_id);
 
     let runtime_advanced = runtime
         .advanced_search("portable sqlite", 10, &options)
         .await
         .unwrap();
-    let direct_advanced = storage
+    let direct_advanced = runtime_storage
         .advanced_search("portable sqlite", 10, &options)
         .await
         .unwrap();
     assert_eq!(runtime_advanced, direct_advanced);
     assert_eq!(runtime_advanced.len(), 1);
-    assert_eq!(runtime_advanced[0].id, id);
+    assert_eq!(runtime_advanced[0].id, runtime_id);
 }
