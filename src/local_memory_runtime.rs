@@ -6,7 +6,7 @@ use anyhow::Result;
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
     AdvancedSearcher, Deleter, Embedder, MemoryInput, MemoryUpdate, Pipeline, PlaceholderPipeline,
-    SearchOptions, SearchResult, SemanticResult, Updater,
+    SearchOptions, SearchResult, SemanticResult,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
