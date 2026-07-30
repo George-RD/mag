@@ -7,10 +7,9 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType, ExpirationSweeper,
-    FeedbackRecorder, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager,
-    ReminderManager, SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider,
-    is_valid_event_type,
+    BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
+    LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, ReminderManager,
+    SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -664,21 +663,21 @@ async fn main() -> anyhow::Result<()> {
                 session_id: session_id.clone(),
                 project: project.clone(),
             };
-            let memory_id =
-                <SqliteStorage as CheckpointManager>::save_checkpoint(&mcp_storage, input).await?;
-            let latest = <SqliteStorage as CheckpointManager>::resume_task(
-                &mcp_storage,
-                task_title,
-                project.as_deref(),
-                1,
-            )
-            .await?;
+            let memory_id = local_runtime.save_checkpoint(input).await?;
+            let latest = local_runtime
+                .resume_task(task_title, project.as_deref(), 1)
+                .await?;
             let checkpoint_number = latest
                 .first()
                 .and_then(|entry| entry.get("metadata"))
                 .and_then(|metadata| metadata.get("checkpoint_number"))
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or(1);
+            info!(
+                memory_id = %memory_id,
+                checkpoint_number,
+                "Checkpoint saved through local memory runtime"
+            );
             println!(
                 "{}",
                 json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
@@ -690,13 +689,13 @@ async fn main() -> anyhow::Result<()> {
             limit,
         } => {
             let query = task_title.clone().unwrap_or_default();
-            let results = <SqliteStorage as CheckpointManager>::resume_task(
-                &mcp_storage,
-                &query,
-                project.as_deref(),
-                *limit,
-            )
-            .await?;
+            let results = local_runtime
+                .resume_task(&query, project.as_deref(), *limit)
+                .await?;
+            info!(
+                result_count = results.len(),
+                "Checkpoint task resumed through local memory runtime"
+            );
             let mut markdown = String::new();
             for (index, entry) in results.iter().enumerate() {
                 if index > 0 {

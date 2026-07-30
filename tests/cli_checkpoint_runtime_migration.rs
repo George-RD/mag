@@ -97,8 +97,7 @@ fn checkpoint_commands_use_local_runtime_without_contract_drift() -> anyhow::Res
             "next_steps": NEXT_STEPS
         }
     });
-    let expected_prefix =
-        format!("### Checkpoint\n{content}\n\nMetadata:\n{metadata}");
+    let expected_prefix = format!("### Checkpoint\n{content}\n\nMetadata:\n{metadata}");
     assert_eq!(resume_prefix, expected_prefix);
     assert_eq!(
         resume_stdout,

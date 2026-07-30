@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "c899fe7943d69c08",
+  "key": "6e3b9374998bc532",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5409,6 +5409,7 @@
         ],
         "mag.quality.tests": [
           "src/test_helpers.rs",
+          "tests/cli_checkpoint_runtime_migration.rs",
           "tests/cli_output_smoke.rs",
           "tests/cli_relations_runtime_migration.rs",
           "tests/cli_search_runtime_migration.rs",
@@ -5555,12 +5556,14 @@
         "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn resolve_dataset( kind: DatasetKind, dataset_path: Option<PathBuf>, force_refresh: bool, temporary: bool, ) -> Result<DatasetArtifact>",
+        "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
         "pub async fn retrieve(&self, id: &str) -> Result<String>",
         "pub async fn retrieve(&self, id: &str) -> Result<String>",
         "pub async fn run(&self, content: &str, input: &MemoryInput) -> Result<String>",
         "pub async fn run_all(&self, dry_run: bool) -> Result<Vec<ConsolidationReport>>",
         "pub async fn run_setup(args: SetupArgs) -> Result<()>",
         "pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()>",
+        "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
         "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
         "pub async fn search( &self, query: &str, limit: usize, opts: &SearchOptions, ) -> Result<Vec<SearchResult>>",
         "pub async fn search(&self, ctx: QueryContext) -> Result<Vec<SemanticResult>>",
@@ -6141,7 +6144,9 @@
           "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
           "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
+          "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
+          "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
           "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
@@ -7260,8 +7265,8 @@
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 146,
-            "end_line": 153
+            "line": 161,
+            "end_line": 168
           },
           {
             "name": "delete",
@@ -7276,8 +7281,8 @@
             "kind": "function",
             "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 161,
-            "end_line": 163
+            "line": 176,
+            "end_line": 178
           },
           {
             "name": "get_relationships",
@@ -7300,16 +7305,24 @@
             "kind": "function",
             "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 124,
-            "end_line": 131
+            "line": 139,
+            "end_line": 146
           },
           {
             "name": "recent",
             "kind": "function",
             "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 119,
-            "end_line": 121
+            "line": 134,
+            "end_line": 136
+          },
+          {
+            "name": "resume_task",
+            "kind": "function",
+            "signature": "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 112,
+            "end_line": 119
           },
           {
             "name": "retrieve",
@@ -7320,20 +7333,28 @@
             "end_line": 66
           },
           {
+            "name": "save_checkpoint",
+            "kind": "function",
+            "signature": "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 107,
+            "end_line": 109
+          },
+          {
             "name": "search",
             "kind": "function",
             "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 107,
-            "end_line": 116
+            "line": 122,
+            "end_line": 131
           },
           {
             "name": "semantic_search",
             "kind": "function",
             "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 134,
-            "end_line": 143
+            "line": 149,
+            "end_line": 158
           },
           {
             "name": "store",
@@ -7364,8 +7385,8 @@
             "kind": "function",
             "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 156,
-            "end_line": 158
+            "line": 171,
+            "end_line": 173
           },
           {
             "name": "Commands",
@@ -10708,7 +10729,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "7e71f4f145916d90"
+        "hash": "1cbcc1ddb4f1189e"
       },
       "findings": [
         {

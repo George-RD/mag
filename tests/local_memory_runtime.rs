@@ -4,9 +4,9 @@ use std::sync::Arc;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
-    AdvancedSearcher, Deleter, EventType, GraphTraverser, Lister, MemoryInput, MemoryUpdate,
-    PhraseSearcher, Pipeline, PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier,
-    SearchOptions, SimilarFinder, VersionChainQuerier,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, GraphTraverser,
+    Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderEmbedder,
+    PlaceholderPipeline, RelationshipQuerier, SearchOptions, SimilarFinder, VersionChainQuerier,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
@@ -209,6 +209,79 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     assert_eq!(runtime_similar, direct_similar);
     assert_eq!(runtime_similar.len(), 1);
     assert_eq!(runtime_similar[0].id, runtime_related_id);
+
+    let checkpoint_input = CheckpointInput {
+        task_title: "runtime checkpoint parity".to_string(),
+        progress: "session state is preserved".to_string(),
+        plan: Some("keep continuity local".to_string()),
+        files_touched: Some(serde_json::json!(["src/local_memory_runtime.rs"])),
+        decisions: Some(vec!["delegate without semantic drift".to_string()]),
+        key_context: Some("checkpoint parity test".to_string()),
+        next_steps: Some("migrate reminders next".to_string()),
+        session_id: Some("runtime-checkpoint-session".to_string()),
+        project: Some("runtime-checkpoint-project".to_string()),
+    };
+    let runtime_checkpoint_id = runtime
+        .save_checkpoint(checkpoint_input.clone())
+        .await
+        .unwrap();
+    let direct_checkpoint_id = legacy_storage
+        .save_checkpoint(checkpoint_input)
+        .await
+        .unwrap();
+    uuid::Uuid::parse_str(&runtime_checkpoint_id).unwrap();
+    uuid::Uuid::parse_str(&direct_checkpoint_id).unwrap();
+
+    let runtime_checkpoints = runtime
+        .resume_task(
+            "runtime checkpoint parity",
+            Some("runtime-checkpoint-project"),
+            10,
+        )
+        .await
+        .unwrap();
+    let direct_checkpoints = legacy_storage
+        .resume_task(
+            "runtime checkpoint parity",
+            Some("runtime-checkpoint-project"),
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(runtime_checkpoints.len(), 1);
+    assert_eq!(direct_checkpoints.len(), 1);
+    assert_eq!(
+        runtime_checkpoints[0]["content"],
+        direct_checkpoints[0]["content"]
+    );
+    assert_eq!(
+        runtime_checkpoints[0]["metadata"],
+        direct_checkpoints[0]["metadata"]
+    );
+    assert_eq!(runtime_checkpoints[0]["metadata"]["checkpoint_number"], 1);
+    chrono::DateTime::parse_from_rfc3339(runtime_checkpoints[0]["created_at"].as_str().unwrap())
+        .unwrap();
+    assert!(
+        runtime
+            .resume_task("runtime checkpoint parity", Some("other-project"), 10,)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        runtime
+            .resume_task("missing checkpoint", None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        runtime
+            .resume_task("runtime checkpoint parity", None, 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let runtime_deleted = runtime.delete(&runtime_id).await.unwrap();
     let legacy_deleted = legacy_storage.delete(&legacy_id).await.unwrap();
