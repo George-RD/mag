@@ -79,11 +79,7 @@ fn search_args(command: &str) -> Vec<&str> {
     ]
 }
 
-fn expected_result(
-    id: &str,
-    score: Option<f64>,
-    include_text_overlap: bool,
-) -> serde_json::Value {
+fn expected_result(id: &str, score: Option<f64>, include_text_overlap: bool) -> serde_json::Value {
     let metadata = if include_text_overlap {
         serde_json::json!({
             "_text_overlap": 1.0,

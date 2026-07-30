@@ -39,5 +39,8 @@ permitted to hide inside a caller migration.
 - [x] `list` and `relations` route through `LocalMemoryRuntime`; pagination,
   filters, exact compact JSON, relationship output, and direct-storage parity
   remain pinned at caller and facade levels.
-- [ ] Migrate search, semantic/advanced retrieval, graph, session, and
-  administration commands.
+- [x] `search`, `semantic-search`, and `advanced-search` route through
+  `LocalMemoryRuntime`; filters, limits, exact compact JSON, scores, and the
+  compatibility-sensitive advanced-search metadata remain pinned at caller and
+  facade levels. The compatibility `Pipeline` is now private to the runtime.
+- [ ] Migrate related retrieval, graph, session, and administration commands.

@@ -7,11 +7,10 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    AdvancedSearcher, BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType,
-    ExpirationSweeper, FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager,
-    MemoryInput, MemoryUpdate, PhraseSearcher, ProfileManager, ReminderManager, SearchOptions,
-    SimilarFinder, StatsProvider, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
-    is_valid_event_type,
+    BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType, ExpirationSweeper,
+    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate,
+    PhraseSearcher, ProfileManager, ReminderManager, SearchOptions, SimilarFinder, StatsProvider,
+    VersionChainQuerier, WelcomeOptions, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -41,7 +40,7 @@ mod memory_core;
 #[allow(dead_code)]
 mod test_helpers;
 
-use local_memory_runtime::{LocalMemoryRuntime, compose_compatibility_pipeline};
+use local_memory_runtime::LocalMemoryRuntime;
 use mcp::McpMemoryServer;
 
 #[derive(Clone, Copy)]
@@ -182,7 +181,6 @@ async fn main() -> anyhow::Result<()> {
 
     let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
     let mcp_storage = sqlite_storage.clone();
-    let pipeline = compose_compatibility_pipeline(&sqlite_storage);
 
     match &cli.command {
         Commands::Ingest {
@@ -336,8 +334,11 @@ async fn main() -> anyhow::Result<()> {
                 "Searching memories"
             );
             let opts = build_search_options(filters, false)?;
-            let results = pipeline.search(query, *limit, &opts).await?;
-            info!(result_count = results.len(), "Search completed");
+            let results = local_runtime.search(query, *limit, &opts).await?;
+            info!(
+                result_count = results.len(),
+                "Search completed through local memory runtime"
+            );
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
@@ -368,8 +369,11 @@ async fn main() -> anyhow::Result<()> {
                 "Semantic searching memories"
             );
             let opts = build_search_options(filters, false)?;
-            let results = pipeline.semantic_search(query, *limit, &opts).await?;
-            info!(result_count = results.len(), "Semantic search completed");
+            let results = local_runtime.semantic_search(query, *limit, &opts).await?;
+            info!(
+                result_count = results.len(),
+                "Semantic search completed through local memory runtime"
+            );
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
@@ -397,13 +401,11 @@ async fn main() -> anyhow::Result<()> {
             explain,
         } => {
             let opts = build_search_options(filters, *explain)?;
-            let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-                &mcp_storage,
-                query,
-                *limit,
-                &opts,
-            )
-            .await?;
+            let results = local_runtime.advanced_search(query, *limit, &opts).await?;
+            info!(
+                result_count = results.len(),
+                "Advanced search completed through local memory runtime"
+            );
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
