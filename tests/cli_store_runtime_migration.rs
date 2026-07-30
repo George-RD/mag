@@ -62,8 +62,8 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
     );
 
     let retrieve = run_cli(home, &["retrieve", id])?;
-    let retrieve_stderr = String::from_utf8(retrieve.stderr.clone())?;
     let retrieve_payload: serde_json::Value = serde_json::from_slice(retrieve.stdout.as_slice())?;
+    let retrieve_stderr = String::from_utf8(retrieve.stderr)?;
     let expected_content = format!("processed: {content}");
     assert_eq!(retrieve_payload["id"].as_str(), Some(id));
     assert_eq!(
