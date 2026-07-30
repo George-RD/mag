@@ -19,10 +19,8 @@ fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
 
 #[test]
 fn traverse_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
-    let home = std::env::temp_dir().join(format!(
-        "mag-cli-traverse-runtime-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let home =
+        std::env::temp_dir().join(format!("mag-cli-traverse-runtime-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home)?;
 
     let traversal = run_cli(&home, &["traverse", "missing-memory"])?;

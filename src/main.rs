@@ -8,8 +8,8 @@ use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate,
-    ProfileManager, ReminderManager, SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider,
+    FeedbackRecorder, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager,
+    ReminderManager, SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider,
     is_valid_event_type,
 };
 use serde_json::json;
@@ -491,14 +491,13 @@ async fn main() -> anyhow::Result<()> {
             max_hops,
             min_weight,
         } => {
-            let nodes = <SqliteStorage as GraphTraverser>::traverse(
-                &mcp_storage,
-                id,
-                *max_hops,
-                *min_weight,
-                None,
-            )
-            .await?;
+            let nodes = local_runtime
+                .traverse(id, *max_hops, *min_weight, None)
+                .await?;
+            info!(
+                result_count = nodes.len(),
+                "Graph traversal completed through local memory runtime"
+            );
 
             let mut grouped = serde_json::Map::new();
             for node in nodes {

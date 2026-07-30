@@ -5,9 +5,10 @@ use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, Deleter, Embedder, ListResult, Lister, MemoryInput, MemoryUpdate,
-    PhraseSearcher, Pipeline, PlaceholderPipeline, Relationship, RelationshipQuerier,
-    SearchOptions, SearchResult, SemanticResult, SimilarFinder, VersionChainQuerier,
+    AdvancedSearcher, Deleter, Embedder, GraphNode, GraphTraverser, ListResult, Lister,
+    MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, Relationship,
+    RelationshipQuerier, SearchOptions, SearchResult, SemanticResult, SimilarFinder,
+    VersionChainQuerier,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -87,6 +88,19 @@ impl LocalMemoryRuntime {
     /// Returns stored relationships without changing ordering or payload semantics.
     pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>> {
         self.storage.get_relationships(memory_id).await
+    }
+
+    /// Traverses the relationship graph without changing hop, weight, or edge semantics.
+    pub async fn traverse(
+        &self,
+        start_id: &str,
+        max_hops: usize,
+        min_weight: f64,
+        edge_types: Option<&[String]>,
+    ) -> Result<Vec<GraphNode>> {
+        self.storage
+            .traverse(start_id, max_hops, min_weight, edge_types)
+            .await
     }
 
     /// Runs the current basic search implementation.

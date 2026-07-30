@@ -4,9 +4,9 @@ use std::sync::Arc;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
-    AdvancedSearcher, Deleter, EventType, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
-    Pipeline, PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier, SearchOptions,
-    SimilarFinder, VersionChainQuerier,
+    AdvancedSearcher, Deleter, EventType, GraphTraverser, Lister, MemoryInput, MemoryUpdate,
+    PhraseSearcher, Pipeline, PlaceholderEmbedder, PlaceholderPipeline, RelationshipQuerier,
+    SearchOptions, SimilarFinder, VersionChainQuerier,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
@@ -139,6 +139,14 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     let direct_relations = legacy_storage.get_relationships(&legacy_id).await.unwrap();
     assert_eq!(runtime_relations, direct_relations);
     assert!(runtime_relations.is_empty());
+
+    let runtime_traversal = runtime.traverse(&runtime_id, 2, 0.0, None).await.unwrap();
+    let direct_traversal = legacy_storage
+        .traverse(&legacy_id, 2, 0.0, None)
+        .await
+        .unwrap();
+    assert_eq!(runtime_traversal, direct_traversal);
+    assert!(runtime_traversal.is_empty());
 
     let runtime_chain = runtime.version_chain(&runtime_id).await.unwrap();
     let direct_chain = legacy_storage.get_version_chain(&legacy_id).await.unwrap();
