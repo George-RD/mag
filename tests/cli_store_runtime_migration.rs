@@ -63,18 +63,23 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
 
     let retrieve = run_cli(home, &["retrieve", id])?;
     let retrieve_payload: serde_json::Value = serde_json::from_slice(retrieve.stdout.as_slice())?;
+    let retrieve_stderr = String::from_utf8(retrieve.stderr)?;
     let expected_content = format!("processed: {content}");
     assert_eq!(retrieve_payload["id"].as_str(), Some(id));
     assert_eq!(
         retrieve_payload["content"].as_str(),
         Some(expected_content.as_str())
     );
+    assert!(
+        retrieve_stderr.contains("Retrieved through local memory runtime"),
+        "retrieve did not report the selected runtime path: {retrieve_stderr}"
+    );
 
     Ok(())
 }
 
 #[test]
-fn ingest_and_process_use_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+fn store_and_retrieve_commands_use_local_runtime_without_contract_drift() -> anyhow::Result<()> {
     let home = std::env::temp_dir().join(format!("mag-cli-store-runtime-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home)?;
 

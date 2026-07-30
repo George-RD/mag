@@ -26,6 +26,9 @@ permitted to hide inside a caller migration.
 - [x] `ingest` and `process` route through `LocalMemoryRuntime`; one shared helper
   now owns validation and `MemoryInput` assembly while stdout and the current
   `processed: ` stored-content contract remain pinned by a caller-level test.
-- [ ] Migrate retrieve/delete/update and other basic CRUD.
+- [x] `retrieve` routes through `LocalMemoryRuntime`; the same caller-level test
+  preserves exact JSON and stored content, with red evidence against the legacy
+  entrypoint path before the production change.
+- [ ] Migrate delete/update and other basic CRUD.
 - [ ] Migrate search, semantic/advanced retrieval, graph, session, and
   administration commands.
