@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 const CONTENT: &str = "searchruntimeanchor durable local context";
+const RELATED_CONTENT: &str = "another memory records offline indexing for future tools";
 const QUERY: &str = "searchruntimeanchor";
 const PHRASE_QUERY: &str = "durable local";
 const PHRASE_NEAR_MATCH: &str = "searchruntimeanchor durable remote local context";
@@ -141,7 +142,12 @@ fn retrieval_args(contract: RetrievalContract) -> Vec<&'static str> {
     args
 }
 
-fn expected_result(id: &str, score: Option<f64>, include_text_overlap: bool) -> serde_json::Value {
+fn expected_result(
+    id: &str,
+    content: &str,
+    score: Option<f64>,
+    include_text_overlap: bool,
+) -> serde_json::Value {
     let metadata = if include_text_overlap {
         serde_json::json!({
             "_text_overlap": 1.0,
@@ -152,7 +158,7 @@ fn expected_result(id: &str, score: Option<f64>, include_text_overlap: bool) -> 
     };
     let mut result = serde_json::json!({
         "id": id,
-        "content": format!("processed: {CONTENT}"),
+        "content": format!("processed: {content}"),
         "tags": ["runtime", "search"],
         "importance": 0.8,
         "metadata": metadata,
@@ -202,7 +208,7 @@ fn assert_retrieval_contract(contract: RetrievalContract) -> anyhow::Result<()> 
         None
     };
     let expected = serde_json::json!({
-        "results": [expected_result(&id, score, contract.expects_text_overlap)]
+        "results": [expected_result(&id, CONTENT, score, contract.expects_text_overlap)]
     });
     assert_eq!(stdout, format!("{expected}\n"));
     assert!(
@@ -237,4 +243,56 @@ fn recent_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<
 #[test]
 fn phrase_search_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
     assert_retrieval_contract(PHRASE_SEARCH)
+}
+
+#[test]
+fn version_chain_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+    let home = tempfile::tempdir()?;
+    let id = seed_memory(home.path(), CONTENT)?;
+
+    let output = run_cli(home.path(), &["version-chain", &id])?;
+    let stdout = String::from_utf8(output.stdout)?;
+    let stderr = String::from_utf8(output.stderr)?;
+    let mut memory = expected_result(&id, CONTENT, None, false);
+    memory["metadata"] = serde_json::json!({
+        "source": "cli-search-parity",
+        "superseded_at": null,
+        "superseded_by_id": null,
+        "version_chain_id": null
+    });
+    let expected = serde_json::json!({ "chain": [memory] });
+
+    assert_eq!(stdout, format!("{expected}\n"));
+    assert!(
+        stderr.contains("Version chain retrieved through local memory runtime"),
+        "version-chain did not report the selected runtime path: {stderr}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn similar_command_uses_local_runtime_without_contract_drift() -> anyhow::Result<()> {
+    let home = tempfile::tempdir()?;
+    let source_id = seed_memory(home.path(), CONTENT)?;
+    let related_id = seed_memory(home.path(), RELATED_CONTENT)?;
+
+    let output = run_cli(home.path(), &["similar", &source_id, "--limit", "1"])?;
+    let stdout = String::from_utf8(output.stdout)?;
+    let stderr = String::from_utf8(output.stderr)?;
+    let payload: serde_json::Value = serde_json::from_str(stdout.trim())?;
+    let score = payload["results"][0]["score"]
+        .as_f64()
+        .ok_or_else(|| anyhow::anyhow!("missing score in similar output"))?;
+    let expected = serde_json::json!({
+        "results": [expected_result(&related_id, RELATED_CONTENT, Some(score), false)]
+    });
+
+    assert_eq!(stdout, format!("{expected}\n"));
+    assert!(
+        stderr.contains("Similarity search completed through local memory runtime"),
+        "similar did not report the selected runtime path: {stderr}"
+    );
+
+    Ok(())
 }

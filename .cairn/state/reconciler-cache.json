@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "389a5dce74752385",
+  "key": "e16511411b29dcac",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5538,6 +5538,7 @@
         "pub async fn export_all(&self) -> Result<String>",
         "pub async fn extract(&self, _content: &str) -> Result<ExtractionResult>",
         "pub async fn extract(&self, content: &str) -> Result<ExtractionResult>",
+        "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
         "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
         "pub async fn graph_edge_stats(&self) -> Result<Vec<(String, i64)>>",
         "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
@@ -5571,6 +5572,7 @@
         "pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
         "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
         "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
+        "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
         "pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()>",
         "pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()>",
         "pub const ABSTENTION_MIN_TEXT f64",
@@ -6132,6 +6134,7 @@
         "mag.runtime.entrypoints": [
           "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "pub async fn delete(&self, id: &str) -> Result<bool>",
+          "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
           "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
           "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
@@ -6141,6 +6144,7 @@
           "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
           "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
+          "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "pub enum Commands",
           "pub enum FeedbackRating",
           "pub enum InitModeArg",
@@ -7265,6 +7269,14 @@
             "end_line": 70
           },
           {
+            "name": "find_similar",
+            "kind": "function",
+            "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 147,
+            "end_line": 149
+          },
+          {
             "name": "get_relationships",
             "kind": "function",
             "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
@@ -7335,6 +7347,14 @@
             "file": "src/local_memory_runtime.rs",
             "line": 73,
             "end_line": 75
+          },
+          {
+            "name": "version_chain",
+            "kind": "function",
+            "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 142,
+            "end_line": 144
           },
           {
             "name": "Commands",
@@ -10677,7 +10697,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "aae53f464f5c480c"
+        "hash": "ab8357d9a5e33657"
       },
       "findings": [
         {

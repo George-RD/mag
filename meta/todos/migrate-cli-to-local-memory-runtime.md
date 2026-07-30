@@ -48,5 +48,7 @@ permitted to hide inside a caller migration.
   `Pipeline` is now private to the runtime composition root.
 - [x] `phrase-search` routes through `LocalMemoryRuntime`; phrase matching,
   filters, ordering, exact compact JSON, and direct-storage parity remain pinned.
-- [ ] Migrate version chains, similarity, graph traversal, session, and
-  administration commands.
+- [x] `version-chain` and `similar` route through `LocalMemoryRuntime`; version
+  ordering and metadata augmentation, similarity scores, exact compact JSON, and
+  direct-storage parity remain pinned.
+- [ ] Migrate graph traversal, session, and administration commands.

@@ -9,8 +9,8 @@ use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     BackupManager, CheckpointInput, CheckpointManager, Embedder, EventType, ExpirationSweeper,
     FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate,
-    ProfileManager, ReminderManager, SearchOptions, SimilarFinder, StatsProvider,
-    VersionChainQuerier, WelcomeOptions, WelcomeProvider, is_valid_event_type,
+    ProfileManager, ReminderManager, SearchOptions, StatsProvider, WelcomeOptions, WelcomeProvider,
+    is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -427,7 +427,7 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", json!({ "results": payload }));
         }
         Commands::VersionChain { id } => {
-            let chain = mcp_storage.get_version_chain(id).await?;
+            let chain = local_runtime.version_chain(id).await?;
             for memory in &chain {
                 let superseded = memory
                     .metadata
@@ -437,7 +437,10 @@ async fn main() -> anyhow::Result<()> {
                     .unwrap_or_default();
                 info!(id = %memory.id, event_type = ?memory.event_type, content_len = memory.content.len(), "{}", superseded);
             }
-            info!("Chain length: {}", chain.len());
+            info!(
+                chain_length = chain.len(),
+                "Version chain retrieved through local memory runtime"
+            );
             let payload: Vec<_> = chain
                 .into_iter()
                 .map(|memory| {
@@ -458,8 +461,11 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", json!({ "chain": payload }));
         }
         Commands::Similar { id, limit } => {
-            let results =
-                <SqliteStorage as SimilarFinder>::find_similar(&mcp_storage, id, *limit).await?;
+            let results = local_runtime.find_similar(id, *limit).await?;
+            info!(
+                result_count = results.len(),
+                "Similarity search completed through local memory runtime"
+            );
             let payload: Vec<_> = results
                 .into_iter()
                 .map(|result| {
