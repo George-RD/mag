@@ -1,0 +1,22 @@
+name: Checkpoint runtime red evidence
+
+on:
+  push:
+    branches:
+      - agent/migrate-cli-checkpoint-runtime
+    paths:
+      - .github/workflows/agent-check-checkpoint-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/migrate-cli-checkpoint-runtime
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run the checkpoint caller regression before migration
+        run: cargo test --test cli_checkpoint_runtime_migration -- --nocapture
