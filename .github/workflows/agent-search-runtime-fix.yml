@@ -1,0 +1,115 @@
+name: Restore remaining compatibility caller
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: >-
+      github.event.pull_request.head.ref == 'agent/cli-search-runtime' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/cli-search-runtime
+      - name: Restore the compatibility pipeline for the remaining recent caller
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime_path = Path("src/local_memory_runtime.rs")
+          runtime = runtime_path.read_text()
+          old_helper = """/// Builds the compatibility pipeline retained inside [`LocalMemoryRuntime`].
+          ///
+          /// Keep this legacy assembly private to the selected composition root while its
+          /// delegates are replaced in later bounded slices.
+          fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline {
+          """
+          new_helper = """/// Builds the temporary compatibility pipeline used by callers not yet moved
+          /// behind [`LocalMemoryRuntime`]. Keep this assembly in one place while the
+          /// remaining retrieval callers migrate.
+          pub(crate) fn compose_compatibility_pipeline(storage: &SqliteStorage) -> Pipeline {
+          """
+          if runtime.count(old_helper) != 1:
+              raise SystemExit("expected one private compatibility-pipeline helper")
+          runtime_path.write_text(runtime.replace(old_helper, new_helper))
+
+          main_path = Path("src/main.rs")
+          main = main_path.read_text()
+          old_import = "use local_memory_runtime::LocalMemoryRuntime;\n"
+          new_import = "use local_memory_runtime::{LocalMemoryRuntime, compose_compatibility_pipeline};\n"
+          if main.count(old_import) != 1:
+              raise SystemExit("expected one local runtime import")
+          main = main.replace(old_import, new_import)
+
+          old_init = """    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
+              let mcp_storage = sqlite_storage.clone();
+
+              match &cli.command {
+          """
+          new_init = """    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
+              let mcp_storage = sqlite_storage.clone();
+              let pipeline = compose_compatibility_pipeline(&sqlite_storage);
+
+              match &cli.command {
+          """
+          if main.count(old_init) != 1:
+              raise SystemExit("expected one runtime initialization block")
+          main_path.write_text(main.replace(old_init, new_init))
+
+          todo_path = Path("meta/todos/migrate-cli-to-local-memory-runtime.md")
+          todo = todo_path.read_text()
+          old_todo = """- [x] `search`, `semantic-search`, and `advanced-search` route through
+            `LocalMemoryRuntime`; filters, limits, exact compact JSON, scores, and the
+            compatibility-sensitive advanced-search metadata remain pinned at caller and
+            facade levels. The compatibility `Pipeline` is now private to the runtime.
+          """
+          new_todo = """- [x] `search`, `semantic-search`, and `advanced-search` route through
+            `LocalMemoryRuntime`; filters, limits, exact compact JSON, scores, and the
+            compatibility-sensitive advanced-search metadata remain pinned at caller and
+            facade levels. The temporary compatibility `Pipeline` remains for `recent`.
+          """
+          if todo.count(old_todo) != 1:
+              raise SystemExit("expected one search progress entry")
+          todo_path.write_text(todo.replace(old_todo, new_todo))
+          PY
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --all
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Refresh and verify Cairn state
+        shell: bash
+        run: |
+          set +e
+          cairn scan
+          scan_status=$?
+          set -e
+          if [ "$scan_status" -gt 1 ]; then
+            exit "$scan_status"
+          fi
+          cairn hook all
+      - name: Commit the fix and remove this workflow
+        shell: bash
+        run: |
+          rm .github/workflows/agent-search-runtime-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.rs src/local_memory_runtime.rs \
+            meta/todos/migrate-cli-to-local-memory-runtime.md .cairn \
+            .github/workflows/agent-search-runtime-fix.yml
+          git diff --cached --check
+          git commit -m "fix(cli): retain pipeline for recent migration"
+          git push origin HEAD:agent/cli-search-runtime
