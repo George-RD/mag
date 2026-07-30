@@ -168,7 +168,7 @@ fn assert_store_command_contract(home: &Path, command: &str, content: &str) -> a
     );
 
     assert_retrieved_content(home, id, updated_content.as_str())?;
-    assert_list_and_relationship_contracts(&home, id, updated_content.as_str())?;
+    assert_list_and_relationship_contracts(home, id, updated_content.as_str())?;
 
     let delete = run_cli(home, &["delete", id])?;
     let delete_stdout = String::from_utf8(delete.stdout)?;
