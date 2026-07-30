@@ -138,7 +138,10 @@ fn assert_scored_search_contract(command: &str, expected_runtime_log: &str) -> a
     let results = payload["results"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("missing results in {command} output"))?;
-    anyhow::ensure!(results.len() == 1, "unexpected {command} results: {payload}");
+    anyhow::ensure!(
+        results.len() == 1,
+        "unexpected {command} results: {payload}"
+    );
     let score = results[0]["score"]
         .as_f64()
         .ok_or_else(|| anyhow::anyhow!("missing score in {command} output"))?;
