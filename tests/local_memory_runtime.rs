@@ -4,7 +4,7 @@ use std::sync::Arc;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
-    AdvancedSearcher, MemoryInput, Pipeline, PlaceholderEmbedder, PlaceholderPipeline,
+    AdvancedSearcher, Deleter, MemoryInput, Pipeline, PlaceholderEmbedder, PlaceholderPipeline,
     SearchOptions,
 };
 
@@ -30,7 +30,7 @@ async fn storage_at(path: PathBuf) -> SqliteStorage {
 }
 
 #[tokio::test]
-async fn local_runtime_preserves_store_retrieve_search_and_advanced_search_outputs() {
+async fn local_runtime_preserves_supported_capability_outputs() {
     let runtime_temp = tempfile::tempdir().unwrap();
     let legacy_temp = tempfile::tempdir().unwrap();
     let runtime_storage = storage_at(runtime_temp.path().join("memory.db")).await;
@@ -80,4 +80,11 @@ async fn local_runtime_preserves_store_retrieve_search_and_advanced_search_outpu
     assert_eq!(runtime_advanced, direct_advanced);
     assert_eq!(runtime_advanced.len(), 1);
     assert_eq!(runtime_advanced[0].id, runtime_id);
+
+    let runtime_deleted = runtime.delete(&runtime_id).await.unwrap();
+    let legacy_deleted = legacy_storage.delete(&legacy_id).await.unwrap();
+    assert_eq!(runtime_deleted, legacy_deleted);
+    assert!(runtime_deleted);
+    assert!(runtime.retrieve(&runtime_id).await.is_err());
+    assert!(legacy.retrieve(&legacy_id).await.is_err());
 }
