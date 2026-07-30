@@ -6,7 +6,8 @@ use mag::memory_core::storage::SqliteStorage;
 use mag::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, EventType, GraphTraverser,
     Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderEmbedder,
-    PlaceholderPipeline, RelationshipQuerier, SearchOptions, SimilarFinder, VersionChainQuerier,
+    PlaceholderPipeline, RelationshipQuerier, ReminderManager, SearchOptions, SimilarFinder,
+    VersionChainQuerier,
 };
 
 fn legacy_pipeline(storage: &SqliteStorage) -> Pipeline {
@@ -289,4 +290,126 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     assert!(runtime_deleted);
     assert!(runtime.retrieve(&runtime_id).await.is_err());
     assert!(legacy.retrieve(&legacy_id).await.is_err());
+}
+
+fn stable_reminder_contract(entry: &serde_json::Value) -> serde_json::Value {
+    let text = entry["text"]
+        .as_str()
+        .and_then(|value| value.split_once("\n[due: ").map(|(text, _)| text))
+        .unwrap_or_default();
+    serde_json::json!({
+        "text": text,
+        "status": entry["status"],
+        "is_due": entry["is_due"],
+        "is_overdue": entry["is_overdue"],
+        "metadata": {
+            "event_type": entry["metadata"]["event_type"],
+            "reminder_status": entry["metadata"]["reminder_status"],
+            "context": entry["metadata"]["context"],
+            "session_id": entry["metadata"]["session_id"],
+            "project": entry["metadata"]["project"],
+        }
+    })
+}
+
+#[tokio::test]
+async fn local_runtime_preserves_reminder_capability_outputs() {
+    let runtime_temp = tempfile::tempdir().unwrap();
+    let direct_temp = tempfile::tempdir().unwrap();
+    let runtime_storage = storage_at(runtime_temp.path().join("memory.db")).await;
+    let direct_storage = storage_at(direct_temp.path().join("memory.db")).await;
+    let runtime = LocalMemoryRuntime::from_storage(runtime_storage);
+
+    let runtime_created = runtime
+        .create_reminder(
+            "runtime reminder parity",
+            "2h",
+            Some("after checkpoint migration"),
+            Some("runtime-reminder-session"),
+            Some("runtime-reminder-project"),
+        )
+        .await
+        .unwrap();
+    let direct_created = direct_storage
+        .create_reminder(
+            "runtime reminder parity",
+            "2h",
+            Some("after checkpoint migration"),
+            Some("runtime-reminder-session"),
+            Some("runtime-reminder-project"),
+        )
+        .await
+        .unwrap();
+
+    for created in [&runtime_created, &direct_created] {
+        uuid::Uuid::parse_str(created["reminder_id"].as_str().unwrap()).unwrap();
+        chrono::DateTime::parse_from_rfc3339(created["remind_at"].as_str().unwrap()).unwrap();
+        assert_eq!(created["text"], "runtime reminder parity");
+        assert_eq!(created["duration"], "2h");
+    }
+
+    let runtime_id = runtime_created["reminder_id"].as_str().unwrap();
+    let direct_id = direct_created["reminder_id"].as_str().unwrap();
+    let runtime_pending = runtime.list_reminders(Some("pending")).await.unwrap();
+    let direct_pending = direct_storage
+        .list_reminders(Some("pending"))
+        .await
+        .unwrap();
+    assert_eq!(runtime_pending.len(), 1);
+    assert_eq!(direct_pending.len(), 1);
+    assert_eq!(runtime_pending[0]["reminder_id"], runtime_id);
+    assert_eq!(direct_pending[0]["reminder_id"], direct_id);
+    assert_eq!(
+        stable_reminder_contract(&runtime_pending[0]),
+        stable_reminder_contract(&direct_pending[0])
+    );
+    for entry in [&runtime_pending[0], &direct_pending[0]] {
+        chrono::DateTime::parse_from_rfc3339(entry["remind_at"].as_str().unwrap()).unwrap();
+        chrono::DateTime::parse_from_rfc3339(entry["created_at"].as_str().unwrap()).unwrap();
+        chrono::DateTime::parse_from_rfc3339(entry["metadata"]["created_at_utc"].as_str().unwrap())
+            .unwrap();
+    }
+
+    let runtime_dismissed = runtime.dismiss_reminder(runtime_id).await.unwrap();
+    let direct_dismissed = direct_storage.dismiss_reminder(direct_id).await.unwrap();
+    assert_eq!(runtime_dismissed["status"], direct_dismissed["status"]);
+    assert_eq!(runtime_dismissed["status"], "dismissed");
+    for dismissed in [&runtime_dismissed, &direct_dismissed] {
+        chrono::DateTime::parse_from_rfc3339(dismissed["dismissed_at"].as_str().unwrap()).unwrap();
+    }
+
+    assert!(
+        runtime
+            .list_reminders(Some("pending"))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        direct_storage
+            .list_reminders(Some("pending"))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let runtime_dismissed_list = runtime.list_reminders(Some("dismissed")).await.unwrap();
+    let direct_dismissed_list = direct_storage
+        .list_reminders(Some("dismissed"))
+        .await
+        .unwrap();
+    assert_eq!(runtime_dismissed_list.len(), 1);
+    assert_eq!(direct_dismissed_list.len(), 1);
+    assert_eq!(
+        stable_reminder_contract(&runtime_dismissed_list[0]),
+        stable_reminder_contract(&direct_dismissed_list[0])
+    );
+    assert_eq!(runtime.list_reminders(Some("all")).await.unwrap().len(), 1);
+    assert_eq!(
+        direct_storage
+            .list_reminders(Some("all"))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 }

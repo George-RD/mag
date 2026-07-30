@@ -139,10 +139,7 @@ fn reminder_commands_use_local_runtime_without_contract_drift() -> anyhow::Resul
     let no_pending = run_cli(home.path(), &["remind", "list", "--status", "pending"])?;
     assert_eq!(String::from_utf8(no_pending.stdout)?, "{\"results\":[]}\n");
 
-    let dismissed_list = run_cli(
-        home.path(),
-        &["remind", "list", "--status", "dismissed"],
-    )?;
+    let dismissed_list = run_cli(home.path(), &["remind", "list", "--status", "dismissed"])?;
     let dismissed_list_stdout = String::from_utf8(dismissed_list.stdout)?;
     let dismissed_list_payload: serde_json::Value =
         serde_json::from_str(dismissed_list_stdout.trim())?;
