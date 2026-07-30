@@ -166,8 +166,8 @@ async fn local_runtime_preserves_supported_capability_outputs() {
         .add_relationship(
             &runtime_id,
             &runtime_related_id,
-            "related",
-            0.75,
+            "TRAVERSAL_PARITY",
+            1.0,
             &relationship_metadata,
         )
         .await
@@ -176,8 +176,8 @@ async fn local_runtime_preserves_supported_capability_outputs() {
         .add_relationship(
             &legacy_id,
             &legacy_related_id,
-            "related",
-            0.75,
+            "TRAVERSAL_PARITY",
+            1.0,
             &relationship_metadata,
         )
         .await
@@ -201,8 +201,8 @@ async fn local_runtime_preserves_supported_capability_outputs() {
     }
     assert_eq!(runtime_traversal[0].id, runtime_related_id);
     assert_eq!(runtime_traversal[0].hop, 1);
-    assert_eq!(runtime_traversal[0].weight, 0.75);
-    assert_eq!(runtime_traversal[0].edge_type, "related");
+    assert_eq!(runtime_traversal[0].weight, 1.0);
+    assert_eq!(runtime_traversal[0].edge_type, "TRAVERSAL_PARITY");
 
     let runtime_similar = runtime.find_similar(&runtime_id, 1).await.unwrap();
     let direct_similar = legacy_storage.find_similar(&legacy_id, 1).await.unwrap();
