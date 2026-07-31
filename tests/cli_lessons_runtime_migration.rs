@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
-use mag::memory_core::{
-    EventType, LessonQuerier, MemoryInput, PlaceholderEmbedder,
-};
+use mag::memory_core::{EventType, LessonQuerier, MemoryInput, PlaceholderEmbedder};
 
 const PROJECT: &str = "mag";
 const SESSION_ID: &str = "lesson-runtime-session";
@@ -91,7 +89,10 @@ async fn local_runtime_preserves_lesson_query_contract() -> anyhow::Result<()> {
     assert_eq!(runtime_results, direct_results);
     assert_eq!(runtime_results.len(), 1);
     assert_eq!(runtime_results[0]["lesson_id"], lesson_id);
-    assert_eq!(runtime_results[0]["content"], format!("processed: {CONTENT}"));
+    assert_eq!(
+        runtime_results[0]["content"],
+        format!("processed: {CONTENT}")
+    );
     assert_eq!(runtime_results[0]["session_id"], SESSION_ID);
     assert_eq!(runtime_results[0]["access_count"], 0);
     chrono::DateTime::parse_from_rfc3339(
