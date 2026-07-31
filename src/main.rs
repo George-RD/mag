@@ -8,8 +8,8 @@ use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-    LessonQuerier, MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, SearchOptions,
-    StatsProvider, WelcomeOptions, WelcomeProvider, is_valid_event_type,
+    MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, SearchOptions, StatsProvider,
+    WelcomeOptions, WelcomeProvider, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -769,15 +769,13 @@ async fn main() -> anyhow::Result<()> {
             project,
             limit,
         } => {
-            let results = <SqliteStorage as LessonQuerier>::query_lessons(
-                &mcp_storage,
-                task.as_deref(),
-                project.as_deref(),
-                None,
-                None,
-                *limit,
-            )
-            .await?;
+            let results = local_runtime
+                .query_lessons(task.as_deref(), project.as_deref(), None, None, *limit)
+                .await?;
+            info!(
+                result_count = results.len(),
+                "Lessons queried through local memory runtime"
+            );
             println!("{}", json!({ "results": results }));
         }
         Commands::Maintain {
