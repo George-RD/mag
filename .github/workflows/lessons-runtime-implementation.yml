@@ -1,15 +1,16 @@
 name: Implement lessons runtime migration
 
 on:
-  push:
-    branches: [agent/migrate-cli-lessons-runtime]
+  pull_request:
+    branches: [main]
+    types: [synchronize]
 
 permissions:
   contents: write
 
 jobs:
   implement:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.ref == 'agent/migrate-cli-lessons-runtime' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
