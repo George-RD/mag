@@ -40,6 +40,18 @@ jobs:
                   raise SystemExit(f"{path}: expected one match, found {count}")
               target.write_text(text.replace(old, new, 1))
 
+          def replace_span(path: str, start_marker: str, end_marker: str, replacement: str) -> None:
+              target = Path(path)
+              text = target.read_text()
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f"{path}: missing start marker: {start_marker!r}")
+              end = text.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f"{path}: missing end marker: {end_marker!r}")
+              end += len(end_marker)
+              target.write_text(text[:start] + replacement + text[end:])
+
           replace_once(
               "src/local_memory_runtime.rs",
               "Deleter, Embedder, GraphNode,\n    GraphTraverser",
@@ -104,42 +116,32 @@ jobs:
           """,
           )
 
-          replace_once(
+          replace_span(
               "src/main.rs",
-              """            let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-                      &mcp_storage,
-                      memory_id,
-                      rating.as_str(),
-                      reason.as_deref(),
-                  )
-                  .await?;
-                  println!("{}", result);
-              }
-              Commands::Sweep => {
-                  let swept_count =
-                      <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;
-                  println!("{}", json!({ "swept_count": swept_count }));
-              }
-          """,
+              "            let result = <SqliteStorage as FeedbackRecorder>::record_feedback(",
+              "            println!(\"{}\", result);",
               """            let result = local_runtime
-                      .record_feedback(memory_id, rating.as_str(), reason.as_deref())
-                      .await?;
-                  info!(
-                      memory_id = %memory_id,
-                      rating = rating.as_str(),
-                      "Feedback recorded through local memory runtime"
-                  );
-                  println!("{}", result);
-              }
-              Commands::Sweep => {
-                  let swept_count = local_runtime.sweep_expired().await?;
-                  info!(
-                      swept_count,
-                      "Expiration sweep completed through local memory runtime"
-                  );
-                  println!("{}", json!({ "swept_count": swept_count }));
-              }
-          """,
+                  .record_feedback(memory_id, rating.as_str(), reason.as_deref())
+                  .await?;
+              info!(
+                  memory_id = %memory_id,
+                  rating = rating.as_str(),
+                  "Feedback recorded through local memory runtime"
+              );
+              println!("{}", result);""",
+          )
+
+          sweep_start = "            let swept_count =\n                <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;"
+          replace_span(
+              "src/main.rs",
+              sweep_start,
+              "            println!(\"{}\", json!({ \"swept_count\": swept_count }));",
+              """            let swept_count = local_runtime.sweep_expired().await?;
+              info!(
+                  swept_count,
+                  "Expiration sweep completed through local memory runtime"
+              );
+              println!("{}", json!({ "swept_count": swept_count }));""",
           )
 
           replace_once(
