@@ -68,4 +68,8 @@ permitted to hide inside a caller migration.
   `LocalMemoryRuntime`; profile augmentation, update merge semantics, welcome
   scoping and token budgets, exact compact JSON, and direct-storage parity remain
   pinned.
-- [ ] Migrate administration commands as a separate command family.
+- [x] `stats`, `export`, and all `stats-extended` actions route through
+  `LocalMemoryRuntime`; exact pretty and compact JSON, paths, aggregate fields,
+  periods, ordering, export content, and direct-storage parity remain pinned.
+- [ ] Migrate write-capable administration commands (`import`, `feedback`,
+  `sweep`, and `maintain`) as a separate risk-bounded family.
