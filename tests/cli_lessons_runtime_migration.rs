@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 use std::sync::Arc;
 
 use mag::LocalMemoryRuntime;
@@ -8,6 +9,50 @@ use mag::memory_core::{EventType, LessonQuerier, MemoryInput, PlaceholderEmbedde
 const PROJECT: &str = "mag";
 const SESSION_ID: &str = "lesson-runtime-session";
 const CONTENT: &str = "Keep lesson queries behind the local runtime boundary";
+
+fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
+    let output = Command::new(env!("CARGO_BIN_EXE_mag"))
+        .args(args)
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .output()?;
+
+    anyhow::ensure!(
+        output.status.success(),
+        "command failed: {args:?}\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(output)
+}
+
+fn store_lesson(
+    home: &Path,
+    content: &str,
+    session_id: &str,
+    project: &str,
+) -> anyhow::Result<String> {
+    let output = run_cli(
+        home,
+        &[
+            "ingest",
+            content,
+            "--event-type",
+            "lesson_learned",
+            "--session-id",
+            session_id,
+            "--project",
+            project,
+            "--agent-type",
+            "cli",
+        ],
+    )?;
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    payload["id"]
+        .as_str()
+        .map(ToString::to_string)
+        .ok_or_else(|| anyhow::anyhow!("ingest output omitted lesson id"))
+}
 
 async fn storage_at(path: PathBuf) -> SqliteStorage {
     tokio::task::spawn_blocking(move || {
@@ -34,6 +79,61 @@ fn lessons_command_routes_through_local_runtime() {
         main_source.contains("Lessons queried through local memory runtime"),
         "lessons does not report the selected runtime path"
     );
+}
+
+#[test]
+fn lessons_command_preserves_compact_json_contract() -> anyhow::Result<()> {
+    let home = tempfile::tempdir()?;
+    let lesson_id = store_lesson(home.path(), CONTENT, SESSION_ID, PROJECT)?;
+    store_lesson(
+        home.path(),
+        "Keep lesson queries behind the local runtime boundary for another project",
+        "other-session",
+        "other-project",
+    )?;
+
+    let output = run_cli(
+        home.path(),
+        &[
+            "lessons",
+            "--task",
+            "local runtime boundary",
+            "--project",
+            PROJECT,
+            "--limit",
+            "1",
+        ],
+    )?;
+    let stdout = String::from_utf8(output.stdout)?;
+    let stderr = String::from_utf8(output.stderr)?;
+    let payload: serde_json::Value = serde_json::from_str(stdout.trim())?;
+    let results = payload["results"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("lessons output omitted results"))?;
+    anyhow::ensure!(results.len() == 1, "expected one filtered lesson");
+
+    let created_at = results[0]["created_at"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("lesson output omitted created_at"))?;
+    chrono::DateTime::parse_from_rfc3339(created_at)?;
+
+    let expected = serde_json::json!({
+        "results": [{
+            "content": format!("processed: {CONTENT}"),
+            "lesson_id": lesson_id,
+            "session_id": SESSION_ID,
+            "access_count": 0,
+            "created_at": created_at,
+        }]
+    });
+    assert_eq!(payload, expected);
+    assert_eq!(stdout, format!("{expected}\n"));
+    assert!(
+        stderr.contains("Lessons queried through local memory runtime"),
+        "lessons did not report the selected runtime path: {stderr}"
+    );
+
+    Ok(())
 }
 
 #[tokio::test]
