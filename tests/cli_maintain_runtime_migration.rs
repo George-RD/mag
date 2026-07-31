@@ -1,3 +1,4 @@
+// Public-contract coverage for the remaining CLI maintenance migration.
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Arc;
@@ -487,7 +488,10 @@ async fn local_runtime_preserves_maintenance_and_backup_contracts() -> anyhow::R
     let direct_export: serde_json::Value =
         serde_json::from_str(&restored_direct_storage.export_all().await?)?;
     assert_eq!(runtime_export, direct_export);
-    assert_eq!(runtime_export["memories"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        runtime_export["memories"].as_array().map(Vec::len),
+        Some(1)
+    );
     assert_eq!(runtime_export["memories"][0]["id"], KEEP_ID);
     assert_eq!(runtime_export["user_profile"]["timezone"], "Asia/Dubai");
 
