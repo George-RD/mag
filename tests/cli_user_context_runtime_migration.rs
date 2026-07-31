@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
-use mag::memory_core::{
-    PlaceholderEmbedder, ProfileManager, WelcomeOptions, WelcomeProvider,
-};
+use mag::memory_core::{PlaceholderEmbedder, ProfileManager, WelcomeOptions, WelcomeProvider};
 
 const PROFILE_JSON: &str = r#"{"timezone":"Asia/Dubai"}"#;
 
@@ -77,7 +75,10 @@ fn profile_and_welcome_commands_preserve_compact_json_contracts() -> anyhow::Res
     let update_stdout = String::from_utf8(update_output.stdout)?;
     let update_stderr = String::from_utf8(update_output.stderr)?;
     let expected_update = serde_json::json!({ "updated": true });
-    assert_eq!(serde_json::from_str::<serde_json::Value>(update_stdout.trim())?, expected_update);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(update_stdout.trim())?,
+        expected_update
+    );
     assert_eq!(update_stdout, format!("{expected_update}\n"));
     assert!(
         update_stderr.contains("Profile updated through local memory runtime"),
@@ -91,7 +92,10 @@ fn profile_and_welcome_commands_preserve_compact_json_contracts() -> anyhow::Res
         "preferences_from_memory": [],
         "timezone": "Asia/Dubai",
     });
-    assert_eq!(serde_json::from_str::<serde_json::Value>(read_stdout.trim())?, expected_profile);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(read_stdout.trim())?,
+        expected_profile
+    );
     assert_eq!(read_stdout, format!("{expected_profile}\n"));
     assert!(
         read_stderr.contains("Profile read through local memory runtime"),
@@ -149,7 +153,10 @@ async fn local_runtime_preserves_profile_and_welcome_contracts() -> anyhow::Resu
     let direct_profile = <SqliteStorage as ProfileManager>::get_profile(&storage).await?;
     assert_eq!(runtime_profile, direct_profile);
     assert_eq!(runtime_profile["timezone"], "Asia/Dubai");
-    assert_eq!(runtime_profile["preferences_from_memory"], serde_json::json!([]));
+    assert_eq!(
+        runtime_profile["preferences_from_memory"],
+        serde_json::json!([])
+    );
 
     let options = WelcomeOptions {
         session_id: Some("context-session".to_string()),
