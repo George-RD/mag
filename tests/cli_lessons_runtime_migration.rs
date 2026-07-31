@@ -9,6 +9,9 @@ use mag::memory_core::{EventType, LessonQuerier, MemoryInput, PlaceholderEmbedde
 const PROJECT: &str = "mag";
 const SESSION_ID: &str = "lesson-runtime-session";
 const CONTENT: &str = "Keep lesson queries behind the local runtime boundary";
+// Keep the shared task phrase while avoiding the production supersession threshold.
+const OTHER_PROJECT_CONTENT: &str =
+    "A separate deployment review mapped the local runtime boundary to transport ownership";
 
 fn run_cli(home: &Path, args: &[&str]) -> anyhow::Result<Output> {
     let output = Command::new(env!("CARGO_BIN_EXE_mag"))
@@ -87,7 +90,7 @@ fn lessons_command_preserves_compact_json_contract() -> anyhow::Result<()> {
     let lesson_id = store_lesson(home.path(), CONTENT, SESSION_ID, PROJECT)?;
     store_lesson(
         home.path(),
-        "Keep lesson queries behind the local runtime boundary for another project",
+        OTHER_PROJECT_CONTENT,
         "other-session",
         "other-project",
     )?;
@@ -153,7 +156,7 @@ async fn local_runtime_preserves_lesson_query_contract() -> anyhow::Result<()> {
     };
     let lesson_id = runtime.store(CONTENT, &lesson).await?;
 
-    let other_project_content = format!("{CONTENT} for another project");
+    let other_project_content = OTHER_PROJECT_CONTENT.to_string();
     let other_project = MemoryInput {
         id: Some("lesson-other-project".to_string()),
         content: other_project_content.clone(),
