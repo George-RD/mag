@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "interface_hash": "c9710a1c97050984",
+  "interface_hash": "b5020d52bba5d774",
   "nodes": [
     {
       "id": "mag",
@@ -3970,13 +3970,17 @@
       ],
       "files": [
         "src/test_helpers.rs",
+        "tests/cli_admin_read_runtime_migration.rs",
+        "tests/cli_admin_write_runtime_migration.rs",
         "tests/cli_checkpoint_runtime_migration.rs",
+        "tests/cli_lessons_runtime_migration.rs",
         "tests/cli_output_smoke.rs",
         "tests/cli_relations_runtime_migration.rs",
         "tests/cli_reminders_runtime_migration.rs",
         "tests/cli_search_runtime_migration.rs",
         "tests/cli_store_runtime_migration.rs",
         "tests/cli_traverse_runtime_migration.rs",
+        "tests/cli_user_context_runtime_migration.rs",
         "tests/local_memory_runtime.rs",
         "tests/longmemeval_regression.rs",
         "tests/mcp_smoke.rs",
@@ -4534,156 +4538,260 @@
       ],
       "symbols": [
         {
+          "name": "access_rate_stats",
+          "kind": "function",
+          "signature": "pub async fn access_rate_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 223,
+          "end_line": 225
+        },
+        {
           "name": "advanced_search",
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 185,
-          "end_line": 192
+          "line": 267,
+          "end_line": 274
         },
         {
           "name": "create_reminder",
           "kind": "function",
           "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 133
+          "line": 123,
+          "end_line": 134
         },
         {
           "name": "delete",
           "kind": "function",
           "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
           "file": "src/local_memory_runtime.rs",
-          "line": 69,
-          "end_line": 71
+          "line": 70,
+          "end_line": 72
         },
         {
           "name": "dismiss_reminder",
           "kind": "function",
           "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 141,
-          "end_line": 143
+          "line": 142,
+          "end_line": 144
+        },
+        {
+          "name": "export_all",
+          "kind": "function",
+          "signature": "pub async fn export_all(&self) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 181,
+          "end_line": 183
         },
         {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 200,
-          "end_line": 202
+          "line": 282,
+          "end_line": 284
+        },
+        {
+          "name": "get_profile",
+          "kind": "function",
+          "signature": "pub async fn get_profile(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 161,
+          "end_line": 163
         },
         {
           "name": "get_relationships",
           "kind": "function",
           "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 89,
-          "end_line": 91
+          "line": 90,
+          "end_line": 92
+        },
+        {
+          "name": "import_all",
+          "kind": "function",
+          "signature": "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 186,
+          "end_line": 188
         },
         {
           "name": "list",
           "kind": "function",
           "signature": "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
           "file": "src/local_memory_runtime.rs",
-          "line": 79,
-          "end_line": 86
+          "line": 80,
+          "end_line": 87
         },
         {
           "name": "list_reminders",
           "kind": "function",
           "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 136,
-          "end_line": 138
+          "line": 137,
+          "end_line": 139
         },
         {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 163,
-          "end_line": 170
+          "line": 245,
+          "end_line": 252
+        },
+        {
+          "name": "query_lessons",
+          "kind": "function",
+          "signature": "pub async fn query_lessons( &self, task: Option<&str>, project: Option<&str>, exclude_session: Option<&str>, agent_type: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 147,
+          "end_line": 158
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 158,
-          "end_line": 160
+          "line": 240,
+          "end_line": 242
+        },
+        {
+          "name": "record_feedback",
+          "kind": "function",
+          "signature": "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 191,
+          "end_line": 200
         },
         {
           "name": "resume_task",
           "kind": "function",
           "signature": "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 112,
-          "end_line": 119
+          "line": 113,
+          "end_line": 120
         },
         {
           "name": "retrieve",
           "kind": "function",
           "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 64,
-          "end_line": 66
+          "line": 65,
+          "end_line": 67
         },
         {
           "name": "save_checkpoint",
           "kind": "function",
           "signature": "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 107,
-          "end_line": 109
+          "line": 108,
+          "end_line": 110
         },
         {
           "name": "search",
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 146,
-          "end_line": 155
+          "line": 228,
+          "end_line": 237
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 173,
-          "end_line": 182
+          "line": 255,
+          "end_line": 264
+        },
+        {
+          "name": "session_stats",
+          "kind": "function",
+          "signature": "pub async fn session_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 213,
+          "end_line": 215
+        },
+        {
+          "name": "set_profile",
+          "kind": "function",
+          "signature": "pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 166,
+          "end_line": 168
+        },
+        {
+          "name": "stats",
+          "kind": "function",
+          "signature": "pub async fn stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 176,
+          "end_line": 178
         },
         {
           "name": "store",
           "kind": "function",
           "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 59,
-          "end_line": 61
+          "line": 60,
+          "end_line": 62
+        },
+        {
+          "name": "sweep_expired",
+          "kind": "function",
+          "signature": "pub async fn sweep_expired(&self) -> Result<usize>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 203,
+          "end_line": 205
         },
         {
           "name": "traverse",
           "kind": "function",
           "signature": "pub async fn traverse( &self, start_id: &str, max_hops: usize, min_weight: f64, edge_types: Option<&[String]>, ) -> Result<Vec<GraphNode>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 94,
-          "end_line": 104
+          "line": 95,
+          "end_line": 105
+        },
+        {
+          "name": "type_stats",
+          "kind": "function",
+          "signature": "pub async fn type_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 208,
+          "end_line": 210
         },
         {
           "name": "update",
           "kind": "function",
           "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
           "file": "src/local_memory_runtime.rs",
-          "line": 74,
-          "end_line": 76
+          "line": 75,
+          "end_line": 77
         },
         {
           "name": "version_chain",
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 195,
-          "end_line": 197
+          "line": 277,
+          "end_line": 279
+        },
+        {
+          "name": "weekly_digest",
+          "kind": "function",
+          "signature": "pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 218,
+          "end_line": 220
+        },
+        {
+          "name": "welcome_scoped",
+          "kind": "function",
+          "signature": "pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 171,
+          "end_line": 173
         },
         {
           "name": "Commands",
@@ -4722,24 +4830,24 @@
           "kind": "function",
           "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
           "file": "src/local_memory_runtime.rs",
-          "line": 49,
-          "end_line": 56
+          "line": 50,
+          "end_line": 57
         },
         {
           "name": "new",
           "kind": "function",
           "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 30,
-          "end_line": 33
+          "line": 31,
+          "end_line": 34
         },
         {
           "name": "new_with_path",
           "kind": "function",
           "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 39,
-          "end_line": 42
+          "line": 40,
+          "end_line": 43
         },
         {
           "name": "app_paths",
@@ -4818,8 +4926,8 @@
           "kind": "struct",
           "signature": "pub struct LocalMemoryRuntime",
           "file": "src/local_memory_runtime.rs",
-          "line": 19,
-          "end_line": 22
+          "line": 20,
+          "end_line": 23
         },
         {
           "name": "SearchFilterArgs",
@@ -4846,156 +4954,260 @@
           "end_line": 11
         },
         {
+          "name": "access_rate_stats",
+          "kind": "function",
+          "signature": "pub async fn access_rate_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 223,
+          "end_line": 225
+        },
+        {
           "name": "advanced_search",
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 185,
-          "end_line": 192
+          "line": 267,
+          "end_line": 274
         },
         {
           "name": "create_reminder",
           "kind": "function",
           "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 133
+          "line": 123,
+          "end_line": 134
         },
         {
           "name": "delete",
           "kind": "function",
           "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
           "file": "src/local_memory_runtime.rs",
-          "line": 69,
-          "end_line": 71
+          "line": 70,
+          "end_line": 72
         },
         {
           "name": "dismiss_reminder",
           "kind": "function",
           "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 141,
-          "end_line": 143
+          "line": 142,
+          "end_line": 144
+        },
+        {
+          "name": "export_all",
+          "kind": "function",
+          "signature": "pub async fn export_all(&self) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 181,
+          "end_line": 183
         },
         {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 200,
-          "end_line": 202
+          "line": 282,
+          "end_line": 284
+        },
+        {
+          "name": "get_profile",
+          "kind": "function",
+          "signature": "pub async fn get_profile(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 161,
+          "end_line": 163
         },
         {
           "name": "get_relationships",
           "kind": "function",
           "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 89,
-          "end_line": 91
+          "line": 90,
+          "end_line": 92
+        },
+        {
+          "name": "import_all",
+          "kind": "function",
+          "signature": "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 186,
+          "end_line": 188
         },
         {
           "name": "list",
           "kind": "function",
           "signature": "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
           "file": "src/local_memory_runtime.rs",
-          "line": 79,
-          "end_line": 86
+          "line": 80,
+          "end_line": 87
         },
         {
           "name": "list_reminders",
           "kind": "function",
           "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 136,
-          "end_line": 138
+          "line": 137,
+          "end_line": 139
         },
         {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 163,
-          "end_line": 170
+          "line": 245,
+          "end_line": 252
+        },
+        {
+          "name": "query_lessons",
+          "kind": "function",
+          "signature": "pub async fn query_lessons( &self, task: Option<&str>, project: Option<&str>, exclude_session: Option<&str>, agent_type: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 147,
+          "end_line": 158
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 158,
-          "end_line": 160
+          "line": 240,
+          "end_line": 242
+        },
+        {
+          "name": "record_feedback",
+          "kind": "function",
+          "signature": "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 191,
+          "end_line": 200
         },
         {
           "name": "resume_task",
           "kind": "function",
           "signature": "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 112,
-          "end_line": 119
+          "line": 113,
+          "end_line": 120
         },
         {
           "name": "retrieve",
           "kind": "function",
           "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 64,
-          "end_line": 66
+          "line": 65,
+          "end_line": 67
         },
         {
           "name": "save_checkpoint",
           "kind": "function",
           "signature": "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 107,
-          "end_line": 109
+          "line": 108,
+          "end_line": 110
         },
         {
           "name": "search",
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 146,
-          "end_line": 155
+          "line": 228,
+          "end_line": 237
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 173,
-          "end_line": 182
+          "line": 255,
+          "end_line": 264
+        },
+        {
+          "name": "session_stats",
+          "kind": "function",
+          "signature": "pub async fn session_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 213,
+          "end_line": 215
+        },
+        {
+          "name": "set_profile",
+          "kind": "function",
+          "signature": "pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 166,
+          "end_line": 168
+        },
+        {
+          "name": "stats",
+          "kind": "function",
+          "signature": "pub async fn stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 176,
+          "end_line": 178
         },
         {
           "name": "store",
           "kind": "function",
           "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 59,
-          "end_line": 61
+          "line": 60,
+          "end_line": 62
+        },
+        {
+          "name": "sweep_expired",
+          "kind": "function",
+          "signature": "pub async fn sweep_expired(&self) -> Result<usize>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 203,
+          "end_line": 205
         },
         {
           "name": "traverse",
           "kind": "function",
           "signature": "pub async fn traverse( &self, start_id: &str, max_hops: usize, min_weight: f64, edge_types: Option<&[String]>, ) -> Result<Vec<GraphNode>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 94,
-          "end_line": 104
+          "line": 95,
+          "end_line": 105
+        },
+        {
+          "name": "type_stats",
+          "kind": "function",
+          "signature": "pub async fn type_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 208,
+          "end_line": 210
         },
         {
           "name": "update",
           "kind": "function",
           "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
           "file": "src/local_memory_runtime.rs",
-          "line": 74,
-          "end_line": 76
+          "line": 75,
+          "end_line": 77
         },
         {
           "name": "version_chain",
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 195,
-          "end_line": 197
+          "line": 277,
+          "end_line": 279
+        },
+        {
+          "name": "weekly_digest",
+          "kind": "function",
+          "signature": "pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 218,
+          "end_line": 220
+        },
+        {
+          "name": "welcome_scoped",
+          "kind": "function",
+          "signature": "pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 171,
+          "end_line": 173
         },
         {
           "name": "Commands",
@@ -5034,24 +5246,24 @@
           "kind": "function",
           "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
           "file": "src/local_memory_runtime.rs",
-          "line": 49,
-          "end_line": 56
+          "line": 50,
+          "end_line": 57
         },
         {
           "name": "new",
           "kind": "function",
           "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 30,
-          "end_line": 33
+          "line": 31,
+          "end_line": 34
         },
         {
           "name": "new_with_path",
           "kind": "function",
           "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 39,
-          "end_line": 42
+          "line": 40,
+          "end_line": 43
         },
         {
           "name": "app_paths",
@@ -5130,8 +5342,8 @@
           "kind": "struct",
           "signature": "pub struct LocalMemoryRuntime",
           "file": "src/local_memory_runtime.rs",
-          "line": 19,
-          "end_line": 22
+          "line": 20,
+          "end_line": 23
         },
         {
           "name": "SearchFilterArgs",
@@ -5158,156 +5370,260 @@
           "end_line": 11
         },
         {
+          "name": "access_rate_stats",
+          "kind": "function",
+          "signature": "pub async fn access_rate_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 223,
+          "end_line": 225
+        },
+        {
           "name": "advanced_search",
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 185,
-          "end_line": 192
+          "line": 267,
+          "end_line": 274
         },
         {
           "name": "create_reminder",
           "kind": "function",
           "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 133
+          "line": 123,
+          "end_line": 134
         },
         {
           "name": "delete",
           "kind": "function",
           "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
           "file": "src/local_memory_runtime.rs",
-          "line": 69,
-          "end_line": 71
+          "line": 70,
+          "end_line": 72
         },
         {
           "name": "dismiss_reminder",
           "kind": "function",
           "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 141,
-          "end_line": 143
+          "line": 142,
+          "end_line": 144
+        },
+        {
+          "name": "export_all",
+          "kind": "function",
+          "signature": "pub async fn export_all(&self) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 181,
+          "end_line": 183
         },
         {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 200,
-          "end_line": 202
+          "line": 282,
+          "end_line": 284
+        },
+        {
+          "name": "get_profile",
+          "kind": "function",
+          "signature": "pub async fn get_profile(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 161,
+          "end_line": 163
         },
         {
           "name": "get_relationships",
           "kind": "function",
           "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 89,
-          "end_line": 91
+          "line": 90,
+          "end_line": 92
+        },
+        {
+          "name": "import_all",
+          "kind": "function",
+          "signature": "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 186,
+          "end_line": 188
         },
         {
           "name": "list",
           "kind": "function",
           "signature": "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
           "file": "src/local_memory_runtime.rs",
-          "line": 79,
-          "end_line": 86
+          "line": 80,
+          "end_line": 87
         },
         {
           "name": "list_reminders",
           "kind": "function",
           "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 136,
-          "end_line": 138
+          "line": 137,
+          "end_line": 139
         },
         {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 163,
-          "end_line": 170
+          "line": 245,
+          "end_line": 252
+        },
+        {
+          "name": "query_lessons",
+          "kind": "function",
+          "signature": "pub async fn query_lessons( &self, task: Option<&str>, project: Option<&str>, exclude_session: Option<&str>, agent_type: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 147,
+          "end_line": 158
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 158,
-          "end_line": 160
+          "line": 240,
+          "end_line": 242
+        },
+        {
+          "name": "record_feedback",
+          "kind": "function",
+          "signature": "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 191,
+          "end_line": 200
         },
         {
           "name": "resume_task",
           "kind": "function",
           "signature": "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 112,
-          "end_line": 119
+          "line": 113,
+          "end_line": 120
         },
         {
           "name": "retrieve",
           "kind": "function",
           "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 64,
-          "end_line": 66
+          "line": 65,
+          "end_line": 67
         },
         {
           "name": "save_checkpoint",
           "kind": "function",
           "signature": "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 107,
-          "end_line": 109
+          "line": 108,
+          "end_line": 110
         },
         {
           "name": "search",
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 146,
-          "end_line": 155
+          "line": 228,
+          "end_line": 237
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 173,
-          "end_line": 182
+          "line": 255,
+          "end_line": 264
+        },
+        {
+          "name": "session_stats",
+          "kind": "function",
+          "signature": "pub async fn session_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 213,
+          "end_line": 215
+        },
+        {
+          "name": "set_profile",
+          "kind": "function",
+          "signature": "pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 166,
+          "end_line": 168
+        },
+        {
+          "name": "stats",
+          "kind": "function",
+          "signature": "pub async fn stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 176,
+          "end_line": 178
         },
         {
           "name": "store",
           "kind": "function",
           "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 59,
-          "end_line": 61
+          "line": 60,
+          "end_line": 62
+        },
+        {
+          "name": "sweep_expired",
+          "kind": "function",
+          "signature": "pub async fn sweep_expired(&self) -> Result<usize>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 203,
+          "end_line": 205
         },
         {
           "name": "traverse",
           "kind": "function",
           "signature": "pub async fn traverse( &self, start_id: &str, max_hops: usize, min_weight: f64, edge_types: Option<&[String]>, ) -> Result<Vec<GraphNode>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 94,
-          "end_line": 104
+          "line": 95,
+          "end_line": 105
+        },
+        {
+          "name": "type_stats",
+          "kind": "function",
+          "signature": "pub async fn type_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 208,
+          "end_line": 210
         },
         {
           "name": "update",
           "kind": "function",
           "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
           "file": "src/local_memory_runtime.rs",
-          "line": 74,
-          "end_line": 76
+          "line": 75,
+          "end_line": 77
         },
         {
           "name": "version_chain",
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 195,
-          "end_line": 197
+          "line": 277,
+          "end_line": 279
+        },
+        {
+          "name": "weekly_digest",
+          "kind": "function",
+          "signature": "pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 218,
+          "end_line": 220
+        },
+        {
+          "name": "welcome_scoped",
+          "kind": "function",
+          "signature": "pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 171,
+          "end_line": 173
         },
         {
           "name": "Commands",
@@ -5346,24 +5662,24 @@
           "kind": "function",
           "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
           "file": "src/local_memory_runtime.rs",
-          "line": 49,
-          "end_line": 56
+          "line": 50,
+          "end_line": 57
         },
         {
           "name": "new",
           "kind": "function",
           "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 30,
-          "end_line": 33
+          "line": 31,
+          "end_line": 34
         },
         {
           "name": "new_with_path",
           "kind": "function",
           "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 39,
-          "end_line": 42
+          "line": 40,
+          "end_line": 43
         },
         {
           "name": "app_paths",
@@ -5442,8 +5758,8 @@
           "kind": "struct",
           "signature": "pub struct LocalMemoryRuntime",
           "file": "src/local_memory_runtime.rs",
-          "line": 19,
-          "end_line": 22
+          "line": 20,
+          "end_line": 23
         },
         {
           "name": "SearchFilterArgs",
@@ -5470,156 +5786,260 @@
           "end_line": 11
         },
         {
+          "name": "access_rate_stats",
+          "kind": "function",
+          "signature": "pub async fn access_rate_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 223,
+          "end_line": 225
+        },
+        {
           "name": "advanced_search",
           "kind": "function",
           "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 185,
-          "end_line": 192
+          "line": 267,
+          "end_line": 274
         },
         {
           "name": "create_reminder",
           "kind": "function",
           "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 122,
-          "end_line": 133
+          "line": 123,
+          "end_line": 134
         },
         {
           "name": "delete",
           "kind": "function",
           "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
           "file": "src/local_memory_runtime.rs",
-          "line": 69,
-          "end_line": 71
+          "line": 70,
+          "end_line": 72
         },
         {
           "name": "dismiss_reminder",
           "kind": "function",
           "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
           "file": "src/local_memory_runtime.rs",
-          "line": 141,
-          "end_line": 143
+          "line": 142,
+          "end_line": 144
+        },
+        {
+          "name": "export_all",
+          "kind": "function",
+          "signature": "pub async fn export_all(&self) -> Result<String>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 181,
+          "end_line": 183
         },
         {
           "name": "find_similar",
           "kind": "function",
           "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 200,
-          "end_line": 202
+          "line": 282,
+          "end_line": 284
+        },
+        {
+          "name": "get_profile",
+          "kind": "function",
+          "signature": "pub async fn get_profile(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 161,
+          "end_line": 163
         },
         {
           "name": "get_relationships",
           "kind": "function",
           "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 89,
-          "end_line": 91
+          "line": 90,
+          "end_line": 92
+        },
+        {
+          "name": "import_all",
+          "kind": "function",
+          "signature": "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 186,
+          "end_line": 188
         },
         {
           "name": "list",
           "kind": "function",
           "signature": "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
           "file": "src/local_memory_runtime.rs",
-          "line": 79,
-          "end_line": 86
+          "line": 80,
+          "end_line": 87
         },
         {
           "name": "list_reminders",
           "kind": "function",
           "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 136,
-          "end_line": 138
+          "line": 137,
+          "end_line": 139
         },
         {
           "name": "phrase_search",
           "kind": "function",
           "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 163,
-          "end_line": 170
+          "line": 245,
+          "end_line": 252
+        },
+        {
+          "name": "query_lessons",
+          "kind": "function",
+          "signature": "pub async fn query_lessons( &self, task: Option<&str>, project: Option<&str>, exclude_session: Option<&str>, agent_type: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 147,
+          "end_line": 158
         },
         {
           "name": "recent",
           "kind": "function",
           "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 158,
-          "end_line": 160
+          "line": 240,
+          "end_line": 242
+        },
+        {
+          "name": "record_feedback",
+          "kind": "function",
+          "signature": "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 191,
+          "end_line": 200
         },
         {
           "name": "resume_task",
           "kind": "function",
           "signature": "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 112,
-          "end_line": 119
+          "line": 113,
+          "end_line": 120
         },
         {
           "name": "retrieve",
           "kind": "function",
           "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 64,
-          "end_line": 66
+          "line": 65,
+          "end_line": 67
         },
         {
           "name": "save_checkpoint",
           "kind": "function",
           "signature": "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 107,
-          "end_line": 109
+          "line": 108,
+          "end_line": 110
         },
         {
           "name": "search",
           "kind": "function",
           "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 146,
-          "end_line": 155
+          "line": 228,
+          "end_line": 237
         },
         {
           "name": "semantic_search",
           "kind": "function",
           "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 173,
-          "end_line": 182
+          "line": 255,
+          "end_line": 264
+        },
+        {
+          "name": "session_stats",
+          "kind": "function",
+          "signature": "pub async fn session_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 213,
+          "end_line": 215
+        },
+        {
+          "name": "set_profile",
+          "kind": "function",
+          "signature": "pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 166,
+          "end_line": 168
+        },
+        {
+          "name": "stats",
+          "kind": "function",
+          "signature": "pub async fn stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 176,
+          "end_line": 178
         },
         {
           "name": "store",
           "kind": "function",
           "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
           "file": "src/local_memory_runtime.rs",
-          "line": 59,
-          "end_line": 61
+          "line": 60,
+          "end_line": 62
+        },
+        {
+          "name": "sweep_expired",
+          "kind": "function",
+          "signature": "pub async fn sweep_expired(&self) -> Result<usize>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 203,
+          "end_line": 205
         },
         {
           "name": "traverse",
           "kind": "function",
           "signature": "pub async fn traverse( &self, start_id: &str, max_hops: usize, min_weight: f64, edge_types: Option<&[String]>, ) -> Result<Vec<GraphNode>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 94,
-          "end_line": 104
+          "line": 95,
+          "end_line": 105
+        },
+        {
+          "name": "type_stats",
+          "kind": "function",
+          "signature": "pub async fn type_stats(&self) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 208,
+          "end_line": 210
         },
         {
           "name": "update",
           "kind": "function",
           "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
           "file": "src/local_memory_runtime.rs",
-          "line": 74,
-          "end_line": 76
+          "line": 75,
+          "end_line": 77
         },
         {
           "name": "version_chain",
           "kind": "function",
           "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
           "file": "src/local_memory_runtime.rs",
-          "line": 195,
-          "end_line": 197
+          "line": 277,
+          "end_line": 279
+        },
+        {
+          "name": "weekly_digest",
+          "kind": "function",
+          "signature": "pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 218,
+          "end_line": 220
+        },
+        {
+          "name": "welcome_scoped",
+          "kind": "function",
+          "signature": "pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value>",
+          "file": "src/local_memory_runtime.rs",
+          "line": 171,
+          "end_line": 173
         },
         {
           "name": "Commands",
@@ -5658,24 +6078,24 @@
           "kind": "function",
           "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
           "file": "src/local_memory_runtime.rs",
-          "line": 49,
-          "end_line": 56
+          "line": 50,
+          "end_line": 57
         },
         {
           "name": "new",
           "kind": "function",
           "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 30,
-          "end_line": 33
+          "line": 31,
+          "end_line": 34
         },
         {
           "name": "new_with_path",
           "kind": "function",
           "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
           "file": "src/local_memory_runtime.rs",
-          "line": 39,
-          "end_line": 42
+          "line": 40,
+          "end_line": 43
         },
         {
           "name": "app_paths",
@@ -5754,8 +6174,8 @@
           "kind": "struct",
           "signature": "pub struct LocalMemoryRuntime",
           "file": "src/local_memory_runtime.rs",
-          "line": 19,
-          "end_line": 22
+          "line": 20,
+          "end_line": 23
         },
         {
           "name": "SearchFilterArgs",
@@ -13355,7 +13775,7 @@
     {
       "code": "CAIRN_MODULE_OVERSIZED",
       "severity": "warning",
-      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1756 lines, over the 500-line guideline with no allow-list marker",
+      "message": "module `mag.runtime.entrypoints` claims `src/main.rs` at 1755 lines, over the 500-line guideline with no allow-list marker",
       "node": "mag.runtime.entrypoints",
       "path": "src/main.rs"
     },
