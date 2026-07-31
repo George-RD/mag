@@ -61,4 +61,7 @@ permitted to hide inside a caller migration.
   `LocalMemoryRuntime`; exact compact JSON, duration and timestamp fields, stored
   reminder content and metadata, pending/dismissed status filters, and
   direct-storage parity remain pinned.
-- [ ] Migrate lesson, profile, welcome, and administration commands.
+- [x] `lessons` routes through `LocalMemoryRuntime`; task, project, session, and
+  agent filters, limits, payload fields, compact JSON, and direct-storage parity
+  remain pinned.
+- [ ] Migrate profile, welcome, and administration commands.

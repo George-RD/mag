@@ -6,9 +6,9 @@ use anyhow::Result;
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
-    GraphTraverser, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
-    PlaceholderPipeline, Relationship, RelationshipQuerier, ReminderManager, SearchOptions,
-    SearchResult, SemanticResult, SimilarFinder, VersionChainQuerier,
+    GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
+    Pipeline, PlaceholderPipeline, Relationship, RelationshipQuerier, ReminderManager,
+    SearchOptions, SearchResult, SemanticResult, SimilarFinder, VersionChainQuerier,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -140,6 +140,20 @@ impl LocalMemoryRuntime {
     /// Dismisses a reminder without changing metadata or timestamp semantics.
     pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value> {
         self.storage.dismiss_reminder(reminder_id).await
+    }
+
+    /// Queries lessons without changing filtering, ordering, deduplication, or payload fields.
+    pub async fn query_lessons(
+        &self,
+        task: Option<&str>,
+        project: Option<&str>,
+        exclude_session: Option<&str>,
+        agent_type: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        self.storage
+            .query_lessons(task, project, exclude_session, agent_type, limit)
+            .await
     }
 
     /// Runs the current basic search implementation.
