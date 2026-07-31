@@ -7,9 +7,8 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-    MaintenanceManager, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,
-    is_valid_event_type,
+    BackupManager, CheckpointInput, Embedder, EventType, MaintenanceManager, MemoryInput,
+    MemoryUpdate, SearchOptions, WelcomeOptions, is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -601,11 +600,11 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 std::fs::read_to_string(path)?
             };
-            let (memories, relationships) = mcp_storage.import_all(&data).await?;
+            let (memories, relationships) = local_runtime.import_all(&data).await?;
             info!(
                 imported_memories = memories,
                 imported_relationships = relationships,
-                "Import completed"
+                "Import completed through local memory runtime"
             );
             println!(
                 "{}",
@@ -617,18 +616,22 @@ async fn main() -> anyhow::Result<()> {
             rating,
             reason,
         } => {
-            let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-                &mcp_storage,
-                memory_id,
-                rating.as_str(),
-                reason.as_deref(),
-            )
-            .await?;
+            let result = local_runtime
+                .record_feedback(memory_id, rating.as_str(), reason.as_deref())
+                .await?;
+            info!(
+                memory_id = %memory_id,
+                rating = rating.as_str(),
+                "Feedback recorded through local memory runtime"
+            );
             println!("{}", result);
         }
         Commands::Sweep => {
-            let swept_count =
-                <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;
+            let swept_count = local_runtime.sweep_expired().await?;
+            info!(
+                swept_count,
+                "Expiration sweep completed through local memory runtime"
+            );
             println!("{}", json!({ "swept_count": swept_count }));
         }
         Commands::Profile { action, data } => match action.as_str() {

@@ -5,11 +5,11 @@ use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
-    GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
-    Pipeline, PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier,
-    ReminderManager, SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider,
-    VersionChainQuerier, WelcomeOptions, WelcomeProvider,
+    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, ExpirationSweeper,
+    FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput,
+    MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, Relationship,
+    RelationshipQuerier, ReminderManager, SearchOptions, SearchResult, SemanticResult,
+    SimilarFinder, StatsProvider, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -180,6 +180,28 @@ impl LocalMemoryRuntime {
     /// Exports the complete local store without changing JSON formatting or content.
     pub async fn export_all(&self) -> Result<String> {
         self.storage.export_all().await
+    }
+
+    /// Imports a complete local store without changing counts or mutation semantics.
+    pub async fn import_all(&self, data: &str) -> Result<(usize, usize)> {
+        self.storage.import_all(data).await
+    }
+
+    /// Records feedback without changing scoring or review-flag semantics.
+    pub async fn record_feedback(
+        &self,
+        memory_id: &str,
+        rating: &str,
+        reason: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.storage
+            .record_feedback(memory_id, rating, reason)
+            .await
+    }
+
+    /// Removes expired memories without changing relationship cleanup semantics.
+    pub async fn sweep_expired(&self) -> Result<usize> {
+        self.storage.sweep_expired().await
     }
 
     /// Returns memory counts by event type without changing aggregate fields.
