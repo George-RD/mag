@@ -1,9 +1,9 @@
 name: Apply admin write runtime migration
 
 on:
-  push:
-    branches:
-      - agent/migrate-cli-admin-write-runtime
+  pull_request:
+    branches: [main]
+    types: [synchronize]
 
 permissions:
   contents: write
