@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::SqliteStorage;
-use mag::memory_core::{
-    EventType, MemoryInput, PlaceholderEmbedder, StatsProvider,
-};
+use mag::memory_core::{EventType, MemoryInput, PlaceholderEmbedder, StatsProvider};
 
 const CONTENT: &str = "Preserve read-only administration contracts";
 const SESSION_ID: &str = "admin-read-session";
@@ -137,13 +135,7 @@ fn read_only_admin_commands_preserve_stdout_contracts() -> anyhow::Result<()> {
             serde_json::json!({ "sessions": [], "total_sessions": 0 }),
         ),
         (
-            vec![
-                "stats-extended",
-                "--action",
-                "digest",
-                "--days",
-                "14",
-            ],
+            vec!["stats-extended", "--action", "digest", "--days", "14"],
             serde_json::json!({
                 "period_days": 14,
                 "total_memories": 0,
