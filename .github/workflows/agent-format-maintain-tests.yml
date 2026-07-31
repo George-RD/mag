@@ -1,0 +1,36 @@
+name: Format maintain migration tests
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-format-maintain-tests
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/migrate-cli-maintain-runtime
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format tests
+        run: cargo fmt --all
+      - name: Commit formatted tests
+        shell: bash
+        run: |
+          rm .github/workflows/agent-format-maintain-tests.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test(cli): format maintain runtime contracts"
+          git push origin HEAD:agent/migrate-cli-maintain-runtime
