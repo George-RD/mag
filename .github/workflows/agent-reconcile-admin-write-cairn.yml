@@ -1,0 +1,40 @@
+name: Reconcile admin write Cairn state
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-admin-write-cairn-reconcile
+  cancel-in-progress: true
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/migrate-cli-admin-write-runtime
+          fetch-depth: 0
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Reconcile generated architecture state
+        run: |
+          cairn scan
+          git status --short
+      - name: Commit reconciliation
+        shell: bash
+        run: |
+          rm .github/workflows/agent-reconcile-admin-write-cairn.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(cairn): reconcile admin write interfaces"
+          git push origin HEAD:agent/migrate-cli-admin-write-runtime
