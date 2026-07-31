@@ -21,11 +21,6 @@ jobs:
           ref: agent/migrate-cli-admin-write-runtime
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install Cairn 0.9.0
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Apply runtime routing
         shell: bash
         run: |
@@ -57,11 +52,9 @@ jobs:
               "Deleter, Embedder, GraphNode,\n    GraphTraverser",
               "Deleter, Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode,\n    GraphTraverser",
           )
-
           replace_once(
               "src/local_memory_runtime.rs",
-              """    /// Returns memory counts by event type without changing aggregate fields.
-          """,
+              "    /// Returns memory counts by event type without changing aggregate fields.",
               """    /// Imports a complete local store without changing counts or mutation semantics.
               pub async fn import_all(&self, data: &str) -> Result<(usize, usize)> {
                   self.storage.import_all(data).await
@@ -74,9 +67,7 @@ jobs:
                   rating: &str,
                   reason: Option<&str>,
               ) -> Result<serde_json::Value> {
-                  self.storage
-                      .record_feedback(memory_id, rating, reason)
-                      .await
+                  self.storage.record_feedback(memory_id, rating, reason).await
               }
 
               /// Removes expired memories without changing relationship cleanup semantics.
@@ -84,20 +75,15 @@ jobs:
                   self.storage.sweep_expired().await
               }
 
-              /// Returns memory counts by event type without changing aggregate fields.
-          """,
+              /// Returns memory counts by event type without changing aggregate fields.""",
           )
-
           replace_once(
               "src/main.rs",
               """    BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-              MaintenanceManager, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,
-          """,
+              MaintenanceManager, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,""",
               """    BackupManager, CheckpointInput, Embedder, EventType, MaintenanceManager, MemoryInput,
-              MemoryUpdate, SearchOptions, WelcomeOptions,
-          """,
+              MemoryUpdate, SearchOptions, WelcomeOptions,""",
           )
-
           replace_once(
               "src/main.rs",
               """            let (memories, relationships) = mcp_storage.import_all(&data).await?;
@@ -105,17 +91,14 @@ jobs:
                       imported_memories = memories,
                       imported_relationships = relationships,
                       "Import completed"
-                  );
-          """,
+                  );""",
               """            let (memories, relationships) = local_runtime.import_all(&data).await?;
                   info!(
                       imported_memories = memories,
                       imported_relationships = relationships,
                       "Import completed through local memory runtime"
-                  );
-          """,
+                  );""",
           )
-
           replace_span(
               "src/main.rs",
               "            let result = <SqliteStorage as FeedbackRecorder>::record_feedback(",
@@ -130,11 +113,9 @@ jobs:
               );
               println!("{}", result);""",
           )
-
-          sweep_start = "            let swept_count =\n                <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;"
           replace_span(
               "src/main.rs",
-              sweep_start,
+              "            let swept_count =\n                <SqliteStorage as ExpirationSweeper>::sweep_expired(&mcp_storage).await?;",
               "            println!(\"{}\", json!({ \"swept_count\": swept_count }));",
               """            let swept_count = local_runtime.sweep_expired().await?;
               info!(
@@ -143,24 +124,9 @@ jobs:
               );
               println!("{}", json!({ "swept_count": swept_count }));""",
           )
-
-          replace_once(
-              "meta/todos/migrate-cli-to-local-memory-runtime.md",
-              """- [ ] Migrate write-capable administration commands (`import`, `feedback`,
-            `sweep`, and `maintain`) as a separate risk-bounded family.
-          """,
-              """- [x] `import`, `feedback`, and `sweep` route through `LocalMemoryRuntime`;
-            import counts and state, feedback scoring and review flags, expiration cleanup,
-            exact compact JSON, relationship cleanup, profile preservation, and direct-storage
-            parity remain pinned.
-          - [ ] Migrate `maintain` actions as a separate risk-bounded family.
-          """,
-          )
           PY
-      - name: Format and reconcile
-        run: |
-          cargo fmt --all
-          cairn scan
+      - name: Format
+        run: cargo fmt --all
       - name: Commit implementation
         shell: bash
         run: |
