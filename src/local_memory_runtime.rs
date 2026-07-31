@@ -8,7 +8,7 @@ use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
     GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
     Pipeline, PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier,
-    ReminderManager, SearchOptions, SearchResult, SemanticResult, SimilarFinder,
+    ReminderManager, SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider,
     VersionChainQuerier, WelcomeOptions, WelcomeProvider,
 };
 
@@ -170,6 +170,36 @@ impl LocalMemoryRuntime {
     /// Builds scoped session-start context without changing filtering or budget semantics.
     pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value> {
         self.storage.welcome_scoped(options).await
+    }
+
+    /// Returns aggregate storage statistics without changing path or count fields.
+    pub async fn stats(&self) -> Result<serde_json::Value> {
+        self.storage.stats().await
+    }
+
+    /// Exports the complete local store without changing JSON formatting or content.
+    pub async fn export_all(&self) -> Result<String> {
+        self.storage.export_all().await
+    }
+
+    /// Returns memory counts by event type without changing aggregate fields.
+    pub async fn type_stats(&self) -> Result<serde_json::Value> {
+        self.storage.type_stats().await
+    }
+
+    /// Returns per-session statistics without changing ordering or payload fields.
+    pub async fn session_stats(&self) -> Result<serde_json::Value> {
+        self.storage.session_stats().await
+    }
+
+    /// Returns the current period digest without changing period or growth semantics.
+    pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value> {
+        self.storage.weekly_digest(days).await
+    }
+
+    /// Returns access-rate statistics without changing percentages or rankings.
+    pub async fn access_rate_stats(&self) -> Result<serde_json::Value> {
+        self.storage.access_rate_stats().await
     }
 
     /// Runs the current basic search implementation.
