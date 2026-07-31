@@ -311,16 +311,17 @@ fn maintain_backup_actions_preserve_restore_contract() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("ingest omitted baseline id"))?
         .to_string();
 
-    let (backup, _) = compact_json(run_cli(
-        home.path(),
-        &["maintain", "--action", "backup"],
-    )?)?;
+    let (backup, _) = compact_json(run_cli(home.path(), &["maintain", "--action", "backup"])?)?;
     let backup_path = backup["path"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("backup omitted path"))?
         .to_string();
     assert!(backup["size_bytes"].as_u64().unwrap_or_default() > 0);
-    assert!(backup["created_at"].as_str().is_some_and(|value| !value.is_empty()));
+    assert!(
+        backup["created_at"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
     assert!(Path::new(&backup_path).exists());
 
     let (extra, _) = compact_json(run_cli(
@@ -342,9 +343,11 @@ fn maintain_backup_actions_preserve_restore_contract() -> anyhow::Result<()> {
         &["maintain", "--action", "backup-list"],
     )?)?;
     assert!(listed["count"].as_u64().unwrap_or_default() >= 1);
-    assert!(listed["backups"]
-        .as_array()
-        .is_some_and(|backups| backups.iter().any(|entry| entry["path"] == backup_path)));
+    assert!(
+        listed["backups"]
+            .as_array()
+            .is_some_and(|backups| backups.iter().any(|entry| entry["path"] == backup_path))
+    );
 
     let (restored, _) = compact_json(run_cli(
         home.path(),
@@ -391,13 +394,9 @@ async fn local_runtime_preserves_maintenance_and_backup_contracts() -> anyhow::R
     direct_storage.import_all(&import_data).await?;
 
     let mut runtime_health = runtime.check_health(1000.0, 2000.0, 100).await?;
-    let mut direct_health = <SqliteStorage as MaintenanceManager>::check_health(
-        &direct_storage,
-        1000.0,
-        2000.0,
-        100,
-    )
-    .await?;
+    let mut direct_health =
+        <SqliteStorage as MaintenanceManager>::check_health(&direct_storage, 1000.0, 2000.0, 100)
+            .await?;
     runtime_health
         .as_object_mut()
         .expect("runtime health should be an object")
@@ -421,8 +420,7 @@ async fn local_runtime_preserves_maintenance_and_backup_contracts() -> anyhow::R
     assert_eq!(runtime_compact["clusters_found"], 1);
 
     let runtime_fts = runtime.rebuild_fts().await?;
-    let direct_fts =
-        <SqliteStorage as MaintenanceManager>::rebuild_fts(&direct_storage).await?;
+    let direct_fts = <SqliteStorage as MaintenanceManager>::rebuild_fts(&direct_storage).await?;
     assert_eq!(runtime_fts, direct_fts);
 
     let runtime_consolidated = runtime.consolidate(30, 50).await?;
@@ -439,8 +437,7 @@ async fn local_runtime_preserves_maintenance_and_backup_contracts() -> anyhow::R
     assert_eq!(runtime_cleared, 3);
 
     let runtime_backup = runtime.create_backup().await?;
-    let direct_backup =
-        <SqliteStorage as BackupManager>::create_backup(&direct_storage).await?;
+    let direct_backup = <SqliteStorage as BackupManager>::create_backup(&direct_storage).await?;
     assert!(runtime_backup.size_bytes > 0);
     assert!(direct_backup.size_bytes > 0);
     assert_eq!(runtime.list_backups().await?.len(), 1);
@@ -460,15 +457,17 @@ async fn local_runtime_preserves_maintenance_and_backup_contracts() -> anyhow::R
     assert!(runtime.delete(KEEP_ID).await?);
     assert!(<SqliteStorage as Deleter>::delete(&direct_storage, KEEP_ID).await?);
     runtime.restore_backup(&runtime_backup.path).await?;
-    <SqliteStorage as BackupManager>::restore_backup(&direct_storage, &direct_backup.path)
-        .await?;
+    <SqliteStorage as BackupManager>::restore_backup(&direct_storage, &direct_backup.path).await?;
 
     let runtime_backups_before_rotation = runtime.list_backups().await?.len();
     let direct_backups_before_rotation =
         <SqliteStorage as BackupManager>::list_backups(&direct_storage)
             .await?
             .len();
-    assert_eq!(runtime_backups_before_rotation, direct_backups_before_rotation);
+    assert_eq!(
+        runtime_backups_before_rotation,
+        direct_backups_before_rotation
+    );
     assert_eq!(
         runtime.rotate_backups(0).await?,
         runtime_backups_before_rotation
