@@ -74,5 +74,6 @@ permitted to hide inside a caller migration.
 - [x] `import`, `feedback`, and `sweep` route through `LocalMemoryRuntime`;
   import counts and state, feedback scoring and review flags, expiration cleanup,
   exact compact JSON, relationship cleanup, profile preservation, and direct-storage
-  parity remain pinned by `tests/cli_admin_write_runtime_migration.rs`.
+  parity remain pinned by `tests/cli_admin_write_runtime_migration.rs`; Cairn's
+  recorded entrypoint interface state is reconciled in the same slice.
 - [ ] Migrate `maintain` actions as a separate risk-bounded family.
