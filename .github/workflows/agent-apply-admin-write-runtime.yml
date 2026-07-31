@@ -1,3 +1,4 @@
+# Registered in the preceding commit; this update activates the branch workflow.
 name: Apply admin write runtime migration
 
 on:
