@@ -77,27 +77,26 @@ jobs:
 
               /// Returns memory counts by event type without changing aggregate fields.""",
           )
-          replace_once(
+          replace_span(
               "src/main.rs",
-              """    BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-              MaintenanceManager, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,""",
-              """    BackupManager, CheckpointInput, Embedder, EventType, MaintenanceManager, MemoryInput,
-              MemoryUpdate, SearchOptions, WelcomeOptions,""",
+              "use memory_core::{\n",
+              "};\nuse serde_json::json;",
+              """use memory_core::{
+              BackupManager, CheckpointInput, Embedder, EventType, MaintenanceManager, MemoryInput,
+              MemoryUpdate, SearchOptions, WelcomeOptions, is_valid_event_type,
+          };
+          use serde_json::json;""",
           )
-          replace_once(
+          replace_span(
               "src/main.rs",
-              """            let (memories, relationships) = mcp_storage.import_all(&data).await?;
-                  info!(
-                      imported_memories = memories,
-                      imported_relationships = relationships,
-                      "Import completed"
-                  );""",
+              "            let (memories, relationships) = mcp_storage.import_all(&data).await?;",
+              "                \"Import completed\"\n            );",
               """            let (memories, relationships) = local_runtime.import_all(&data).await?;
-                  info!(
-                      imported_memories = memories,
-                      imported_relationships = relationships,
-                      "Import completed through local memory runtime"
-                  );""",
+              info!(
+                  imported_memories = memories,
+                  imported_relationships = relationships,
+                  "Import completed through local memory runtime"
+              );""",
           )
           replace_span(
               "src/main.rs",
