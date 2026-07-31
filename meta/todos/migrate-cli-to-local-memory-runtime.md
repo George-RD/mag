@@ -64,4 +64,8 @@ permitted to hide inside a caller migration.
 - [x] `lessons` routes through `LocalMemoryRuntime`; task, project, session, and
   agent filters, limits, payload fields, compact JSON, and direct-storage parity
   remain pinned.
-- [ ] Migrate profile, welcome, and administration commands.
+- [x] `profile read`, `profile update`, and `welcome` route through
+  `LocalMemoryRuntime`; profile augmentation, update merge semantics, welcome
+  scoping and token budgets, exact compact JSON, and direct-storage parity remain
+  pinned.
+- [ ] Migrate administration commands as a separate command family.

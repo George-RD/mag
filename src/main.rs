@@ -8,8 +8,8 @@ use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-    MaintenanceManager, MemoryInput, MemoryUpdate, ProfileManager, SearchOptions, StatsProvider,
-    WelcomeOptions, WelcomeProvider, is_valid_event_type,
+    MaintenanceManager, MemoryInput, MemoryUpdate, SearchOptions, StatsProvider, WelcomeOptions,
+    is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -630,7 +630,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Profile { action, data } => match action.as_str() {
             "read" => {
-                let profile = <SqliteStorage as ProfileManager>::get_profile(&mcp_storage).await?;
+                let profile = local_runtime.get_profile().await?;
+                info!("Profile read through local memory runtime");
                 println!("{}", profile);
             }
             "update" => {
@@ -639,7 +640,8 @@ async fn main() -> anyhow::Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("profile update requires JSON data"))?;
                 let parsed: serde_json::Value = serde_json::from_str(raw)
                     .map_err(|e| anyhow::anyhow!("invalid profile JSON: {e}"))?;
-                <SqliteStorage as ProfileManager>::set_profile(&mcp_storage, &parsed).await?;
+                local_runtime.set_profile(&parsed).await?;
+                info!("Profile updated through local memory runtime");
                 println!("{}", json!({ "updated": true }));
             }
             other => anyhow::bail!("invalid profile action: {other} (expected read|update)"),
@@ -894,8 +896,8 @@ async fn main() -> anyhow::Result<()> {
                 agent_type: agent_type.clone(),
                 entity_id: entity_id.clone(),
             };
-            let result =
-                <SqliteStorage as WelcomeProvider>::welcome_scoped(&mcp_storage, &opts).await?;
+            let result = local_runtime.welcome_scoped(&opts).await?;
+            info!("Welcome generated through local memory runtime");
             println!("{result}");
         }
         Commands::Protocol { section: _ } => {

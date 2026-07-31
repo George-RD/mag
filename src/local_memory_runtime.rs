@@ -7,8 +7,9 @@ use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, GraphNode,
     GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput, MemoryUpdate, PhraseSearcher,
-    Pipeline, PlaceholderPipeline, Relationship, RelationshipQuerier, ReminderManager,
-    SearchOptions, SearchResult, SemanticResult, SimilarFinder, VersionChainQuerier,
+    Pipeline, PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier,
+    ReminderManager, SearchOptions, SearchResult, SemanticResult, SimilarFinder,
+    VersionChainQuerier, WelcomeOptions, WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -154,6 +155,21 @@ impl LocalMemoryRuntime {
         self.storage
             .query_lessons(task, project, exclude_session, agent_type, limit)
             .await
+    }
+
+    /// Returns the augmented user profile without changing stored or derived fields.
+    pub async fn get_profile(&self) -> Result<serde_json::Value> {
+        self.storage.get_profile().await
+    }
+
+    /// Applies profile updates without changing validation or merge semantics.
+    pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()> {
+        self.storage.set_profile(updates).await
+    }
+
+    /// Builds scoped session-start context without changing filtering or budget semantics.
+    pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value> {
+        self.storage.welcome_scoped(options).await
     }
 
     /// Runs the current basic search implementation.
