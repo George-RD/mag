@@ -8,7 +8,7 @@ use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
     BackupManager, CheckpointInput, Embedder, EventType, ExpirationSweeper, FeedbackRecorder,
-    MaintenanceManager, MemoryInput, MemoryUpdate, SearchOptions, StatsProvider, WelcomeOptions,
+    MaintenanceManager, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,
     is_valid_event_type,
 };
 use serde_json::json;
@@ -578,14 +578,17 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Stats => {
             info!("Getting memory stats");
-            let stats = mcp_storage.stats().await?;
-            info!("Stats retrieved successfully");
+            let stats = local_runtime.stats().await?;
+            info!("Stats retrieved through local memory runtime");
             println!("{}", serde_json::to_string_pretty(&stats)?);
         }
         Commands::Export => {
             info!("Exporting all memories");
-            let data = mcp_storage.export_all().await?;
-            info!(bytes = data.len(), "Export completed");
+            let data = local_runtime.export_all().await?;
+            info!(
+                bytes = data.len(),
+                "Export completed through local memory runtime"
+            );
             println!("{data}");
         }
         Commands::Import { path } => {
@@ -904,29 +907,22 @@ async fn main() -> anyhow::Result<()> {
             let protocol = mcp::tool_registry_json();
             println!("{protocol}");
         }
-        Commands::StatsExtended { action, days } => match action.as_str() {
-            "types" => {
-                let result = <SqliteStorage as StatsProvider>::type_stats(&mcp_storage).await?;
-                println!("{result}");
-            }
-            "sessions" => {
-                let result = <SqliteStorage as StatsProvider>::session_stats(&mcp_storage).await?;
-                println!("{result}");
-            }
-            "digest" => {
-                let result =
-                    <SqliteStorage as StatsProvider>::weekly_digest(&mcp_storage, *days).await?;
-                println!("{result}");
-            }
-            "access_rate" | "access-rate" => {
-                let result =
-                    <SqliteStorage as StatsProvider>::access_rate_stats(&mcp_storage).await?;
-                println!("{result}");
-            }
-            other => anyhow::bail!(
-                "invalid stats-extended action: {other} (expected types|sessions|digest|access-rate)"
-            ),
-        },
+        Commands::StatsExtended { action, days } => {
+            let result = match action.as_str() {
+                "types" => local_runtime.type_stats().await?,
+                "sessions" => local_runtime.session_stats().await?,
+                "digest" => local_runtime.weekly_digest(*days).await?,
+                "access_rate" | "access-rate" => local_runtime.access_rate_stats().await?,
+                other => anyhow::bail!(
+                    "invalid stats-extended action: {other} (expected types|sessions|digest|access-rate)"
+                ),
+            };
+            info!(
+                action = action.as_str(),
+                "Extended stats retrieved through local memory runtime"
+            );
+            println!("{result}");
+        }
         Commands::Doctor { .. } => {
             unreachable!("doctor is handled before storage initialization")
         }
