@@ -184,18 +184,10 @@ fn direct_write_admin_commands_preserve_mutation_and_stdout_contracts() -> anyho
         "import did not report the selected runtime path: {import_stderr}"
     );
 
-    for (expected_score, expected_signals, expected_flagged) in
-        [(-2, 1, false), (-4, 2, true)]
-    {
+    for (expected_score, expected_signals, expected_flagged) in [(-2, 1, false), (-4, 2, true)] {
         let feedback_output = run_cli(
             home.path(),
-            &[
-                "feedback",
-                LIVE_ID,
-                "outdated",
-                "--reason",
-                FEEDBACK_REASON,
-            ],
+            &["feedback", LIVE_ID, "outdated", "--reason", FEEDBACK_REASON],
         )?;
         let feedback_stdout = String::from_utf8(feedback_output.stdout)?;
         let feedback_stderr = String::from_utf8(feedback_output.stderr)?;
@@ -282,13 +274,11 @@ async fn local_runtime_preserves_direct_write_admin_contracts() -> anyhow::Resul
     }
 
     let runtime_swept = runtime.sweep_expired().await?;
-    let direct_swept =
-        <SqliteStorage as ExpirationSweeper>::sweep_expired(&direct_storage).await?;
+    let direct_swept = <SqliteStorage as ExpirationSweeper>::sweep_expired(&direct_storage).await?;
     assert_eq!(runtime_swept, direct_swept);
     assert_eq!(runtime_swept, 1);
 
-    let mut runtime_export: serde_json::Value =
-        serde_json::from_str(&runtime.export_all().await?)?;
+    let mut runtime_export: serde_json::Value = serde_json::from_str(&runtime.export_all().await?)?;
     let mut direct_export: serde_json::Value =
         serde_json::from_str(&direct_storage.export_all().await?)?;
     normalize_dynamic_export(&mut runtime_export);
@@ -296,16 +286,16 @@ async fn local_runtime_preserves_direct_write_admin_contracts() -> anyhow::Resul
     assert_eq!(runtime_export, direct_export);
     assert_eq!(runtime_export["memories"].as_array().map(Vec::len), Some(1));
     assert_eq!(runtime_export["memories"][0]["id"], LIVE_ID);
-    assert_eq!(runtime_export["memories"][0]["metadata"]["feedback_score"], -4);
+    assert_eq!(
+        runtime_export["memories"][0]["metadata"]["feedback_score"],
+        -4
+    );
     assert_eq!(
         runtime_export["memories"][0]["metadata"]["flagged_for_review"],
         true
     );
     assert_eq!(runtime_export["relationships"], serde_json::json!([]));
-    assert_eq!(
-        runtime_export["user_profile"]["timezone"],
-        "Asia/Dubai"
-    );
+    assert_eq!(runtime_export["user_profile"]["timezone"], "Asia/Dubai");
 
     Ok(())
 }
