@@ -44,3 +44,8 @@ milestone.
 - Red: commit `506b232` failed CI run `30692055111` only because
   `memory_session` still accepted `SqliteStorage` instead of the server-owned
   `LocalMemoryRuntime`.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30692921429` at commit `d04e929`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30692921426` at the same commit.
