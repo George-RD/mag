@@ -1,15 +1,16 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, ExpirationSweeper,
-    FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput,
-    MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, Relationship,
-    RelationshipQuerier, ReminderManager, SearchOptions, SearchResult, SemanticResult,
-    SimilarFinder, StatsProvider, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
+    AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager, Deleter,
+    Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier,
+    ListResult, Lister, MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
+    PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier, ReminderManager,
+    SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider, VersionChainQuerier,
+    WelcomeOptions, WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -222,6 +223,75 @@ impl LocalMemoryRuntime {
     /// Returns access-rate statistics without changing percentages or rankings.
     pub async fn access_rate_stats(&self) -> Result<serde_json::Value> {
         self.storage.access_rate_stats().await
+    }
+
+    /// Checks the local database without changing thresholds or health fields.
+    pub async fn check_health(
+        &self,
+        warn_mb: f64,
+        critical_mb: f64,
+        max_nodes: i64,
+    ) -> Result<serde_json::Value> {
+        self.storage
+            .check_health(warn_mb, critical_mb, max_nodes)
+            .await
+    }
+
+    /// Consolidates stale memories without changing pruning or summary semantics.
+    pub async fn consolidate(
+        &self,
+        prune_days: i64,
+        max_summaries: i64,
+    ) -> Result<serde_json::Value> {
+        self.storage.consolidate(prune_days, max_summaries).await
+    }
+
+    /// Compacts near-duplicates without changing clustering or dry-run semantics.
+    pub async fn compact(
+        &self,
+        event_type: &str,
+        similarity_threshold: f64,
+        min_cluster_size: usize,
+        dry_run: bool,
+    ) -> Result<serde_json::Value> {
+        self.storage
+            .compact(event_type, similarity_threshold, min_cluster_size, dry_run)
+            .await
+    }
+
+    /// Clears one session without changing relationship cleanup semantics.
+    pub async fn clear_session(&self, session_id: &str) -> Result<usize> {
+        self.storage.clear_session(session_id).await
+    }
+
+    /// Rebuilds FTS without changing index reconstruction or result fields.
+    pub async fn rebuild_fts(&self) -> Result<serde_json::Value> {
+        self.storage.rebuild_fts().await
+    }
+
+    /// Creates a database backup without changing its format or metadata.
+    pub async fn create_backup(&self) -> Result<BackupInfo> {
+        self.storage.create_backup().await
+    }
+
+    /// Rotates backups without changing ordering or retention semantics.
+    pub async fn rotate_backups(&self, max_count: usize) -> Result<usize> {
+        self.storage.rotate_backups(max_count).await
+    }
+
+    /// Lists backups without changing ordering or metadata fields.
+    pub async fn list_backups(&self) -> Result<Vec<BackupInfo>> {
+        self.storage.list_backups().await
+    }
+
+    /// Restores a backup without changing the safety-backup contract.
+    pub async fn restore_backup(&self, backup_path: &Path) -> Result<()> {
+        self.storage.restore_backup(backup_path).await
+    }
+
+    /// Runs the existing automatic startup-backup policy.
+    pub async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>> {
+        self.storage.maybe_startup_backup().await
     }
 
     /// Runs the current basic search implementation.

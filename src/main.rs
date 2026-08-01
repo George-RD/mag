@@ -7,8 +7,8 @@ use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
 use memory_core::storage::{InitMode, SqliteStorage};
 use memory_core::{
-    BackupManager, CheckpointInput, Embedder, EventType, MaintenanceManager, MemoryInput,
-    MemoryUpdate, SearchOptions, WelcomeOptions, is_valid_event_type,
+    CheckpointInput, Embedder, EventType, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,
+    is_valid_event_type,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -171,13 +171,13 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "real-embeddings"))]
     let embedder: Arc<dyn Embedder> = Arc::new(PlaceholderEmbedder);
     let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
+    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
 
     // Automatic startup backup (file-backed DBs only, max every 24h)
-    if let Err(e) = <SqliteStorage as BackupManager>::maybe_startup_backup(&sqlite_storage).await {
+    if let Err(e) = local_runtime.maybe_startup_backup().await {
         tracing::warn!("startup backup failed (non-fatal): {e}");
     }
 
-    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
     let mcp_storage = sqlite_storage.clone();
 
     match &cli.command {
@@ -801,51 +801,46 @@ async fn main() -> anyhow::Result<()> {
             backup_path,
         } => match action.as_str() {
             "health" => {
-                let result = <SqliteStorage as MaintenanceManager>::check_health(
-                    &mcp_storage,
-                    warn_mb.unwrap_or(350.0),
-                    critical_mb.unwrap_or(800.0),
-                    max_nodes.unwrap_or(10000),
-                )
-                .await?;
+                let result = local_runtime
+                    .check_health(
+                        warn_mb.unwrap_or(350.0),
+                        critical_mb.unwrap_or(800.0),
+                        max_nodes.unwrap_or(10000),
+                    )
+                    .await?;
                 println!("{result}");
             }
             "consolidate" => {
-                let result = <SqliteStorage as MaintenanceManager>::consolidate(
-                    &mcp_storage,
-                    prune_days.unwrap_or(30),
-                    max_summaries.unwrap_or(50),
-                )
-                .await?;
+                let result = local_runtime
+                    .consolidate(prune_days.unwrap_or(30), max_summaries.unwrap_or(50))
+                    .await?;
                 println!("{result}");
             }
             "compact" => {
-                let result = <SqliteStorage as MaintenanceManager>::compact(
-                    &mcp_storage,
-                    event_type.as_deref().unwrap_or("lesson_learned"),
-                    similarity_threshold.unwrap_or(0.6),
-                    min_cluster_size.unwrap_or(3),
-                    *dry_run,
-                )
-                .await?;
+                let result = local_runtime
+                    .compact(
+                        event_type.as_deref().unwrap_or("lesson_learned"),
+                        similarity_threshold.unwrap_or(0.6),
+                        min_cluster_size.unwrap_or(3),
+                        *dry_run,
+                    )
+                    .await?;
                 println!("{result}");
             }
             "clear_session" | "clear-session" => {
                 let sid = session_id
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("--session-id is required for clear-session"))?;
-                let removed =
-                    <SqliteStorage as MaintenanceManager>::clear_session(&mcp_storage, sid).await?;
+                let removed = local_runtime.clear_session(sid).await?;
                 println!("{}", json!({"session_id": sid, "removed": removed}));
             }
             "fts-rebuild" | "fts_rebuild" => {
-                let result =
-                    <SqliteStorage as MaintenanceManager>::rebuild_fts(&mcp_storage).await?;
+                let result = local_runtime.rebuild_fts().await?;
                 println!("{result}");
             }
             "backup" => {
-                let info = <SqliteStorage as BackupManager>::create_backup(&mcp_storage).await?;
-                <SqliteStorage as BackupManager>::rotate_backups(&mcp_storage, 5).await?;
+                let info = local_runtime.create_backup().await?;
+                local_runtime.rotate_backups(5).await?;
                 println!(
                     "{}",
                     json!({
@@ -856,7 +851,7 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             "backup-list" | "backup_list" => {
-                let backups = <SqliteStorage as BackupManager>::list_backups(&mcp_storage).await?;
+                let backups = local_runtime.list_backups().await?;
                 let payload: Vec<_> = backups
                     .iter()
                     .map(|b| {
@@ -874,7 +869,7 @@ async fn main() -> anyhow::Result<()> {
                     anyhow::anyhow!("--backup-path is required for backup-restore")
                 })?;
                 let path = std::path::Path::new(path_str);
-                <SqliteStorage as BackupManager>::restore_backup(&mcp_storage, path).await?;
+                local_runtime.restore_backup(path).await?;
                 println!(
                     "{}",
                     json!({
