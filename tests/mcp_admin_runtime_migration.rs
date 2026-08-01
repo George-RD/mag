@@ -50,8 +50,8 @@ fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn full_mode_routes_memory_admin_through_the_local_runtime_without_protocol_drift(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn full_mode_routes_memory_admin_through_the_local_runtime_without_protocol_drift()
+-> Result<(), Box<dyn std::error::Error>> {
     let test_home =
         std::env::temp_dir().join(format!("mag-mcp-admin-full-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&test_home)?;
@@ -97,8 +97,8 @@ async fn full_mode_routes_memory_admin_through_the_local_runtime_without_protoco
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn minimal_mode_routes_memory_admin_through_the_same_local_runtime_without_protocol_drift(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn minimal_mode_routes_memory_admin_through_the_same_local_runtime_without_protocol_drift()
+-> Result<(), Box<dyn std::error::Error>> {
     let test_home =
         std::env::temp_dir().join(format!("mag-mcp-admin-minimal-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&test_home)?;
