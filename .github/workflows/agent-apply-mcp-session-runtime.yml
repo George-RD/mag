@@ -1,3 +1,4 @@
+# Trigger after the workflow exists on the branch.
 name: Agent apply MCP session runtime migration
 
 on:
