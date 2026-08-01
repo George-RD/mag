@@ -152,7 +152,7 @@ async fn memory_session_routes_all_subfamilies_through_the_server_runtime() {
             .as_array()
             .expect("lesson results should be an array")
             .iter()
-            .any(|entry| entry["id"] == "session-runtime-lesson")
+            .any(|entry| entry["lesson_id"] == "session-runtime-lesson")
     );
 
     let profile_update = facades::memory_session(
