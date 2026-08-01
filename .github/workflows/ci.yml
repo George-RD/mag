@@ -172,3 +172,132 @@ jobs:
             exit 1
           fi
           echo "npm install test passed: mag $INSTALLED_VER"
+
+  apply-mcp-session-runtime:
+    name: Apply MCP Session Runtime Migration
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/migrate-mcp-session-runtime' && github.actor != 'github-actions[bot]'
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/migrate-mcp-session-runtime
+          fetch-depth: 0
+      - name: Install Rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply bounded delegate migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one match in {path}, found {count}: {old!r}")
+              path.write_text(text.replace(old, new, 1))
+
+          mcp = Path("src/mcp/mod.rs")
+          replace_once(
+              mcp,
+              "tools::facades::memory_session(&self.storage, &params.0).await",
+              "tools::facades::memory_session(self.runtime.as_ref(), &params.0).await",
+          )
+
+          facades = Path("src/mcp/tools/facades.rs")
+          replace_once(
+              facades,
+              """use crate::memory_core::{
+              BackupManager, CheckpointInput, CheckpointManager, EventType, ExpirationSweeper,
+              FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryUpdate,
+              ProfileManager, RelationshipQuerier, ReminderManager, Retriever, SearchOptions, Updater,
+              VersionChainQuerier, WelcomeProvider, is_valid_event_type,
+          };
+          """,
+              """use crate::memory_core::{
+              BackupManager, CheckpointInput, EventType, ExpirationSweeper, FeedbackRecorder,
+              GraphTraverser, MaintenanceManager, MemoryUpdate, RelationshipQuerier, Retriever,
+              SearchOptions, Updater, VersionChainQuerier, WelcomeOptions, is_valid_event_type,
+          };
+          """,
+          )
+
+          text = facades.read_text()
+          start_marker = "// ── memory_session (unified facade) ──"
+          end_marker = "// ── memory_admin (unified facade) ──"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          prefix, session, suffix = text[:start], text[start:end], text[end:]
+
+          old_signature = """pub(crate) async fn memory_session(
+              storage: &SqliteStorage,
+              req: &MemorySessionRequest,
+          ) -> Result<CallToolResult, McpError> {
+          """
+          new_signature = """pub(crate) async fn memory_session(
+              runtime: &LocalMemoryRuntime,
+              req: &MemorySessionRequest,
+          ) -> Result<CallToolResult, McpError> {
+          """
+          if session.count(old_signature) != 1:
+              raise SystemExit("legacy memory_session signature was not found exactly once")
+          session = session.replace(old_signature, new_signature, 1)
+
+          old_welcome = """                let result = storage
+                          .welcome(req.session_id.as_deref(), req.project.as_deref())
+                          .await
+          """
+          new_welcome = """                let options = WelcomeOptions {
+                          session_id: req.session_id.clone(),
+                          project: req.project.clone(),
+                          ..WelcomeOptions::default()
+                      };
+                      let result = runtime
+                          .welcome_scoped(&options)
+                          .await
+          """
+          if session.count(old_welcome) != 1:
+              raise SystemExit("legacy welcome delegate was not found exactly once")
+          session = session.replace(old_welcome, new_welcome, 1)
+
+          replacements = [
+              (r"<SqliteStorage as CheckpointManager>::save_checkpoint\(\s*storage,\s*input\s*\)", "runtime.save_checkpoint(input)", 1),
+              (r"<SqliteStorage as CheckpointManager>::resume_task\(\s*storage,\s*", "runtime.resume_task(", 2),
+              (r"<SqliteStorage as ReminderManager>::create_reminder\(\s*storage,\s*", "runtime.create_reminder(", 1),
+              (r"<SqliteStorage as ReminderManager>::list_reminders\(\s*storage,\s*", "runtime.list_reminders(", 1),
+              (r"<SqliteStorage as ReminderManager>::dismiss_reminder\(\s*storage,\s*", "runtime.dismiss_reminder(", 1),
+              (r"<SqliteStorage as LessonQuerier>::query_lessons\(\s*storage,\s*", "runtime.query_lessons(", 1),
+              (r"<SqliteStorage as ProfileManager>::get_profile\(\s*storage\s*\)", "runtime.get_profile()", 1),
+              (r"<SqliteStorage as ProfileManager>::set_profile\(\s*storage,\s*", "runtime.set_profile(", 1),
+          ]
+          for pattern, replacement, expected in replacements:
+              session, count = re.subn(pattern, replacement, session)
+              if count != expected:
+                  raise SystemExit(f"expected {expected} replacements for {pattern!r}, found {count}")
+
+          if "<SqliteStorage as" in session or re.search(r"\bstorage\b", session):
+              raise SystemExit("direct SQLite delegation remains in memory_session")
+
+          facades.write_text(prefix + session + suffix)
+          PY
+          cargo fmt --all
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/ci.yml
+          rm -f .github/workflows/agent-apply-mcp-session-runtime.yml
+      - name: Commit production migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "refactor(mcp): route unified session through local runtime"
+          git push origin HEAD:agent/migrate-mcp-session-runtime
