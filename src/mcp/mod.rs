@@ -1,4 +1,4 @@
-use std::fmt::Write as _;
+use std::{fmt::Write as _, sync::Arc};
 
 use anyhow::Result;
 use rmcp::{
@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::LocalMemoryRuntime;
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{MemoryInput, is_valid_event_type};
 
@@ -325,14 +326,17 @@ fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpE
 #[derive(Clone)]
 pub struct McpMemoryServer {
     storage: SqliteStorage,
+    runtime: Arc<LocalMemoryRuntime>,
     tool_router: ToolRouter<Self>,
     tool_mode: McpToolMode,
 }
 
 impl McpMemoryServer {
     pub fn new(storage: SqliteStorage) -> Self {
+        let runtime = Arc::new(LocalMemoryRuntime::from_storage(storage.clone()));
         Self {
             storage,
+            runtime,
             tool_router: Self::tool_router(),
             tool_mode: McpToolMode::Full,
         }
@@ -554,7 +558,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<MemoryAdminFacadeRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::facades::memory_admin(&self.storage, &params.0).await
+        tools::facades::memory_admin(self.runtime.as_ref(), &params.0).await
     }
 }
 

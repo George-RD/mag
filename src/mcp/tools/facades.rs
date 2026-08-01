@@ -4,6 +4,7 @@ use rmcp::{
 };
 use serde_json::json;
 
+use crate::LocalMemoryRuntime;
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
     BackupManager, CheckpointInput, CheckpointManager, EventType, ExpirationSweeper,
@@ -647,7 +648,7 @@ pub(crate) async fn memory_session(
 // ── memory_admin (unified facade) ──
 
 pub(crate) async fn memory_admin(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &MemoryAdminFacadeRequest,
 ) -> Result<CallToolResult, McpError> {
     let action = req.action.as_deref().unwrap_or("health");
@@ -680,7 +681,7 @@ pub(crate) async fn memory_admin(
             match sort {
                 "created" => {
                     let offset = req.offset.unwrap_or(0);
-                    let result = storage.list(offset, limit, &opts).await.map_err(|e| {
+                    let result = runtime.list(offset, limit, &opts).await.map_err(|e| {
                         McpError::internal_error(format!("failed to list memories: {e}"), None)
                     })?;
                     let payload = serialize_results(result.memories)?;
@@ -689,7 +690,7 @@ pub(crate) async fn memory_admin(
                     )]))
                 }
                 "recent" => {
-                    let results = storage.recent(limit, &opts).await.map_err(|e| {
+                    let results = runtime.recent(limit, &opts).await.map_err(|e| {
                         McpError::internal_error(format!("failed to list recents: {e}"), None)
                     })?;
                     let payload = serialize_results(results)?;
@@ -707,7 +708,7 @@ pub(crate) async fn memory_admin(
             let detail = req.detail.as_deref().unwrap_or("basic");
             match detail {
                 "basic" => {
-                    storage.stats().await.map_err(|e| {
+                    runtime.stats().await.map_err(|e| {
                         McpError::internal_error(format!("storage probe failed: {e}"), None)
                     })?;
                     Ok(CallToolResult::success(vec![Content::text(
@@ -715,7 +716,7 @@ pub(crate) async fn memory_admin(
                     )]))
                 }
                 "stats" => {
-                    let stats = storage.stats().await.map_err(|e| {
+                    let stats = runtime.stats().await.map_err(|e| {
                         McpError::internal_error(format!("failed to get stats: {e}"), None)
                     })?;
                     Ok(CallToolResult::success(vec![Content::text(
@@ -728,7 +729,7 @@ pub(crate) async fn memory_admin(
                     )]))
                 }
                 "types" => {
-                    let result = storage.type_stats().await.map_err(|e| {
+                    let result = runtime.type_stats().await.map_err(|e| {
                         McpError::internal_error(format!("type_stats failed: {e}"), None)
                     })?;
                     Ok(CallToolResult::success(vec![Content::text(
@@ -736,7 +737,7 @@ pub(crate) async fn memory_admin(
                     )]))
                 }
                 "sessions" => {
-                    let result = storage.session_stats().await.map_err(|e| {
+                    let result = runtime.session_stats().await.map_err(|e| {
                         McpError::internal_error(format!("session_stats failed: {e}"), None)
                     })?;
                     Ok(CallToolResult::success(vec![Content::text(
@@ -745,7 +746,7 @@ pub(crate) async fn memory_admin(
                 }
                 "digest" => {
                     let days = req.days.unwrap_or(7).min(365);
-                    let result = storage.weekly_digest(days).await.map_err(|e| {
+                    let result = runtime.weekly_digest(days).await.map_err(|e| {
                         McpError::internal_error(format!("weekly_digest failed: {e}"), None)
                     })?;
                     Ok(CallToolResult::success(vec![Content::text(
@@ -753,7 +754,7 @@ pub(crate) async fn memory_admin(
                     )]))
                 }
                 "access_rate" => {
-                    let result = storage.access_rate_stats().await.map_err(|e| {
+                    let result = runtime.access_rate_stats().await.map_err(|e| {
                         McpError::internal_error(format!("access_rate_stats failed: {e}"), None)
                     })?;
                     Ok(CallToolResult::success(vec![Content::text(
