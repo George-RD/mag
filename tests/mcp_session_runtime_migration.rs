@@ -27,8 +27,7 @@ fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_runtime()
 -> Result<(), Box<dyn std::error::Error>> {
-    let test_home =
-        std::env::temp_dir().join(format!("mag-mcp-session-{}", uuid::Uuid::new_v4()));
+    let test_home = std::env::temp_dir().join(format!("mag-mcp-session-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&test_home)?;
 
     let mut service = ()
@@ -70,7 +69,11 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
         }),
     )
     .await??;
-    assert!(text_contents(&store).iter().any(|text| text.contains("mcp-session-lesson")));
+    assert!(
+        text_contents(&store)
+            .iter()
+            .any(|text| text.contains("mcp-session-lesson"))
+    );
 
     let welcome = timeout(
         Duration::from_secs(20),
@@ -87,11 +90,13 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
     let welcome_text = text_contents(&welcome).join("");
     let welcome_payload: serde_json::Value = serde_json::from_str(&welcome_text)?;
     assert_eq!(welcome_payload["memory_count"], 1);
-    assert!(welcome_payload["recent_memories"]
-        .as_array()
-        .expect("recent_memories should be an array")
-        .iter()
-        .any(|memory| memory["id"] == "mcp-session-lesson"));
+    assert!(
+        welcome_payload["recent_memories"]
+            .as_array()
+            .expect("recent_memories should be an array")
+            .iter()
+            .any(|memory| memory["id"] == "mcp-session-lesson")
+    );
 
     let lessons = timeout(
         Duration::from_secs(20),
@@ -107,10 +112,12 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
         }),
     )
     .await??;
-    assert!(text_contents(&lessons)
-        .iter()
-        .any(|text| text.contains("mcp-session-lesson")
-            && text.contains("protocol-visible session lesson")));
+    assert!(
+        text_contents(&lessons)
+            .iter()
+            .any(|text| text.contains("mcp-session-lesson")
+                && text.contains("protocol-visible session lesson"))
+    );
 
     let profile_update = timeout(
         Duration::from_secs(20),
@@ -138,9 +145,11 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
         }),
     )
     .await??;
-    assert!(text_contents(&profile)
-        .iter()
-        .any(|text| text.contains(r#""preferred_editor":"helix""#)));
+    assert!(
+        text_contents(&profile)
+            .iter()
+            .any(|text| text.contains(r#""preferred_editor":"helix""#))
+    );
 
     let missing_title = timeout(
         Duration::from_secs(20),
@@ -157,8 +166,7 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
     .await?
     .expect_err("checkpoint title should remain a protocol invalid-params error");
     assert!(
-        format!("{missing_title:?}")
-            .contains("task_title is required for checkpoint_action=save"),
+        format!("{missing_title:?}").contains("task_title is required for checkpoint_action=save"),
         "unexpected protocol checkpoint error: {missing_title:?}"
     );
 
