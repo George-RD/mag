@@ -80,3 +80,11 @@ permitted to hide inside a caller migration.
   `LocalMemoryRuntime`; thresholds, pruning, compaction, session cleanup, FTS
   rebuilding, backup metadata, rotation, listing, restore state, and exact CLI
   JSON remain pinned by caller-level and direct-storage parity tests.
+
+## Verification
+
+- Red: commit `b412bb0` failed CI run `30640405721` because the maintenance and
+  backup delegates were deliberately absent from `LocalMemoryRuntime`.
+- Green: `cargo test --quiet --all-features --test cli_maintain_runtime_migration`
+  passed all five focused contracts, and `cairn scan` plus `cairn hook all` passed
+  in run `30687938472` before the implementation landed as `a246bab`.
