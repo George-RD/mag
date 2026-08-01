@@ -4,3 +4,6 @@ pub(crate) mod relations;
 pub(crate) mod search;
 pub(crate) mod session;
 pub(crate) mod storage;
+
+#[cfg(test)]
+mod runtime_migration_tests;
