@@ -6,6 +6,11 @@ on:
       - agent/migrate-cli-maintain-runtime
     paths:
       - .github/workflows/agent-apply-maintain-runtime.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/agent-apply-maintain-runtime.yml
 
 permissions:
   contents: write
