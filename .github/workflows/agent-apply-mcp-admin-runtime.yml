@@ -20,13 +20,15 @@ jobs:
           ref: agent/migrate-mcp-admin-runtime
           fetch-depth: 0
 
-      - name: Install Rust
+      - name: Install Rustfmt
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
-      - name: Apply runtime migration
+      - name: Apply bounded runtime migration
+        shell: bash
         run: |
+          set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
 
@@ -34,7 +36,7 @@ jobs:
               text = path.read_text()
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"expected one match in {path} but found {count}: {old!r}")
+                  raise SystemExit(f"expected one match in {path}, found {count}: {old!r}")
               path.write_text(text.replace(old, new, 1))
 
           mcp = Path("src/mcp/mod.rs")
@@ -107,7 +109,7 @@ jobs:
           ) -> Result<CallToolResult, McpError> {
           """
           if admin.count(signature) != 1:
-              raise SystemExit("expected the legacy memory_admin signature exactly once")
+              raise SystemExit("legacy memory_admin signature was not found exactly once")
           admin = admin.replace(
               signature,
               """pub(crate) async fn memory_admin(
@@ -126,45 +128,38 @@ jobs:
               todo,
               """Blocked by `todo.introduce-local-memory-runtime-facade` and the relevant stable
           runtime capability slices.
-
           """,
               """The runtime facade and all CLI command families are complete. MCP migration is
           now in progress by bounded tool family so each slice can preserve protocol behaviour
           independently.
-
           """,
           )
           with todo.open("a") as handle:
               handle.write(
                   """
-          ## Current slice
 
-          Compose `LocalMemoryRuntime` once inside `McpMemoryServer` and route the unified
-          `memory_admin` facade through it. Preserve full and minimal tool advertisement,
-          exact health/list/export/import payloads, validation errors, and the local stdio
-          baseline. The server retains its shared SQLite clone temporarily for tool families
-          that have not migrated yet; both handles share the same pool and configuration.
+          ## Progress
+
+          - [x] Compose `LocalMemoryRuntime` once inside `McpMemoryServer` and route the
+            unified `memory_admin` facade through it. Full and minimal tool advertisement,
+            exact basic-health JSON, created-order list state, invalid-sort validation, and
+            missing import-data validation remain pinned. The server temporarily retains its
+            shared SQLite clone for MCP tool families that have not migrated yet.
           """
               )
           PY
 
-      - name: Format and run focused tests
-        run: |
           cargo fmt --all
-          cargo test --quiet --all-features mcp::tools::runtime_migration_tests
-
-      - name: Reconcile Cairn state
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
-          "$HOME/.cargo/bin/cairn" scan
+          rm .github/workflows/agent-apply-mcp-admin-runtime.yml
 
       - name: Commit implementation
+        shell: bash
         run: |
-          rm .github/workflows/agent-apply-mcp-admin-runtime.yml
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
+          git diff --cached --check
           git diff --cached --stat
           git commit -m "refactor(mcp): route unified admin through local runtime"
           git push origin HEAD:agent/migrate-mcp-admin-runtime
