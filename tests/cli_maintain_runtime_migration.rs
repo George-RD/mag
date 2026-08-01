@@ -384,8 +384,12 @@ fn maintain_backup_actions_preserve_restore_contract() -> anyhow::Result<()> {
 #[tokio::test]
 async fn local_runtime_preserves_maintenance_and_backup_contracts() -> anyhow::Result<()> {
     let temp = tempfile::tempdir()?;
-    let runtime_path = temp.path().join("runtime.db");
-    let direct_path = temp.path().join("direct.db");
+    let runtime_dir = temp.path().join("runtime");
+    let direct_dir = temp.path().join("direct");
+    std::fs::create_dir_all(&runtime_dir)?;
+    std::fs::create_dir_all(&direct_dir)?;
+    let runtime_path = runtime_dir.join("memory.db");
+    let direct_path = direct_dir.join("memory.db");
     let runtime_storage = storage_at(runtime_path.clone()).await;
     let direct_storage = storage_at(direct_path.clone()).await;
     let runtime = LocalMemoryRuntime::from_storage(runtime_storage);
@@ -488,10 +492,7 @@ async fn local_runtime_preserves_maintenance_and_backup_contracts() -> anyhow::R
     let direct_export: serde_json::Value =
         serde_json::from_str(&restored_direct_storage.export_all().await?)?;
     assert_eq!(runtime_export, direct_export);
-    assert_eq!(
-        runtime_export["memories"].as_array().map(Vec::len),
-        Some(1)
-    );
+    assert_eq!(runtime_export["memories"].as_array().map(Vec::len), Some(1));
     assert_eq!(runtime_export["memories"][0]["id"], KEEP_ID);
     assert_eq!(runtime_export["user_profile"]["timezone"], "Asia/Dubai");
 

@@ -1,6 +1,6 @@
 ---
 node: mag.runtime.entrypoints
-status: in_progress
+status: done
 created: 2026-07-29
 started: 2026-07-30
 ---
@@ -76,4 +76,7 @@ permitted to hide inside a caller migration.
   exact compact JSON, relationship cleanup, profile preservation, and direct-storage
   parity remain pinned by `tests/cli_admin_write_runtime_migration.rs`; Cairn's
   recorded entrypoint interface state is reconciled in the same slice.
-- [ ] Migrate `maintain` actions as a separate risk-bounded family.
+- [x] Automatic startup backup and all `maintain` actions route through
+  `LocalMemoryRuntime`; thresholds, pruning, compaction, session cleanup, FTS
+  rebuilding, backup metadata, rotation, listing, restore state, and exact CLI
+  JSON remain pinned by caller-level and direct-storage parity tests.
