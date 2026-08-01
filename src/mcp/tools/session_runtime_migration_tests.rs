@@ -45,11 +45,13 @@ async fn memory_session_routes_all_subfamilies_through_the_server_runtime() {
     let welcome_payload: serde_json::Value =
         serde_json::from_str(&result_text(&welcome)).expect("welcome should be JSON");
     assert_eq!(welcome_payload["memory_count"], 1);
-    assert!(welcome_payload["recent_memories"]
-        .as_array()
-        .expect("recent_memories should be an array")
-        .iter()
-        .any(|memory| memory["id"] == "session-runtime-lesson"));
+    assert!(
+        welcome_payload["recent_memories"]
+            .as_array()
+            .expect("recent_memories should be an array")
+            .iter()
+            .any(|memory| memory["id"] == "session-runtime-lesson")
+    );
 
     let checkpoint = facades::memory_session(
         server.runtime.as_ref(),
@@ -111,11 +113,13 @@ async fn memory_session_routes_all_subfamilies_through_the_server_runtime() {
     .expect("reminder list should succeed");
     let reminders_payload: serde_json::Value =
         serde_json::from_str(&result_text(&reminders)).expect("reminder list should be JSON");
-    assert!(reminders_payload["results"]
-        .as_array()
-        .expect("reminder results should be an array")
-        .iter()
-        .any(|entry| entry["reminder_id"] == reminder_id));
+    assert!(
+        reminders_payload["results"]
+            .as_array()
+            .expect("reminder results should be an array")
+            .iter()
+            .any(|entry| entry["reminder_id"] == reminder_id)
+    );
 
     let dismissed = facades::memory_session(
         server.runtime.as_ref(),
@@ -143,11 +147,13 @@ async fn memory_session_routes_all_subfamilies_through_the_server_runtime() {
     .expect("lesson query should succeed");
     let lessons_payload: serde_json::Value =
         serde_json::from_str(&result_text(&lessons)).expect("lessons should be JSON");
-    assert!(lessons_payload["results"]
-        .as_array()
-        .expect("lesson results should be an array")
-        .iter()
-        .any(|entry| entry["id"] == "session-runtime-lesson"));
+    assert!(
+        lessons_payload["results"]
+            .as_array()
+            .expect("lesson results should be an array")
+            .iter()
+            .any(|entry| entry["id"] == "session-runtime-lesson")
+    );
 
     let profile_update = facades::memory_session(
         server.runtime.as_ref(),
@@ -188,8 +194,7 @@ async fn memory_session_preserves_validation_errors_at_the_runtime_boundary() {
     .await
     .expect_err("checkpoint title should remain required");
     assert!(
-        format!("{missing_title:?}")
-            .contains("task_title is required for checkpoint_action=save"),
+        format!("{missing_title:?}").contains("task_title is required for checkpoint_action=save"),
         "unexpected checkpoint validation error: {missing_title:?}"
     );
 
