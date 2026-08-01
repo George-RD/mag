@@ -1,12 +1,14 @@
 ---
 node: mag.runtime.mcp
-status: blocked
+status: in_progress
 created: 2026-07-29
+started: 2026-08-01
 ---
 # Migrate MCP to the local memory runtime
 
-Blocked by `todo.introduce-local-memory-runtime-facade` and the relevant stable
-runtime capability slices.
+The runtime facade and all CLI command families are complete. MCP migration is
+now in progress by bounded tool family so each slice can preserve protocol
+behaviour independently.
 
 Route both full and minimal MCP tool modes through the same transport-independent
 runtime used by CLI. Start with failing protocol-level parity tests for tool
@@ -17,3 +19,21 @@ The stdio server remains the mandatory local baseline. This migration must not
 introduce an HTTP, daemon, hosted-service, authentication, or cloud dependency.
 Any future service adapter consumes the same runtime contract in a separate
 milestone.
+
+## Progress
+
+- [x] Compose `LocalMemoryRuntime` once inside `McpMemoryServer` and route the
+  unified `memory_admin` facade through it. Full and minimal tool advertisement,
+  exact basic-health JSON, created-order list state, invalid-sort validation, and
+  missing import-data validation remain pinned. The server temporarily retains its
+  shared SQLite clone for MCP tool families that have not migrated yet.
+
+## Verification
+
+- Red: commit `92723df` failed CI run `30690927339` because
+  `McpMemoryServer` did not yet own a `LocalMemoryRuntime`.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, and the non-applicable benchmark gate passed in CI run
+  `30691472875` at commit `c722388`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30691472878` at the same commit.
