@@ -31,6 +31,7 @@ jobs:
       - name: Apply runtime migration
         shell: python
         run: |
+          import re
           from pathlib import Path
 
           def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -38,6 +39,12 @@ jobs:
               if count != 1:
                   raise SystemExit(f"{label}: expected one match, found {count}")
               return text.replace(old, new, 1)
+
+          def sub_once(text: str, pattern: str, replacement: str, label: str) -> str:
+              updated, count = re.subn(pattern, replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return updated
 
           runtime_path = Path("src/local_memory_runtime.rs")
           runtime = runtime_path.read_text()
@@ -186,89 +193,58 @@ jobs:
               let mcp_storage = sqlite_storage.clone();""",
               "startup backup routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                let result = <SqliteStorage as MaintenanceManager>::check_health(
-                  &mcp_storage,
-                  warn_mb.unwrap_or(350.0),
-                  critical_mb.unwrap_or(800.0),
-                  max_nodes.unwrap_or(10000),
-              )
-              .await?;""",
-              """                let result = local_runtime
-                  .check_health(
-                      warn_mb.unwrap_or(350.0),
-                      critical_mb.unwrap_or(800.0),
-                      max_nodes.unwrap_or(10000),
-                  )
-                  .await?;""",
+              r"<SqliteStorage as MaintenanceManager>::check_health\(\s*&mcp_storage,\s*",
+              "local_runtime.check_health(",
               "health routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                let result = <SqliteStorage as MaintenanceManager>::consolidate(
-                  &mcp_storage,
-                  prune_days.unwrap_or(30),
-                  max_summaries.unwrap_or(50),
-              )
-              .await?;""",
-              """                let result = local_runtime
-                  .consolidate(prune_days.unwrap_or(30), max_summaries.unwrap_or(50))
-                  .await?;""",
+              r"<SqliteStorage as MaintenanceManager>::consolidate\(\s*&mcp_storage,\s*",
+              "local_runtime.consolidate(",
               "consolidate routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                let result = <SqliteStorage as MaintenanceManager>::compact(
-                  &mcp_storage,
-                  event_type.as_deref().unwrap_or("lesson_learned"),
-                  similarity_threshold.unwrap_or(0.6),
-                  min_cluster_size.unwrap_or(3),
-                  *dry_run,
-              )
-              .await?;""",
-              """                let result = local_runtime
-                  .compact(
-                      event_type.as_deref().unwrap_or("lesson_learned"),
-                      similarity_threshold.unwrap_or(0.6),
-                      min_cluster_size.unwrap_or(3),
-                      *dry_run,
-                  )
-                  .await?;""",
+              r"<SqliteStorage as MaintenanceManager>::compact\(\s*&mcp_storage,\s*",
+              "local_runtime.compact(",
               "compact routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                let removed =
-                  <SqliteStorage as MaintenanceManager>::clear_session(&mcp_storage, sid).await?;""",
-              """                let removed = local_runtime.clear_session(sid).await?;""",
+              r"<SqliteStorage as MaintenanceManager>::clear_session\(\s*&mcp_storage,\s*sid\s*\)",
+              "local_runtime.clear_session(sid)",
               "clear-session routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                let result =
-                  <SqliteStorage as MaintenanceManager>::rebuild_fts(&mcp_storage).await?;""",
-              """                let result = local_runtime.rebuild_fts().await?;""",
+              r"<SqliteStorage as MaintenanceManager>::rebuild_fts\(\s*&mcp_storage\s*\)",
+              "local_runtime.rebuild_fts()",
               "fts routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                let info = <SqliteStorage as BackupManager>::create_backup(&mcp_storage).await?;
-              <SqliteStorage as BackupManager>::rotate_backups(&mcp_storage, 5).await?;""",
-              """                let info = local_runtime.create_backup().await?;
-              local_runtime.rotate_backups(5).await?;""",
+              r"<SqliteStorage as BackupManager>::create_backup\(\s*&mcp_storage\s*\)",
+              "local_runtime.create_backup()",
               "backup creation routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                let backups = <SqliteStorage as BackupManager>::list_backups(&mcp_storage).await?;""",
-              """                let backups = local_runtime.list_backups().await?;""",
+              r"<SqliteStorage as BackupManager>::rotate_backups\(\s*&mcp_storage,\s*5\s*\)",
+              "local_runtime.rotate_backups(5)",
+              "backup rotation routing",
+          )
+          main = sub_once(
+              main,
+              r"<SqliteStorage as BackupManager>::list_backups\(\s*&mcp_storage\s*\)",
+              "local_runtime.list_backups()",
               "backup listing routing",
           )
-          main = replace_once(
+          main = sub_once(
               main,
-              """                <SqliteStorage as BackupManager>::restore_backup(&mcp_storage, path).await?;""",
-              """                local_runtime.restore_backup(path).await?;""",
+              r"<SqliteStorage as BackupManager>::restore_backup\(\s*&mcp_storage,\s*path\s*\)",
+              "local_runtime.restore_backup(path)",
               "backup restore routing",
           )
           main_path.write_text(main)
