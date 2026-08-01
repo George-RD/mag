@@ -41,6 +41,13 @@ fn advertised_tool_names(tools: &rmcp::model::ListToolsResult) -> Vec<String> {
     names
 }
 
+fn arguments(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    value
+        .as_object()
+        .expect("tool arguments should be an object")
+        .clone()
+}
+
 fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
     result
         .content
@@ -85,6 +92,25 @@ async fn full_mode_routes_memory_admin_through_the_local_runtime_without_protoco
     )
     .await??;
     assert_eq!(text_contents(&health), vec![r#"{"status":"healthy"}"#]);
+
+    let invalid_sort = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_admin".into(),
+            arguments: Some(arguments(serde_json::json!({
+                "action": "list",
+                "sort": "ranked"
+            }))),
+            task: None,
+        }),
+    )
+    .await?
+    .expect_err("unknown sort should remain a protocol invalid-params error");
+    assert!(
+        format!("{invalid_sort:?}").contains("unknown sort: ranked (expected created|recent)"),
+        "unexpected protocol invalid-sort error: {invalid_sort:?}"
+    );
 
     let shutdown = timeout(
         Duration::from_secs(20),
@@ -132,6 +158,22 @@ async fn minimal_mode_routes_memory_admin_through_the_same_local_runtime_without
     )
     .await??;
     assert_eq!(text_contents(&health), vec![r#"{"status":"healthy"}"#]);
+
+    let missing_import_data = timeout(
+        Duration::from_secs(20),
+        service.call_tool(CallToolRequestParams {
+            meta: None,
+            name: "memory_admin".into(),
+            arguments: Some(arguments(serde_json::json!({"action": "import"}))),
+            task: None,
+        }),
+    )
+    .await?
+    .expect_err("missing import data should remain a protocol invalid-params error");
+    assert!(
+        format!("{missing_import_data:?}").contains("data is required for action=import"),
+        "unexpected protocol missing-data error: {missing_import_data:?}"
+    );
 
     let shutdown = timeout(
         Duration::from_secs(20),
