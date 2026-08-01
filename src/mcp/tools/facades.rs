@@ -8,9 +8,9 @@ use crate::LocalMemoryRuntime;
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
     BackupManager, CheckpointInput, CheckpointManager, EventType, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, Lister, MaintenanceManager, MemoryUpdate,
-    ProfileManager, Recents, RelationshipQuerier, ReminderManager, Retriever, SearchOptions,
-    StatsProvider, Updater, VersionChainQuerier, WelcomeProvider, is_valid_event_type,
+    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryUpdate,
+    ProfileManager, RelationshipQuerier, ReminderManager, Retriever, SearchOptions, Updater,
+    VersionChainQuerier, WelcomeProvider, is_valid_event_type,
 };
 
 use super::super::request_types::{
@@ -770,7 +770,7 @@ pub(crate) async fn memory_admin(
             }
         }
         "export" => {
-            let export_data = storage
+            let export_data = runtime
                 .export_all()
                 .await
                 .map_err(|e| McpError::internal_error(format!("failed to export: {e}"), None))?;
@@ -780,7 +780,7 @@ pub(crate) async fn memory_admin(
             let data = req.data.as_deref().ok_or_else(|| {
                 McpError::invalid_params("data is required for action=import", None)
             })?;
-            let count = storage
+            let count = runtime
                 .import_all(data)
                 .await
                 .map_err(|e| McpError::internal_error(format!("failed to import: {e}"), None))?;
