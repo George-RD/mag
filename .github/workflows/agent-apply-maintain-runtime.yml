@@ -56,22 +56,15 @@ jobs:
           )
           runtime = replace_once(
               runtime,
-              """use crate::memory_core::{
-              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, ExpirationSweeper,
-              FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput,
-              MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, Relationship,
-              RelationshipQuerier, ReminderManager, SearchOptions, SearchResult, SemanticResult,
-              SimilarFinder, StatsProvider, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
-          };""",
-              """use crate::memory_core::{
-              AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager, Deleter,
-              Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier,
-              ListResult, Lister, MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
-              PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier, ReminderManager,
-              SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider,
-              VersionChainQuerier, WelcomeOptions, WelcomeProvider,
-          };""",
-              "runtime capability imports",
+              "AdvancedSearcher, CheckpointInput,",
+              "AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput,",
+              "runtime backup imports",
+          )
+          runtime = replace_once(
+              runtime,
+              "ListResult, Lister, MemoryInput,",
+              "ListResult, Lister, MaintenanceManager, MemoryInput,",
+              "runtime maintenance import",
           )
           runtime = replace_once(
               runtime,
@@ -161,15 +154,15 @@ jobs:
           main = main_path.read_text()
           main = replace_once(
               main,
-              """use memory_core::{
-              BackupManager, CheckpointInput, Embedder, EventType, MaintenanceManager, MemoryInput,
-              MemoryUpdate, SearchOptions, WelcomeOptions, is_valid_event_type,
-          };""",
-              """use memory_core::{
-              CheckpointInput, Embedder, EventType, MemoryInput, MemoryUpdate, SearchOptions,
-              WelcomeOptions, is_valid_event_type,
-          };""",
-              "main maintenance imports",
+              "BackupManager, CheckpointInput,",
+              "CheckpointInput,",
+              "main backup import",
+          )
+          main = replace_once(
+              main,
+              "EventType, MaintenanceManager, MemoryInput,",
+              "EventType, MemoryInput,",
+              "main maintenance import",
           )
           main = replace_once(
               main,
@@ -193,61 +186,72 @@ jobs:
               let mcp_storage = sqlite_storage.clone();""",
               "startup backup routing",
           )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as MaintenanceManager>::check_health\(\s*&mcp_storage,\s*",
-              "local_runtime.check_health(",
-              "health routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as MaintenanceManager>::consolidate\(\s*&mcp_storage,\s*",
-              "local_runtime.consolidate(",
-              "consolidate routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as MaintenanceManager>::compact\(\s*&mcp_storage,\s*",
-              "local_runtime.compact(",
-              "compact routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as MaintenanceManager>::clear_session\(\s*&mcp_storage,\s*sid\s*\)",
-              "local_runtime.clear_session(sid)",
-              "clear-session routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as MaintenanceManager>::rebuild_fts\(\s*&mcp_storage\s*\)",
-              "local_runtime.rebuild_fts()",
-              "fts routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as BackupManager>::create_backup\(\s*&mcp_storage\s*\)",
-              "local_runtime.create_backup()",
-              "backup creation routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as BackupManager>::rotate_backups\(\s*&mcp_storage,\s*5\s*\)",
-              "local_runtime.rotate_backups(5)",
-              "backup rotation routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as BackupManager>::list_backups\(\s*&mcp_storage\s*\)",
-              "local_runtime.list_backups()",
-              "backup listing routing",
-          )
-          main = sub_once(
-              main,
-              r"<SqliteStorage as BackupManager>::restore_backup\(\s*&mcp_storage,\s*path\s*\)",
-              "local_runtime.restore_backup(path)",
-              "backup restore routing",
-          )
+          replacements = [
+              (
+                  r"<SqliteStorage as MaintenanceManager>::check_health\(\s*&mcp_storage,\s*",
+                  "local_runtime.check_health(",
+                  "health routing",
+              ),
+              (
+                  r"<SqliteStorage as MaintenanceManager>::consolidate\(\s*&mcp_storage,\s*",
+                  "local_runtime.consolidate(",
+                  "consolidate routing",
+              ),
+              (
+                  r"<SqliteStorage as MaintenanceManager>::compact\(\s*&mcp_storage,\s*",
+                  "local_runtime.compact(",
+                  "compact routing",
+              ),
+              (
+                  r"<SqliteStorage as MaintenanceManager>::clear_session\(\s*&mcp_storage,\s*sid\s*\)",
+                  "local_runtime.clear_session(sid)",
+                  "clear-session routing",
+              ),
+              (
+                  r"<SqliteStorage as MaintenanceManager>::rebuild_fts\(\s*&mcp_storage\s*\)",
+                  "local_runtime.rebuild_fts()",
+                  "FTS routing",
+              ),
+              (
+                  r"<SqliteStorage as BackupManager>::create_backup\(\s*&mcp_storage\s*\)",
+                  "local_runtime.create_backup()",
+                  "backup creation routing",
+              ),
+              (
+                  r"<SqliteStorage as BackupManager>::rotate_backups\(\s*&mcp_storage,\s*5\s*\)",
+                  "local_runtime.rotate_backups(5)",
+                  "backup rotation routing",
+              ),
+              (
+                  r"<SqliteStorage as BackupManager>::list_backups\(\s*&mcp_storage\s*\)",
+                  "local_runtime.list_backups()",
+                  "backup listing routing",
+              ),
+              (
+                  r"<SqliteStorage as BackupManager>::restore_backup\(\s*&mcp_storage,\s*path\s*\)",
+                  "local_runtime.restore_backup(path)",
+                  "backup restore routing",
+              ),
+          ]
+          for pattern, replacement, label in replacements:
+              main = sub_once(main, pattern, replacement, label)
           main_path.write_text(main)
+
+          test_path = Path("tests/cli_maintain_runtime_migration.rs")
+          test = test_path.read_text()
+          test = replace_once(
+              test,
+              """    let runtime_path = temp.path().join("runtime.db");
+              let direct_path = temp.path().join("direct.db");""",
+              """    let runtime_dir = temp.path().join("runtime");
+              let direct_dir = temp.path().join("direct");
+              std::fs::create_dir_all(&runtime_dir)?;
+              std::fs::create_dir_all(&direct_dir)?;
+              let runtime_path = runtime_dir.join("memory.db");
+              let direct_path = direct_dir.join("memory.db");""",
+              "isolated backup fixtures",
+          )
+          test_path.write_text(test)
 
           todo_path = Path("meta/todos/migrate-cli-to-local-memory-runtime.md")
           todo = todo_path.read_text()
