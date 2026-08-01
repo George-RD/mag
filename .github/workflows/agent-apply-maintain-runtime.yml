@@ -257,6 +257,12 @@ jobs:
           todo = todo_path.read_text()
           todo = replace_once(
               todo,
+              "status: in_progress",
+              "status: done",
+              "CLI migration todo status",
+          )
+          todo = replace_once(
+              todo,
               "- [ ] Migrate `maintain` actions as a separate risk-bounded family.",
               """- [x] Automatic startup backup and all `maintain` actions route through
             `LocalMemoryRuntime`; thresholds, pruning, compaction, session cleanup, FTS
@@ -280,7 +286,6 @@ jobs:
 
       - name: Reconcile and verify Cairn
         run: |
-          cairn todo set migrate-cli-to-local-memory-runtime done
           cairn scan
           cairn hook all
 
