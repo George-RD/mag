@@ -265,7 +265,7 @@ jobs:
       - name: Format and run the focused contract
         run: |
           cargo fmt --all
-          cargo test --quiet --no-default-features --test cli_maintain_runtime_migration
+          cargo test --quiet --all-features --test cli_maintain_runtime_migration
           git diff --check
 
       - name: Install Cairn 0.9.0
