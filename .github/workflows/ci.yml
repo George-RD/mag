@@ -249,22 +249,20 @@ jobs:
               raise SystemExit("legacy memory_session signature was not found exactly once")
           session = session.replace(old_signature, new_signature, 1)
 
-          old_welcome = """                let result = storage
-                          .welcome(req.session_id.as_deref(), req.project.as_deref())
-                          .await
-          """
-          new_welcome = """                let options = WelcomeOptions {
-                          session_id: req.session_id.clone(),
-                          project: req.project.clone(),
-                          ..WelcomeOptions::default()
-                      };
-                      let result = runtime
-                          .welcome_scoped(&options)
-                          .await
-          """
-          if session.count(old_welcome) != 1:
-              raise SystemExit("legacy welcome delegate was not found exactly once")
-          session = session.replace(old_welcome, new_welcome, 1)
+          session, count = re.subn(
+              r"let result = storage\s*\.welcome\(req\.session_id\.as_deref\(\), req\.project\.as_deref\(\)\)\s*\.await",
+              """let options = WelcomeOptions {
+                      session_id: req.session_id.clone(),
+                      project: req.project.clone(),
+                      ..WelcomeOptions::default()
+                  };
+                  let result = runtime
+                      .welcome_scoped(&options)
+                      .await""",
+              session,
+          )
+          if count != 1:
+              raise SystemExit(f"expected one welcome delegate replacement, found {count}")
 
           replacements = [
               (r"<SqliteStorage as CheckpointManager>::save_checkpoint\(\s*storage,\s*input\s*\)", "runtime.save_checkpoint(input)", 1),
