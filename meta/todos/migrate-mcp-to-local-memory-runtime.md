@@ -32,3 +32,8 @@ milestone.
 
 - Red: commit `92723df` failed CI run `30690927339` because
   `McpMemoryServer` did not yet own a `LocalMemoryRuntime`.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, and the non-applicable benchmark gate passed in CI run
+  `30691472875` at commit `c722388`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30691472878` at the same commit.
