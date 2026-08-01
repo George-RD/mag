@@ -2,8 +2,7 @@ use serde_json::json;
 
 use super::facades;
 use crate::mcp::{
-    MINIMAL_TOOL_NAMES, McpMemoryServer, McpToolMode,
-    request_types::MemoryAdminFacadeRequest,
+    MINIMAL_TOOL_NAMES, McpMemoryServer, McpToolMode, request_types::MemoryAdminFacadeRequest,
 };
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{MemoryInput, Storage};
@@ -55,10 +54,7 @@ async fn memory_admin_routes_through_server_runtime_without_contract_drift() {
         serde_json::from_str(&result_text(&list)).expect("list result should be JSON");
     assert_eq!(payload["total"], 1);
     assert_eq!(payload["results"][0]["id"], "admin-runtime-id");
-    assert_eq!(
-        payload["results"][0]["content"],
-        "admin runtime content"
-    );
+    assert_eq!(payload["results"][0]["content"], "admin runtime content");
 
     let invalid_sort = facades::memory_admin(
         server.runtime.as_ref(),
