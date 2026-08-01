@@ -1,0 +1,310 @@
+name: Apply maintenance runtime migration
+
+on:
+  push:
+    branches:
+      - agent/migrate-cli-maintain-runtime
+    paths:
+      - .github/workflows/agent-apply-maintain-runtime.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/migrate-cli-maintain-runtime
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply runtime migration
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+          runtime_path = Path("src/local_memory_runtime.rs")
+          runtime = runtime_path.read_text()
+          runtime = replace_once(
+              runtime,
+              "use std::path::PathBuf;",
+              "use std::path::{Path, PathBuf};",
+              "runtime path import",
+          )
+          runtime = replace_once(
+              runtime,
+              """use crate::memory_core::{
+              AdvancedSearcher, CheckpointInput, CheckpointManager, Deleter, Embedder, ExpirationSweeper,
+              FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister, MemoryInput,
+              MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, Relationship,
+              RelationshipQuerier, ReminderManager, SearchOptions, SearchResult, SemanticResult,
+              SimilarFinder, StatsProvider, VersionChainQuerier, WelcomeOptions, WelcomeProvider,
+          };""",
+              """use crate::memory_core::{
+              AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager, Deleter,
+              Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier,
+              ListResult, Lister, MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
+              PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier, ReminderManager,
+              SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider,
+              VersionChainQuerier, WelcomeOptions, WelcomeProvider,
+          };""",
+              "runtime capability imports",
+          )
+          runtime = replace_once(
+              runtime,
+              """    /// Runs the current basic search implementation.
+              pub async fn search(""",
+              """    /// Checks the local database without changing thresholds or health fields.
+              pub async fn check_health(
+                  &self,
+                  warn_mb: f64,
+                  critical_mb: f64,
+                  max_nodes: i64,
+              ) -> Result<serde_json::Value> {
+                  self.storage
+                      .check_health(warn_mb, critical_mb, max_nodes)
+                      .await
+              }
+
+              /// Consolidates stale memories without changing pruning or summary semantics.
+              pub async fn consolidate(
+                  &self,
+                  prune_days: i64,
+                  max_summaries: i64,
+              ) -> Result<serde_json::Value> {
+                  self.storage.consolidate(prune_days, max_summaries).await
+              }
+
+              /// Compacts near-duplicates without changing clustering or dry-run semantics.
+              pub async fn compact(
+                  &self,
+                  event_type: &str,
+                  similarity_threshold: f64,
+                  min_cluster_size: usize,
+                  dry_run: bool,
+              ) -> Result<serde_json::Value> {
+                  self.storage
+                      .compact(
+                          event_type,
+                          similarity_threshold,
+                          min_cluster_size,
+                          dry_run,
+                      )
+                      .await
+              }
+
+              /// Clears one session without changing relationship cleanup semantics.
+              pub async fn clear_session(&self, session_id: &str) -> Result<usize> {
+                  self.storage.clear_session(session_id).await
+              }
+
+              /// Rebuilds FTS without changing index reconstruction or result fields.
+              pub async fn rebuild_fts(&self) -> Result<serde_json::Value> {
+                  self.storage.rebuild_fts().await
+              }
+
+              /// Creates a database backup without changing its format or metadata.
+              pub async fn create_backup(&self) -> Result<BackupInfo> {
+                  self.storage.create_backup().await
+              }
+
+              /// Rotates backups without changing ordering or retention semantics.
+              pub async fn rotate_backups(&self, max_count: usize) -> Result<usize> {
+                  self.storage.rotate_backups(max_count).await
+              }
+
+              /// Lists backups without changing ordering or metadata fields.
+              pub async fn list_backups(&self) -> Result<Vec<BackupInfo>> {
+                  self.storage.list_backups().await
+              }
+
+              /// Restores a backup without changing the safety-backup contract.
+              pub async fn restore_backup(&self, backup_path: &Path) -> Result<()> {
+                  self.storage.restore_backup(backup_path).await
+              }
+
+              /// Runs the existing automatic startup-backup policy.
+              pub async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>> {
+                  self.storage.maybe_startup_backup().await
+              }
+
+              /// Runs the current basic search implementation.
+              pub async fn search(""",
+              "runtime maintenance delegates",
+          )
+          runtime_path.write_text(runtime)
+
+          main_path = Path("src/main.rs")
+          main = main_path.read_text()
+          main = replace_once(
+              main,
+              """use memory_core::{
+              BackupManager, CheckpointInput, Embedder, EventType, MaintenanceManager, MemoryInput,
+              MemoryUpdate, SearchOptions, WelcomeOptions, is_valid_event_type,
+          };""",
+              """use memory_core::{
+              CheckpointInput, Embedder, EventType, MemoryInput, MemoryUpdate, SearchOptions,
+              WelcomeOptions, is_valid_event_type,
+          };""",
+              "main maintenance imports",
+          )
+          main = replace_once(
+              main,
+              """    let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
+
+              // Automatic startup backup (file-backed DBs only, max every 24h)
+              if let Err(e) = <SqliteStorage as BackupManager>::maybe_startup_backup(&sqlite_storage).await {
+                  tracing::warn!("startup backup failed (non-fatal): {e}");
+              }
+
+              let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
+              let mcp_storage = sqlite_storage.clone();""",
+              """    let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
+              let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
+
+              // Automatic startup backup (file-backed DBs only, max every 24h)
+              if let Err(e) = local_runtime.maybe_startup_backup().await {
+                  tracing::warn!("startup backup failed (non-fatal): {e}");
+              }
+
+              let mcp_storage = sqlite_storage.clone();""",
+              "startup backup routing",
+          )
+          main = replace_once(
+              main,
+              """                let result = <SqliteStorage as MaintenanceManager>::check_health(
+                  &mcp_storage,
+                  warn_mb.unwrap_or(350.0),
+                  critical_mb.unwrap_or(800.0),
+                  max_nodes.unwrap_or(10000),
+              )
+              .await?;""",
+              """                let result = local_runtime
+                  .check_health(
+                      warn_mb.unwrap_or(350.0),
+                      critical_mb.unwrap_or(800.0),
+                      max_nodes.unwrap_or(10000),
+                  )
+                  .await?;""",
+              "health routing",
+          )
+          main = replace_once(
+              main,
+              """                let result = <SqliteStorage as MaintenanceManager>::consolidate(
+                  &mcp_storage,
+                  prune_days.unwrap_or(30),
+                  max_summaries.unwrap_or(50),
+              )
+              .await?;""",
+              """                let result = local_runtime
+                  .consolidate(prune_days.unwrap_or(30), max_summaries.unwrap_or(50))
+                  .await?;""",
+              "consolidate routing",
+          )
+          main = replace_once(
+              main,
+              """                let result = <SqliteStorage as MaintenanceManager>::compact(
+                  &mcp_storage,
+                  event_type.as_deref().unwrap_or("lesson_learned"),
+                  similarity_threshold.unwrap_or(0.6),
+                  min_cluster_size.unwrap_or(3),
+                  *dry_run,
+              )
+              .await?;""",
+              """                let result = local_runtime
+                  .compact(
+                      event_type.as_deref().unwrap_or("lesson_learned"),
+                      similarity_threshold.unwrap_or(0.6),
+                      min_cluster_size.unwrap_or(3),
+                      *dry_run,
+                  )
+                  .await?;""",
+              "compact routing",
+          )
+          main = replace_once(
+              main,
+              """                let removed =
+                  <SqliteStorage as MaintenanceManager>::clear_session(&mcp_storage, sid).await?;""",
+              """                let removed = local_runtime.clear_session(sid).await?;""",
+              "clear-session routing",
+          )
+          main = replace_once(
+              main,
+              """                let result =
+                  <SqliteStorage as MaintenanceManager>::rebuild_fts(&mcp_storage).await?;""",
+              """                let result = local_runtime.rebuild_fts().await?;""",
+              "fts routing",
+          )
+          main = replace_once(
+              main,
+              """                let info = <SqliteStorage as BackupManager>::create_backup(&mcp_storage).await?;
+              <SqliteStorage as BackupManager>::rotate_backups(&mcp_storage, 5).await?;""",
+              """                let info = local_runtime.create_backup().await?;
+              local_runtime.rotate_backups(5).await?;""",
+              "backup creation routing",
+          )
+          main = replace_once(
+              main,
+              """                let backups = <SqliteStorage as BackupManager>::list_backups(&mcp_storage).await?;""",
+              """                let backups = local_runtime.list_backups().await?;""",
+              "backup listing routing",
+          )
+          main = replace_once(
+              main,
+              """                <SqliteStorage as BackupManager>::restore_backup(&mcp_storage, path).await?;""",
+              """                local_runtime.restore_backup(path).await?;""",
+              "backup restore routing",
+          )
+          main_path.write_text(main)
+
+          todo_path = Path("meta/todos/migrate-cli-to-local-memory-runtime.md")
+          todo = todo_path.read_text()
+          todo = replace_once(
+              todo,
+              "- [ ] Migrate `maintain` actions as a separate risk-bounded family.",
+              """- [x] Automatic startup backup and all `maintain` actions route through
+            `LocalMemoryRuntime`; thresholds, pruning, compaction, session cleanup, FTS
+            rebuilding, backup metadata, rotation, listing, restore state, and exact CLI
+            JSON remain pinned by caller-level and direct-storage parity tests.""",
+              "CLI migration todo",
+          )
+          todo_path.write_text(todo)
+
+      - name: Format and run the focused contract
+        run: |
+          cargo fmt --all
+          cargo test --quiet --no-default-features --test cli_maintain_runtime_migration
+          git diff --check
+
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Reconcile and verify Cairn
+        run: |
+          cairn todo set migrate-cli-to-local-memory-runtime done
+          cairn scan
+          cairn hook all
+
+      - name: Commit verified implementation
+        run: |
+          git rm .github/workflows/agent-apply-maintain-runtime.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor(cli): route maintenance through local runtime"
+          git push origin HEAD:agent/migrate-cli-maintain-runtime
