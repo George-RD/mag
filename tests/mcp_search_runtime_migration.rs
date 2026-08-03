@@ -68,7 +68,7 @@ async fn call_tool(
     service
         .call_tool(CallToolRequestParams {
             meta: None,
-            name: name.into(),
+            name: name.to_owned().into(),
             arguments: Some(arguments(value)),
             task: None,
         })
