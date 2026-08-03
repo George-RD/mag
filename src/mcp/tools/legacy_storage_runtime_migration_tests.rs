@@ -5,6 +5,7 @@ use super::storage;
 use crate::mcp::{
     McpMemoryServer,
     request_types::{DeleteRequest, RetrieveRequest, StoreBatchRequest, StoreRequest},
+    validation::MAX_BATCH_SIZE,
 };
 use crate::memory_core::storage::SqliteStorage;
 
@@ -111,7 +112,8 @@ async fn legacy_storage_tools_preserve_validation_at_the_runtime_boundary() {
         "unexpected event-type error: {invalid_event_type:?}"
     );
 
-    let oversized_items: Vec<serde_json::Value> = (0..101)
+    let oversized_batch_size = MAX_BATCH_SIZE + 1;
+    let oversized_items: Vec<serde_json::Value> = (0..oversized_batch_size)
         .map(|index| json!({"content": format!("memory {index}")}))
         .collect();
     let oversized_batch = storage::memory_store_batch(
@@ -120,8 +122,10 @@ async fn legacy_storage_tools_preserve_validation_at_the_runtime_boundary() {
     )
     .await
     .expect_err("legacy batch size limit should remain enforced");
+    let expected_error =
+        format!("batch size {oversized_batch_size} exceeds maximum of {MAX_BATCH_SIZE}");
     assert!(
-        format!("{oversized_batch:?}").contains("batch size 101 exceeds maximum of 100"),
+        format!("{oversized_batch:?}").contains(&expected_error),
         "unexpected batch-size error: {oversized_batch:?}"
     );
 }
