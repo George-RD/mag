@@ -40,8 +40,12 @@ milestone.
 - [x] Route the unified `memory` facade through the same server-owned runtime for
   raw single and batch storage, retrieval, and deletion. Unit and minimal-mode
   stdio parity pin exact JSON, caller-supplied IDs, raw content, batch order, tool
-  advertisement, and invalid-parameter errors. The four individual legacy storage
-  tools remain queued for a separate compatibility slice.
+  advertisement, and invalid-parameter errors.
+- [x] Route the four individual legacy storage tools through the same server-owned
+  runtime: `memory_store`, `memory_store_batch`, `memory_retrieve`, and
+  `memory_delete`. Unit and full-mode stdio parity pin the exact 19-tool
+  advertisement, raw content, caller-supplied IDs, batch order, validation errors,
+  and shared visibility with the unified `memory` facade.
 
 ## Verification
 
@@ -71,3 +75,6 @@ milestone.
 - Red: commit `0b3bb6a` passed Rustfmt and then failed CI run `30803891243` with
   eight `E0308` type errors because the unified `memory` facade still accepted
   `SqliteStorage` while the parity tests required `LocalMemoryRuntime`.
+- Red: commit `fc10b80` passed Rustfmt and then failed CI run `30806477589` with
+  seven `E0308` type errors because the four legacy storage functions still
+  accepted `SqliteStorage` while the parity tests required `LocalMemoryRuntime`.
