@@ -4,36 +4,112 @@ use rmcp::{
 };
 use serde_json::json;
 
-use crate::memory_core::storage::SqliteStorage;
-use crate::memory_core::{
-    AdvancedSearcher, EventType, Lister, PhraseSearcher, Recents, SearchOptions, Searcher,
-    SemanticSearcher, SimilarFinder, Tagger, is_valid_event_type,
-};
+use crate::LocalMemoryRuntime;
+use crate::memory_core::{EventType, SearchOptions, is_valid_event_type};
 
 use super::super::request_types::{ListRequest, SearchRequest};
 use super::super::serialize_results;
 use super::super::validation::{MAX_RESULT_LIMIT, require_finite};
 
+struct SearchFilters<'a> {
+    event_type: Option<&'a str>,
+    project: Option<&'a str>,
+    session_id: Option<&'a str>,
+    include_superseded: Option<bool>,
+    event_after: Option<&'a str>,
+    event_before: Option<&'a str>,
+    importance_min: Option<f64>,
+    created_after: Option<&'a str>,
+    created_before: Option<&'a str>,
+    context_tags: Option<&'a [String]>,
+    explain: Option<bool>,
+}
+
+impl<'a> From<&'a SearchRequest> for SearchFilters<'a> {
+    fn from(req: &'a SearchRequest) -> Self {
+        Self {
+            event_type: req.event_type.as_deref(),
+            project: req.project.as_deref(),
+            session_id: req.session_id.as_deref(),
+            include_superseded: req.include_superseded,
+            event_after: req.event_after.as_deref(),
+            event_before: req.event_before.as_deref(),
+            importance_min: req.importance_min,
+            created_after: req.created_after.as_deref(),
+            created_before: req.created_before.as_deref(),
+            context_tags: req.context_tags.as_deref(),
+            explain: req.explain,
+        }
+    }
+}
+
+impl<'a> From<&'a ListRequest> for SearchFilters<'a> {
+    fn from(req: &'a ListRequest) -> Self {
+        Self {
+            event_type: req.event_type.as_deref(),
+            project: req.project.as_deref(),
+            session_id: req.session_id.as_deref(),
+            include_superseded: req.include_superseded,
+            event_after: req.event_after.as_deref(),
+            event_before: req.event_before.as_deref(),
+            importance_min: req.importance_min,
+            created_after: req.created_after.as_deref(),
+            created_before: req.created_before.as_deref(),
+            context_tags: req.context_tags.as_deref(),
+            explain: None,
+        }
+    }
+}
+
+fn build_search_options(filters: SearchFilters<'_>) -> Result<SearchOptions, McpError> {
+    if let Some(event_type) = filters.event_type
+        && !is_valid_event_type(event_type)
+    {
+        return Err(McpError::invalid_params("invalid event_type", None));
+    }
+
+    Ok(SearchOptions {
+        event_type: EventType::from_optional(filters.event_type),
+        project: filters.project.map(str::to_owned),
+        session_id: filters.session_id.map(str::to_owned),
+        include_superseded: filters.include_superseded,
+        event_after: filters.event_after.map(str::to_owned),
+        event_before: filters.event_before.map(str::to_owned),
+        importance_min: filters.importance_min,
+        created_after: filters.created_after.map(str::to_owned),
+        created_before: filters.created_before.map(str::to_owned),
+        context_tags: filters.context_tags.map(<[String]>::to_vec),
+        explain: filters.explain,
+        ..Default::default()
+    })
+}
+
+fn validate_importance_min(value: Option<f64>) -> Result<(), McpError> {
+    if let Some(value) = value {
+        require_finite("importance_min", value)?;
+    }
+    Ok(())
+}
+
 // ── memory_search ──
 
 pub(crate) async fn memory_search(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &SearchRequest,
 ) -> Result<CallToolResult, McpError> {
     let mode = req.mode.as_deref().unwrap_or("text");
     let limit = req.limit.unwrap_or(10).min(MAX_RESULT_LIMIT);
     let use_advanced = req.advanced.unwrap_or(mode == "text");
 
-    if let Some(v) = req.importance_min {
-        require_finite("importance_min", v)?;
-    }
+    validate_importance_min(req.importance_min)?;
 
     // "similar" mode doesn't use opts — early-return path
     if mode == "similar" {
         let memory_id = req.memory_id.as_deref().ok_or_else(|| {
             McpError::invalid_params("memory_id is required for mode=similar", None)
         })?;
-        let results = <SqliteStorage as SimilarFinder>::find_similar(storage, memory_id, limit)
+        let results = runtime
+            .find_similar(memory_id, limit)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("failed to find similar memories: {e}"), None)
@@ -44,26 +120,8 @@ pub(crate) async fn memory_search(
         )]));
     }
 
-    // All other modes share event_type validation and SearchOptions
-    if let Some(event_type) = req.event_type.as_deref()
-        && !is_valid_event_type(event_type)
-    {
-        return Err(McpError::invalid_params("invalid event_type", None));
-    }
-    let opts = SearchOptions {
-        event_type: EventType::from_optional(req.event_type.as_deref()),
-        project: req.project.clone(),
-        session_id: req.session_id.clone(),
-        include_superseded: req.include_superseded,
-        event_after: req.event_after.clone(),
-        event_before: req.event_before.clone(),
-        importance_min: req.importance_min,
-        created_after: req.created_after.clone(),
-        created_before: req.created_before.clone(),
-        context_tags: req.context_tags.clone(),
-        explain: req.explain,
-        ..Default::default()
-    };
+    // All other modes share event_type validation and SearchOptions.
+    let opts = build_search_options(req.into())?;
 
     if use_advanced {
         match mode {
@@ -71,16 +129,15 @@ pub(crate) async fn memory_search(
                 let query = req.query.as_deref().ok_or_else(|| {
                     McpError::invalid_params(format!("query is required for mode={mode}"), None)
                 })?;
-                let results = <SqliteStorage as AdvancedSearcher>::advanced_search(
-                    storage, query, limit, &opts,
-                )
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(
-                        format!("failed to advanced-search memories: {e}"),
-                        None,
-                    )
-                })?;
+                let results = runtime
+                    .advanced_search(query, limit, &opts)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("failed to advanced-search memories: {e}"),
+                            None,
+                        )
+                    })?;
 
                 let abstained = results.is_empty();
                 let result_count = results.len();
@@ -127,7 +184,7 @@ pub(crate) async fn memory_search(
                 .query
                 .as_deref()
                 .ok_or_else(|| McpError::invalid_params("query is required for mode=text", None))?;
-            let results = storage.search(query, limit, &opts).await.map_err(|e| {
+            let results = runtime.search(query, limit, &opts).await.map_err(|e| {
                 McpError::internal_error(format!("failed to search memories: {e}"), None)
             })?;
             let payload = serialize_results(results)?;
@@ -139,7 +196,7 @@ pub(crate) async fn memory_search(
             let query = req.query.as_deref().ok_or_else(|| {
                 McpError::invalid_params("query is required for mode=semantic", None)
             })?;
-            let results = storage
+            let results = runtime
                 .semantic_search(query, limit, &opts)
                 .await
                 .map_err(|e| {
@@ -157,15 +214,15 @@ pub(crate) async fn memory_search(
             let query = req.query.as_deref().ok_or_else(|| {
                 McpError::invalid_params("query is required for mode=phrase", None)
             })?;
-            let results =
-                <SqliteStorage as PhraseSearcher>::phrase_search(storage, query, limit, &opts)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("failed to phrase-search memories: {e}"),
-                            None,
-                        )
-                    })?;
+            let results = runtime
+                .phrase_search(query, limit, &opts)
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        format!("failed to phrase-search memories: {e}"),
+                        None,
+                    )
+                })?;
             let payload = serialize_results(results)?;
             Ok(CallToolResult::success(vec![Content::text(
                 json!({ "results": payload }).to_string(),
@@ -181,9 +238,12 @@ pub(crate) async fn memory_search(
                     json!({ "results": [] }).to_string(),
                 )]));
             }
-            let results = storage.get_by_tags(tags, limit, &opts).await.map_err(|e| {
-                McpError::internal_error(format!("failed to search by tags: {e}"), None)
-            })?;
+            let results = runtime
+                .get_by_tags(tags, limit, &opts)
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to search by tags: {e}"), None)
+                })?;
             let payload = serialize_results(results)?;
             Ok(CallToolResult::success(vec![Content::text(
                 json!({ "results": payload }).to_string(),
@@ -199,37 +259,18 @@ pub(crate) async fn memory_search(
 // ── memory_list ──
 
 pub(crate) async fn memory_list(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &ListRequest,
 ) -> Result<CallToolResult, McpError> {
-    if let Some(event_type) = req.event_type.as_deref()
-        && !is_valid_event_type(event_type)
-    {
-        return Err(McpError::invalid_params("invalid event_type", None));
-    }
+    let opts = build_search_options(req.into())?;
     let sort = req.sort.as_deref().unwrap_or("created");
     let limit = req.limit.unwrap_or(10).min(MAX_RESULT_LIMIT);
-    if let Some(v) = req.importance_min {
-        require_finite("importance_min", v)?;
-    }
-    let opts = SearchOptions {
-        event_type: EventType::from_optional(req.event_type.as_deref()),
-        project: req.project.clone(),
-        session_id: req.session_id.clone(),
-        include_superseded: req.include_superseded,
-        event_after: req.event_after.clone(),
-        event_before: req.event_before.clone(),
-        importance_min: req.importance_min,
-        created_after: req.created_after.clone(),
-        created_before: req.created_before.clone(),
-        context_tags: req.context_tags.clone(),
-        ..Default::default()
-    };
+    validate_importance_min(req.importance_min)?;
 
     match sort {
         "created" => {
             let offset = req.offset.unwrap_or(0);
-            let result = storage.list(offset, limit, &opts).await.map_err(|e| {
+            let result = runtime.list(offset, limit, &opts).await.map_err(|e| {
                 McpError::internal_error(format!("failed to list memories: {e}"), None)
             })?;
             let payload = serialize_results(result.memories)?;
@@ -238,7 +279,7 @@ pub(crate) async fn memory_list(
             )]))
         }
         "recent" => {
-            let results = storage.recent(limit, &opts).await.map_err(|e| {
+            let results = runtime.recent(limit, &opts).await.map_err(|e| {
                 McpError::internal_error(format!("failed to list recents: {e}"), None)
             })?;
             let payload = serialize_results(results)?;
