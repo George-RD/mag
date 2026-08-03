@@ -30,7 +30,13 @@ milestone.
 - [x] Route the unified `memory_session` facade through the same runtime for
   welcome/info, checkpoints, reminders, lessons, and profile state. Minimal-mode
   stdio parity and shared-state visibility with the still-unmigrated `memory`
-  facade remain pinned. Legacy individual session tools remain queued.
+  facade remain pinned.
+- [x] Route the five individual legacy session tools through the same server-owned
+  runtime: `memory_session_info`, `memory_checkpoint`, `memory_remind`,
+  `memory_lessons`, and `memory_profile`. Full-mode stdio parity pins the exact
+  19-tool advertisement, welcome and protocol output, checkpoint continuity,
+  reminder and profile state, lesson payloads, validation errors, and visibility
+  of data written by the still-unmigrated legacy `memory_store` tool.
 
 ## Verification
 
@@ -49,3 +55,11 @@ milestone.
   passed in CI run `30692921429` at commit `d04e929`.
 - Cairn architecture, decision, and interface verification passed in run
   `30692921426` at the same commit.
+- Red: commit `27387a7` passed Rustfmt and then failed CI run `30793307211` with
+  twelve `E0308` type errors because the five legacy session functions still
+  accepted `SqliteStorage` while the parity tests required `LocalMemoryRuntime`.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30794130536` at commit `97167bc`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30794130526` at the same commit.
