@@ -7,10 +7,9 @@ use serde_json::json;
 use crate::LocalMemoryRuntime;
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    BackupManager, CheckpointInput, CheckpointManager, EventType, ExpirationSweeper,
-    FeedbackRecorder, GraphTraverser, LessonQuerier, MaintenanceManager, MemoryUpdate,
-    ProfileManager, RelationshipQuerier, ReminderManager, Retriever, SearchOptions, Updater,
-    VersionChainQuerier, WelcomeProvider, is_valid_event_type,
+    BackupManager, CheckpointInput, EventType, ExpirationSweeper, FeedbackRecorder, GraphTraverser,
+    MaintenanceManager, MemoryUpdate, RelationshipQuerier, Retriever, SearchOptions, Updater,
+    VersionChainQuerier, WelcomeOptions, is_valid_event_type,
 };
 
 use super::super::request_types::{
@@ -404,7 +403,7 @@ pub(crate) async fn memory_manage(
 // ── memory_session (unified facade) ──
 
 pub(crate) async fn memory_session(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &MemorySessionRequest,
 ) -> Result<CallToolResult, McpError> {
     let action = req.action.as_deref().unwrap_or("info");
@@ -412,8 +411,13 @@ pub(crate) async fn memory_session(
     match action {
         "info" => match req.info_mode.as_deref().unwrap_or("welcome") {
             "welcome" => {
-                let result = storage
-                    .welcome(req.session_id.as_deref(), req.project.as_deref())
+                let options = WelcomeOptions {
+                    session_id: req.session_id.clone(),
+                    project: req.project.clone(),
+                    ..WelcomeOptions::default()
+                };
+                let result = runtime
+                    .welcome_scoped(&options)
                     .await
                     .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
                 Ok(CallToolResult::success(vec![Content::text(
@@ -456,28 +460,18 @@ pub(crate) async fn memory_session(
                         session_id: req.session_id.clone(),
                         project: req.project.clone(),
                     };
-                    let memory_id =
-                        <SqliteStorage as CheckpointManager>::save_checkpoint(storage, input)
-                            .await
-                            .map_err(|e| {
-                                McpError::internal_error(
-                                    format!("failed to save checkpoint: {e}"),
-                                    None,
-                                )
-                            })?;
-                    let latest = <SqliteStorage as CheckpointManager>::resume_task(
-                        storage,
-                        task_title,
-                        req.project.as_deref(),
-                        1,
-                    )
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("failed to resolve checkpoint number: {e}"),
-                            None,
-                        )
+                    let memory_id = runtime.save_checkpoint(input).await.map_err(|e| {
+                        McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
                     })?;
+                    let latest = runtime
+                        .resume_task(task_title, req.project.as_deref(), 1)
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to resolve checkpoint number: {e}"),
+                                None,
+                            )
+                        })?;
                     let checkpoint_number = latest
                         .first()
                         .and_then(|entry| entry.get("metadata"))
@@ -492,16 +486,12 @@ pub(crate) async fn memory_session(
                 "resume" => {
                     let query = req.task_title.clone().unwrap_or_default();
                     let limit = req.limit.unwrap_or(1).min(MAX_RESULT_LIMIT);
-                    let results = <SqliteStorage as CheckpointManager>::resume_task(
-                        storage,
-                        &query,
-                        req.project.as_deref(),
-                        limit,
-                    )
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to resume task: {e}"), None)
-                    })?;
+                    let results = runtime
+                        .resume_task(&query, req.project.as_deref(), limit)
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(format!("failed to resume task: {e}"), None)
+                        })?;
                     let mut markdown = String::new();
                     for (index, entry) in results.iter().enumerate() {
                         if index > 0 {
@@ -532,31 +522,32 @@ pub(crate) async fn memory_session(
                     let duration = req.duration.as_deref().ok_or_else(|| {
                         McpError::invalid_params("duration is required for remind_action=set", None)
                     })?;
-                    let result = <SqliteStorage as ReminderManager>::create_reminder(
-                        storage,
-                        text,
-                        duration,
-                        req.context.as_deref(),
-                        req.session_id.as_deref(),
-                        req.project.as_deref(),
-                    )
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to create reminder: {e}"), None)
-                    })?;
+                    let result = runtime
+                        .create_reminder(
+                            text,
+                            duration,
+                            req.context.as_deref(),
+                            req.session_id.as_deref(),
+                            req.project.as_deref(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to create reminder: {e}"),
+                                None,
+                            )
+                        })?;
                     Ok(CallToolResult::success(vec![Content::text(
                         result.to_string(),
                     )]))
                 }
                 "list" => {
-                    let result = <SqliteStorage as ReminderManager>::list_reminders(
-                        storage,
-                        req.status.as_deref(),
-                    )
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to list reminders: {e}"), None)
-                    })?;
+                    let result = runtime
+                        .list_reminders(req.status.as_deref())
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(format!("failed to list reminders: {e}"), None)
+                        })?;
                     Ok(CallToolResult::success(vec![Content::text(
                         json!({ "results": result }).to_string(),
                     )]))
@@ -568,15 +559,9 @@ pub(crate) async fn memory_session(
                             None,
                         )
                     })?;
-                    let result =
-                        <SqliteStorage as ReminderManager>::dismiss_reminder(storage, reminder_id)
-                            .await
-                            .map_err(|e| {
-                                McpError::internal_error(
-                                    format!("failed to dismiss reminder: {e}"),
-                                    None,
-                                )
-                            })?;
+                    let result = runtime.dismiss_reminder(reminder_id).await.map_err(|e| {
+                        McpError::internal_error(format!("failed to dismiss reminder: {e}"), None)
+                    })?;
                     Ok(CallToolResult::success(vec![Content::text(
                         result.to_string(),
                     )]))
@@ -589,16 +574,18 @@ pub(crate) async fn memory_session(
         }
         "lessons" => {
             let limit = req.limit.unwrap_or(5).min(MAX_RESULT_LIMIT);
-            let lessons = <SqliteStorage as LessonQuerier>::query_lessons(
-                storage,
-                req.task.as_deref(),
-                req.project.as_deref(),
-                req.exclude_session.as_deref(),
-                req.agent_type.as_deref(),
-                limit,
-            )
-            .await
-            .map_err(|e| McpError::internal_error(format!("failed to query lessons: {e}"), None))?;
+            let lessons = runtime
+                .query_lessons(
+                    req.task.as_deref(),
+                    req.project.as_deref(),
+                    req.exclude_session.as_deref(),
+                    req.agent_type.as_deref(),
+                    limit,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to query lessons: {e}"), None)
+                })?;
             Ok(CallToolResult::success(vec![Content::text(
                 json!({ "results": lessons }).to_string(),
             )]))
@@ -607,11 +594,9 @@ pub(crate) async fn memory_session(
             let sub = req.profile_action.as_deref().unwrap_or("read");
             match sub {
                 "read" => {
-                    let profile = <SqliteStorage as ProfileManager>::get_profile(storage)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(format!("failed to read profile: {e}"), None)
-                        })?;
+                    let profile = runtime.get_profile().await.map_err(|e| {
+                        McpError::internal_error(format!("failed to read profile: {e}"), None)
+                    })?;
                     Ok(CallToolResult::success(vec![Content::text(
                         profile.to_string(),
                     )]))
@@ -623,11 +608,9 @@ pub(crate) async fn memory_session(
                             None,
                         )
                     })?;
-                    <SqliteStorage as ProfileManager>::set_profile(storage, updates)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(format!("failed to update profile: {e}"), None)
-                        })?;
+                    runtime.set_profile(updates).await.map_err(|e| {
+                        McpError::internal_error(format!("failed to update profile: {e}"), None)
+                    })?;
                     Ok(CallToolResult::success(vec![Content::text(
                         json!({ "updated": true }).to_string(),
                     )]))

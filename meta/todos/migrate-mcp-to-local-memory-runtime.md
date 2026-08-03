@@ -27,6 +27,10 @@ milestone.
   exact basic-health JSON, created-order list state, invalid-sort validation, and
   missing import-data validation remain pinned. The server temporarily retains its
   shared SQLite clone for MCP tool families that have not migrated yet.
+- [x] Route the unified `memory_session` facade through the same runtime for
+  welcome/info, checkpoints, reminders, lessons, and profile state. Minimal-mode
+  stdio parity and shared-state visibility with the still-unmigrated `memory`
+  facade remain pinned. Legacy individual session tools remain queued.
 
 ## Verification
 
@@ -37,3 +41,11 @@ milestone.
   `30691472875` at commit `c722388`.
 - Cairn architecture, decision, and interface verification passed in run
   `30691472878` at the same commit.
+- Red: commit `506b232` failed CI run `30692055111` only because
+  `memory_session` still accepted `SqliteStorage` instead of the server-owned
+  `LocalMemoryRuntime`.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30692921429` at commit `d04e929`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30692921426` at the same commit.

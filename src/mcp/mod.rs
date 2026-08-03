@@ -547,7 +547,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<MemorySessionRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::facades::memory_session(&self.storage, &params.0).await
+        tools::facades::memory_session(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
