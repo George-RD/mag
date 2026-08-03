@@ -5,8 +5,6 @@ use rmcp::{
 use serde_json::json;
 
 use crate::LocalMemoryRuntime;
-use crate::memory_core::storage::SqliteStorage;
-use crate::memory_core::{Deleter, Retriever, Storage};
 
 use super::super::build_memory_input;
 use super::super::request_types::{
@@ -17,11 +15,12 @@ use super::super::validation::MAX_BATCH_SIZE;
 // ── memory_store ──
 
 pub(crate) async fn memory_store(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &StoreRequest,
 ) -> Result<CallToolResult, McpError> {
     let (id, input) = build_memory_input(req)?;
-    <SqliteStorage as Storage>::store(storage, &id, &req.content, &input)
+    runtime
+        .store_raw(&id, &req.content, &input)
         .await
         .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
 
@@ -33,7 +32,7 @@ pub(crate) async fn memory_store(
 // ── memory_store_batch ──
 
 pub(crate) async fn memory_store_batch(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &StoreBatchRequest,
 ) -> Result<CallToolResult, McpError> {
     if req.items.len() > MAX_BATCH_SIZE {
@@ -52,8 +51,8 @@ pub(crate) async fn memory_store_batch(
         batch_items.push((id, item.content.clone(), input));
     }
 
-    storage
-        .store_batch(&batch_items)
+    runtime
+        .store_batch_raw(&batch_items)
         .await
         .map_err(|e| McpError::internal_error(format!("failed to batch store: {e}"), None))?;
 
@@ -66,10 +65,10 @@ pub(crate) async fn memory_store_batch(
 // ── memory_retrieve ──
 
 pub(crate) async fn memory_retrieve(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &RetrieveRequest,
 ) -> Result<CallToolResult, McpError> {
-    let content = storage
+    let content = runtime
         .retrieve(&req.id)
         .await
         .map_err(|e| McpError::internal_error(format!("failed to retrieve memory: {e}"), None))?;
@@ -82,10 +81,10 @@ pub(crate) async fn memory_retrieve(
 // ── memory_delete ──
 
 pub(crate) async fn memory_delete(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &DeleteRequest,
 ) -> Result<CallToolResult, McpError> {
-    let deleted = storage
+    let deleted = runtime
         .delete(&req.id)
         .await
         .map_err(|e| McpError::internal_error(format!("failed to delete memory: {e}"), None))?;
