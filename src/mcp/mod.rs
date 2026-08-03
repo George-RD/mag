@@ -473,7 +473,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<CheckpointRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::session::memory_checkpoint(&self.storage, &params.0).await
+        tools::session::memory_checkpoint(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -484,7 +484,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<RemindRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::session::memory_remind(&self.storage, &params.0).await
+        tools::session::memory_remind(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -495,7 +495,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<LessonsRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::session::memory_lessons(&self.storage, &params.0).await
+        tools::session::memory_lessons(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -506,7 +506,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<ProfileRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::session::memory_profile(&self.storage, &params.0).await
+        tools::session::memory_profile(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -517,7 +517,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<SessionInfoRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::session::memory_session_info(&self.storage, &params.0).await
+        tools::session::memory_session_info(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
