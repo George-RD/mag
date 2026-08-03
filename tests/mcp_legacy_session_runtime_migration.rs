@@ -51,10 +51,8 @@ fn text_json(result: &rmcp::model::CallToolResult) -> serde_json::Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 -> Result<(), Box<dyn std::error::Error>> {
-    let test_home = std::env::temp_dir().join(format!(
-        "mag-mcp-legacy-session-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let test_home =
+        std::env::temp_dir().join(format!("mag-mcp-legacy-session-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&test_home)?;
 
     let mut service = ()
@@ -264,10 +262,7 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
         }),
     )
     .await??;
-    assert_eq!(
-        text_contents(&profile_update),
-        vec![r#"{"updated":true}"#]
-    );
+    assert_eq!(text_contents(&profile_update), vec![r#"{"updated":true}"#]);
 
     let profile = timeout(
         Duration::from_secs(20),
