@@ -399,7 +399,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<SearchRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::search::memory_search(&self.storage, &params.0).await
+        tools::search::memory_search(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -410,7 +410,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<ListRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::search::memory_list(&self.storage, &params.0).await
+        tools::search::memory_list(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(name = "memory_delete", description = "Delete a memory by its id")]
