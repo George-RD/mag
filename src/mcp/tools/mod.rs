@@ -6,6 +6,8 @@ pub(crate) mod session;
 pub(crate) mod storage;
 
 #[cfg(test)]
+mod legacy_session_runtime_migration_tests;
+#[cfg(test)]
 mod runtime_migration_tests;
 #[cfg(test)]
 mod session_runtime_migration_tests;
