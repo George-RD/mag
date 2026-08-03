@@ -9,8 +9,8 @@ use crate::memory_core::{
     Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier,
     ListResult, Lister, MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
     PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier, ReminderManager,
-    SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider, VersionChainQuerier,
-    WelcomeOptions, WelcomeProvider,
+    SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider, Storage,
+    VersionChainQuerier, WelcomeOptions, WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -60,6 +60,24 @@ impl LocalMemoryRuntime {
     /// Stores content through the compatibility-sensitive CLI pipeline.
     pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String> {
         self.compatibility_pipeline.run(content, input).await
+    }
+
+    /// Stores raw transport content without running the CLI processing pipeline.
+    pub(crate) async fn store_raw(
+        &self,
+        id: &str,
+        content: &str,
+        input: &MemoryInput,
+    ) -> Result<()> {
+        <SqliteStorage as Storage>::store(&self.storage, id, content, input).await
+    }
+
+    /// Batch-stores raw transport content without changing order or IDs.
+    pub(crate) async fn store_batch_raw(
+        &self,
+        items: &[(String, String, MemoryInput)],
+    ) -> Result<()> {
+        self.storage.store_batch(items).await
     }
 
     /// Retrieves stored content without changing the current output.
