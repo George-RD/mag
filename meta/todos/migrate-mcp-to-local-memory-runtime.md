@@ -40,8 +40,13 @@ milestone.
 - [x] Route the unified `memory` facade through the same server-owned runtime for
   raw single and batch storage, retrieval, and deletion. Unit and minimal-mode
   stdio parity pin exact JSON, caller-supplied IDs, raw content, batch order, tool
-  advertisement, and invalid-parameter errors. The four individual legacy storage
-  tools remain queued for a separate compatibility slice.
+  advertisement, and invalid-parameter errors.
+- [x] Route the four individual legacy storage tools through the same server-owned
+  runtime: `memory_store`, `memory_store_batch`, `memory_retrieve`, and
+  `memory_delete`. Unit and full-mode stdio parity pin the exact 19-tool
+  advertisement, raw content, caller-supplied IDs, batch order, validation errors,
+  and shared visibility with the unified `memory` facade. Unified and legacy
+  storage entrypoints now share one internal execution path per operation.
 
 ## Verification
 
@@ -71,3 +76,22 @@ milestone.
 - Red: commit `0b3bb6a` passed Rustfmt and then failed CI run `30803891243` with
   eight `E0308` type errors because the unified `memory` facade still accepted
   `SqliteStorage` while the parity tests required `LocalMemoryRuntime`.
+- Red: commit `fc10b80` passed Rustfmt and then failed CI run `30806477589` with
+  seven `E0308` type errors because the four legacy storage functions still
+  accepted `SqliteStorage` while the parity tests required `LocalMemoryRuntime`.
+- CI run `30806950412` reached the migrated implementation but exposed a test-only
+  contract error: the new legacy batch validation test hard-coded a maximum of 100
+  while the shared MCP `MAX_BATCH_SIZE` contract is 1000. Commit `d817b46` binds
+  the boundary test to that shared constant instead of duplicating the limit.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30818010017` at commit `d817b46`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30818010004` at the same commit.
+- Parity-backed simplification: commit `ef7d54f` replaced duplicated unified and
+  legacy store, batch, retrieve, and delete execution with four shared helpers.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30818509376` at commit `ef7d54f`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30818509424` at the same commit.

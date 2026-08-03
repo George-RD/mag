@@ -366,7 +366,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<StoreRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::storage::memory_store(&self.storage, &params.0).await
+        tools::storage::memory_store(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -377,7 +377,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<StoreBatchRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::storage::memory_store_batch(&self.storage, &params.0).await
+        tools::storage::memory_store_batch(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -388,7 +388,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<RetrieveRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::storage::memory_retrieve(&self.storage, &params.0).await
+        tools::storage::memory_retrieve(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -418,7 +418,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<DeleteRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::storage::memory_delete(&self.storage, &params.0).await
+        tools::storage::memory_delete(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
