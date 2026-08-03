@@ -78,3 +78,12 @@ milestone.
 - Red: commit `fc10b80` passed Rustfmt and then failed CI run `30806477589` with
   seven `E0308` type errors because the four legacy storage functions still
   accepted `SqliteStorage` while the parity tests required `LocalMemoryRuntime`.
+- CI run `30806950412` reached the migrated implementation but exposed a test-only
+  contract error: the new legacy batch validation test hard-coded a maximum of 100
+  while the shared MCP `MAX_BATCH_SIZE` contract is 1000. Commit `d817b46` binds
+  the boundary test to that shared constant instead of duplicating the limit.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30818010017` at commit `d817b46`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30818010004` at the same commit.
