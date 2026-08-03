@@ -86,8 +86,8 @@ impl DaemonInfo {
 
 /// Generates a 32-byte random hex auth token (64 hex characters).
 pub fn generate_auth_token() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
+    use rand::RngExt;
+    let mut rng = rand::rng();
     let mut bytes = [0u8; 32];
     rng.fill(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
