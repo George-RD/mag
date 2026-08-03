@@ -45,7 +45,8 @@ milestone.
   runtime: `memory_store`, `memory_store_batch`, `memory_retrieve`, and
   `memory_delete`. Unit and full-mode stdio parity pin the exact 19-tool
   advertisement, raw content, caller-supplied IDs, batch order, validation errors,
-  and shared visibility with the unified `memory` facade.
+  and shared visibility with the unified `memory` facade. Unified and legacy
+  storage entrypoints now share one internal execution path per operation.
 
 ## Verification
 
@@ -87,3 +88,10 @@ milestone.
   passed in CI run `30818010017` at commit `d817b46`.
 - Cairn architecture, decision, and interface verification passed in run
   `30818010004` at the same commit.
+- Parity-backed simplification: commit `ef7d54f` replaced duplicated unified and
+  legacy store, batch, retrieve, and delete execution with four shared helpers.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30818509376` at commit `ef7d54f`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30818509424` at the same commit.
