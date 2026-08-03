@@ -108,12 +108,9 @@ pub(crate) async fn memory_search(
         let memory_id = req.memory_id.as_deref().ok_or_else(|| {
             McpError::invalid_params("memory_id is required for mode=similar", None)
         })?;
-        let results = runtime
-            .find_similar(memory_id, limit)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to find similar memories: {e}"), None)
-            })?;
+        let results = runtime.find_similar(memory_id, limit).await.map_err(|e| {
+            McpError::internal_error(format!("failed to find similar memories: {e}"), None)
+        })?;
         let payload = serialize_results(results)?;
         return Ok(CallToolResult::success(vec![Content::text(
             json!({ "results": payload }).to_string(),
@@ -218,10 +215,7 @@ pub(crate) async fn memory_search(
                 .phrase_search(query, limit, &opts)
                 .await
                 .map_err(|e| {
-                    McpError::internal_error(
-                        format!("failed to phrase-search memories: {e}"),
-                        None,
-                    )
+                    McpError::internal_error(format!("failed to phrase-search memories: {e}"), None)
                 })?;
             let payload = serialize_results(results)?;
             Ok(CallToolResult::success(vec![Content::text(
@@ -238,12 +232,9 @@ pub(crate) async fn memory_search(
                     json!({ "results": [] }).to_string(),
                 )]));
             }
-            let results = runtime
-                .get_by_tags(tags, limit, &opts)
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to search by tags: {e}"), None)
-                })?;
+            let results = runtime.get_by_tags(tags, limit, &opts).await.map_err(|e| {
+                McpError::internal_error(format!("failed to search by tags: {e}"), None)
+            })?;
             let payload = serialize_results(results)?;
             Ok(CallToolResult::success(vec![Content::text(
                 json!({ "results": payload }).to_string(),
