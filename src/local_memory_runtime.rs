@@ -322,7 +322,7 @@ impl LocalMemoryRuntime {
     }
 
     /// Returns memories matching every requested tag without changing filters or result fields.
-    pub(crate) async fn get_by_tags(
+    pub async fn get_by_tags(
         &self,
         tags: &[String],
         limit: usize,
