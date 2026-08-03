@@ -63,20 +63,12 @@ impl LocalMemoryRuntime {
     }
 
     /// Stores raw transport content without running the CLI processing pipeline.
-    pub async fn store_raw(
-        &self,
-        id: &str,
-        content: &str,
-        input: &MemoryInput,
-    ) -> Result<()> {
+    pub async fn store_raw(&self, id: &str, content: &str, input: &MemoryInput) -> Result<()> {
         <SqliteStorage as Storage>::store(&self.storage, id, content, input).await
     }
 
     /// Batch-stores raw transport content without changing order or IDs.
-    pub async fn store_batch_raw(
-        &self,
-        items: &[(String, String, MemoryInput)],
-    ) -> Result<()> {
+    pub async fn store_batch_raw(&self, items: &[(String, String, MemoryInput)]) -> Result<()> {
         self.storage.store_batch(items).await
     }
 
