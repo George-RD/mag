@@ -4,6 +4,7 @@ use rmcp::{
 };
 use serde_json::json;
 
+use crate::LocalMemoryRuntime;
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{Deleter, Retriever, Storage};
 
@@ -97,7 +98,7 @@ pub(crate) async fn memory_delete(
 // ── memory (unified facade) ──
 
 pub(crate) async fn memory_facade(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &MemoryRequest,
 ) -> Result<CallToolResult, McpError> {
     let action = req.action.as_deref().unwrap_or("store");
@@ -123,11 +124,9 @@ pub(crate) async fn memory_facade(
                 referenced_date: req.referenced_date.clone(),
             };
             let (id, input) = build_memory_input(&store_req)?;
-            <SqliteStorage as Storage>::store(storage, &id, content, &input)
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to store memory: {e}"), None)
-                })?;
+            runtime.store_raw(&id, content, &input).await.map_err(|e| {
+                McpError::internal_error(format!("failed to store memory: {e}"), None)
+            })?;
             Ok(CallToolResult::success(vec![Content::text(
                 json!({ "id": id }).to_string(),
             )]))
@@ -150,7 +149,7 @@ pub(crate) async fn memory_facade(
                 let (id, input) = build_memory_input(item)?;
                 batch_items.push((id, item.content.clone(), input));
             }
-            storage.store_batch(&batch_items).await.map_err(|e| {
+            runtime.store_batch_raw(&batch_items).await.map_err(|e| {
                 McpError::internal_error(format!("failed to batch store: {e}"), None)
             })?;
             let ids: Vec<&str> = batch_items.iter().map(|(id, _, _)| id.as_str()).collect();
@@ -162,7 +161,7 @@ pub(crate) async fn memory_facade(
             let id = req.id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("id is required for action=retrieve", None)
             })?;
-            let content = storage.retrieve(id).await.map_err(|e| {
+            let content = runtime.retrieve(id).await.map_err(|e| {
                 McpError::internal_error(format!("failed to retrieve memory: {e}"), None)
             })?;
             Ok(CallToolResult::success(vec![Content::text(
@@ -173,7 +172,7 @@ pub(crate) async fn memory_facade(
             let id = req.id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("id is required for action=delete", None)
             })?;
-            let deleted = storage.delete(id).await.map_err(|e| {
+            let deleted = runtime.delete(id).await.map_err(|e| {
                 McpError::internal_error(format!("failed to delete memory: {e}"), None)
             })?;
             Ok(CallToolResult::success(vec![Content::text(

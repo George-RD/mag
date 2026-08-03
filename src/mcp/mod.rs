@@ -54,7 +54,7 @@ pub enum McpToolMode {
 /// - `memory_admin`   — health / list / export / import
 const MINIMAL_TOOL_NAMES: &[&str] = &["memory", "memory_manage", "memory_session", "memory_admin"];
 
-// ──────���───────────────── MCP Instructions ────────────────────────
+// ──────────────────────── MCP Instructions ────────────────────────
 
 /// Instructions returned in the MCP `initialize` handshake.
 ///
@@ -109,7 +109,7 @@ Four unified facade tools replace the 16 legacy tools via `action` fields:\n\
 Legacy tools remain available in full mode. Use `--mcp-tools=minimal` to advertise only the 4 facades.\
 ";
 
-// ──────���───────────────── Tool Registry ────��───────────────────
+// ──────────────────────── Tool Registry ────────────────────────
 
 /// Metadata for a single MCP tool, used to generate protocol docs and CLI output.
 pub struct ToolMeta {
@@ -525,7 +525,7 @@ impl McpMemoryServer {
         description = "Unified memory facade (Wave 2 preview). Routes to store/store_batch/retrieve/delete based on `action` field (default: \"store\"). Use this single tool instead of the four individual tools when you prefer a collapsed interface."
     )]
     async fn memory(&self, params: Parameters<MemoryRequest>) -> Result<CallToolResult, McpError> {
-        tools::storage::memory_facade(&self.storage, &params.0).await
+        tools::storage::memory_facade(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -562,7 +562,7 @@ impl McpMemoryServer {
     }
 }
 
-// ──────────────────────── ServerHandler impl ─���──────────────────────
+// ──────────────────────── ServerHandler impl ────────────────────────
 
 impl ServerHandler for McpMemoryServer {
     fn get_info(&self) -> ServerInfo {
@@ -619,7 +619,7 @@ impl ServerHandler for McpMemoryServer {
     }
 }
 
-// ────��─────────────────── Tests ────────────────────────
+// ──────────────────────── Tests ────────────────────────
 
 #[cfg(test)]
 mod tests {
