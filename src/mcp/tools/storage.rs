@@ -68,7 +68,7 @@ pub(crate) async fn memory_store_batch(
 pub(crate) async fn memory_retrieve(
     storage: &SqliteStorage,
     req: &RetrieveRequest,
-) -> Result<CallToolResult, McError> {
+) -> Result<CallToolResult, McpError> {
     let content = storage
         .retrieve(&req.id)
         .await
