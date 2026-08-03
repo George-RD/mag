@@ -63,7 +63,7 @@ impl LocalMemoryRuntime {
     }
 
     /// Stores raw transport content without running the CLI processing pipeline.
-    pub(crate) async fn store_raw(
+    pub async fn store_raw(
         &self,
         id: &str,
         content: &str,
@@ -73,7 +73,7 @@ impl LocalMemoryRuntime {
     }
 
     /// Batch-stores raw transport content without changing order or IDs.
-    pub(crate) async fn store_batch_raw(
+    pub async fn store_batch_raw(
         &self,
         items: &[(String, String, MemoryInput)],
     ) -> Result<()> {
