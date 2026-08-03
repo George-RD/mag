@@ -9,7 +9,7 @@ use crate::memory_core::{
     Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier,
     ListResult, Lister, MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
     PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier, ReminderManager,
-    SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider, Storage,
+    SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider, Storage, Tagger,
     VersionChainQuerier, WelcomeOptions, WelcomeProvider,
 };
 
@@ -319,6 +319,16 @@ impl LocalMemoryRuntime {
     /// Lists recent memories without changing filters, ordering, or result fields.
     pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>> {
         self.compatibility_pipeline.recent(limit, options).await
+    }
+
+    /// Returns memories matching every requested tag without changing filters or result fields.
+    pub async fn get_by_tags(
+        &self,
+        tags: &[String],
+        limit: usize,
+        options: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        self.storage.get_by_tags(tags, limit, options).await
     }
 
     /// Runs the current SQLite phrase-search implementation.
