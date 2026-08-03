@@ -47,6 +47,13 @@ milestone.
   advertisement, raw content, caller-supplied IDs, batch order, validation errors,
   and shared visibility with the unified `memory` facade. Unified and legacy
   storage entrypoints now share one internal execution path per operation.
+- [x] Route `memory_search` and `memory_list` through the same server-owned runtime
+  for text, semantic, phrase, tag, and similar search plus created and recent
+  listing. Unit and full-mode stdio parity pin the exact 19-tool advertisement,
+  phrase and tag results, project and event filters, created totals, recent
+  visibility, empty-tag behaviour, and validation errors. Search and list now
+  share request-to-`SearchOptions` assembly, while the runtime exposes tag lookup
+  publicly because the MCP binary consumes the library across a crate boundary.
 
 ## Verification
 
@@ -95,3 +102,19 @@ milestone.
   passed in CI run `30818509376` at commit `ef7d54f`.
 - Cairn architecture, decision, and interface verification passed in run
   `30818509424` at the same commit.
+- Test harness correction: commit `b0f60b4` failed CI run `30819808916` with an
+  `E0521` lifetime error because the new stdio helper borrowed a tool name into an
+  owned MCP request field. Commit `f27142c` corrected the harness before the
+  production red boundary was evaluated.
+- Red: commit `f27142c` failed CI run `30820011444` with eight `E0308` type errors
+  because `memory_search` and `memory_list` still accepted `SqliteStorage` while
+  the parity tests required `LocalMemoryRuntime`.
+- Boundary correction: CI run `30821520552` at commit `7b14d5a` rejected a
+  crate-private tag lookup as dead library code. MCP is a separate binary crate,
+  so the required runtime capability is intentionally public; Cairn scan recorded
+  the resulting entrypoint interface hash as `98d8be9ec565753d`.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `30821884066` at commit `377f906`.
+- Cairn architecture, decision, and interface verification passed in run
+  `30821884709` at the same commit.
