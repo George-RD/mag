@@ -70,7 +70,10 @@ async fn minimal_mode_routes_unified_memory_actions_and_errors_through_the_local
         }),
     )
     .await??;
-    assert_eq!(text_contents(&stored), vec![r#"{"id":"mcp-memory-runtime"}"#]);
+    assert_eq!(
+        text_contents(&stored),
+        vec![r#"{"id":"mcp-memory-runtime"}"#]
+    );
 
     let retrieved = timeout(
         Duration::from_secs(20),
