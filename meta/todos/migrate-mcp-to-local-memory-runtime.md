@@ -37,6 +37,11 @@ milestone.
   19-tool advertisement, welcome and protocol output, checkpoint continuity,
   reminder and profile state, lesson payloads, validation errors, and visibility
   of data written by the still-unmigrated legacy `memory_store` tool.
+- [x] Route the unified `memory` facade through the same server-owned runtime for
+  raw single and batch storage, retrieval, and deletion. Unit and minimal-mode
+  stdio parity pin exact JSON, caller-supplied IDs, raw content, batch order, tool
+  advertisement, and invalid-parameter errors. The four individual legacy storage
+  tools remain queued for a separate compatibility slice.
 
 ## Verification
 
@@ -63,3 +68,6 @@ milestone.
   passed in CI run `30794130536` at commit `97167bc`.
 - Cairn architecture, decision, and interface verification passed in run
   `30794130526` at the same commit.
+- Red: commit `0b3bb6a` passed Rustfmt and then failed CI run `30803891243` with
+  eight `E0308` type errors because the unified `memory` facade still accepted
+  `SqliteStorage` while the parity tests required `LocalMemoryRuntime`.
