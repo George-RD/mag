@@ -1,0 +1,45 @@
+name: Apply bounded MCP router substitution
+
+on:
+  push:
+    branches: [agent/migrate-mcp-legacy-storage-runtime]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/migrate-mcp-legacy-storage-runtime
+      - name: Route legacy storage wrappers through the server runtime
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/mcp/mod.rs")
+          content = path.read_text()
+          replacements = {
+              "tools::storage::memory_store(&self.storage, &params.0).await":
+                  "tools::storage::memory_store(self.runtime.as_ref(), &params.0).await",
+              "tools::storage::memory_store_batch(&self.storage, &params.0).await":
+                  "tools::storage::memory_store_batch(self.runtime.as_ref(), &params.0).await",
+              "tools::storage::memory_retrieve(&self.storage, &params.0).await":
+                  "tools::storage::memory_retrieve(self.runtime.as_ref(), &params.0).await",
+              "tools::storage::memory_delete(&self.storage, &params.0).await":
+                  "tools::storage::memory_delete(self.runtime.as_ref(), &params.0).await",
+          }
+          for old, new in replacements.items():
+              count = content.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one occurrence of {old!r}, found {count}")
+              content = content.replace(old, new)
+          path.write_text(content)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/mcp/mod.rs
+          git commit -m "refactor(mcp): wire legacy storage wrappers to runtime"
+          git push origin HEAD:agent/migrate-mcp-legacy-storage-runtime
