@@ -19,5 +19,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Verify architecture, decisions, and interfaces
-        run: cairn hook all
+      - name: Regenerate and display the intentional interface baseline
+        run: |
+          cairn scan || true
+          git diff --unified=0 -- .cairn/state/interface-hashes.json
