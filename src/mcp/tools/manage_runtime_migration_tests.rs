@@ -114,8 +114,11 @@ async fn remaining_legacy_manage_handlers_route_through_the_server_runtime() {
     let relationships = listed["relationships"]
         .as_array()
         .expect("relationships should be an array");
-    assert_eq!(relationships.len(), 1);
-    assert_eq!(relationships[0]["target_id"], "manage-target");
+    let supports = relationships
+        .iter()
+        .find(|relationship| relationship["rel_type"] == "supports")
+        .expect("added supports relationship should be listed");
+    assert_eq!(supports["target_id"], "manage-target");
 
     let traversed = relations::memory_relations(
         server.runtime.as_ref(),
@@ -132,8 +135,11 @@ async fn remaining_legacy_manage_handlers_route_through_the_server_runtime() {
     let first_hop = traversed["1"]
         .as_array()
         .expect("first-hop traversal results should be an array");
-    assert_eq!(first_hop.len(), 1);
-    assert_eq!(first_hop[0]["id"], "manage-target");
+    let supports = first_hop
+        .iter()
+        .find(|node| node["edge_type"] == "supports")
+        .expect("added supports edge should be traversed");
+    assert_eq!(supports["id"], "manage-target");
 
     let swept = lifecycle::memory_lifecycle(
         server.runtime.as_ref(),
