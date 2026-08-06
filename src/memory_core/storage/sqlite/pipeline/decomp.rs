@@ -14,10 +14,9 @@ use super::super::nlp::{
 use super::super::query_classifier::{QueryIntent, classify_query_intent};
 use super::fusion::fuse_and_score;
 use super::retrieval::{collect_dual_candidates, collect_fts_candidates};
-use crate::memory_core::SemanticResult;
-use crate::memory_core::embedder::Embedder;
 use crate::memory_core::retrieval_strategy::QueryContext;
 use crate::memory_core::scoring_strategy::ScoringStrategy;
+use crate::memory_core::{EmbeddingInputKind, EmbeddingModel, SemanticResult};
 
 /// Run the core search pipeline for a single query: embed -> vector+FTS -> fuse -> refine.
 ///
@@ -26,7 +25,7 @@ use crate::memory_core::scoring_strategy::ScoringStrategy;
 /// embedding already on `ctx` is ignored.
 pub(crate) async fn run_single_query_pipeline(
     pool: &Arc<ConnPool>,
-    embedder: &Arc<dyn Embedder>,
+    embedder: &Arc<dyn EmbeddingModel>,
     ctx: &QueryContext,
     scoring_strategy: &Arc<dyn ScoringStrategy>,
 ) -> Result<Vec<SemanticResult>> {
@@ -41,9 +40,11 @@ pub(crate) async fn run_single_query_pipeline(
     } else {
         let embedder = Arc::clone(embedder);
         let q = ctx.query.clone();
-        tokio::task::spawn_blocking(move || embedder.embed(&q))
-            .await
-            .context("spawn_blocking join error")??
+        tokio::task::spawn_blocking(move || {
+            embedder.embed_for(EmbeddingInputKind::Query, &q)
+        })
+        .await
+        .context("spawn_blocking join error")??
     };
 
     let mut local_ctx = ctx.clone();
@@ -105,7 +106,7 @@ pub(crate) async fn run_single_query_pipeline(
 /// only one sub-query) the base results are returned unchanged.
 pub(crate) async fn enrich_with_decomposition(
     pool: &Arc<ConnPool>,
-    embedder: &Arc<dyn Embedder>,
+    embedder: &Arc<dyn EmbeddingModel>,
     scoring_strategy: &Arc<dyn ScoringStrategy>,
     ctx: &QueryContext,
     base_results: Vec<SemanticResult>,
