@@ -102,6 +102,20 @@ impl LocalMemoryRuntime {
         self.storage.get_relationships(memory_id).await
     }
 
+    /// Adds a directed relationship without changing ID, weight, or metadata semantics.
+    pub async fn add_relationship(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        rel_type: &str,
+        weight: f64,
+        metadata: &serde_json::Value,
+    ) -> Result<String> {
+        self.storage
+            .add_relationship(source_id, target_id, rel_type, weight, metadata)
+            .await
+    }
+
     /// Traverses the relationship graph without changing hop, weight, or edge semantics.
     pub async fn traverse(
         &self,
@@ -267,6 +281,15 @@ impl LocalMemoryRuntime {
         self.storage
             .compact(event_type, similarity_threshold, min_cluster_size, dry_run)
             .await
+    }
+
+    /// Runs automatic compaction without changing threshold or dry-run semantics.
+    pub async fn auto_compact(
+        &self,
+        count_threshold: usize,
+        dry_run: bool,
+    ) -> Result<serde_json::Value> {
+        self.storage.auto_compact(count_threshold, dry_run).await
     }
 
     /// Clears one session without changing relationship cleanup semantics.

@@ -269,9 +269,8 @@ async fn unified_manage_facade_reuses_runtime_handlers_and_preserves_error_vocab
     .await
     .expect_err("unknown relation actions should remain invalid");
     assert!(
-        format!("{invalid_relation_action:?}").contains(
-            "unknown relations_action: merge (expected list|add|traverse|version_chain)"
-        ),
+        format!("{invalid_relation_action:?}")
+            .contains("unknown relations_action: merge (expected list|add|traverse|version_chain)"),
         "unexpected invalid relation action error: {invalid_relation_action:?}"
     );
 

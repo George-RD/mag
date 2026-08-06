@@ -4,11 +4,8 @@ use rmcp::{
 };
 use serde_json::json;
 
-use crate::memory_core::storage::SqliteStorage;
-use crate::memory_core::{
-    BackupManager, EventType, ExpirationSweeper, FeedbackRecorder, MaintenanceManager,
-    MemoryUpdate, Updater, is_valid_event_type,
-};
+use crate::LocalMemoryRuntime;
+use crate::memory_core::{EventType, MemoryUpdate, is_valid_event_type};
 
 use super::super::request_types::{FeedbackRequest, LifecycleRequest, UpdateRequest};
 use super::super::validation::require_finite;
@@ -16,7 +13,7 @@ use super::super::validation::require_finite;
 // ── memory_update ──
 
 pub(crate) async fn memory_update(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &UpdateRequest,
 ) -> Result<CallToolResult, McpError> {
     if req.content.is_none()
@@ -44,7 +41,8 @@ pub(crate) async fn memory_update(
         event_type: EventType::from_optional(req.event_type.as_deref()),
         priority: req.priority,
     };
-    <SqliteStorage as Updater>::update(storage, &req.id, &update)
+    runtime
+        .update(&req.id, &update)
         .await
         .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
 
@@ -56,7 +54,7 @@ pub(crate) async fn memory_update(
 // ── memory_feedback ──
 
 pub(crate) async fn memory_feedback(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &FeedbackRequest,
 ) -> Result<CallToolResult, McpError> {
     let rating = req.rating.as_str();
@@ -64,14 +62,10 @@ pub(crate) async fn memory_feedback(
         return Err(McpError::invalid_params("invalid rating", None));
     }
 
-    let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-        storage,
-        &req.memory_id,
-        rating,
-        req.reason.as_deref(),
-    )
-    .await
-    .map_err(|e| McpError::internal_error(format!("failed to record feedback: {e}"), None))?;
+    let result = runtime
+        .record_feedback(&req.memory_id, rating, req.reason.as_deref())
+        .await
+        .map_err(|e| McpError::internal_error(format!("failed to record feedback: {e}"), None))?;
 
     Ok(CallToolResult::success(vec![Content::text(
         json!({"memory_id": req.memory_id, "feedback": result}).to_string(),
@@ -81,18 +75,16 @@ pub(crate) async fn memory_feedback(
 // ── memory_lifecycle ──
 
 pub(crate) async fn memory_lifecycle(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &LifecycleRequest,
 ) -> Result<CallToolResult, McpError> {
     let action = req.action.as_deref().unwrap_or("sweep");
 
     match action {
         "sweep" => {
-            let swept_count = <SqliteStorage as ExpirationSweeper>::sweep_expired(storage)
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to sweep expired: {e}"), None)
-                })?;
+            let swept_count = runtime.sweep_expired().await.map_err(|e| {
+                McpError::internal_error(format!("failed to sweep expired: {e}"), None)
+            })?;
             Ok(CallToolResult::success(vec![Content::text(
                 json!({ "swept_count": swept_count }).to_string(),
             )]))
@@ -103,7 +95,7 @@ pub(crate) async fn memory_lifecycle(
             require_finite("warn_mb", warn)?;
             require_finite("critical_mb", crit)?;
             let max = req.max_nodes.unwrap_or(10000).min(100_000);
-            let result = storage
+            let result = runtime
                 .check_health(warn, crit, max)
                 .await
                 .map_err(|e| McpError::internal_error(format!("health check failed: {e}"), None))?;
@@ -120,7 +112,7 @@ pub(crate) async fn memory_lifecycle(
             if max_sum < 1 {
                 return Err(McpError::invalid_params("max_summaries must be >= 1", None));
             }
-            let result = storage.consolidate(prune, max_sum).await.map_err(|e| {
+            let result = runtime.consolidate(prune, max_sum).await.map_err(|e| {
                 McpError::internal_error(format!("consolidation failed: {e}"), None)
             })?;
             Ok(CallToolResult::success(vec![Content::text(
@@ -150,7 +142,7 @@ pub(crate) async fn memory_lifecycle(
                 ));
             }
             let dry = req.dry_run.unwrap_or(false);
-            let result = storage
+            let result = runtime
                 .compact(et, thresh, min_cs, dry)
                 .await
                 .map_err(|e| McpError::internal_error(format!("compaction failed: {e}"), None))?;
@@ -161,7 +153,7 @@ pub(crate) async fn memory_lifecycle(
         "auto_compact" => {
             let threshold = req.count_threshold.unwrap_or(500).min(10_000);
             let dry = req.dry_run.unwrap_or(false);
-            let result = storage
+            let result = runtime
                 .auto_compact(threshold, dry)
                 .await
                 .map_err(|e| McpError::internal_error(format!("auto_compact failed: {e}"), None))?;
@@ -173,7 +165,7 @@ pub(crate) async fn memory_lifecycle(
             let sid = req.session_id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("session_id is required for clear_session", None)
             })?;
-            let removed = storage.clear_session(sid).await.map_err(|e| {
+            let removed = runtime.clear_session(sid).await.map_err(|e| {
                 McpError::internal_error(format!("clear_session failed: {e}"), None)
             })?;
             Ok(CallToolResult::success(vec![Content::text(
@@ -181,7 +173,7 @@ pub(crate) async fn memory_lifecycle(
             )]))
         }
         "fts_rebuild" => {
-            let result = storage
+            let result = runtime
                 .rebuild_fts()
                 .await
                 .map_err(|e| McpError::internal_error(format!("fts_rebuild failed: {e}"), None))?;
@@ -190,10 +182,11 @@ pub(crate) async fn memory_lifecycle(
             )]))
         }
         "backup" => {
-            let info = <SqliteStorage as BackupManager>::create_backup(storage)
+            let info = runtime
+                .create_backup()
                 .await
                 .map_err(|e| McpError::internal_error(format!("backup failed: {e}"), None))?;
-            let _ = <SqliteStorage as BackupManager>::rotate_backups(storage, 5).await;
+            let _ = runtime.rotate_backups(5).await;
             Ok(CallToolResult::success(vec![Content::text(
                 json!({
                     "path": info.path.display().to_string(),
@@ -204,7 +197,8 @@ pub(crate) async fn memory_lifecycle(
             )]))
         }
         "backup_list" => {
-            let backups = <SqliteStorage as BackupManager>::list_backups(storage)
+            let backups = runtime
+                .list_backups()
                 .await
                 .map_err(|e| McpError::internal_error(format!("backup list failed: {e}"), None))?;
             let payload: Vec<_> = backups

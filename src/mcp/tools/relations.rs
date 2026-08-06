@@ -4,8 +4,7 @@ use rmcp::{
 };
 use serde_json::json;
 
-use crate::memory_core::storage::SqliteStorage;
-use crate::memory_core::{GraphTraverser, RelationshipQuerier, Retriever, VersionChainQuerier};
+use crate::LocalMemoryRuntime;
 
 use super::super::request_types::RelationsRequest;
 use super::super::serialize_results;
@@ -14,7 +13,7 @@ use super::super::validation::require_finite;
 // ── memory_relations ──
 
 pub(crate) async fn memory_relations(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &RelationsRequest,
 ) -> Result<CallToolResult, McpError> {
     let action = req.action.as_deref().unwrap_or("list");
@@ -25,7 +24,7 @@ pub(crate) async fn memory_relations(
                 .id
                 .as_deref()
                 .ok_or_else(|| McpError::invalid_params("id is required for action=list", None))?;
-            let rels = storage.get_relationships(id).await.map_err(|e| {
+            let rels = runtime.get_relationships(id).await.map_err(|e| {
                 McpError::internal_error(format!("failed to get relationships: {e}"), None)
             })?;
             let payload: Vec<_> = rels
@@ -68,7 +67,7 @@ pub(crate) async fn memory_relations(
                 .metadata
                 .clone()
                 .unwrap_or_else(|| serde_json::json!({}));
-            let rel_id = storage
+            let rel_id = runtime
                 .add_relationship(source_id, target_id, rel_type, weight, &metadata)
                 .await
                 .map_err(|e| {
@@ -82,7 +81,7 @@ pub(crate) async fn memory_relations(
             let id = req.id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("id is required for action=traverse", None)
             })?;
-            storage.retrieve(id).await.map_err(|e| {
+            runtime.retrieve(id).await.map_err(|e| {
                 McpError::internal_error(format!("memory not found for traversal: {e}"), None)
             })?;
             let max_hops = req.max_hops.unwrap_or(2);
@@ -100,13 +99,12 @@ pub(crate) async fn memory_relations(
                     None,
                 ));
             }
-            let nodes = <SqliteStorage as GraphTraverser>::traverse(
-                storage, id, max_hops, min_weight, None,
-            )
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to traverse graph: {e}"), None)
-            })?;
+            let nodes = runtime
+                .traverse(id, max_hops, min_weight, None)
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("failed to traverse graph: {e}"), None)
+                })?;
             let mut grouped = serde_json::Map::new();
             for node in nodes {
                 let key = node.hop.to_string();
@@ -134,7 +132,7 @@ pub(crate) async fn memory_relations(
             let id = req.id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("id is required for action=version_chain", None)
             })?;
-            let results = storage.get_version_chain(id).await.map_err(|e| {
+            let results = runtime.version_chain(id).await.map_err(|e| {
                 McpError::internal_error(format!("failed to get version chain: {e}"), None)
             })?;
             let payload = serialize_results(results)?;
