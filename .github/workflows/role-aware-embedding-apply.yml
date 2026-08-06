@@ -1,0 +1,399 @@
+name: Apply role-aware embedding boundary
+
+on:
+  push:
+    branches:
+      - agent/role-aware-embedding-boundary
+    paths:
+      - .github/workflows/role-aware-embedding-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/role-aware-embedding-boundary
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Implement explicit query and document embedding inputs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str, expected: int = 1) -> None:
+              file = Path(path)
+              text = file.read_text()
+              actual = text.count(old)
+              if actual != expected:
+                  raise SystemExit(
+                      f"{path}: expected {expected} occurrences, found {actual}: {old!r}"
+                  )
+              file.write_text(text.replace(old, new))
+
+          replace(
+              "src/memory_core/embedder.rs",
+              '''/// Trait for generating text embeddings.
+          pub trait Embedder: Send + Sync {
+              /// Returns the embedding dimension.
+              fn dimension(&self) -> usize;
+              /// Generates an embedding vector for the given text.
+              fn embed(&self, text: &str) -> Result<Vec<f32>>;
+              /// Generates embedding vectors for multiple texts in a single call.
+              /// The default implementation calls `embed()` in a loop; backends that
+              /// support true batched inference (e.g. ONNX) override this for better
+              /// throughput.
+              #[allow(dead_code)]
+              fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+                  texts.iter().map(|t| self.embed(t)).collect()
+              }
+          }
+          ''',
+              '''/// Identifies how an embedding input participates in retrieval.
+          ///
+          /// Backends own any model-specific prefixes or prompting required for each
+          /// input kind. Callers pass semantic intent, never model-specific text.
+          #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+          pub enum EmbeddingInputKind {
+              /// Text used to search an existing embedding space.
+              Query,
+              /// Text persisted into the embedding space.
+              Document,
+          }
+
+          /// Trait for generating text embeddings.
+          pub trait Embedder: Send + Sync {
+              /// Returns the embedding dimension.
+              fn dimension(&self) -> usize;
+              /// Generates an embedding vector for the given text.
+              ///
+              /// This compatibility method does not identify query versus document
+              /// semantics. Product storage and retrieval paths use [`Self::embed_for`].
+              fn embed(&self, text: &str) -> Result<Vec<f32>>;
+              /// Generates an embedding for an explicit retrieval input kind.
+              ///
+              /// Role-neutral backends inherit the existing behavior. Backends whose
+              /// model contract distinguishes query and document inputs override this
+              /// method and keep any prefixes or prompting inside the adapter.
+              fn embed_for(
+                  &self,
+                  _input: EmbeddingInputKind,
+                  text: &str,
+              ) -> Result<Vec<f32>> {
+                  self.embed(text)
+              }
+              /// Generates embedding vectors for multiple texts in a single call.
+              /// The default implementation calls `embed()` in a loop; backends that
+              /// support true batched inference (e.g. ONNX) override this for better
+              /// throughput.
+              #[allow(dead_code)]
+              fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+                  texts.iter().map(|t| self.embed(t)).collect()
+              }
+              /// Generates embeddings for an explicit retrieval input kind.
+              ///
+              /// The correctness-first default delegates each item to [`Self::embed_for`]
+              /// so a role-sensitive adapter cannot accidentally bypass its own query or
+              /// document handling. Batched backends should override this method.
+              fn embed_batch_for(
+                  &self,
+                  input: EmbeddingInputKind,
+                  texts: &[&str],
+              ) -> Result<Vec<Vec<f32>>> {
+                  texts.iter().map(|text| self.embed_for(input, text)).collect()
+              }
+          }
+          ''',
+          )
+
+          replace(
+              "src/memory_core/embedder.rs",
+              '''        results
+                      .into_iter()
+                      .map(|opt| opt.ok_or_else(|| anyhow!("unexpected None in batch result")))
+                      .collect()
+              }
+          }
+
+          #[cfg(feature = "real-embeddings")]
+          pub async fn download_bge_small_model() -> Result<PathBuf> {
+          ''',
+              '''        results
+                      .into_iter()
+                      .map(|opt| opt.ok_or_else(|| anyhow!("unexpected None in batch result")))
+                      .collect()
+              }
+
+              fn embed_batch_for(
+                  &self,
+                  _input: EmbeddingInputKind,
+                  texts: &[&str],
+              ) -> Result<Vec<Vec<f32>>> {
+                  self.embed_batch(texts)
+              }
+          }
+
+          #[cfg(feature = "real-embeddings")]
+          pub async fn download_bge_small_model() -> Result<PathBuf> {
+          ''',
+          )
+
+          replace(
+              "src/memory_core/mod.rs",
+              "pub use embedder::{Embedder, PlaceholderEmbedder};",
+              "pub use embedder::{Embedder, EmbeddingInputKind, PlaceholderEmbedder};",
+          )
+
+          replace(
+              "src/memory_core/storage/sqlite/crud.rs",
+              "use crate::memory_core::embedder::Embedder;",
+              "use crate::memory_core::embedder::{Embedder, EmbeddingInputKind};",
+          )
+          replace(
+              "src/memory_core/storage/sqlite/crud.rs",
+              "let emb = encode_embedding(&embedder.embed(new_content)?);",
+              "let emb = encode_embedding(\n                        &embedder.embed_for(EmbeddingInputKind::Document, new_content)?,\n                    );",
+          )
+          replace(
+              "src/memory_core/storage/sqlite/crud.rs",
+              "None => embedder.embed(data)?,",
+              "None => embedder.embed_for(EmbeddingInputKind::Document, data)?,",
+          )
+          replace(
+              "src/memory_core/storage/sqlite/crud.rs",
+              "embedder.embed_batch(&refs)",
+              "embedder.embed_batch_for(EmbeddingInputKind::Document, &refs)",
+          )
+
+          replace(
+              "src/memory_core/storage/sqlite/search.rs",
+              "use super::*;\nuse crate::memory_core::storage::sqlite::helpers::append_context_tag_filters;",
+              "use super::*;\nuse crate::memory_core::embedder::EmbeddingInputKind;\nuse crate::memory_core::storage::sqlite::helpers::append_context_tag_filters;",
+          )
+          replace(
+              "src/memory_core/storage/sqlite/search.rs",
+              ".embed(&query)\n                .context(\"failed to compute query embedding\")?;",
+              ".embed_for(EmbeddingInputKind::Query, &query)\n                .context(\"failed to compute query embedding\")?;",
+          )
+
+          replace(
+              "src/memory_core/storage/sqlite/advanced.rs",
+              "use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher, QueryContext};",
+              "use crate::memory_core::embedder::EmbeddingInputKind;\nuse crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher, QueryContext};",
+          )
+          replace(
+              "src/memory_core/storage/sqlite/advanced.rs",
+              '''                        embedder
+                                      .embed(&query)
+                                      .context("failed to compute query embedding")?
+          ''',
+              '''                        embedder
+                                      .embed_for(EmbeddingInputKind::Query, &query)
+                                      .context("failed to compute query embedding")?
+          ''',
+          )
+
+          replace(
+              "src/memory_core/storage/sqlite/pipeline/decomp.rs",
+              "use crate::memory_core::embedder::Embedder;",
+              "use crate::memory_core::embedder::{Embedder, EmbeddingInputKind};",
+          )
+          replace(
+              "src/memory_core/storage/sqlite/pipeline/decomp.rs",
+              "tokio::task::spawn_blocking(move || embedder.embed(&q))",
+              "tokio::task::spawn_blocking(move || {\n            embedder.embed_for(EmbeddingInputKind::Query, &q)\n        })",
+          )
+
+          replace(
+              "src/memory_core/storage/memory/mod.rs",
+              "SemanticSearcher, StatsProvider, Storage, Tagger, Updater, embedder::Embedder,\n    scoring_strategy::ScoringStrategy,",
+              "SemanticSearcher, StatsProvider, Storage, Tagger, Updater,\n    embedder::{Embedder, EmbeddingInputKind},\n    scoring_strategy::ScoringStrategy,",
+          )
+          replace(
+              "src/memory_core/storage/memory/mod.rs",
+              "self.embedder.embed(data).ok()",
+              "self.embedder\n            .embed_for(EmbeddingInputKind::Document, data)\n            .ok()",
+          )
+          replace(
+              "src/memory_core/storage/memory/mod.rs",
+              "self.embedder.embed(content).ok()",
+              "self.embedder\n                .embed_for(EmbeddingInputKind::Document, content)\n                .ok()",
+          )
+          replace(
+              "src/memory_core/storage/memory/mod.rs",
+              "self.embedder.embed(query)?",
+              "self.embedder.embed_for(EmbeddingInputKind::Query, query)?",
+              expected=2,
+          )
+
+          replace(
+              "src/substrate/ingestion_impl.rs",
+              "use crate::memory_core::embedder::Embedder;",
+              "use crate::memory_core::embedder::{Embedder, EmbeddingInputKind};",
+          )
+          replace(
+              "src/substrate/ingestion_impl.rs",
+              "tokio::task::spawn_blocking(move || embedder.embed(&content))",
+              "tokio::task::spawn_blocking(move || {\n                embedder.embed_for(EmbeddingInputKind::Document, &content)\n            })",
+          )
+
+          replace(
+              "tests/embedding_input_roles.rs",
+              '''use mag::memory_core::{
+              MemoryInput, MemoryUpdate, SearchOptions, SemanticSearcher, Storage, Updater,
+          };
+          ''',
+              '''use mag::memory_core::{
+              AdvancedSearcher, MemoryInput, MemoryUpdate, SearchOptions, SemanticSearcher, Storage,
+              Updater,
+          };
+          ''',
+          )
+          replace(
+              "tests/embedding_input_roles.rs",
+              '''    SemanticSearcher::semantic_search(
+                  &storage,
+                  "find the updated document",
+                  5,
+                  &SearchOptions::default(),
+              )
+              .await
+              .unwrap();
+
+              let observed = calls.lock().expect("calls mutex poisoned").clone();
+              assert!(observed.contains(&EmbeddingCall::Single(EmbeddingInputKind::Document)));
+              assert!(observed.contains(&EmbeddingCall::Batch(EmbeddingInputKind::Document)));
+              assert!(observed.contains(&EmbeddingCall::Single(EmbeddingInputKind::Query)));
+          }
+          ''',
+              '''    SemanticSearcher::semantic_search(
+                  &storage,
+                  "find the updated document",
+                  5,
+                  &SearchOptions::default(),
+              )
+              .await
+              .unwrap();
+
+              AdvancedSearcher::advanced_search(
+                  &storage,
+                  "find the updated document",
+                  5,
+                  &SearchOptions::default(),
+              )
+              .await
+              .unwrap();
+
+              let observed = calls.lock().expect("calls mutex poisoned").clone();
+              assert_eq!(
+                  observed
+                      .iter()
+                      .filter(|call| {
+                          **call == EmbeddingCall::Single(EmbeddingInputKind::Document)
+                      })
+                      .count(),
+                  2,
+              );
+              assert_eq!(
+                  observed
+                      .iter()
+                      .filter(|call| {
+                          **call == EmbeddingCall::Batch(EmbeddingInputKind::Document)
+                      })
+                      .count(),
+                  1,
+              );
+              assert_eq!(
+                  observed
+                      .iter()
+                      .filter(|call| **call == EmbeddingCall::Single(EmbeddingInputKind::Query))
+                      .count(),
+                  2,
+              );
+          }
+          ''',
+          )
+
+          replace(
+              "meta/todos/define-role-aware-retriever-profiles.md",
+              "Blocked by `todo.select-production-composition-root`.\n",
+              '''The production composition root is selected. This implementation slice introduces
+          a typed query/document embedding boundary and routes production write and query
+          paths through it. Remaining work is to define immutable model-profile metadata,
+          bind profiles to concrete backends, and add embedding-space identity before model
+          changes can ship.
+          ''',
+          )
+          replace(
+              "meta/todos/build-local-memory-intelligence-eval-harness.md",
+              "        Blocked by `todo.select-production-composition-root`.\n",
+              '''        The production composition root is selected, so this work is now unblocked.
+          It remains ordered after the role-aware model-profile boundary so evaluation records
+          the exact model and embedding-space identity under test.
+          ''',
+          )
+          replace(
+              "meta/contracts/memory.models.md",
+              '''interfaces distinguish query and document roles when a model's semantics
+          require it.
+          ''',
+              '''interfaces distinguish query and document roles when a model's semantics
+          require it. Production ingestion, update, batch-write, and retrieval paths pass an
+          explicit `EmbeddingInputKind`; they never prepend model-specific text. Embedding
+          adapters own query/document transformation in both single and batched methods.
+          Legacy role-neutral methods remain compatibility adapters, not the production
+          composition boundary.
+          ''',
+          )
+
+          production_paths = [
+              Path("src/memory_core/storage/sqlite/crud.rs"),
+              Path("src/memory_core/storage/sqlite/search.rs"),
+              Path("src/memory_core/storage/sqlite/advanced.rs"),
+              Path("src/memory_core/storage/sqlite/pipeline/decomp.rs"),
+              Path("src/memory_core/storage/memory/mod.rs"),
+              Path("src/substrate/ingestion_impl.rs"),
+          ]
+          for path in production_paths:
+              text = path.read_text()
+              if "embedder.embed(" in text or "self.embedder.embed(" in text:
+                  raise SystemExit(f"role-less embedder call remains in {path}")
+          PY
+
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Reconcile Cairn todo state
+        run: |
+          cairn todo set define-role-aware-retriever-profiles in_progress
+          cairn todo set build-local-memory-intelligence-eval-harness open
+
+      - name: Format and verify implementation
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo test --quiet --all-features --test embedding_input_roles
+          cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter
+          cargo test --quiet --all-features
+          cairn scan
+          cairn hook all
+          git diff --check
+
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor(models): route embeddings by input kind"
+          git push origin HEAD:agent/role-aware-embedding-boundary
