@@ -10,6 +10,8 @@ mod legacy_session_runtime_migration_tests;
 #[cfg(test)]
 mod legacy_storage_runtime_migration_tests;
 #[cfg(test)]
+mod manage_runtime_migration_tests;
+#[cfg(test)]
 mod memory_runtime_migration_tests;
 #[cfg(test)]
 mod runtime_migration_tests;
