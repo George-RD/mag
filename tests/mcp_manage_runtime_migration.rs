@@ -154,10 +154,14 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
     )
     .await??;
     let listed_payload: serde_json::Value = serde_json::from_str(&text_contents(&listed)[0])?;
-    assert_eq!(
-        listed_payload["relationships"][0]["target_id"],
-        "stdio-manage-target"
-    );
+    let relationships = listed_payload["relationships"]
+        .as_array()
+        .expect("relationships should be an array");
+    let supports = relationships
+        .iter()
+        .find(|relationship| relationship["rel_type"] == "supports")
+        .expect("added supports relationship should be visible over stdio");
+    assert_eq!(supports["target_id"], "stdio-manage-target");
 
     let swept = timeout(
         Duration::from_secs(20),
