@@ -135,11 +135,11 @@ async fn remaining_legacy_manage_handlers_route_through_the_server_runtime() {
     let first_hop = traversed["1"]
         .as_array()
         .expect("first-hop traversal results should be an array");
-    let supports = first_hop
+    let target = first_hop
         .iter()
-        .find(|node| node["edge_type"] == "supports")
-        .expect("added supports edge should be traversed");
-    assert_eq!(supports["id"], "manage-target");
+        .find(|node| node["id"] == "manage-target")
+        .expect("related target memory should be traversed");
+    assert_eq!(target["content"], "target memory");
 
     let swept = lifecycle::memory_lifecycle(
         server.runtime.as_ref(),
