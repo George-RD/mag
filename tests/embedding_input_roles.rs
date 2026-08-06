@@ -38,11 +38,7 @@ impl EmbeddingModel for RoleAwareOnlyEmbedder {
         Ok(vec![1.0, 0.0])
     }
 
-    fn embed_batch_for(
-        &self,
-        input: EmbeddingInputKind,
-        texts: &[&str],
-    ) -> Result<Vec<Vec<f32>>> {
+    fn embed_batch_for(&self, input: EmbeddingInputKind, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         self.record(EmbeddingCall::Batch(input));
         Ok(texts.iter().map(|_| vec![1.0, 0.0]).collect())
     }
@@ -61,9 +57,14 @@ async fn sqlite_routes_embedding_inputs_by_role() {
     let embedder = Arc::new(RoleAwareOnlyEmbedder::new(Arc::clone(&calls)));
     let storage = SqliteStorage::new_in_memory_with_embedding_model(embedder).unwrap();
 
-    Storage::store(&storage, "single", "single document", &input("single document"))
-        .await
-        .unwrap();
+    Storage::store(
+        &storage,
+        "single",
+        "single document",
+        &input("single document"),
+    )
+    .await
+    .unwrap();
 
     storage
         .store_batch(&[

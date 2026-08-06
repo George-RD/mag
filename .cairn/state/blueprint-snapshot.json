@@ -146,6 +146,7 @@
       "parent": "mag.runtime.memory",
       "paths": [
         "./src/memory_core/embedder.rs",
+        "./src/memory_core/embedding_model.rs",
         "./src/memory_core/llm.rs"
       ],
       "edges": [

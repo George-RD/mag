@@ -40,11 +40,9 @@ pub(crate) async fn run_single_query_pipeline(
     } else {
         let embedder = Arc::clone(embedder);
         let q = ctx.query.clone();
-        tokio::task::spawn_blocking(move || {
-            embedder.embed_for(EmbeddingInputKind::Query, &q)
-        })
-        .await
-        .context("spawn_blocking join error")??
+        tokio::task::spawn_blocking(move || embedder.embed_for(EmbeddingInputKind::Query, &q))
+            .await
+            .context("spawn_blocking join error")??
     };
 
     let mut local_ctx = ctx.clone();

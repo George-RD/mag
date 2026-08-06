@@ -33,11 +33,7 @@ pub trait EmbeddingModel: Send + Sync {
     /// The correctness-first default delegates each item to [`Self::embed_for`]
     /// so a role-sensitive implementation cannot accidentally bypass its query
     /// or document transformation. Batched backends should override this method.
-    fn embed_batch_for(
-        &self,
-        input: EmbeddingInputKind,
-        texts: &[&str],
-    ) -> Result<Vec<Vec<f32>>> {
+    fn embed_batch_for(&self, input: EmbeddingInputKind, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         texts
             .iter()
             .map(|text| self.embed_for(input, text))
@@ -68,11 +64,7 @@ impl EmbeddingModel for LegacyEmbedderAdapter {
         self.inner.embed(text)
     }
 
-    fn embed_batch_for(
-        &self,
-        _input: EmbeddingInputKind,
-        texts: &[&str],
-    ) -> Result<Vec<Vec<f32>>> {
+    fn embed_batch_for(&self, _input: EmbeddingInputKind, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         self.inner.embed_batch(texts)
     }
 }

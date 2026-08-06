@@ -9,7 +9,9 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::memory_core::{
     EmbeddingModel, LegacyEmbedderAdapter, MemoryInput, MemoryUpdate, ScoringParams,
-    SemanticResult, Storage, Updater, embedder::Embedder, reranker::Reranker,
+    SemanticResult, Storage, Updater,
+    embedder::Embedder,
+    reranker::Reranker,
     scoring_strategy::{DefaultScoringStrategy, ScoringStrategy},
 };
 
@@ -237,9 +239,7 @@ impl SqliteStorage {
 
     /// Creates an in-memory storage with an explicit embedding model.
     #[allow(dead_code)]
-    pub fn new_in_memory_with_embedding_model(
-        embedder: Arc<dyn EmbeddingModel>,
-    ) -> Result<Self> {
+    pub fn new_in_memory_with_embedding_model(embedder: Arc<dyn EmbeddingModel>) -> Result<Self> {
         Self::new_with_path_and_embedding_model(PathBuf::from(":memory:"), embedder)
     }
 

@@ -51,8 +51,8 @@ None in Phase 1.
 - warning: CAIRN_MODULE_OVERSIZED module `mag.quality.tests` claims `tests/storage_conformance.rs` at 639 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/cli.rs` at 1271 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/main.rs` at 1750 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/mod.rs` at 764 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/tools/facades.rs` at 796 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/mod.rs` at 766 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/tools/facades.rs` at 548 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.domain` claims `src/memory_core/domain.rs` at 589 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.models` claims `src/memory_core/embedder.rs` at 967 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.models` claims `src/memory_core/llm.rs` at 505 lines, over the 500-line guideline with no allow-list marker
@@ -60,11 +60,11 @@ None in Phase 1.
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.memory` claims `src/memory_core/storage/memory/mod.rs` at 1179 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/admin/maintenance.rs` at 637 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/admin/welcome.rs` at 504 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/crud.rs` at 981 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/crud.rs` at 982 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/helpers.rs` at 1322 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/nlp.rs` at 547 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/schema.rs` at 609 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/search.rs` at 548 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/search.rs` at 584 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/session.rs` at 611 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.storage.sqlite` claims `src/memory_core/storage/sqlite/tests.rs` at 8378 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.setup` claims `src/config_writer.rs` at 1825 lines, over the 500-line guideline with no allow-list marker
