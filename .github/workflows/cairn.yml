@@ -7,52 +7,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  reconcile-role-aware-embedding:
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/role-aware-embedding-boundary'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: agent/role-aware-embedding-boundary
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Install Cairn 0.9.0
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Reconcile source, blueprint, and generated state
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("cairn.blueprint")
-          content = path.read_text()
-          model_path = '                path "./src/memory_core/embedding_model.rs"\n'
-          if model_path not in content:
-              embedder_path = '                path "./src/memory_core/embedder.rs"\n'
-              if content.count(embedder_path) != 1:
-                  raise SystemExit("expected one Models embedder path")
-              content = content.replace(embedder_path, embedder_path + model_path)
-              path.write_text(content)
-          PY
-          cargo fmt --all
-          cairn scan
-          cairn hook all
-          git diff --check
-      - name: Commit reconciled branch state
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore(cairn): reconcile role-aware embedding boundary"
-          git push origin HEAD:agent/role-aware-embedding-boundary
-
   architecture:
     runs-on: ubuntu-24.04
     steps:
