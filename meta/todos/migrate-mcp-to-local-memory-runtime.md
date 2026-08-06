@@ -1,24 +1,22 @@
 ---
 node: mag.runtime.mcp
-status: in_progress
+status: done
 created: 2026-07-29
 started: 2026-08-01
 ---
 # Migrate MCP to the local memory runtime
 
-The runtime facade and all CLI command families are complete. MCP migration is
-now in progress by bounded tool family so each slice can preserve protocol
-behaviour independently.
+The runtime facade, all CLI command families, and all MCP tool families now route
+through the same transport-independent local runtime. Each bounded migration
+slice preserved protocol behaviour independently.
 
-Route both full and minimal MCP tool modes through the same transport-independent
-runtime used by CLI. Start with failing protocol-level parity tests for tool
-results, validation errors, and advertised tool sets. Preserve stdout exclusively
-for MCP protocol traffic and keep diagnostics on stderr.
+Both full and minimal MCP tool modes use the runtime shared with CLI. Protocol-level
+parity tests pin tool results, validation errors, and advertised tool sets. Stdout
+remains exclusively for MCP protocol traffic and diagnostics remain on stderr.
 
-The stdio server remains the mandatory local baseline. This migration must not
-introduce an HTTP, daemon, hosted-service, authentication, or cloud dependency.
-Any future service adapter consumes the same runtime contract in a separate
-milestone.
+The stdio server remains the mandatory local baseline. This migration introduced
+no HTTP, daemon, hosted-service, authentication, or cloud dependency. Any future
+service adapter consumes the same runtime contract in a separate milestone.
 
 ## Progress
 
@@ -135,9 +133,21 @@ milestone.
   the duplicate server storage field.
 - Test harness correction: CI run `31086959182` at commit `0a2ff87` compiled the
   implementation, passed Rustfmt and Clippy, and passed the first 649 library
-  tests, then exposed one test-only assumption: updating a memory adds version
-  relationship state, so the added `supports` edge is not necessarily the sole or
-  first relationship. Commits `8cbc10b` and `738ce30` locate the intended edge by
-  relationship type in unit and stdio parity tests.
+  tests, then exposed one test-only assumption: seeded memories can already carry
+  automatically generated relationship state, so the added `supports` edge is not
+  necessarily the sole or first relationship. Commits `8cbc10b` and `738ce30`
+  locate the intended edge by relationship type in unit and stdio list parity.
+- CI run `31087382295` at commit `738ce30` passed every non-test job while Cairn
+  run `31087381724` passed. The remaining unit failure exposed a second test-only
+  assumption: traversal emits each neighbor once using its highest-weight edge,
+  so a lower-weight `supports` relationship need not label the traversed node.
 - Simplification: commit `dfe6280` removes the now-redundant storage clone and
   moves the selected SQLite storage directly into the single MCP runtime owner.
+- Test correction: commit `8216080` keeps the explicit `supports` list assertion
+  and separately pins traversal reachability and target content without assuming
+  which relationship label wins neighbor de-duplication.
+- Green: full Rust tests, Rustfmt, Clippy, smoke, npm installation, Python wrappers,
+  installer integrity, version consistency, and the non-applicable benchmark gate
+  passed in CI run `31087920920` at commit `8216080`.
+- Cairn architecture, decision, and interface verification passed in run
+  `31087920956` at the same commit.
