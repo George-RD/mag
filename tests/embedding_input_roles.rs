@@ -113,24 +113,41 @@ async fn sqlite_routes_embedding_inputs_by_role() {
 
     let observed = calls.lock().expect("calls mutex poisoned").clone();
     assert_eq!(
-        observed
-            .iter()
-            .filter(|call| **call == EmbeddingCall::Single(EmbeddingInputKind::Document))
-            .count(),
-        2,
+        observed,
+        vec![
+            EmbeddingCall::Single(EmbeddingInputKind::Document),
+            EmbeddingCall::Batch(EmbeddingInputKind::Document),
+            EmbeddingCall::Single(EmbeddingInputKind::Document),
+            EmbeddingCall::Single(EmbeddingInputKind::Query),
+            EmbeddingCall::Single(EmbeddingInputKind::Query),
+        ]
     );
-    assert_eq!(
-        observed
-            .iter()
-            .filter(|call| **call == EmbeddingCall::Batch(EmbeddingInputKind::Document))
-            .count(),
-        1,
+}
+
+#[tokio::test]
+async fn sqlite_routes_decomposed_subqueries_as_queries() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let embedder = Arc::new(RoleAwareOnlyEmbedder::new(Arc::clone(&calls)));
+    let storage = SqliteStorage::new_in_memory_with_embedding_model(embedder).unwrap();
+
+    AdvancedSearcher::advanced_search(
+        &storage,
+        "Compare Alice and Bob on retrieval design",
+        5,
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let observed = calls.lock().expect("calls mutex poisoned").clone();
+    assert!(
+        observed.len() > 1,
+        "expected the base query and decomposed subqueries, got {observed:?}"
     );
-    assert_eq!(
+    assert!(
         observed
             .iter()
-            .filter(|call| **call == EmbeddingCall::Single(EmbeddingInputKind::Query))
-            .count(),
-        2,
+            .all(|call| *call == EmbeddingCall::Single(EmbeddingInputKind::Query)),
+        "all decomposed embedding calls must remain query-role calls: {observed:?}"
     );
 }
