@@ -17,9 +17,13 @@ the selected composition root wires them behind evaluation gates.
 
 Every production model profile declares its model ID, revision, checksums, role,
 runtime, quantization, output dimensions, pooling, query/document handling,
-maximum input length, licence, and expected local resource envelope. Embedding
-interfaces distinguish query and document roles when a model's semantics
-require it.
+maximum input length, licence, and expected local resource envelope. Production
+SQLite ingestion, updates, batch writes, semantic search, advanced search, and
+query decomposition pass an explicit `EmbeddingInputKind` to the embedding
+model boundary. Callers never prepend model-specific text; adapters own query
+and document transformation for both single and batched inference. The older
+role-neutral `Embedder` interface is supported through one compatibility
+adapter rather than remaining the production storage boundary.
 
 Persisted vectors carry an embedding-space identity. A profile change never
 silently mixes vector spaces: MAG fails visibly and requires an explicit,
