@@ -1,0 +1,65 @@
+name: Apply MCP manage runtime migration
+
+on:
+  push:
+    branches:
+      - agent/migrate-mcp-manage-runtime
+    paths:
+      - .github/workflows/apply-mcp-manage-runtime.yml
+      - scripts/apply-mcp-manage-runtime.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/migrate-mcp-manage-runtime
+          fetch-depth: 0
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Apply runtime migration
+        run: python3 scripts/apply-mcp-manage-runtime.py
+      - name: Format Rust
+        run: cargo fmt --all
+      - name: Remove temporary patch bridge
+        run: rm scripts/apply-mcp-manage-runtime.py .github/workflows/apply-mcp-manage-runtime.yml
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Reconcile Cairn interfaces
+        run: cairn scan
+      - name: Run focused unit tests
+        run: cargo test --quiet --all-features manage_runtime_migration
+      - name: Run stdio parity test
+        run: cargo test --quiet --all-features --test mcp_manage_runtime_migration
+      - name: Run clippy
+        run: cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter
+      - name: Run Cairn gate
+        run: cairn hook all
+      - name: Verify final diff
+        run: |
+          git diff --check
+          test ! -e scripts/apply-mcp-manage-runtime.py
+          test ! -e .github/workflows/apply-mcp-manage-runtime.yml
+          ! grep -R "SqliteStorage" \
+            src/mcp/tools/lifecycle.rs \
+            src/mcp/tools/relations.rs \
+            src/mcp/tools/facades.rs
+          ! grep -F "&self.storage" src/mcp/mod.rs
+          git status --short
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor(mcp): route manage tools through local runtime"
+          git push origin HEAD:${GITHUB_REF_NAME}
