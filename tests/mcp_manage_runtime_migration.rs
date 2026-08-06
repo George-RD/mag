@@ -26,7 +26,8 @@ fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
 async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 -> Result<(), Box<dyn std::error::Error>> {
     let test_home = std::env::temp_dir().join(format!("mag-mcp-manage-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&test_home)?;
+    let test_data_root = test_home.join(".mag");
+    fs::create_dir_all(&test_data_root)?;
 
     let mut service = ()
         .serve(TokioChildProcess::new(
@@ -35,6 +36,7 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
                 cmd.arg("serve").arg("--mcp-tools").arg("full");
                 cmd.env("HOME", &test_home);
                 cmd.env("USERPROFILE", &test_home);
+                cmd.env("MAG_DATA_ROOT", &test_data_root);
             }),
         )?)
         .await?;
