@@ -59,8 +59,8 @@ milestone.
   server-owned runtime. Unit and full-mode stdio parity pin exact update,
   feedback, relationship, traversal, lifecycle, and validation behaviour. The
   unified facade now adapts to the legacy action handlers instead of duplicating
-  their execution, and `McpMemoryServer` no longer retains a second direct
-  storage handle.
+  their execution, and `McpMemoryServer` owns only the runtime with storage moved
+  directly into it.
 
 ## Verification
 
@@ -132,5 +132,12 @@ milestone.
 - Implementation: commit `c55b8d6` routes the final manage family through the
   runtime, exposes only the two missing relationship-add and automatic-compaction
   delegates, consolidates unified execution onto the legacy handlers, and removes
-  the duplicate server storage field. Exact-head verification follows on the
-  Cairn evidence commit.
+  the duplicate server storage field.
+- Test harness correction: CI run `31086959182` at commit `0a2ff87` compiled the
+  implementation, passed Rustfmt and Clippy, and passed the first 649 library
+  tests, then exposed one test-only assumption: updating a memory adds version
+  relationship state, so the added `supports` edge is not necessarily the sole or
+  first relationship. Commits `8cbc10b` and `738ce30` locate the intended edge by
+  relationship type in unit and stdio parity tests.
+- Simplification: commit `dfe6280` removes the now-redundant storage clone and
+  moves the selected SQLite storage directly into the single MCP runtime owner.
