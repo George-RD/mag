@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::EmbeddingInputKind;
 use crate::memory_core::storage::sqlite::helpers::append_context_tag_filters;
 
 #[async_trait]
@@ -102,7 +103,12 @@ impl Searcher for SqliteStorage {
                 }
                 let mut tag_idx = tag_tokens.len() + 1;
                 append_search_filters(
-                    &mut tag_sql, &mut tag_params, &mut tag_idx, &opts, "");
+                    &mut tag_sql,
+                    &mut tag_params,
+                    &mut tag_idx,
+                    &opts,
+                    "",
+                );
                 append_context_tag_filters(
                     &mut tag_sql,
                     &mut tag_params,
@@ -114,7 +120,9 @@ impl Searcher for SqliteStorage {
 
                 if let Ok(mut stmt) = conn.prepare(&tag_sql) {
                     let tag_param_refs = to_param_refs(&tag_params);
-                    if let Ok(rows) = stmt.query_map(tag_param_refs.as_slice(), search_result_from_row) {
+                    if let Ok(rows) =
+                        stmt.query_map(tag_param_refs.as_slice(), search_result_from_row)
+                    {
                         for row in rows {
                             let result = row.context("failed to decode tag search row")?;
                             let mut tag_text = result.tags.join(" ");
@@ -139,13 +147,19 @@ impl Searcher for SqliteStorage {
                             let match_count = tag_tokens
                                 .iter()
                                 .filter(|t| {
-                                    if tag_words.contains(&t.as_str()) || date_words.contains(&t.as_str()) {
+                                    if tag_words.contains(&t.as_str())
+                                        || date_words.contains(&t.as_str())
+                                    {
                                         return true;
                                     }
                                     let stemmed_t = simple_stem(t);
                                     if stemmed_t != **t
-                                        && (tag_words.iter().any(|word| simple_stem(word) == stemmed_t)
-                                            || date_words.iter().any(|word| simple_stem(word) == stemmed_t))
+                                        && (tag_words
+                                            .iter()
+                                            .any(|word| simple_stem(word) == stemmed_t)
+                                            || date_words
+                                                .iter()
+                                                .any(|word| simple_stem(word) == stemmed_t))
                                     {
                                         return true;
                                     }
@@ -156,8 +170,12 @@ impl Searcher for SqliteStorage {
                                         }
                                         let stemmed_syn = simple_stem(syn);
                                         if stemmed_syn != *syn
-                                            && (tag_words.iter().any(|word| simple_stem(word) == stemmed_syn)
-                                                || date_words.iter().any(|word| simple_stem(word) == stemmed_syn))
+                                            && (tag_words
+                                                .iter()
+                                                .any(|word| simple_stem(word) == stemmed_syn)
+                                                || date_words.iter().any(|word| {
+                                                    simple_stem(word) == stemmed_syn
+                                                }))
                                         {
                                             return true;
                                         }
@@ -188,15 +206,33 @@ impl Searcher for SqliteStorage {
                 let b_match = tag_match_count.get(&b.id).copied().unwrap_or(0) as i64;
                 let a_pos = fts_position.get(&a.id).copied().unwrap_or(1000) as i64;
                 let b_pos = fts_position.get(&b.id).copied().unwrap_or(1000) as i64;
-                let a_dual = if fts_position.contains_key(&a.id) && tag_match_count.contains_key(&a.id) { 10 } else { 0 };
-                let b_dual = if fts_position.contains_key(&b.id) && tag_match_count.contains_key(&b.id) { 10 } else { 0 };
+                let a_dual = if fts_position.contains_key(&a.id)
+                    && tag_match_count.contains_key(&a.id)
+                {
+                    10
+                } else {
+                    0
+                };
+                let b_dual = if fts_position.contains_key(&b.id)
+                    && tag_match_count.contains_key(&b.id)
+                {
+                    10
+                } else {
+                    0
+                };
                 let a_coverage = a_match as f64 / query_token_count as f64;
                 let b_coverage = b_match as f64 / query_token_count as f64;
                 let a_imp = a.importance * 50.0;
                 let b_imp = b.importance * 50.0;
-                let a_score = (a_match * 100) as f64 * a_coverage - a_pos as f64 + a_dual as f64 + a_imp;
-                let b_score = (b_match * 100) as f64 * b_coverage - b_pos as f64 + b_dual as f64 + b_imp;
-                b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
+                let a_score = (a_match * 100) as f64 * a_coverage - a_pos as f64
+                    + a_dual as f64
+                    + a_imp;
+                let b_score = (b_match * 100) as f64 * b_coverage - b_pos as f64
+                    + b_dual as f64
+                    + b_imp;
+                b_score
+                    .partial_cmp(&a_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
             if all_results.is_empty() {
                 let pattern = escape_like_pattern(&query);
@@ -326,7 +362,7 @@ impl SemanticSearcher for SqliteStorage {
 
             let include_superseded = opts.include_superseded.unwrap_or(false);
             let query_embedding = embedder
-                .embed(&query)
+                .embed_for(EmbeddingInputKind::Query, &query)
                 .context("failed to compute query embedding")?;
 
             let conn = pool.reader()?;
