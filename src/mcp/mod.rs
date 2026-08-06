@@ -325,7 +325,6 @@ fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpE
 
 #[derive(Clone)]
 pub struct McpMemoryServer {
-    storage: SqliteStorage,
     runtime: Arc<LocalMemoryRuntime>,
     tool_router: ToolRouter<Self>,
     tool_mode: McpToolMode,
@@ -333,9 +332,8 @@ pub struct McpMemoryServer {
 
 impl McpMemoryServer {
     pub fn new(storage: SqliteStorage) -> Self {
-        let runtime = Arc::new(LocalMemoryRuntime::from_storage(storage.clone()));
+        let runtime = Arc::new(LocalMemoryRuntime::from_storage(storage));
         Self {
-            storage,
             runtime,
             tool_router: Self::tool_router(),
             tool_mode: McpToolMode::Full,
@@ -429,7 +427,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<UpdateRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::lifecycle::memory_update(&self.storage, &params.0).await
+        tools::lifecycle::memory_update(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -440,7 +438,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<RelationsRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::relations::memory_relations(&self.storage, &params.0).await
+        tools::relations::memory_relations(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -451,7 +449,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<FeedbackRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::lifecycle::memory_feedback(&self.storage, &params.0).await
+        tools::lifecycle::memory_feedback(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -462,7 +460,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<LifecycleRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::lifecycle::memory_lifecycle(&self.storage, &params.0).await
+        tools::lifecycle::memory_lifecycle(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(
@@ -536,7 +534,7 @@ impl McpMemoryServer {
         &self,
         params: Parameters<MemoryManageRequest>,
     ) -> Result<CallToolResult, McpError> {
-        tools::facades::memory_manage(&self.storage, &params.0).await
+        tools::facades::memory_manage(self.runtime.as_ref(), &params.0).await
     }
 
     #[tool(

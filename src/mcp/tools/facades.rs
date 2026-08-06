@@ -5,23 +5,22 @@ use rmcp::{
 use serde_json::json;
 
 use crate::LocalMemoryRuntime;
-use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{
-    BackupManager, CheckpointInput, EventType, ExpirationSweeper, FeedbackRecorder, GraphTraverser,
-    MaintenanceManager, MemoryUpdate, RelationshipQuerier, Retriever, SearchOptions, Updater,
-    VersionChainQuerier, WelcomeOptions, is_valid_event_type,
+    CheckpointInput, EventType, SearchOptions, WelcomeOptions, is_valid_event_type,
 };
 
 use super::super::request_types::{
-    MemoryAdminFacadeRequest, MemoryManageRequest, MemorySessionRequest,
+    FeedbackRequest, LifecycleRequest, MemoryAdminFacadeRequest, MemoryManageRequest,
+    MemorySessionRequest, RelationsRequest, UpdateRequest,
 };
 use super::super::validation::{MAX_RESULT_LIMIT, require_finite};
 use super::super::{generate_protocol_markdown, serialize_results};
+use super::{lifecycle, relations};
 
 // ── memory_manage (unified facade) ──
 
 pub(crate) async fn memory_manage(
-    storage: &SqliteStorage,
+    runtime: &LocalMemoryRuntime,
     req: &MemoryManageRequest,
 ) -> Result<CallToolResult, McpError> {
     let action = req.action.as_deref().unwrap_or("update");
@@ -31,39 +30,16 @@ pub(crate) async fn memory_manage(
             let id = req.id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("id is required for action=update", None)
             })?;
-            if req.content.is_none()
-                && req.tags.is_none()
-                && req.importance.is_none()
-                && req.metadata.is_none()
-                && req.event_type.is_none()
-                && req.priority.is_none()
-            {
-                return Err(McpError::invalid_params(
-                    "at least one of content, tags, importance, metadata, event_type, or priority must be provided",
-                    None,
-                ));
-            }
-            if let Some(event_type) = req.event_type.as_deref()
-                && !is_valid_event_type(event_type)
-            {
-                return Err(McpError::invalid_params("invalid event_type", None));
-            }
-            let update = MemoryUpdate {
+            let request = UpdateRequest {
+                id: id.to_string(),
                 content: req.content.clone(),
                 tags: req.tags.clone(),
                 importance: req.importance,
                 metadata: req.metadata.clone(),
-                event_type: EventType::from_optional(req.event_type.as_deref()),
+                event_type: req.event_type.clone(),
                 priority: req.priority,
             };
-            <SqliteStorage as Updater>::update(storage, id, &update)
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to update memory: {e}"), None)
-                })?;
-            Ok(CallToolResult::success(vec![Content::text(
-                json!({ "id": id, "updated": true }).to_string(),
-            )]))
+            lifecycle::memory_update(runtime, &request).await
         }
         "feedback" => {
             let memory_id = req.memory_id.as_deref().ok_or_else(|| {
@@ -72,326 +48,118 @@ pub(crate) async fn memory_manage(
             let rating = req.rating.as_deref().ok_or_else(|| {
                 McpError::invalid_params("rating is required for action=feedback", None)
             })?;
-            if !matches!(rating, "helpful" | "unhelpful" | "outdated") {
-                return Err(McpError::invalid_params("invalid rating", None));
-            }
-            let result = <SqliteStorage as FeedbackRecorder>::record_feedback(
-                storage,
-                memory_id,
-                rating,
-                req.reason.as_deref(),
-            )
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("failed to record feedback: {e}"), None)
-            })?;
-            Ok(CallToolResult::success(vec![Content::text(
-                json!({"memory_id": memory_id, "feedback": result}).to_string(),
-            )]))
+            let request = FeedbackRequest {
+                memory_id: memory_id.to_string(),
+                rating: rating.to_string(),
+                reason: req.reason.clone(),
+            };
+            lifecycle::memory_feedback(runtime, &request).await
         }
         "relations" => {
             let sub = req.relations_action.as_deref().unwrap_or("list");
             match sub {
                 "list" => {
-                    let id = req.id.as_deref().ok_or_else(|| {
+                    req.id.as_deref().ok_or_else(|| {
                         McpError::invalid_params("id is required for relations_action=list", None)
                     })?;
-                    let rels = storage.get_relationships(id).await.map_err(|e| {
-                        McpError::internal_error(format!("failed to get relationships: {e}"), None)
-                    })?;
-                    let payload: Vec<_> = rels
-                        .into_iter()
-                        .map(|r| {
-                            json!({
-                                "id": r.id,
-                                "source_id": r.source_id,
-                                "target_id": r.target_id,
-                                "rel_type": r.rel_type,
-                                "weight": r.weight,
-                                "metadata": r.metadata,
-                                "created_at": r.created_at
-                            })
-                        })
-                        .collect();
-                    Ok(CallToolResult::success(vec![Content::text(
-                        json!({ "relationships": payload }).to_string(),
-                    )]))
                 }
                 "add" => {
-                    let source_id = req.source_id.as_deref().ok_or_else(|| {
+                    req.source_id.as_deref().ok_or_else(|| {
                         McpError::invalid_params(
                             "source_id is required for relations_action=add",
                             None,
                         )
                     })?;
-                    let target_id = req.target_id.as_deref().ok_or_else(|| {
+                    req.target_id.as_deref().ok_or_else(|| {
                         McpError::invalid_params(
                             "target_id is required for relations_action=add",
                             None,
                         )
                     })?;
-                    let rel_type = req.rel_type.as_deref().ok_or_else(|| {
+                    req.rel_type.as_deref().ok_or_else(|| {
                         McpError::invalid_params(
                             "rel_type is required for relations_action=add",
                             None,
                         )
                     })?;
-                    let weight = req.weight.unwrap_or(1.0);
-                    require_finite("weight", weight)?;
-                    if !(0.0..=1.0).contains(&weight) {
-                        return Err(McpError::invalid_params(
-                            "weight must be between 0.0 and 1.0",
-                            None,
-                        ));
-                    }
-                    let metadata = req
-                        .metadata
-                        .clone()
-                        .unwrap_or_else(|| serde_json::json!({}));
-                    let rel_id = storage
-                        .add_relationship(source_id, target_id, rel_type, weight, &metadata)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(
-                                format!("failed to add relationship: {e}"),
-                                None,
-                            )
-                        })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        json!({ "id": rel_id, "source_id": source_id, "target_id": target_id, "rel_type": rel_type, "weight": weight, "metadata": metadata }).to_string(),
-                    )]))
                 }
                 "traverse" => {
-                    let id = req.id.as_deref().ok_or_else(|| {
+                    req.id.as_deref().ok_or_else(|| {
                         McpError::invalid_params(
                             "id is required for relations_action=traverse",
                             None,
                         )
                     })?;
-                    storage.retrieve(id).await.map_err(|e| {
-                        McpError::internal_error(
-                            format!("memory not found for traversal: {e}"),
-                            None,
-                        )
-                    })?;
-                    let max_hops = req.max_hops.unwrap_or(2);
-                    if !(1..=5).contains(&max_hops) {
-                        return Err(McpError::invalid_params(
-                            "max_hops must be between 1 and 5",
-                            None,
-                        ));
-                    }
-                    let min_weight = req.min_weight.unwrap_or(0.0);
-                    require_finite("min_weight", min_weight)?;
-                    if !(0.0..=1.0).contains(&min_weight) {
-                        return Err(McpError::invalid_params(
-                            "min_weight must be between 0.0 and 1.0",
-                            None,
-                        ));
-                    }
-                    let nodes = <SqliteStorage as GraphTraverser>::traverse(
-                        storage, id, max_hops, min_weight, None,
-                    )
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("failed to traverse graph: {e}"), None)
-                    })?;
-                    let mut grouped = serde_json::Map::new();
-                    for node in nodes {
-                        let key = node.hop.to_string();
-                        let entry = grouped
-                            .entry(key)
-                            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-                        if let serde_json::Value::Array(items) = entry {
-                            items.push(json!({
-                                "id": node.id,
-                                "content": node.content,
-                                "event_type": node.event_type,
-                                "metadata": node.metadata,
-                                "hop": node.hop,
-                                "weight": node.weight,
-                                "edge_type": node.edge_type,
-                                "created_at": node.created_at
-                            }));
-                        }
-                    }
-                    Ok(CallToolResult::success(vec![Content::text(
-                        serde_json::Value::Object(grouped).to_string(),
-                    )]))
                 }
                 "version_chain" => {
-                    let id = req.id.as_deref().ok_or_else(|| {
+                    req.id.as_deref().ok_or_else(|| {
                         McpError::invalid_params(
                             "id is required for relations_action=version_chain",
                             None,
                         )
                     })?;
-                    let results = storage.get_version_chain(id).await.map_err(|e| {
-                        McpError::internal_error(format!("failed to get version chain: {e}"), None)
-                    })?;
-                    let payload = serialize_results(results)?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        json!({ "chain": payload }).to_string(),
-                    )]))
                 }
-                other => Err(McpError::invalid_params(
-                    format!(
-                        "unknown relations_action: {other} (expected list|add|traverse|version_chain)"
-                    ),
-                    None,
-                )),
+                other => {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "unknown relations_action: {other} (expected list|add|traverse|version_chain)"
+                        ),
+                        None,
+                    ));
+                }
             }
+
+            let request = RelationsRequest {
+                action: Some(sub.to_string()),
+                id: req.id.clone(),
+                source_id: req.source_id.clone(),
+                target_id: req.target_id.clone(),
+                rel_type: req.rel_type.clone(),
+                weight: req.weight,
+                metadata: req.metadata.clone(),
+                max_hops: req.max_hops,
+                min_weight: req.min_weight,
+            };
+            relations::memory_relations(runtime, &request).await
         }
         "lifecycle" => {
             let sub = req.lifecycle_action.as_deref().unwrap_or("sweep");
             match sub {
-                "sweep" => {
-                    let swept_count = <SqliteStorage as ExpirationSweeper>::sweep_expired(storage)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(format!("failed to sweep expired: {e}"), None)
-                        })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        json!({ "swept_count": swept_count }).to_string(),
-                    )]))
-                }
-                "health" => {
-                    let warn = req.warn_mb.unwrap_or(350.0);
-                    let crit = req.critical_mb.unwrap_or(800.0);
-                    require_finite("warn_mb", warn)?;
-                    require_finite("critical_mb", crit)?;
-                    let max = req.max_nodes.unwrap_or(10000).min(100_000);
-                    let result = storage.check_health(warn, crit, max).await.map_err(|e| {
-                        McpError::internal_error(format!("health check failed: {e}"), None)
-                    })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        result.to_string(),
-                    )]))
-                }
-                "consolidate" => {
-                    let prune = req.prune_days.unwrap_or(30);
-                    if prune < 1 {
-                        return Err(McpError::invalid_params("prune_days must be >= 1", None));
-                    }
-                    let max_sum = req.max_summaries.unwrap_or(50);
-                    if max_sum < 1 {
-                        return Err(McpError::invalid_params("max_summaries must be >= 1", None));
-                    }
-                    let result = storage.consolidate(prune, max_sum).await.map_err(|e| {
-                        McpError::internal_error(format!("consolidation failed: {e}"), None)
-                    })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        result.to_string(),
-                    )]))
-                }
-                "compact" => {
-                    if let Some(event_type) = req.event_type.as_deref()
-                        && !is_valid_event_type(event_type)
-                    {
-                        return Err(McpError::invalid_params("invalid event_type", None));
-                    }
-                    let et = req.event_type.as_deref().unwrap_or("lesson_learned");
-                    let thresh = req.similarity_threshold.unwrap_or(0.6);
-                    require_finite("similarity_threshold", thresh)?;
-                    if !(0.0..=1.0).contains(&thresh) {
-                        return Err(McpError::invalid_params(
-                            "similarity_threshold must be between 0.0 and 1.0",
-                            None,
-                        ));
-                    }
-                    let min_cs = req.min_cluster_size.unwrap_or(3);
-                    if min_cs < 2 {
-                        return Err(McpError::invalid_params(
-                            "min_cluster_size must be >= 2",
-                            None,
-                        ));
-                    }
-                    let dry = req.dry_run.unwrap_or(false);
-                    let result = storage
-                        .compact(et, thresh, min_cs, dry)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(format!("compaction failed: {e}"), None)
-                        })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        result.to_string(),
-                    )]))
-                }
-                "auto_compact" => {
-                    let threshold = req.count_threshold.unwrap_or(500).min(10_000);
-                    let dry = req.dry_run.unwrap_or(false);
-                    let result = storage.auto_compact(threshold, dry).await.map_err(|e| {
-                        McpError::internal_error(format!("auto_compact failed: {e}"), None)
-                    })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        result.to_string(),
-                    )]))
-                }
                 "clear_session" => {
-                    let sid = req.session_id.as_deref().ok_or_else(|| {
+                    req.session_id.as_deref().ok_or_else(|| {
                         McpError::invalid_params(
                             "session_id is required for lifecycle_action=clear_session",
                             None,
                         )
                     })?;
-                    let removed = storage.clear_session(sid).await.map_err(|e| {
-                        McpError::internal_error(format!("clear_session failed: {e}"), None)
-                    })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        json!({"session_id": sid, "removed": removed}).to_string(),
-                    )]))
                 }
-                "fts_rebuild" => {
-                    let result = storage.rebuild_fts().await.map_err(|e| {
-                        McpError::internal_error(format!("fts_rebuild failed: {e}"), None)
-                    })?;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        result.to_string(),
-                    )]))
+                "sweep" | "health" | "consolidate" | "compact" | "auto_compact" | "fts_rebuild"
+                | "backup" | "backup_list" => {}
+                other => {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "unknown lifecycle_action: {other} (expected sweep|health|consolidate|compact|auto_compact|fts_rebuild|clear_session|backup|backup_list)"
+                        ),
+                        None,
+                    ));
                 }
-                "backup" => {
-                    let info = <SqliteStorage as BackupManager>::create_backup(storage)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(format!("backup failed: {e}"), None)
-                        })?;
-                    let _ = <SqliteStorage as BackupManager>::rotate_backups(storage, 5).await;
-                    Ok(CallToolResult::success(vec![Content::text(
-                        json!({
-                            "path": info.path.display().to_string(),
-                            "size_bytes": info.size_bytes,
-                            "created_at": info.created_at,
-                        })
-                        .to_string(),
-                    )]))
-                }
-                "backup_list" => {
-                    let backups = <SqliteStorage as BackupManager>::list_backups(storage)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(format!("backup list failed: {e}"), None)
-                        })?;
-                    let payload: Vec<_> = backups
-                        .iter()
-                        .map(|b| {
-                            json!({
-                                "path": b.path.display().to_string(),
-                                "size_bytes": b.size_bytes,
-                                "created_at": b.created_at,
-                            })
-                        })
-                        .collect();
-                    Ok(CallToolResult::success(vec![Content::text(
-                        json!({ "backups": payload, "count": backups.len() }).to_string(),
-                    )]))
-                }
-                other => Err(McpError::invalid_params(
-                    format!(
-                        "unknown lifecycle_action: {other} (expected sweep|health|consolidate|compact|auto_compact|fts_rebuild|clear_session|backup|backup_list)"
-                    ),
-                    None,
-                )),
             }
+
+            let request = LifecycleRequest {
+                action: Some(sub.to_string()),
+                warn_mb: req.warn_mb,
+                critical_mb: req.critical_mb,
+                max_nodes: req.max_nodes,
+                prune_days: req.prune_days,
+                max_summaries: req.max_summaries,
+                event_type: req.event_type.clone(),
+                similarity_threshold: req.similarity_threshold,
+                min_cluster_size: req.min_cluster_size,
+                dry_run: req.dry_run,
+                session_id: req.session_id.clone(),
+                count_threshold: req.count_threshold,
+            };
+            lifecycle::memory_lifecycle(runtime, &request).await
         }
         other => Err(McpError::invalid_params(
             format!("unknown action: {other} (expected update|feedback|relations|lifecycle)"),
