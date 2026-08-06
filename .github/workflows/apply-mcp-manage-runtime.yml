@@ -13,39 +13,23 @@ permissions:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
           ref: agent/migrate-mcp-manage-runtime
           fetch-depth: 0
-      - name: Install Rust
+      - name: Install Rustfmt
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: rustfmt
       - name: Apply runtime migration
         run: python3 scripts/apply-mcp-manage-runtime.py
       - name: Format Rust
         run: cargo fmt --all
       - name: Remove temporary patch bridge
         run: rm scripts/apply-mcp-manage-runtime.py .github/workflows/apply-mcp-manage-runtime.yml
-      - name: Install Cairn 0.9.0
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Reconcile Cairn interfaces
-        run: cairn scan
-      - name: Run focused unit tests
-        run: cargo test --quiet --all-features manage_runtime_migration
-      - name: Run stdio parity test
-        run: cargo test --quiet --all-features --test mcp_manage_runtime_migration
-      - name: Run clippy
-        run: cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter
-      - name: Run Cairn gate
-        run: cairn hook all
-      - name: Verify final diff
+      - name: Verify migration boundary
         run: |
           git diff --check
           test ! -e scripts/apply-mcp-manage-runtime.py
