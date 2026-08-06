@@ -332,7 +332,7 @@ pub struct McpMemoryServer {
 
 impl McpMemoryServer {
     pub fn new(storage: SqliteStorage) -> Self {
-        let runtime = Arc::new(LocalMemoryRuntime::from_storage(storage.clone()));
+        let runtime = Arc::new(LocalMemoryRuntime::from_storage(storage));
         Self {
             runtime,
             tool_router: Self::tool_router(),
