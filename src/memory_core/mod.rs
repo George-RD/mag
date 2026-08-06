@@ -9,6 +9,7 @@ pub use domain::*;
 pub use traits::*;
 
 pub mod embedder;
+pub mod embedding_model;
 #[cfg(feature = "llm")]
 pub mod llm;
 pub mod reranker;
@@ -22,6 +23,8 @@ pub mod storage;
 pub use embedder::OnnxEmbedder;
 #[allow(unused_imports)]
 pub use embedder::{Embedder, PlaceholderEmbedder};
+pub(crate) use embedding_model::LegacyEmbedderAdapter;
+pub use embedding_model::{EmbeddingInputKind, EmbeddingModel};
 #[allow(unused_imports)]
 pub use reranker::{NoOpReranker, Reranker};
 #[allow(unused_imports)]
