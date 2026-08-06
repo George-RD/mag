@@ -115,7 +115,15 @@ impl SqliteStorage {
         )
     }
 
-    /// Opens a database with an embedding model that receives input roles.
+    /// Opens (or creates) a database at the given `path` with an embedding model
+    /// that receives input roles, creating parent directories as needed.
+    ///
+    /// If `path` is `:memory:`, an in-memory single-connection pool is used
+    /// (reader pool is skipped because in-memory databases cannot share state
+    /// across connections).
+    ///
+    /// Performs blocking filesystem and SQLite I/O. Call before entering the
+    /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
     pub fn new_with_path_and_embedding_model(
         path: PathBuf,
         embedder: Arc<dyn EmbeddingModel>,
