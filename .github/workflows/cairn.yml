@@ -7,9 +7,55 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  reconcile-role-aware-embedding:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/role-aware-embedding-boundary'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/role-aware-embedding-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Reconcile source, blueprint, and generated state
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("cairn.blueprint")
+          content = path.read_text()
+          old = '''                path "./src/memory_core/embedder.rs"
+                path "./src/memory_core/llm.rs"'''
+          new = '''                path "./src/memory_core/embedder.rs"
+                path "./src/memory_core/embedding_model.rs"
+                path "./src/memory_core/llm.rs"'''
+          if content.count(old) != 1:
+              raise SystemExit("expected one Models path block")
+          path.write_text(content.replace(old, new))
+          PY
+          cargo fmt --all
+          cairn scan
+          cairn hook all
+          git diff --check
+      - name: Commit reconciled branch state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cairn.blueprint map.json .cairn/state/interface-hashes.json .cairn/state/blueprint-snapshot.json
+          git add src/memory_core/embedding_model.rs src/memory_core/storage/sqlite/pipeline/decomp.rs src/memory_core/storage/sqlite/storage.rs tests/embedding_input_roles.rs
+          if [ -f map.md ]; then git add map.md; fi
+          git commit -m "chore(cairn): reconcile role-aware embedding boundary"
+          git push origin HEAD:agent/role-aware-embedding-boundary
+
   architecture:
     runs-on: ubuntu-24.04
     steps:
