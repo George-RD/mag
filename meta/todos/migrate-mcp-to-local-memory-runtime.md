@@ -54,6 +54,13 @@ milestone.
   visibility, empty-tag behaviour, and validation errors. Search and list now
   share request-to-`SearchOptions` assembly, while the runtime exposes tag lookup
   publicly because the MCP binary consumes the library across a crate boundary.
+- [x] Route `memory_update`, `memory_feedback`, `memory_relations`,
+  `memory_lifecycle`, and the unified `memory_manage` facade through the same
+  server-owned runtime. Unit and full-mode stdio parity pin exact update,
+  feedback, relationship, traversal, lifecycle, and validation behaviour. The
+  unified facade now adapts to the legacy action handlers instead of duplicating
+  their execution, and `McpMemoryServer` no longer retains a second direct
+  storage handle.
 
 ## Verification
 
@@ -118,3 +125,12 @@ milestone.
   passed in CI run `30821884066` at commit `377f906`.
 - Cairn architecture, decision, and interface verification passed in run
   `30821884709` at the same commit.
+- Red: commit `941a78f` failed CI run `31085615321` with sixteen `E0308`
+  mismatches because the remaining five manage handlers still accepted
+  `SqliteStorage` while the parity tests required the server-owned
+  `LocalMemoryRuntime`.
+- Implementation: commit `c55b8d6` routes the final manage family through the
+  runtime, exposes only the two missing relationship-add and automatic-compaction
+  delegates, consolidates unified execution onto the legacy handlers, and removes
+  the duplicate server storage field. Exact-head verification follows on the
+  Cairn evidence commit.
