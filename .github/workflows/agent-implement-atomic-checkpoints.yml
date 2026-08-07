@@ -1,0 +1,591 @@
+name: Implement atomic checkpoint outcomes
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/agent-implement-atomic-checkpoints.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: implement-atomic-checkpoints-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  implement:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      TARGET_BRANCH: ${{ github.head_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Implement atomic checkpoint outcomes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          def replace_between(path: str, start: str, end: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              start_index = text.index(start)
+              end_index = text.index(end, start_index)
+              file.write_text(text[:start_index] + replacement + text[end_index + len(end):])
+
+          replace_once(
+              "src/memory_core/domain.rs",
+              '''#[derive(Debug, Clone)]
+          pub struct CheckpointInput {
+              pub task_title: String,
+              pub progress: String,
+              pub plan: Option<String>,
+              pub files_touched: Option<serde_json::Value>,
+              pub decisions: Option<Vec<String>>,
+              pub key_context: Option<String>,
+              pub next_steps: Option<String>,
+              pub session_id: Option<String>,
+              pub project: Option<String>,
+          }
+
+          /// Checks if a string represents a known event type.
+          ''',
+              '''#[derive(Debug, Clone)]
+          pub struct CheckpointInput {
+              pub task_title: String,
+              pub progress: String,
+              pub plan: Option<String>,
+              pub files_touched: Option<serde_json::Value>,
+              pub decisions: Option<Vec<String>>,
+              pub key_context: Option<String>,
+              pub next_steps: Option<String>,
+              pub session_id: Option<String>,
+              pub project: Option<String>,
+          }
+
+          /// Persisted result of saving a checkpoint.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+          pub struct CheckpointSaveOutcome {
+              pub memory_id: String,
+              pub checkpoint_number: i64,
+          }
+
+          /// Checks if a string represents a known event type.
+          ''',
+          )
+
+          replace_once(
+              "src/memory_core/storage/sqlite/storage.rs",
+              '''#[derive(Debug)]
+          pub(super) enum StoreOutcome {
+              Inserted,
+              Deduped,
+          }
+          ''',
+              '''#[derive(Debug)]
+          pub(super) enum StoreOutcome {
+              Inserted,
+              Deduped { existing_id: String },
+          }
+          ''',
+          )
+
+          crud_path = "src/memory_core/storage/sqlite/crud.rs"
+          crud = Path(crud_path).read_text()
+          start = crud.index("    pub(crate) async fn store_internal(")
+          end_marker = "    fn store_one_in_tx("
+          end = crud.index(end_marker, start)
+          replacement = '''    pub(crate) async fn store_internal(
+              &self,
+              id: &str,
+              data: &str,
+              input: &MemoryInput,
+              precomputed_embedding: Option<Vec<f32>>,
+          ) -> Result<()> {
+              let pool = Arc::clone(&self.pool);
+              let embedder = Arc::clone(&self.embedder);
+              let post_id = id.to_string();
+              let post_input = input.clone();
+              let id = id.to_string();
+              let data = data.to_string();
+              let input = input.clone();
+
+              let (outcome, superseded_ids, final_tags) = tokio::task::spawn_blocking(move || {
+                  let conn = pool.writer()?;
+                  let tx = retry_on_lock(|| conn.unchecked_transaction())
+                      .context("failed to start sqlite transaction")?;
+                  let result = Self::store_one_in_tx(
+                      &tx,
+                      embedder.as_ref(),
+                      &id,
+                      &data,
+                      &input,
+                      precomputed_embedding,
+                  )?;
+                  tx.commit().context("failed to commit sqlite transaction")?;
+                  drop(conn);
+                  pool.note_write();
+                  Ok::<_, anyhow::Error>(result)
+              })
+              .await
+              .context("spawn_blocking join error")??;
+
+              let persisted_id = match &outcome {
+                  StoreOutcome::Inserted => post_id.clone(),
+                  StoreOutcome::Deduped { existing_id } => existing_id.clone(),
+              };
+              self.finish_store(
+                  &persisted_id,
+                  &post_input,
+                  &outcome,
+                  &superseded_ids,
+                  &final_tags,
+              )
+              .await;
+              Ok(())
+          }
+
+          pub(super) async fn finish_store(
+              &self,
+              post_id: &str,
+              post_input: &MemoryInput,
+              outcome: &StoreOutcome,
+              superseded_ids: &[String],
+              final_tags: &[String],
+          ) {
+              let invalidation_event_type = event_type_to_sql(&post_input.event_type);
+              self.invalidate_cache_selective(
+                  invalidation_event_type.as_deref(),
+                  post_input.project.as_deref(),
+                  post_input.session_id.as_deref(),
+              );
+              self.refresh_hot_cache_best_effort();
+
+              if matches!(outcome, &StoreOutcome::Inserted) {
+                  if let Err(error) = self.try_auto_relate(post_id).await {
+                      tracing::warn!(memory_id = %post_id, error = %error, "auto-relate failed");
+                  }
+
+                  if let Some(ref session_id) = post_input.session_id
+                      && let Err(error) = self.try_create_temporal_edges(post_id, session_id).await
+                  {
+                      tracing::warn!(memory_id = %post_id, error = %error, "temporal edge creation failed");
+                  }
+
+                  if !final_tags.is_empty()
+                      && let Err(error) = self.try_create_entity_edges(post_id, final_tags).await
+                  {
+                      tracing::warn!(memory_id = %post_id, error = %error, "entity edge creation failed");
+                  }
+              }
+
+              for old_id in superseded_ids {
+                  if let Err(error) = self
+                      .add_relationship(old_id, post_id, "SUPERSEDES", 1.0, &serde_json::json!({}))
+                      .await
+                  {
+                      tracing::warn!(old_id = %old_id, new_id = %post_id, error = %error, "failed to create SUPERSEDES edge");
+                  }
+              }
+              bump_token_cache_gen();
+          }
+
+              pub(super) fn store_one_in_tx('''
+          Path(crud_path).write_text(crud[:start] + replacement + crud[end + len(end_marker):])
+
+          replace_once(
+              crud_path,
+              '''                params![existing_id],
+                      )
+                      .context("failed to update access_count for canonical dedup")?;
+                  return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+          ''',
+              '''                params![&existing_id],
+                      )
+                      .context("failed to update access_count for canonical dedup")?;
+                  return Ok((
+                      StoreOutcome::Deduped { existing_id },
+                      Vec::new(),
+                      Vec::new(),
+                  ));
+          ''',
+          )
+          replace_once(
+              crud_path,
+              '''                    params![existing_id],
+                          )
+                          .context("failed to update access_count for Jaccard dedup")?;
+                      return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+          ''',
+              '''                    params![&existing_id],
+                          )
+                          .context("failed to update access_count for Jaccard dedup")?;
+                      return Ok((
+                          StoreOutcome::Deduped { existing_id },
+                          Vec::new(),
+                          Vec::new(),
+                      ));
+          ''',
+          )
+
+          replace_once(
+              "src/memory_core/storage/sqlite/session.rs",
+              "use super::*;\n",
+              "use super::*;\nuse crate::memory_core::{CheckpointSaveOutcome, EmbeddingInputKind};\n",
+          )
+
+          session_path = "src/memory_core/storage/sqlite/session.rs"
+          session = Path(session_path).read_text()
+          start = session.index("#[async_trait]\nimpl CheckpointManager for SqliteStorage {\n    async fn save_checkpoint(")
+          end_marker = "    async fn resume_task("
+          end = session.index(end_marker, start)
+          replacement = '''impl SqliteStorage {
+              /// Saves a checkpoint and returns the row and number that were actually persisted.
+              pub async fn save_checkpoint_outcome(
+                  &self,
+                  input: CheckpointInput,
+              ) -> Result<CheckpointSaveOutcome> {
+                  let CheckpointInput {
+                      task_title,
+                      progress,
+                      plan,
+                      files_touched,
+                      decisions,
+                      key_context,
+                      next_steps,
+                      session_id,
+                      project,
+                  } = input;
+
+                  let task_marker = format!("## Checkpoint: {task_title}");
+                  let mut content = format!(
+                      "## Checkpoint: {task_title}\\n### Progress\\n{progress}"
+                  );
+                  if let Some(plan_value) = plan.as_deref() {
+                      content.push_str("\\n\\n### Plan\\n");
+                      content.push_str(plan_value);
+                  }
+                  if let Some(files_value) = files_touched.as_ref() {
+                      content.push_str("\\n\\n### Files Touched\\n");
+                      content.push_str(
+                          &serde_json::to_string_pretty(files_value)
+                              .context("failed to serialize files_touched for checkpoint")?,
+                      );
+                  }
+                  if let Some(decision_values) = decisions.as_ref()
+                      && !decision_values.is_empty()
+                  {
+                      content.push_str("\\n\\n### Decisions\\n");
+                      for decision in decision_values {
+                          content.push_str("- ");
+                          content.push_str(decision);
+                          content.push('\\n');
+                      }
+                  }
+                  if let Some(context_value) = key_context.as_deref() {
+                      content.push_str("\\n### Key Context\\n");
+                      content.push_str(context_value);
+                  }
+                  if let Some(next_value) = next_steps.as_deref() {
+                      content.push_str("\\n\\n### Next Steps\\n");
+                      content.push_str(next_value);
+                  }
+
+                  let checkpoint_data = serde_json::json!({
+                      "task_title": task_title,
+                      "plan": plan,
+                      "progress": progress,
+                      "files_touched": files_touched,
+                      "decisions": decisions,
+                      "key_context": key_context,
+                      "next_steps": next_steps,
+                  });
+                  let candidate_id = Uuid::new_v4().to_string();
+                  let pool = Arc::clone(&self.pool);
+                  let embedder = Arc::clone(&self.embedder);
+                  let content_for_store = content.clone();
+                  let candidate_for_store = candidate_id.clone();
+
+                  let (saved, store_outcome, superseded_ids, final_tags, post_input) =
+                      tokio::task::spawn_blocking(move || {
+                          let embedding = embedder
+                              .embed_for(EmbeddingInputKind::Document, &content_for_store)?;
+                          let mut conn = pool.writer()?;
+                          let tx = retry_on_lock(|| {
+                              conn.transaction_with_behavior(
+                                  rusqlite::TransactionBehavior::Immediate,
+                              )
+                          })
+                          .context("failed to start immediate checkpoint transaction")?;
+
+                          let pattern = escape_like_pattern(&task_marker);
+                          let existing_count: i64 = tx
+                              .query_row(
+                                  "SELECT COUNT(*) FROM memories
+                                   WHERE event_type = 'checkpoint'
+                                     AND lower(content) LIKE lower(?1) ESCAPE '\\\\'",
+                                  params![pattern],
+                                  |row| row.get(0),
+                              )
+                              .context("failed to count matching checkpoints")?;
+                          let checkpoint_number = existing_count
+                              .checked_add(1)
+                              .ok_or_else(|| anyhow!("checkpoint number overflow"))?;
+
+                          let metadata = serde_json::json!({
+                              "checkpoint_number": checkpoint_number,
+                              "checkpoint_data": checkpoint_data,
+                          });
+                          let memory_input = MemoryInput {
+                              content: content_for_store.clone(),
+                              id: Some(candidate_for_store.clone()),
+                              metadata,
+                              event_type: Some(EventType::Checkpoint),
+                              priority: Some(EventType::Checkpoint.default_priority()),
+                              ttl_seconds: EventType::Checkpoint.default_ttl(),
+                              session_id,
+                              project,
+                              ..Default::default()
+                          };
+
+                          let (store_outcome, superseded_ids, final_tags) =
+                              Self::store_one_in_tx(
+                                  &tx,
+                                  embedder.as_ref(),
+                                  &candidate_for_store,
+                                  &content_for_store,
+                                  &memory_input,
+                                  Some(embedding),
+                              )?;
+
+                          let saved = match &store_outcome {
+                              StoreOutcome::Inserted => CheckpointSaveOutcome {
+                                  memory_id: candidate_for_store.clone(),
+                                  checkpoint_number,
+                              },
+                              StoreOutcome::Deduped { existing_id } => {
+                                  let metadata_raw: String = tx
+                                      .query_row(
+                                          "SELECT metadata FROM memories
+                                           WHERE id = ?1 AND event_type = 'checkpoint'",
+                                          params![existing_id],
+                                          |row| row.get(0),
+                                      )
+                                      .optional()
+                                      .context("failed to resolve deduplicated checkpoint")?
+                                      .ok_or_else(|| {
+                                          anyhow!(
+                                              "deduplicated checkpoint row missing for id={existing_id}"
+                                          )
+                                      })?;
+                                  let persisted_metadata = parse_metadata_from_db(&metadata_raw);
+                                  let persisted_number = persisted_metadata
+                                      .get("checkpoint_number")
+                                      .and_then(serde_json::Value::as_i64)
+                                      .ok_or_else(|| {
+                                          anyhow!(
+                                              "deduplicated checkpoint omitted checkpoint_number for id={existing_id}"
+                                          )
+                                      })?;
+                                  CheckpointSaveOutcome {
+                                      memory_id: existing_id.clone(),
+                                      checkpoint_number: persisted_number,
+                                  }
+                              }
+                          };
+
+                          tx.commit()
+                              .context("failed to commit checkpoint transaction")?;
+                          drop(conn);
+                          pool.note_write();
+                          Ok::<_, anyhow::Error>((
+                              saved,
+                              store_outcome,
+                              superseded_ids,
+                              final_tags,
+                              memory_input,
+                          ))
+                      })
+                      .await
+                      .context("spawn_blocking join error")??;
+
+                  self.finish_store(
+                      &saved.memory_id,
+                      &post_input,
+                      &store_outcome,
+                      &superseded_ids,
+                      &final_tags,
+                  )
+                  .await;
+                  Ok(saved)
+              }
+          }
+
+          #[async_trait]
+          impl CheckpointManager for SqliteStorage {
+              async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+                  Ok(self.save_checkpoint_outcome(input).await?.memory_id)
+              }
+
+              async fn resume_task('''
+          Path(session_path).write_text(session[:start] + replacement + session[end + len(end_marker):])
+
+          replace_once(
+              "src/local_memory_runtime.rs",
+              '''    AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager, Deleter,
+              Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier,
+          ''',
+              '''    AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager,
+              CheckpointSaveOutcome, Deleter, Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode,
+              GraphTraverser, LessonQuerier,
+          ''',
+          )
+          replace_once(
+              "src/local_memory_runtime.rs",
+              '''    /// Saves a checkpoint without changing its content, metadata, or numbering semantics.
+              pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+                  self.storage.save_checkpoint(input).await
+              }
+          ''',
+              '''    /// Saves a checkpoint and returns the row and number that were actually persisted.
+              pub async fn save_checkpoint_outcome(
+                  &self,
+                  input: CheckpointInput,
+              ) -> Result<CheckpointSaveOutcome> {
+                  self.storage.save_checkpoint_outcome(input).await
+              }
+
+              /// Compatibility wrapper that returns only the persisted memory ID.
+              pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+                  Ok(self.save_checkpoint_outcome(input).await?.memory_id)
+              }
+          ''',
+          )
+
+          replace_once(
+              "src/main.rs",
+              '''            let memory_id = local_runtime.save_checkpoint(input).await?;
+                  let latest = local_runtime
+                      .resume_task(task_title, project.as_deref(), 1)
+                      .await?;
+                  let checkpoint_number = latest
+                      .first()
+                      .and_then(|entry| entry.get("metadata"))
+                      .and_then(|metadata| metadata.get("checkpoint_number"))
+                      .and_then(serde_json::Value::as_i64)
+                      .unwrap_or(1);
+                  info!(
+                      memory_id = %memory_id,
+                      checkpoint_number,
+                      "Checkpoint saved through local memory runtime"
+                  );
+                  println!(
+                      "{}",
+                      json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
+                  );
+          ''',
+              '''            let saved = local_runtime.save_checkpoint_outcome(input).await?;
+                  info!(
+                      memory_id = %saved.memory_id,
+                      checkpoint_number = saved.checkpoint_number,
+                      "Checkpoint saved through local memory runtime"
+                  );
+                  println!(
+                      "{}",
+                      json!({
+                          "memory_id": saved.memory_id,
+                          "checkpoint_number": saved.checkpoint_number
+                      })
+                  );
+          ''',
+          )
+
+          replace_once(
+              "src/mcp/tools/session.rs",
+              '''            let memory_id = runtime.save_checkpoint(input).await.map_err(|e| {
+                      McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
+                  })?;
+
+                  let latest = runtime
+                      .resume_task(task_title, req.project.as_deref(), 1)
+                      .await
+                      .map_err(|e| {
+                          McpError::internal_error(
+                              format!("failed to resolve checkpoint number: {e}"),
+                              None,
+                          )
+                      })?;
+                  let checkpoint_number = latest
+                      .first()
+                      .and_then(|entry| entry.get("metadata"))
+                      .and_then(|metadata| metadata.get("checkpoint_number"))
+                      .and_then(serde_json::Value::as_i64)
+                      .unwrap_or(1);
+
+                  Ok(CallToolResult::success(vec![Content::text(
+                      json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
+                          .to_string(),
+                  )]))
+          ''',
+              '''            let saved = runtime.save_checkpoint_outcome(input).await.map_err(|e| {
+                      McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
+                  })?;
+
+                  Ok(CallToolResult::success(vec![Content::text(
+                      json!({
+                          "memory_id": saved.memory_id,
+                          "checkpoint_number": saved.checkpoint_number
+                      })
+                      .to_string(),
+                  )]))
+          ''',
+          )
+          PY
+          cargo fmt --all
+
+      - name: Verify checkpoint behavior
+        run: |
+          cargo test --quiet --all-features \
+            --test checkpoint_outcomes \
+            --test cli_checkpoint_runtime_migration \
+            --test mcp_legacy_session_runtime_migration \
+            --test local_memory_runtime
+          cargo clippy --quiet --all-targets --all-features -- \
+            -D warnings -A clippy::manual_filter
+
+      - name: Install and reconcile Cairn
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          cairn scan
+          cairn hook all
+
+      - name: Remove workflow and commit implementation
+        run: |
+          rm .github/workflows/agent-implement-atomic-checkpoints.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(checkpoint): return atomic persisted outcomes"
+          git push origin "HEAD:${TARGET_BRANCH}"
