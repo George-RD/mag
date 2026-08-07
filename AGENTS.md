@@ -47,17 +47,26 @@ all references.
 
 ## Current architecture constraint
 
-`dec.select-local-runtime-composition-root` selects one entrypoint-owned,
-transport-independent local runtime over the current SQLite-backed implementation.
-Until its migration slices are complete:
+`dec.select-local-runtime-composition-root` selects a CLI-first,
+entrypoint-owned, transport-independent local runtime over the current
+SQLite-backed implementation.
 
-- route new production behaviour through the selected runtime boundary;
-- treat direct SQLite callers and `memory_core::Pipeline` as tracked compatibility
-  paths, not new extension points;
-- do not add independent behaviour to the unselected feature-gated substrate;
-- use `cairn brief todo.introduce-local-memory-runtime-facade` for the next
-  implementation unit and `cairn rationale mag.runtime.entrypoints` for the
-  binding decision.
+- The CLI is MAG's canonical operating surface for people, skills, automation,
+  and local tools. Prefer CLI commands unless an integration specifically
+  requires another transport.
+- MCP is an optional stdio transport adapter over the same runtime capabilities.
+  It must not construct its own runtime, own storage, or grow independent memory
+  semantics.
+- Production core and runtime modules compile through the library crate once. Do
+  not reintroduce binary-private copies of `memory_core` or
+  `local_memory_runtime`.
+- Route new production behaviour through `LocalMemoryRuntime`. Treat direct
+  SQLite callers and `memory_core::Pipeline` as tracked compatibility paths, not
+  new extension points.
+- Do not add independent behaviour to the unselected feature-gated substrate.
+- Do not hard-code a completed todo as the next task. Reconcile open PRs and
+  branches, then use `cairn status`, `cairn next`, and the binding rationale to
+  select current work.
 
 ## Repository invariants
 
@@ -112,9 +121,15 @@ cargo test --all-features
 
 Additionally:
 
-- retrieval/scoring/storage-pipeline changes: `./scripts/bench.sh --gate`;
+- determine whether a local change is benchmark-governed with
+  `python3 scripts/retrieval_benchmark_gate.py --base main --head HEAD --explain`;
+  when it prints `true`, run `./scripts/bench.sh --gate`;
+- classifier changes: `python3 -m unittest tests/test_retrieval_benchmark_gate.py`;
 - CLI, MCP, installation, or model-startup changes: `bash scripts/smoke-test.sh`;
 - clean-environment or local-model work: follow `skills/mag-development/SKILL.md`.
+
+CI consumes the same repository-owned benchmark classifier. Do not add an
+independent path list to workflow YAML.
 
 <!-- cairn:agent-guide-begin -->
 ## Cairn orientation
