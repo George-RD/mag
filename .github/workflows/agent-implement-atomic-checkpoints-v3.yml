@@ -1,0 +1,155 @@
+name: Implement atomic checkpoint outcomes v3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/agent-implement-atomic-checkpoints-v3.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: implement-atomic-checkpoints-v3-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  implement:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      TARGET_BRANCH: ${{ github.head_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Apply structural checkpoint implementation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from subprocess import check_output
+          from textwrap import dedent
+
+          def replace_branch(path: str, start_marker: str, end_marker: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              file.write_text(text[:start] + replacement + text[end:])
+
+          # The original transform already reached every source edit before its
+          # whitespace-sensitive CLI replacement. Reuse that reviewed transform
+          # from Git history, normalize only the two known dedup blocks, and stop
+          # before CLI/MCP adaptation so those branches can be replaced structurally.
+          crud_path = Path("src/memory_core/storage/sqlite/crud.rs")
+          crud = crud_path.read_text()
+          canonical = '''            .context("failed to update access_count for canonical dedup")?;
+                      return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+          '''
+          canonical_expected = '''            .context("failed to update access_count for canonical dedup")?;
+                  return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+          '''
+          jaccard = '''                .context("failed to update access_count for Jaccard dedup")?;
+                          return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+          '''
+          jaccard_expected = '''                .context("failed to update access_count for Jaccard dedup")?;
+                      return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+          '''
+          if canonical not in crud or jaccard not in crud:
+              raise RuntimeError("dedup source blocks changed before atomic checkpoint implementation")
+          crud_path.write_text(
+              crud.replace(canonical, canonical_expected, 1)
+              .replace(jaccard, jaccard_expected, 1)
+          )
+
+          workflow = check_output(
+              [
+                  "git",
+                  "show",
+                  "c67ae2621a2c8a40a6eed11563a8f45c9e5dc9dc:.github/workflows/agent-implement-atomic-checkpoints.yml",
+              ],
+              text=True,
+          )
+          marker = "          python3 - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          script = dedent(workflow[start:end])
+          script = script[: script.index('replace_once(\n    "src/main.rs",')]
+          exec(compile(script, "atomic-checkpoint-transform", "exec"))
+
+          replace_branch(
+              "src/main.rs",
+              "            let memory_id = local_runtime.save_checkpoint(input).await?;",
+              "        }\n        Commands::ResumeTask {",
+              '''            let saved = local_runtime.save_checkpoint_outcome(input).await?;
+                      info!(
+                          memory_id = %saved.memory_id,
+                          checkpoint_number = saved.checkpoint_number,
+                          "Checkpoint saved through local memory runtime"
+                      );
+                      println!(
+                          "{}",
+                          json!({
+                              "memory_id": saved.memory_id,
+                              "checkpoint_number": saved.checkpoint_number
+                          })
+                      );
+          ''',
+          )
+
+          replace_branch(
+              "src/mcp/tools/session.rs",
+              "            let memory_id = runtime.save_checkpoint(input).await.map_err(|e| {",
+              "        }\n        \"resume\" => {",
+              '''            let saved = runtime.save_checkpoint_outcome(input).await.map_err(|e| {
+                      McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
+                  })?;
+
+                  Ok(CallToolResult::success(vec![Content::text(
+                      json!({
+                          "memory_id": saved.memory_id,
+                          "checkpoint_number": saved.checkpoint_number
+                      })
+                      .to_string(),
+                  )]))
+          ''',
+          )
+          PY
+          cargo fmt --all
+
+      - name: Verify checkpoint behavior
+        run: |
+          cargo test --quiet --all-features \
+            --test checkpoint_outcomes \
+            --test cli_checkpoint_runtime_migration \
+            --test mcp_legacy_session_runtime_migration \
+            --test local_memory_runtime
+          cargo clippy --quiet --all-targets --all-features -- \
+            -D warnings -A clippy::manual_filter
+
+      - name: Install and reconcile Cairn
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          cairn scan
+          cairn hook all
+
+      - name: Remove one-off workflow and commit implementation
+        run: |
+          rm .github/workflows/agent-implement-atomic-checkpoints-v3.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(checkpoint): return atomic persisted outcomes"
+          git push origin "HEAD:${TARGET_BRANCH}"
