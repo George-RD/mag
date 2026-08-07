@@ -19,6 +19,7 @@ revisit_triggers:
 informed_by:
   - res.architecture-state-audit
   - res.production-composition-root-evaluation
+  - res.architecture-convergence-review-2026-08-07
 refines:
   - dec.classify-current-runtime-boundaries
   - dec.sequence-architecture-before-llm-wiring
