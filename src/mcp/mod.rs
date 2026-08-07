@@ -17,6 +17,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::LocalMemoryRuntime;
+#[cfg(test)]
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{MemoryInput, is_valid_event_type};
 
@@ -331,13 +332,18 @@ pub struct McpMemoryServer {
 }
 
 impl McpMemoryServer {
-    pub fn new(storage: SqliteStorage) -> Self {
-        let runtime = Arc::new(LocalMemoryRuntime::from_storage(storage));
+    /// Creates the optional MCP transport around the entrypoint-owned runtime.
+    pub fn from_runtime(runtime: Arc<LocalMemoryRuntime>) -> Self {
         Self {
             runtime,
             tool_router: Self::tool_router(),
             tool_mode: McpToolMode::Full,
         }
+    }
+
+    #[cfg(test)]
+    fn new(storage: SqliteStorage) -> Self {
+        Self::from_runtime(Arc::new(LocalMemoryRuntime::from_storage(storage)))
     }
 
     pub fn with_tool_mode(mut self, mode: McpToolMode) -> Self {

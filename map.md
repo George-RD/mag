@@ -50,8 +50,8 @@ None in Phase 1.
 - warning: CAIRN_MODULE_OVERSIZED module `mag.quality.tests` claims `tests/mcp_smoke.rs` at 1099 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.quality.tests` claims `tests/storage_conformance.rs` at 639 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/cli.rs` at 1271 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/main.rs` at 1750 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/mod.rs` at 766 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/main.rs` at 1753 lines, over the 500-line guideline with no allow-list marker
+- warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/mod.rs` at 772 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/tools/facades.rs` at 548 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.domain` claims `src/memory_core/domain.rs` at 589 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.models` claims `src/memory_core/embedder.rs` at 967 lines, over the 500-line guideline with no allow-list marker

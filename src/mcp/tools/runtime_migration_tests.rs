@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use serde_json::json;
 
 use super::facades;
+use crate::LocalMemoryRuntime;
 use crate::mcp::{
     MINIMAL_TOOL_NAMES, McpMemoryServer, McpToolMode, request_types::MemoryAdminFacadeRequest,
 };
@@ -18,6 +21,18 @@ fn result_text(result: &rmcp::model::CallToolResult) -> String {
         .expect("expected text content")
         .text
         .clone()
+}
+
+#[test]
+fn mcp_reuses_the_entrypoint_owned_runtime() {
+    let storage = SqliteStorage::new_in_memory().expect("in-memory storage should initialize");
+    let runtime = Arc::new(LocalMemoryRuntime::from_storage(storage));
+    let server = McpMemoryServer::from_runtime(Arc::clone(&runtime));
+
+    assert!(
+        Arc::ptr_eq(&server.runtime, &runtime),
+        "MCP must wrap the runtime composed by the entrypoint"
+    );
 }
 
 #[tokio::test]

@@ -5,19 +5,19 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use chrono::{DateTime, FixedOffset, NaiveDate, SecondsFormat, TimeZone, Utc};
 use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
-use memory_core::storage::{InitMode, SqliteStorage};
-use memory_core::{
+use mag::memory_core::storage::{InitMode, SqliteStorage};
+use mag::memory_core::{
     CheckpointInput, Embedder, EventType, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,
     is_valid_event_type,
 };
+use mag::{LocalMemoryRuntime, app_paths, memory_core};
 use serde_json::json;
 use std::sync::Arc;
 use tracing::info;
 
 #[cfg(not(feature = "real-embeddings"))]
-use memory_core::PlaceholderEmbedder;
+use mag::memory_core::PlaceholderEmbedder;
 
-mod app_paths;
 #[cfg(feature = "daemon-http")]
 #[allow(dead_code)]
 mod auth;
@@ -29,16 +29,11 @@ mod doctor_checks;
 #[cfg(feature = "daemon-http")]
 #[allow(dead_code)]
 mod idle_timer;
-// Remaining facade capabilities migrate in later CLI and MCP slices.
-#[allow(dead_code)]
-mod local_memory_runtime;
 mod mcp;
-mod memory_core;
 #[cfg(test)]
 #[allow(dead_code)]
 mod test_helpers;
 
-use local_memory_runtime::LocalMemoryRuntime;
 use mcp::McpMemoryServer;
 
 #[derive(Clone, Copy)]
@@ -171,14 +166,48 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "real-embeddings"))]
     let embedder: Arc<dyn Embedder> = Arc::new(PlaceholderEmbedder);
     let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
-    let local_runtime = LocalMemoryRuntime::from_storage(sqlite_storage.clone());
+
+    #[cfg(feature = "real-embeddings")]
+    let sqlite_storage = if matches!(
+        &cli.command,
+        Commands::Serve {
+            cross_encoder: true,
+            ..
+        }
+    ) {
+        info!("Cross-encoder reranking enabled");
+        let reranker = Arc::new(memory_core::reranker::CrossEncoderReranker::new()?);
+        reranker.warmup().await?;
+        let reranker_for_tick = Arc::clone(&reranker);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                reranker_for_tick.maintenance_tick().await;
+            }
+        });
+        sqlite_storage.with_reranker(reranker)
+    } else {
+        sqlite_storage
+    };
+
+    #[cfg(not(feature = "real-embeddings"))]
+    if matches!(
+        &cli.command,
+        Commands::Serve {
+            cross_encoder: true,
+            ..
+        }
+    ) {
+        anyhow::bail!("--cross-encoder requires the `real-embeddings` feature to be enabled");
+    }
+
+    let local_runtime = Arc::new(LocalMemoryRuntime::from_storage(sqlite_storage));
 
     // Automatic startup backup (file-backed DBs only, max every 24h)
     if let Err(e) = local_runtime.maybe_startup_backup().await {
         tracing::warn!("startup backup failed (non-fatal): {e}");
     }
-
-    let mcp_storage = sqlite_storage.clone();
 
     match &cli.command {
         Commands::Ingest {
@@ -937,36 +966,10 @@ async fn main() -> anyhow::Result<()> {
             unreachable!("download-cross-encoder is handled before storage initialization")
         }
         Commands::Serve {
-            cross_encoder,
+            cross_encoder: _,
             mcp_tools,
         } => {
             info!("Starting MCP server over stdio");
-
-            #[cfg(feature = "real-embeddings")]
-            let mcp_storage = if *cross_encoder {
-                info!("Cross-encoder reranking enabled");
-                let reranker =
-                    std::sync::Arc::new(memory_core::reranker::CrossEncoderReranker::new()?);
-                reranker.warmup().await?;
-                let reranker_for_tick = reranker.clone();
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                    loop {
-                        interval.tick().await;
-                        reranker_for_tick.maintenance_tick().await;
-                    }
-                });
-                mcp_storage.with_reranker(reranker)
-            } else {
-                mcp_storage
-            };
-
-            #[cfg(not(feature = "real-embeddings"))]
-            if *cross_encoder {
-                anyhow::bail!(
-                    "--cross-encoder requires the `real-embeddings` feature to be enabled"
-                );
-            }
 
             #[cfg(feature = "real-embeddings")]
             {
@@ -981,12 +984,12 @@ async fn main() -> anyhow::Result<()> {
             }
 
             {
-                let storage_for_optimize = mcp_storage.clone();
+                let runtime_for_optimize = Arc::clone(&local_runtime);
                 tokio::spawn(async move {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
                     loop {
                         interval.tick().await;
-                        if let Err(e) = storage_for_optimize.optimize().await {
+                        if let Err(e) = runtime_for_optimize.optimize().await {
                             tracing::warn!("PRAGMA optimize failed: {e}");
                         }
                     }
@@ -998,7 +1001,7 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 mcp::McpToolMode::Full
             };
-            McpMemoryServer::new(mcp_storage)
+            McpMemoryServer::from_runtime(Arc::clone(&local_runtime))
                 .with_tool_mode(tool_mode)
                 .serve_stdio()
                 .await?;

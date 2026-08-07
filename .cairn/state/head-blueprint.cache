@@ -1,4 +1,4 @@
-fc1258760dd6926723e5377a29b90ad5bf976290
+38cef247054d402aa8bd0c716d1a0b1f4b2e8edb
 # MAG — reviewed architecture map.
 #
 # Status and work live in node-linked Cairn artefacts. The generated map is a
@@ -44,6 +44,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
 
             Module Models "Embedding, generation, and local/remote model adapters" id "mag.runtime.memory.models" @local-inference {
                 path "./src/memory_core/embedder.rs"
+                path "./src/memory_core/embedding_model.rs"
                 path "./src/memory_core/llm.rs"
                 contract "./meta/contracts/memory.models.md"
             }
