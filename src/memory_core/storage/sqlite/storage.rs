@@ -30,7 +30,7 @@ pub enum InitMode {
 #[derive(Debug)]
 pub(super) enum StoreOutcome {
     Inserted,
-    Deduped,
+    Deduped { existing_id: String },
 }
 
 /// SQLite-backed persistent storage for the memory system.

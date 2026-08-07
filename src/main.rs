@@ -700,24 +700,18 @@ async fn main() -> anyhow::Result<()> {
                 session_id: session_id.clone(),
                 project: project.clone(),
             };
-            let memory_id = local_runtime.save_checkpoint(input).await?;
-            let latest = local_runtime
-                .resume_task(task_title, project.as_deref(), 1)
-                .await?;
-            let checkpoint_number = latest
-                .first()
-                .and_then(|entry| entry.get("metadata"))
-                .and_then(|metadata| metadata.get("checkpoint_number"))
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(1);
+            let saved = local_runtime.save_checkpoint_outcome(input).await?;
             info!(
-                memory_id = %memory_id,
-                checkpoint_number,
+                memory_id = %saved.memory_id,
+                checkpoint_number = saved.checkpoint_number,
                 "Checkpoint saved through local memory runtime"
             );
             println!(
                 "{}",
-                json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
+                json!({
+                    "memory_id": saved.memory_id,
+                    "checkpoint_number": saved.checkpoint_number
+                })
             );
         }
         Commands::ResumeTask {

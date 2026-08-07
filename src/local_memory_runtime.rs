@@ -5,12 +5,13 @@ use anyhow::Result;
 
 use crate::memory_core::storage::{InitMode, SqliteStorage};
 use crate::memory_core::{
-    AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager, Deleter,
-    Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode, GraphTraverser, LessonQuerier,
-    ListResult, Lister, MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline,
-    PlaceholderPipeline, ProfileManager, Relationship, RelationshipQuerier, ReminderManager,
-    SearchOptions, SearchResult, SemanticResult, SimilarFinder, StatsProvider, Storage, Tagger,
-    VersionChainQuerier, WelcomeOptions, WelcomeProvider,
+    AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager,
+    CheckpointSaveOutcome, Deleter, Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode,
+    GraphTraverser, LessonQuerier, ListResult, Lister, MaintenanceManager, MemoryInput,
+    MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, Relationship,
+    RelationshipQuerier, ReminderManager, SearchOptions, SearchResult, SemanticResult,
+    SimilarFinder, StatsProvider, Storage, Tagger, VersionChainQuerier, WelcomeOptions,
+    WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -129,9 +130,17 @@ impl LocalMemoryRuntime {
             .await
     }
 
-    /// Saves a checkpoint without changing its content, metadata, or numbering semantics.
+    /// Saves a checkpoint and returns the row and number that were actually persisted.
+    pub async fn save_checkpoint_outcome(
+        &self,
+        input: CheckpointInput,
+    ) -> Result<CheckpointSaveOutcome> {
+        self.storage.save_checkpoint_outcome(input).await
+    }
+
+    /// Compatibility wrapper that returns only the persisted memory ID.
     pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
-        self.storage.save_checkpoint(input).await
+        Ok(self.save_checkpoint_outcome(input).await?.memory_id)
     }
 
     /// Returns checkpoint continuity without changing filters, ordering, or payload fields.

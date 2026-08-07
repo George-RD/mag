@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory_core::{CheckpointSaveOutcome, EmbeddingInputKind};
 
 #[async_trait]
 impl ProfileManager for SqliteStorage {
@@ -101,92 +102,191 @@ impl ProfileManager for SqliteStorage {
     }
 }
 
-#[async_trait]
-impl CheckpointManager for SqliteStorage {
-    async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
-        let pool = Arc::clone(&self.pool);
-        let task_title = input.task_title.clone();
-        let task_marker = format!("## Checkpoint: {}", task_title);
-        let existing_count = tokio::task::spawn_blocking(move || {
-            let conn = pool.reader()?;
-            let mut stmt = conn
-                .prepare(
-                    "SELECT COUNT(*) FROM memories
-                     WHERE event_type = 'checkpoint' AND lower(content) LIKE lower(?1) ESCAPE '\\'",
-                )
-                .context("failed to prepare checkpoint count query")?;
-            let pattern = escape_like_pattern(&task_marker);
-            let count: i64 = stmt
-                .query_row(params![pattern], |row| row.get(0))
-                .context("failed to count matching checkpoints")?;
-            Ok::<_, anyhow::Error>(count)
-        })
-        .await
-        .context("spawn_blocking join error")??;
+impl SqliteStorage {
+    /// Saves a checkpoint and returns the row and number that were actually persisted.
+    pub async fn save_checkpoint_outcome(
+        &self,
+        input: CheckpointInput,
+    ) -> Result<CheckpointSaveOutcome> {
+        let CheckpointInput {
+            task_title,
+            progress,
+            plan,
+            files_touched,
+            decisions,
+            key_context,
+            next_steps,
+            session_id,
+            project,
+        } = input;
 
-        let checkpoint_number = existing_count + 1;
-        let mut content = format!(
-            "## Checkpoint: {}\n### Progress\n{}",
-            input.task_title, input.progress
-        );
-        if let Some(plan) = input.plan.as_deref() {
+        let task_marker = format!("## Checkpoint: {task_title}");
+        let mut content = format!("## Checkpoint: {task_title}\n### Progress\n{progress}");
+        if let Some(plan_value) = plan.as_deref() {
             content.push_str("\n\n### Plan\n");
-            content.push_str(plan);
+            content.push_str(plan_value);
         }
-        if let Some(files_touched) = input.files_touched.as_ref() {
+        if let Some(files_value) = files_touched.as_ref() {
             content.push_str("\n\n### Files Touched\n");
             content.push_str(
-                &serde_json::to_string_pretty(files_touched)
+                &serde_json::to_string_pretty(files_value)
                     .context("failed to serialize files_touched for checkpoint")?,
             );
         }
-        if let Some(decisions) = input.decisions.as_ref()
-            && !decisions.is_empty()
+        if let Some(decision_values) = decisions.as_ref()
+            && !decision_values.is_empty()
         {
             content.push_str("\n\n### Decisions\n");
-            for decision in decisions {
+            for decision in decision_values {
                 content.push_str("- ");
                 content.push_str(decision);
                 content.push('\n');
             }
         }
-        if let Some(key_context) = input.key_context.as_deref() {
+        if let Some(context_value) = key_context.as_deref() {
             content.push_str("\n### Key Context\n");
-            content.push_str(key_context);
+            content.push_str(context_value);
         }
-        if let Some(next_steps) = input.next_steps.as_deref() {
+        if let Some(next_value) = next_steps.as_deref() {
             content.push_str("\n\n### Next Steps\n");
-            content.push_str(next_steps);
+            content.push_str(next_value);
         }
 
-        let metadata = serde_json::json!({
-            "checkpoint_number": checkpoint_number,
-            "checkpoint_data": {
-                "task_title": input.task_title,
-                "plan": input.plan,
-                "progress": input.progress,
-                "files_touched": input.files_touched,
-                "decisions": input.decisions,
-                "key_context": input.key_context,
-                "next_steps": input.next_steps,
-            }
+        let checkpoint_data = serde_json::json!({
+            "task_title": task_title,
+            "plan": plan,
+            "progress": progress,
+            "files_touched": files_touched,
+            "decisions": decisions,
+            "key_context": key_context,
+            "next_steps": next_steps,
         });
+        let candidate_id = Uuid::new_v4().to_string();
+        let pool = Arc::clone(&self.pool);
+        let embedder = Arc::clone(&self.embedder);
+        let content_for_store = content.clone();
+        let candidate_for_store = candidate_id.clone();
 
-        let id = Uuid::new_v4().to_string();
-        let memory_input = MemoryInput {
-            content: content.clone(),
-            id: Some(id.clone()),
-            metadata,
-            event_type: Some(EventType::Checkpoint),
-            priority: Some(EventType::Checkpoint.default_priority()),
-            ttl_seconds: EventType::Checkpoint.default_ttl(),
-            session_id: input.session_id,
-            project: input.project,
-            ..Default::default()
-        };
+        let (saved, store_outcome, superseded_ids, final_tags, post_input) =
+            tokio::task::spawn_blocking(move || {
+                let embedding = embedder
+                    .embed_for(EmbeddingInputKind::Document, &content_for_store)?;
+                let mut conn = pool.writer()?;
+                // The connection has a bounded SQLite busy timeout, so BEGIN
+                // IMMEDIATE waits for another process's writer before returning.
+                // Calling it directly keeps the returned transaction's borrow
+                // tied to `conn`; a generic retry closure cannot safely return it.
+                let tx = conn
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .context("failed to start immediate checkpoint transaction")?;
 
-        <Self as Storage>::store(self, &id, &content, &memory_input).await?;
-        Ok(id)
+                let pattern = escape_like_pattern(&task_marker);
+                let existing_count: i64 = tx
+                    .query_row(
+                        "SELECT COUNT(*) FROM memories
+                         WHERE event_type = 'checkpoint'
+                           AND lower(content) LIKE lower(?1) ESCAPE '\\'",
+                        params![pattern],
+                        |row| row.get(0),
+                    )
+                    .context("failed to count matching checkpoints")?;
+                let checkpoint_number = existing_count
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow!("checkpoint number overflow"))?;
+
+                let metadata = serde_json::json!({
+                    "checkpoint_number": checkpoint_number,
+                    "checkpoint_data": checkpoint_data,
+                });
+                let memory_input = MemoryInput {
+                    content: content_for_store.clone(),
+                    id: Some(candidate_for_store.clone()),
+                    metadata,
+                    event_type: Some(EventType::Checkpoint),
+                    priority: Some(EventType::Checkpoint.default_priority()),
+                    ttl_seconds: EventType::Checkpoint.default_ttl(),
+                    session_id,
+                    project,
+                    ..Default::default()
+                };
+
+                let (store_outcome, superseded_ids, final_tags) =
+                    Self::store_one_in_tx(
+                        &tx,
+                        embedder.as_ref(),
+                        &candidate_for_store,
+                        &content_for_store,
+                        &memory_input,
+                        Some(embedding),
+                    )?;
+
+                let saved = match &store_outcome {
+                    StoreOutcome::Inserted => CheckpointSaveOutcome {
+                        memory_id: candidate_for_store.clone(),
+                        checkpoint_number,
+                    },
+                    StoreOutcome::Deduped { existing_id } => {
+                        let metadata_raw: String = tx
+                            .query_row(
+                                "SELECT metadata FROM memories
+                                 WHERE id = ?1 AND event_type = 'checkpoint'",
+                                params![existing_id],
+                                |row| row.get(0),
+                            )
+                            .optional()
+                            .context("failed to resolve deduplicated checkpoint")?
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "deduplicated checkpoint row missing for id={existing_id}"
+                                )
+                            })?;
+                        let persisted_metadata = parse_metadata_from_db(&metadata_raw);
+                        let persisted_number = persisted_metadata
+                            .get("checkpoint_number")
+                            .and_then(serde_json::Value::as_i64)
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "deduplicated checkpoint omitted checkpoint_number for id={existing_id}"
+                                )
+                            })?;
+                        CheckpointSaveOutcome {
+                            memory_id: existing_id.clone(),
+                            checkpoint_number: persisted_number,
+                        }
+                    }
+                };
+
+                tx.commit()
+                    .context("failed to commit checkpoint transaction")?;
+                drop(conn);
+                pool.note_write();
+                Ok::<_, anyhow::Error>((
+                    saved,
+                    store_outcome,
+                    superseded_ids,
+                    final_tags,
+                    memory_input,
+                ))
+            })
+            .await
+            .context("spawn_blocking join error")??;
+
+        self.finish_store(
+            &saved.memory_id,
+            &post_input,
+            &store_outcome,
+            &superseded_ids,
+            &final_tags,
+        )
+        .await;
+        Ok(saved)
+    }
+}
+
+#[async_trait]
+impl CheckpointManager for SqliteStorage {
+    async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String> {
+        Ok(self.save_checkpoint_outcome(input).await?.memory_id)
     }
 
     async fn resume_task(
