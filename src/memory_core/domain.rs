@@ -423,6 +423,13 @@ pub struct CheckpointInput {
     pub project: Option<String>,
 }
 
+/// Persisted result of saving a checkpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CheckpointSaveOutcome {
+    pub memory_id: String,
+    pub checkpoint_number: i64,
+}
+
 /// Checks if a string represents a known event type.
 /// Thin wrapper that delegates to `EventType`.
 pub fn is_valid_event_type(event_type: &str) -> bool {

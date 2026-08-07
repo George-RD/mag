@@ -40,29 +40,16 @@ pub(crate) async fn memory_checkpoint(
                 session_id: req.session_id.clone(),
                 project: req.project.clone(),
             };
-            let memory_id = runtime.save_checkpoint(input).await.map_err(|e| {
+            let saved = runtime.save_checkpoint_outcome(input).await.map_err(|e| {
                 McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
             })?;
 
-            let latest = runtime
-                .resume_task(task_title, req.project.as_deref(), 1)
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(
-                        format!("failed to resolve checkpoint number: {e}"),
-                        None,
-                    )
-                })?;
-            let checkpoint_number = latest
-                .first()
-                .and_then(|entry| entry.get("metadata"))
-                .and_then(|metadata| metadata.get("checkpoint_number"))
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(1);
-
             Ok(CallToolResult::success(vec![Content::text(
-                json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
-                    .to_string(),
+                json!({
+                    "memory_id": saved.memory_id,
+                    "checkpoint_number": saved.checkpoint_number
+                })
+                .to_string(),
             )]))
         }
         "resume" => {

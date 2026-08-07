@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "5caea20b8dbcca2c",
+  "key": "80d4ccd752baf555",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5821,6 +5821,7 @@
         ],
         "mag.quality.tests": [
           "src/test_helpers.rs",
+          "tests/checkpoint_outcomes.rs",
           "tests/cli_admin_read_runtime_migration.rs",
           "tests/cli_admin_write_runtime_migration.rs",
           "tests/cli_checkpoint_runtime_migration.rs",
@@ -6021,6 +6022,8 @@
         "pub async fn run_setup(args: SetupArgs) -> Result<()>",
         "pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()>",
         "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
+        "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
+        "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
         "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
         "pub async fn search( &self, query: &str, limit: usize, opts: &SearchOptions, ) -> Result<Vec<SearchResult>>",
         "pub async fn search(&self, ctx: QueryContext) -> Result<Vec<SemanticResult>>",
@@ -6283,6 +6286,7 @@
         "pub struct BackupInfo",
         "pub struct BenchmarkMetadata",
         "pub struct CheckpointInput",
+        "pub struct CheckpointSaveOutcome",
         "pub struct Cli",
         "pub struct CompactConsolidation",
         "pub struct ConsolidationReport",
@@ -6460,6 +6464,7 @@
         "pub(crate) struct VoyageApiEmbedder",
         "pub(crate) type SweepCategoryScores",
         "pub(crate) type SweepRow",
+        "pub(super) async fn finish_store( &self, post_id: &str, post_input: &MemoryInput, outcome: &StoreOutcome, superseded_ids: &[String], final_tags: &[String], )",
         "pub(super) async fn relationship_exists( &self, source_id: &str, target_id: &str, rel_type: &str, ) -> Result<bool>",
         "pub(super) async fn try_auto_relate(&self, memory_id: &str) -> Result<()>",
         "pub(super) async fn try_create_entity_edges( &self, memory_id: &str, tags: &[String], ) -> Result<()>",
@@ -6509,6 +6514,7 @@
         "pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()>",
         "pub(super) fn resolve_priority(event_type: Option<&EventType>, priority: Option<i64>) -> u8",
         "pub(super) fn search_result_from_row(row: &rusqlite::Row) -> rusqlite::Result<SearchResult>",
+        "pub(super) fn store_one_in_tx( tx: &rusqlite::Transaction<'_>, embedder: &dyn EmbeddingModel, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<(StoreOutcome, Vec<String>, Vec<String>)>",
         "pub(super) fn test_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>>",
         "pub(super) fn to_param_refs(values: &[rusqlite::types::Value]) -> Vec<&dyn rusqlite::types::ToSql>",
         "pub(super) fn validate_iso8601(s: &str) -> bool",
@@ -6645,6 +6651,7 @@
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
           "pub async fn rotate_backups(&self, max_count: usize) -> Result<usize>",
           "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
+          "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
           "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
           "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
           "pub async fn session_stats(&self) -> Result<serde_json::Value>",
@@ -6752,6 +6759,7 @@
           "pub mod storage",
           "pub struct BackupInfo",
           "pub struct CheckpointInput",
+          "pub struct CheckpointSaveOutcome",
           "pub struct GraphNode",
           "pub struct ListResult",
           "pub struct MemoryInput",
@@ -6896,6 +6904,7 @@
           "pub async fn graph_edge_stats(&self) -> Result<Vec<(String, i64)>>",
           "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
           "pub async fn optimize(&self) -> Result<()>",
+          "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
           "pub async fn stats(&self) -> Result<serde_json::Value>",
           "pub async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()>",
           "pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
@@ -6928,6 +6937,7 @@
           "pub(crate) fn expand_date_tokens(text: &str) -> String",
           "pub(crate) fn get_synonyms(word: &str) -> &'static [&'static str]",
           "pub(crate) mod pipeline",
+          "pub(super) async fn finish_store( &self, post_id: &str, post_input: &MemoryInput, outcome: &StoreOutcome, superseded_ids: &[String], final_tags: &[String], )",
           "pub(super) async fn relationship_exists( &self, source_id: &str, target_id: &str, rel_type: &str, ) -> Result<bool>",
           "pub(super) async fn try_auto_relate(&self, memory_id: &str) -> Result<()>",
           "pub(super) async fn try_create_entity_edges( &self, memory_id: &str, tags: &[String], ) -> Result<()>",
@@ -6977,6 +6987,7 @@
           "pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()>",
           "pub(super) fn resolve_priority(event_type: Option<&EventType>, priority: Option<i64>) -> u8",
           "pub(super) fn search_result_from_row(row: &rusqlite::Row) -> rusqlite::Result<SearchResult>",
+          "pub(super) fn store_one_in_tx( tx: &rusqlite::Transaction<'_>, embedder: &dyn EmbeddingModel, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<(StoreOutcome, Vec<String>, Vec<String>)>",
           "pub(super) fn test_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>>",
           "pub(super) fn to_param_refs(values: &[rusqlite::types::Value]) -> Vec<&dyn rusqlite::types::ToSql>",
           "pub(super) fn validate_iso8601(s: &str) -> bool",
@@ -7781,384 +7792,392 @@
             "kind": "function",
             "signature": "pub async fn access_rate_stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 248,
-            "end_line": 250
+            "line": 257,
+            "end_line": 259
           },
           {
             "name": "add_relationship",
             "kind": "function",
             "signature": "pub async fn add_relationship( &self, source_id: &str, target_id: &str, rel_type: &str, weight: f64, metadata: &serde_json::Value, ) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 106,
-            "end_line": 117
+            "line": 107,
+            "end_line": 118
           },
           {
             "name": "advanced_search",
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 385,
-            "end_line": 392
+            "line": 394,
+            "end_line": 401
           },
           {
             "name": "auto_compact",
             "kind": "function",
             "signature": "pub async fn auto_compact( &self, count_threshold: usize, dry_run: bool, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 287,
-            "end_line": 293
+            "line": 296,
+            "end_line": 302
           },
           {
             "name": "check_health",
             "kind": "function",
             "signature": "pub async fn check_health( &self, warn_mb: f64, critical_mb: f64, max_nodes: i64, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 253,
-            "end_line": 262
+            "line": 262,
+            "end_line": 271
           },
           {
             "name": "clear_session",
             "kind": "function",
             "signature": "pub async fn clear_session(&self, session_id: &str) -> Result<usize>",
             "file": "src/local_memory_runtime.rs",
-            "line": 296,
-            "end_line": 298
+            "line": 305,
+            "end_line": 307
           },
           {
             "name": "compact",
             "kind": "function",
             "signature": "pub async fn compact( &self, event_type: &str, similarity_threshold: f64, min_cluster_size: usize, dry_run: bool, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 274,
-            "end_line": 284
+            "line": 283,
+            "end_line": 293
           },
           {
             "name": "consolidate",
             "kind": "function",
             "signature": "pub async fn consolidate( &self, prune_days: i64, max_summaries: i64, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 265,
-            "end_line": 271
+            "line": 274,
+            "end_line": 280
           },
           {
             "name": "create_backup",
             "kind": "function",
             "signature": "pub async fn create_backup(&self) -> Result<BackupInfo>",
             "file": "src/local_memory_runtime.rs",
-            "line": 306,
-            "end_line": 308
+            "line": 315,
+            "end_line": 317
           },
           {
             "name": "create_reminder",
             "kind": "function",
             "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 148,
-            "end_line": 159
+            "line": 157,
+            "end_line": 168
           },
           {
             "name": "delete",
             "kind": "function",
             "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
             "file": "src/local_memory_runtime.rs",
-            "line": 81,
-            "end_line": 83
+            "line": 82,
+            "end_line": 84
           },
           {
             "name": "dismiss_reminder",
             "kind": "function",
             "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 167,
-            "end_line": 169
+            "line": 176,
+            "end_line": 178
           },
           {
             "name": "export_all",
             "kind": "function",
             "signature": "pub async fn export_all(&self) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 206,
-            "end_line": 208
+            "line": 215,
+            "end_line": 217
           },
           {
             "name": "find_similar",
             "kind": "function",
             "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 400,
-            "end_line": 402
+            "line": 409,
+            "end_line": 411
           },
           {
             "name": "get_by_tags",
             "kind": "function",
             "signature": "pub async fn get_by_tags( &self, tags: &[String], limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 353,
-            "end_line": 360
+            "line": 362,
+            "end_line": 369
           },
           {
             "name": "get_profile",
             "kind": "function",
             "signature": "pub async fn get_profile(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 186,
-            "end_line": 188
+            "line": 195,
+            "end_line": 197
           },
           {
             "name": "get_relationships",
             "kind": "function",
             "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 101,
-            "end_line": 103
+            "line": 102,
+            "end_line": 104
           },
           {
             "name": "import_all",
             "kind": "function",
             "signature": "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
             "file": "src/local_memory_runtime.rs",
-            "line": 211,
-            "end_line": 213
+            "line": 220,
+            "end_line": 222
           },
           {
             "name": "list",
             "kind": "function",
             "signature": "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
             "file": "src/local_memory_runtime.rs",
-            "line": 91,
-            "end_line": 98
+            "line": 92,
+            "end_line": 99
           },
           {
             "name": "list_backups",
             "kind": "function",
             "signature": "pub async fn list_backups(&self) -> Result<Vec<BackupInfo>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 316,
-            "end_line": 318
+            "line": 325,
+            "end_line": 327
           },
           {
             "name": "list_reminders",
             "kind": "function",
             "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 162,
-            "end_line": 164
+            "line": 171,
+            "end_line": 173
           },
           {
             "name": "maybe_startup_backup",
             "kind": "function",
             "signature": "pub async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 326,
-            "end_line": 328
+            "line": 335,
+            "end_line": 337
           },
           {
             "name": "optimize",
             "kind": "function",
             "signature": "pub async fn optimize(&self) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 331,
-            "end_line": 333
+            "line": 340,
+            "end_line": 342
           },
           {
             "name": "phrase_search",
             "kind": "function",
             "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 363,
-            "end_line": 370
+            "line": 372,
+            "end_line": 379
           },
           {
             "name": "query_lessons",
             "kind": "function",
             "signature": "pub async fn query_lessons( &self, task: Option<&str>, project: Option<&str>, exclude_session: Option<&str>, agent_type: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 172,
-            "end_line": 183
+            "line": 181,
+            "end_line": 192
           },
           {
             "name": "rebuild_fts",
             "kind": "function",
             "signature": "pub async fn rebuild_fts(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 301,
-            "end_line": 303
+            "line": 310,
+            "end_line": 312
           },
           {
             "name": "recent",
             "kind": "function",
             "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 348,
-            "end_line": 350
+            "line": 357,
+            "end_line": 359
           },
           {
             "name": "record_feedback",
             "kind": "function",
             "signature": "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 216,
-            "end_line": 225
+            "line": 225,
+            "end_line": 234
           },
           {
             "name": "restore_backup",
             "kind": "function",
             "signature": "pub async fn restore_backup(&self, backup_path: &Path) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 321,
-            "end_line": 323
+            "line": 330,
+            "end_line": 332
           },
           {
             "name": "resume_task",
             "kind": "function",
             "signature": "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 138,
-            "end_line": 145
+            "line": 147,
+            "end_line": 154
           },
           {
             "name": "retrieve",
             "kind": "function",
             "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 76,
-            "end_line": 78
+            "line": 77,
+            "end_line": 79
           },
           {
             "name": "rotate_backups",
             "kind": "function",
             "signature": "pub async fn rotate_backups(&self, max_count: usize) -> Result<usize>",
             "file": "src/local_memory_runtime.rs",
-            "line": 311,
-            "end_line": 313
+            "line": 320,
+            "end_line": 322
           },
           {
             "name": "save_checkpoint",
             "kind": "function",
             "signature": "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 133,
-            "end_line": 135
+            "line": 142,
+            "end_line": 144
+          },
+          {
+            "name": "save_checkpoint_outcome",
+            "kind": "function",
+            "signature": "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 134,
+            "end_line": 139
           },
           {
             "name": "search",
             "kind": "function",
             "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 336,
-            "end_line": 345
+            "line": 345,
+            "end_line": 354
           },
           {
             "name": "semantic_search",
             "kind": "function",
             "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 373,
-            "end_line": 382
+            "line": 382,
+            "end_line": 391
           },
           {
             "name": "session_stats",
             "kind": "function",
             "signature": "pub async fn session_stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 238,
-            "end_line": 240
+            "line": 247,
+            "end_line": 249
           },
           {
             "name": "set_profile",
             "kind": "function",
             "signature": "pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 191,
-            "end_line": 193
+            "line": 200,
+            "end_line": 202
           },
           {
             "name": "stats",
             "kind": "function",
             "signature": "pub async fn stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 201,
-            "end_line": 203
+            "line": 210,
+            "end_line": 212
           },
           {
             "name": "store",
             "kind": "function",
             "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 61,
-            "end_line": 63
+            "line": 62,
+            "end_line": 64
           },
           {
             "name": "store_batch_raw",
             "kind": "function",
             "signature": "pub async fn store_batch_raw(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 71,
-            "end_line": 73
+            "line": 72,
+            "end_line": 74
           },
           {
             "name": "store_raw",
             "kind": "function",
             "signature": "pub async fn store_raw(&self, id: &str, content: &str, input: &MemoryInput) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 66,
-            "end_line": 68
+            "line": 67,
+            "end_line": 69
           },
           {
             "name": "sweep_expired",
             "kind": "function",
             "signature": "pub async fn sweep_expired(&self) -> Result<usize>",
             "file": "src/local_memory_runtime.rs",
-            "line": 228,
-            "end_line": 230
+            "line": 237,
+            "end_line": 239
           },
           {
             "name": "traverse",
             "kind": "function",
             "signature": "pub async fn traverse( &self, start_id: &str, max_hops: usize, min_weight: f64, edge_types: Option<&[String]>, ) -> Result<Vec<GraphNode>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 120,
-            "end_line": 130
+            "line": 121,
+            "end_line": 131
           },
           {
             "name": "type_stats",
             "kind": "function",
             "signature": "pub async fn type_stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 233,
-            "end_line": 235
+            "line": 242,
+            "end_line": 244
           },
           {
             "name": "update",
             "kind": "function",
             "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 86,
-            "end_line": 88
+            "line": 87,
+            "end_line": 89
           },
           {
             "name": "version_chain",
             "kind": "function",
             "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 395,
-            "end_line": 397
+            "line": 404,
+            "end_line": 406
           },
           {
             "name": "weekly_digest",
             "kind": "function",
             "signature": "pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 243,
-            "end_line": 245
+            "line": 252,
+            "end_line": 254
           },
           {
             "name": "welcome_scoped",
             "kind": "function",
             "signature": "pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 196,
-            "end_line": 198
+            "line": 205,
+            "end_line": 207
           },
           {
             "name": "Commands",
@@ -8197,24 +8216,24 @@
             "kind": "function",
             "signature": "pub fn from_storage(storage: SqliteStorage) -> Self",
             "file": "src/local_memory_runtime.rs",
-            "line": 51,
-            "end_line": 58
+            "line": 52,
+            "end_line": 59
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
             "file": "src/local_memory_runtime.rs",
-            "line": 32,
-            "end_line": 35
+            "line": 33,
+            "end_line": 36
           },
           {
             "name": "new_with_path",
             "kind": "function",
             "signature": "pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self>",
             "file": "src/local_memory_runtime.rs",
-            "line": 41,
-            "end_line": 44
+            "line": 42,
+            "end_line": 45
           },
           {
             "name": "app_paths",
@@ -8293,8 +8312,8 @@
             "kind": "struct",
             "signature": "pub struct LocalMemoryRuntime",
             "file": "src/local_memory_runtime.rs",
-            "line": 21,
-            "end_line": 24
+            "line": 22,
+            "end_line": 25
           },
           {
             "name": "SearchFilterArgs",
@@ -8745,8 +8764,8 @@
             "kind": "function",
             "signature": "pub fn is_valid_event_type(event_type: &str) -> bool",
             "file": "src/memory_core/domain.rs",
-            "line": 428,
-            "end_line": 432
+            "line": 435,
+            "end_line": 439
           },
           {
             "name": "memory_kind",
@@ -8769,8 +8788,8 @@
             "kind": "function",
             "signature": "pub fn parse_duration(text: &str) -> Result<chrono::Duration>",
             "file": "src/memory_core/domain.rs",
-            "line": 434,
-            "end_line": 501
+            "line": 441,
+            "end_line": 508
           },
           {
             "name": "type_weight",
@@ -8857,8 +8876,8 @@
             "kind": "struct",
             "signature": "pub struct BackupInfo",
             "file": "src/memory_core/domain.rs",
-            "line": 585,
-            "end_line": 589
+            "line": 592,
+            "end_line": 596
           },
           {
             "name": "CheckpointInput",
@@ -8869,20 +8888,28 @@
             "end_line": 424
           },
           {
+            "name": "CheckpointSaveOutcome",
+            "kind": "struct",
+            "signature": "pub struct CheckpointSaveOutcome",
+            "file": "src/memory_core/domain.rs",
+            "line": 428,
+            "end_line": 431
+          },
+          {
             "name": "GraphNode",
             "kind": "struct",
             "signature": "pub struct GraphNode",
             "file": "src/memory_core/domain.rs",
-            "line": 546,
-            "end_line": 555
+            "line": 553,
+            "end_line": 562
           },
           {
             "name": "ListResult",
             "kind": "struct",
             "signature": "pub struct ListResult",
             "file": "src/memory_core/domain.rs",
-            "line": 576,
-            "end_line": 581
+            "line": 583,
+            "end_line": 588
           },
           {
             "name": "MemoryInput",
@@ -8921,8 +8948,8 @@
             "kind": "struct",
             "signature": "pub struct Relationship",
             "file": "src/memory_core/domain.rs",
-            "line": 559,
-            "end_line": 572
+            "line": 566,
+            "end_line": 579
           },
           {
             "name": "SearchOptions",
@@ -8937,16 +8964,16 @@
             "kind": "struct",
             "signature": "pub struct SearchResult",
             "file": "src/memory_core/domain.rs",
-            "line": 505,
-            "end_line": 521
+            "line": 512,
+            "end_line": 528
           },
           {
             "name": "SemanticResult",
             "kind": "struct",
             "signature": "pub struct SemanticResult",
             "file": "src/memory_core/domain.rs",
-            "line": 525,
-            "end_line": 543
+            "line": 532,
+            "end_line": 550
           },
           {
             "name": "WelcomeOptions",
@@ -9951,6 +9978,14 @@
             "end_line": 195
           },
           {
+            "name": "save_checkpoint_outcome",
+            "kind": "function",
+            "signature": "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
+            "file": "src/memory_core/storage/sqlite/session.rs",
+            "line": 107,
+            "end_line": 283
+          },
+          {
             "name": "stats",
             "kind": "function",
             "signature": "pub async fn stats(&self) -> Result<serde_json::Value>",
@@ -9971,8 +10006,8 @@
             "kind": "function",
             "signature": "pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/crud.rs",
-            "line": 831,
-            "end_line": 981
+            "line": 858,
+            "end_line": 1008
           },
           {
             "name": "update",
@@ -10180,7 +10215,7 @@
             "signature": "pub(crate) async fn store_internal( &self, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/crud.rs",
             "line": 337,
-            "end_line": 411
+            "end_line": 385
           },
           {
             "name": "expand_date_tokens",
@@ -10205,6 +10240,14 @@
             "file": "src/memory_core/storage/sqlite/mod.rs",
             "line": 52,
             "end_line": 52
+          },
+          {
+            "name": "finish_store",
+            "kind": "function",
+            "signature": "pub(super) async fn finish_store( &self, post_id: &str, post_input: &MemoryInput, outcome: &StoreOutcome, superseded_ids: &[String], final_tags: &[String], )",
+            "file": "src/memory_core/storage/sqlite/crud.rs",
+            "line": 387,
+            "end_line": 430
           },
           {
             "name": "relationship_exists",
@@ -10597,6 +10640,14 @@
             "file": "src/memory_core/storage/sqlite/helpers.rs",
             "line": 686,
             "end_line": 702
+          },
+          {
+            "name": "store_one_in_tx",
+            "kind": "function",
+            "signature": "pub(super) fn store_one_in_tx( tx: &rusqlite::Transaction<'_>, embedder: &dyn EmbeddingModel, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<(StoreOutcome, Vec<String>, Vec<String>)>",
+            "file": "src/memory_core/storage/sqlite/crud.rs",
+            "line": 432,
+            "end_line": 845
           },
           {
             "name": "test_conn",
@@ -11573,7 +11624,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "dfef6d309bf8e2a0"
+        "hash": "90da47784e1bdf6d"
       },
       "findings": [
         {

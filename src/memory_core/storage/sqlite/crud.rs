@@ -341,10 +341,6 @@ impl SqliteStorage {
         input: &MemoryInput,
         precomputed_embedding: Option<Vec<f32>>,
     ) -> Result<()> {
-        let invalidation_event_type = event_type_to_sql(&input.event_type);
-        let invalidation_project = input.project.clone();
-        let invalidation_session_id = input.session_id.clone();
-
         let pool = Arc::clone(&self.pool);
         let embedder = Arc::clone(&self.embedder);
         let post_id = id.to_string();
@@ -357,7 +353,7 @@ impl SqliteStorage {
             let conn = pool.writer()?;
             let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start sqlite transaction")?;
-            let r = Self::store_one_in_tx(
+            let result = Self::store_one_in_tx(
                 &tx,
                 embedder.as_ref(),
                 &id,
@@ -366,51 +362,74 @@ impl SqliteStorage {
                 precomputed_embedding,
             )?;
             tx.commit().context("failed to commit sqlite transaction")?;
-            drop(conn); // Release writer Mutex before note_write to avoid deadlock
+            drop(conn);
             pool.note_write();
-            Ok::<_, anyhow::Error>(r)
+            Ok::<_, anyhow::Error>(result)
         })
         .await
         .context("spawn_blocking join error")??;
 
+        let persisted_id = match &outcome {
+            StoreOutcome::Inserted => post_id.clone(),
+            StoreOutcome::Deduped { existing_id } => existing_id.clone(),
+        };
+        self.finish_store(
+            &persisted_id,
+            &post_input,
+            &outcome,
+            &superseded_ids,
+            &final_tags,
+        )
+        .await;
+        Ok(())
+    }
+
+    pub(super) async fn finish_store(
+        &self,
+        post_id: &str,
+        post_input: &MemoryInput,
+        outcome: &StoreOutcome,
+        superseded_ids: &[String],
+        final_tags: &[String],
+    ) {
+        let invalidation_event_type = event_type_to_sql(&post_input.event_type);
         self.invalidate_cache_selective(
             invalidation_event_type.as_deref(),
-            invalidation_project.as_deref(),
-            invalidation_session_id.as_deref(),
+            post_input.project.as_deref(),
+            post_input.session_id.as_deref(),
         );
         self.refresh_hot_cache_best_effort();
 
-        if matches!(outcome, StoreOutcome::Inserted) {
-            if let Err(error) = self.try_auto_relate(&post_id).await {
+        if matches!(outcome, &StoreOutcome::Inserted) {
+            if let Err(error) = self.try_auto_relate(post_id).await {
                 tracing::warn!(memory_id = %post_id, error = %error, "auto-relate failed");
             }
 
-            if let Some(ref sid) = post_input.session_id
-                && let Err(e) = self.try_create_temporal_edges(&post_id, sid).await
+            if let Some(ref session_id) = post_input.session_id
+                && let Err(error) = self.try_create_temporal_edges(post_id, session_id).await
             {
-                tracing::warn!(memory_id = %post_id, error = %e, "temporal edge creation failed");
+                tracing::warn!(memory_id = %post_id, error = %error, "temporal edge creation failed");
             }
 
             if !final_tags.is_empty()
-                && let Err(e) = self.try_create_entity_edges(&post_id, &final_tags).await
+                && let Err(error) = self.try_create_entity_edges(post_id, final_tags).await
             {
-                tracing::warn!(memory_id = %post_id, error = %e, "entity edge creation failed");
+                tracing::warn!(memory_id = %post_id, error = %error, "entity edge creation failed");
             }
         }
 
-        for old_id in &superseded_ids {
+        for old_id in superseded_ids {
             if let Err(error) = self
-                .add_relationship(old_id, &post_id, "SUPERSEDES", 1.0, &serde_json::json!({}))
+                .add_relationship(old_id, post_id, "SUPERSEDES", 1.0, &serde_json::json!({}))
                 .await
             {
                 tracing::warn!(old_id = %old_id, new_id = %post_id, error = %error, "failed to create SUPERSEDES edge");
             }
         }
         bump_token_cache_gen();
-        Ok(())
     }
 
-    fn store_one_in_tx(
+    pub(super) fn store_one_in_tx(
         tx: &rusqlite::Transaction<'_>,
         embedder: &dyn EmbeddingModel,
         id: &str,
@@ -504,10 +523,14 @@ impl SqliteStorage {
                  SET access_count = access_count + 1,
                      last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                  WHERE id = ?1",
-                params![existing_id],
+                params![&existing_id],
             )
             .context("failed to update access_count for canonical dedup")?;
-            return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+            return Ok((
+                StoreOutcome::Deduped { existing_id },
+                Vec::new(),
+                Vec::new(),
+            ));
         }
 
         if let Some(threshold) = jaccard_threshold {
@@ -526,10 +549,14 @@ impl SqliteStorage {
                      SET access_count = access_count + 1,
                          last_accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                      WHERE id = ?1",
-                    params![existing_id],
+                    params![&existing_id],
                 )
                 .context("failed to update access_count for Jaccard dedup")?;
-                return Ok((StoreOutcome::Deduped, Vec::new(), Vec::new()));
+                return Ok((
+                    StoreOutcome::Deduped { existing_id },
+                    Vec::new(),
+                    Vec::new(),
+                ));
             }
         }
 
