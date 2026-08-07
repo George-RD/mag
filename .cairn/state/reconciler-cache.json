@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "cb1aff6f3cdbe9e9",
+  "key": "5caea20b8dbcca2c",
   "reports": {
     "python": {
       "claimed_files": {
@@ -19,21 +19,29 @@
           "benches/python_comparison_nocache.py"
         ],
         "mag.quality.scripts": [
-          "scripts/compare_strategies.py"
+          "scripts/compare_strategies.py",
+          "scripts/retrieval_benchmark_gate.py"
         ],
         "mag.quality.tests": [
           "tests/python/test_active_strategies.py",
           "tests/python/test_longmemeval_runner.py",
-          "tests/python/test_mcp_client.py"
+          "tests/python/test_mcp_client.py",
+          "tests/test_retrieval_benchmark_gate.py"
         ]
       },
       "symbols": [
+        "assignment:BENCHMARK_RELEVANT_PREFIXES",
+        "assignment:BENCHMARK_RELEVANT_STEMS",
         "assignment:BETTER_CATEGORY_MAX_REGRESSION",
         "assignment:BETTER_OVERALL_THRESHOLD",
         "assignment:CATEGORY_KEYS",
         "assignment:DEFAULT_OMEGA_REPO",
         "assignment:EQUIVALENT_THRESHOLD",
+        "assignment:GATE",
         "assignment:REGRESSION_THRESHOLD",
+        "assignment:REPO_ROOT",
+        "assignment:SCRIPT_PATH",
+        "assignment:SPEC",
         "assignment:STRATEGIES",
         "assignment:VERBOSE",
         "assignment:VERBOSE",
@@ -52,6 +60,8 @@
         "assignment:archive_name",
         "assignment:archive_name",
         "assignment:archive_url",
+        "assignment:args",
+        "assignment:args",
         "assignment:args",
         "assignment:args",
         "assignment:args",
@@ -122,6 +132,7 @@
         "assignment:client.search",
         "assignment:client.search",
         "assignment:cls",
+        "assignment:completed",
         "assignment:confidence",
         "assignment:confidence",
         "assignment:content",
@@ -166,6 +177,7 @@
         "assignment:detail",
         "assignment:detail",
         "assignment:detail",
+        "assignment:detail",
         "assignment:digest",
         "assignment:digest",
         "assignment:digest",
@@ -184,6 +196,7 @@
         "assignment:expected_digest",
         "assignment:expected_lower",
         "assignment:expected_str",
+        "assignment:explicit_paths",
         "assignment:ext",
         "assignment:extra_results",
         "assignment:f1_sum",
@@ -195,6 +208,7 @@
         "assignment:found",
         "assignment:g._EMBEDDING_CACHE_MAX",
         "assignment:gate",
+        "assignment:git_diff",
         "assignment:header",
         "assignment:hit",
         "assignment:interval_days",
@@ -220,6 +234,8 @@
         "assignment:manifest",
         "assignment:markdown",
         "assignment:matches",
+        "assignment:matches",
+        "assignment:matches",
         "assignment:max_cat_regression",
         "assignment:md_path",
         "assignment:member",
@@ -239,6 +255,11 @@
         "assignment:name",
         "assignment:names",
         "assignment:new_date",
+        "assignment:normalized",
+        "assignment:normalized",
+        "assignment:normalized",
+        "assignment:normalized",
+        "assignment:normalized",
         "assignment:now",
         "assignment:now",
         "assignment:now_iso",
@@ -263,6 +284,7 @@
         "assignment:parser",
         "assignment:parser",
         "assignment:parser",
+        "assignment:parser",
         "assignment:parts",
         "assignment:passed",
         "assignment:passed",
@@ -276,6 +298,11 @@
         "assignment:path",
         "assignment:path",
         "assignment:path",
+        "assignment:paths",
+        "assignment:paths",
+        "assignment:paths",
+        "assignment:paths",
+        "assignment:paths",
         "assignment:pkg_bin",
         "assignment:plat",
         "assignment:plat",
@@ -297,6 +324,7 @@
         "assignment:r[\"score\"]",
         "assignment:raw_data",
         "assignment:ref_date",
+        "assignment:relevant",
         "assignment:report",
         "assignment:report",
         "assignment:report[\"strategies\"][name]",
@@ -364,6 +392,7 @@
         "assignment:seeded",
         "assignment:seeding_ms",
         "assignment:seeds",
+        "assignment:seen",
         "assignment:seen_ids",
         "assignment:seen_sessions",
         "assignment:self._call_idx",
@@ -454,6 +483,7 @@
         "assignment:total_stored",
         "assignment:trace_path",
         "assignment:two_weeks_range",
+        "assignment:unrelated",
         "assignment:ver",
         "assignment:verdict, verdict_reason",
         "assignment:wc",
@@ -472,15 +502,18 @@
         "class_definition:QuestionResult",
         "class_definition:RecallStrategy",
         "class_definition:Results",
+        "class_definition:RetrievalBenchmarkGateTests",
         "class_definition:RunSummary",
         "class_definition:SearchClient",
         "class_definition:ThresholdStrategy",
         "class_definition:VerifiedDownloadFlowTests",
         "class_definition:VersionProvenanceTests",
+        "function_definition:benchmark_relevant_paths",
         "function_definition:build_comparison_report",
         "function_definition:build_strategy",
         "function_definition:call_tool",
         "function_definition:cat_f1",
+        "function_definition:changed_paths",
         "function_definition:check",
         "function_definition:close",
         "function_definition:compute_deltas",
@@ -494,6 +527,7 @@
         "function_definition:format_delta",
         "function_definition:generate_markdown",
         "function_definition:git_commit",
+        "function_definition:is_benchmark_relevant",
         "function_definition:iso",
         "function_definition:load_benchmark_data",
         "function_definition:load_longmemeval_dataset",
@@ -502,14 +536,18 @@
         "function_definition:main",
         "function_definition:main",
         "function_definition:main",
+        "function_definition:main",
         "function_definition:mock_call_tool",
         "function_definition:mock_search",
         "function_definition:mock_search",
+        "function_definition:normalize_repo_path",
         "function_definition:on_session_stored",
+        "function_definition:parse_args",
         "function_definition:parse_args",
         "function_definition:peak_rss_kb",
         "function_definition:query3",
         "function_definition:record",
+        "function_definition:requires_benchmark",
         "function_definition:retrieve",
         "function_definition:retrieve",
         "function_definition:retrieve",
@@ -536,10 +574,12 @@
         "function_definition:test_binary_version_matches_installed_distribution",
         "function_definition:test_boundary_injects_session_content",
         "function_definition:test_checksum_failure_happens_before_install_side_effects",
+        "function_definition:test_cli_paths_mode_emits_machine_readable_boolean",
         "function_definition:test_context_manager",
         "function_definition:test_evaluate_question_fails",
         "function_definition:test_evaluate_question_passes",
         "function_definition:test_passive_strategy",
+        "function_definition:test_paths_are_normalized_and_deduplicated",
         "function_definition:test_periodic_strategy_includes_summaries",
         "function_definition:test_public_version_matches_installed_distribution",
         "function_definition:test_rejects_a_malformed_digest",
@@ -554,9 +594,12 @@
         "function_definition:test_search_with_scores_uses_canonical_score",
         "function_definition:test_seed_sessions",
         "function_definition:test_selects_the_exact_archive_entry",
+        "function_definition:test_sqlite_retrieval_and_pipeline_paths_are_governed",
         "function_definition:test_strategies_registry",
         "function_definition:test_threshold_does_not_expand_when_high_confidence",
         "function_definition:test_threshold_expands_when_low_confidence",
+        "function_definition:test_top_level_retrieval_scoring_and_reranking_files_are_governed",
+        "function_definition:test_unrelated_paths_do_not_require_the_benchmark",
         "function_definition:test_verified_tar_archive_is_installed_after_checksum_validation",
         "function_definition:test_verified_zip_archive_uses_the_windows_extractor",
         "function_definition:test_wrapper_has_no_independent_binary_version_constant"
@@ -945,6 +988,8 @@
           "function_definition:substring_match"
         ],
         "mag.quality.scripts": [
+          "assignment:BENCHMARK_RELEVANT_PREFIXES",
+          "assignment:BENCHMARK_RELEVANT_STEMS",
           "assignment:BETTER_CATEGORY_MAX_REGRESSION",
           "assignment:BETTER_OVERALL_THRESHOLD",
           "assignment:CATEGORY_KEYS",
@@ -952,6 +997,8 @@
           "assignment:REGRESSION_THRESHOLD",
           "assignment:a_name",
           "assignment:all_within_equiv",
+          "assignment:args",
+          "assignment:args",
           "assignment:args",
           "assignment:b_name",
           "assignment:baseline",
@@ -968,6 +1015,7 @@
           "assignment:cat",
           "assignment:categories",
           "assignment:category_deltas",
+          "assignment:completed",
           "assignment:data_a",
           "assignment:data_b",
           "assignment:date_str",
@@ -977,20 +1025,32 @@
           "assignment:deltas",
           "assignment:deltas",
           "assignment:deltas[key]",
+          "assignment:detail",
           "assignment:dirname",
           "assignment:embedder",
+          "assignment:explicit_paths",
           "assignment:f1_sum",
           "assignment:gate",
+          "assignment:git_diff",
           "assignment:json_path",
           "assignment:lines",
           "assignment:markdown",
+          "assignment:matches",
+          "assignment:matches",
           "assignment:max_cat_regression",
           "assignment:md_path",
           "assignment:mode_baseline",
+          "assignment:normalized",
+          "assignment:normalized",
+          "assignment:normalized",
+          "assignment:normalized",
+          "assignment:normalized",
           "assignment:old_key",
           "assignment:out_path",
           "assignment:overall_delta",
           "assignment:parser",
+          "assignment:parser",
+          "assignment:paths",
           "assignment:report",
           "assignment:samples",
           "assignment:scores_a",
@@ -1000,6 +1060,7 @@
           "assignment:scores_b",
           "assignment:scoring_mode",
           "assignment:scoring_mode",
+          "assignment:seen",
           "assignment:strategy_a",
           "assignment:strategy_a",
           "assignment:strategy_b",
@@ -1007,16 +1068,27 @@
           "assignment:strategy_b_id",
           "assignment:total",
           "assignment:verdict, verdict_reason",
+          "function_definition:benchmark_relevant_paths",
           "function_definition:build_comparison_report",
           "function_definition:cat_f1",
+          "function_definition:changed_paths",
           "function_definition:compute_deltas",
           "function_definition:determine_verdict",
           "function_definition:extract_scores",
           "function_definition:format_delta",
           "function_definition:generate_markdown",
-          "function_definition:main"
+          "function_definition:is_benchmark_relevant",
+          "function_definition:main",
+          "function_definition:main",
+          "function_definition:normalize_repo_path",
+          "function_definition:parse_args",
+          "function_definition:requires_benchmark"
         ],
         "mag.quality.tests": [
+          "assignment:GATE",
+          "assignment:REPO_ROOT",
+          "assignment:SCRIPT_PATH",
+          "assignment:SPEC",
           "assignment:calls",
           "assignment:client",
           "assignment:client",
@@ -1043,9 +1115,14 @@
           "assignment:out",
           "assignment:out",
           "assignment:out",
+          "assignment:paths",
+          "assignment:paths",
+          "assignment:paths",
+          "assignment:paths",
           "assignment:questions",
           "assignment:questions",
           "assignment:questions",
+          "assignment:relevant",
           "assignment:resp",
           "assignment:resp",
           "assignment:resp",
@@ -1077,8 +1154,10 @@
           "assignment:summaries",
           "assignment:summaries",
           "assignment:summary",
+          "assignment:unrelated",
           "class_definition:FakeClient",
           "class_definition:FakeMcpClient",
+          "class_definition:RetrievalBenchmarkGateTests",
           "function_definition:mock_call_tool",
           "function_definition:mock_search",
           "function_definition:mock_search",
@@ -1086,10 +1165,12 @@
           "function_definition:search_with_scores",
           "function_definition:store",
           "function_definition:test_boundary_injects_session_content",
+          "function_definition:test_cli_paths_mode_emits_machine_readable_boolean",
           "function_definition:test_context_manager",
           "function_definition:test_evaluate_question_fails",
           "function_definition:test_evaluate_question_passes",
           "function_definition:test_passive_strategy",
+          "function_definition:test_paths_are_normalized_and_deduplicated",
           "function_definition:test_periodic_strategy_includes_summaries",
           "function_definition:test_run_ab_test",
           "function_definition:test_run_ab_test_with_two_strategies",
@@ -1098,9 +1179,12 @@
           "function_definition:test_search_with_scores_falls_back_to_text_overlap",
           "function_definition:test_search_with_scores_uses_canonical_score",
           "function_definition:test_seed_sessions",
+          "function_definition:test_sqlite_retrieval_and_pipeline_paths_are_governed",
           "function_definition:test_strategies_registry",
           "function_definition:test_threshold_does_not_expand_when_high_confidence",
-          "function_definition:test_threshold_expands_when_low_confidence"
+          "function_definition:test_threshold_expands_when_low_confidence",
+          "function_definition:test_top_level_retrieval_scoring_and_reranking_files_are_governed",
+          "function_definition:test_unrelated_paths_do_not_require_the_benchmark"
         ]
       },
       "node_symbol_records": {
@@ -4134,6 +4218,22 @@
         ],
         "mag.quality.scripts": [
           {
+            "name": "BENCHMARK_RELEVANT_PREFIXES",
+            "kind": "variable",
+            "signature": "assignment:BENCHMARK_RELEVANT_PREFIXES",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 37,
+            "end_line": 39
+          },
+          {
+            "name": "BENCHMARK_RELEVANT_STEMS",
+            "kind": "variable",
+            "signature": "assignment:BENCHMARK_RELEVANT_STEMS",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 28,
+            "end_line": 35
+          },
+          {
             "name": "BETTER_CATEGORY_MAX_REGRESSION",
             "kind": "variable",
             "signature": "assignment:BETTER_CATEGORY_MAX_REGRESSION",
@@ -4196,6 +4296,22 @@
             "file": "scripts/compare_strategies.py",
             "line": 263,
             "end_line": 263
+          },
+          {
+            "name": "args",
+            "kind": "variable",
+            "signature": "assignment:args",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 128,
+            "end_line": 128
+          },
+          {
+            "name": "args",
+            "kind": "variable",
+            "signature": "assignment:args",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 142,
+            "end_line": 142
           },
           {
             "name": "b_name",
@@ -4318,6 +4434,14 @@
             "end_line": 72
           },
           {
+            "name": "completed",
+            "kind": "variable",
+            "signature": "assignment:completed",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 99,
+            "end_line": 104
+          },
+          {
             "name": "data_a",
             "kind": "variable",
             "signature": "assignment:data_a",
@@ -4390,6 +4514,14 @@
             "end_line": 63
           },
           {
+            "name": "detail",
+            "kind": "variable",
+            "signature": "assignment:detail",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 106,
+            "end_line": 106
+          },
+          {
             "name": "dirname",
             "kind": "variable",
             "signature": "assignment:dirname",
@@ -4406,6 +4538,14 @@
             "end_line": 106
           },
           {
+            "name": "explicit_paths",
+            "kind": "variable",
+            "signature": "assignment:explicit_paths",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 130,
+            "end_line": 130
+          },
+          {
             "name": "f1_sum",
             "kind": "variable",
             "signature": "assignment:f1_sum",
@@ -4420,6 +4560,14 @@
             "file": "scripts/compare_strategies.py",
             "line": 212,
             "end_line": 212
+          },
+          {
+            "name": "git_diff",
+            "kind": "variable",
+            "signature": "assignment:git_diff",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 131,
+            "end_line": 131
           },
           {
             "name": "json_path",
@@ -4446,6 +4594,22 @@
             "end_line": 288
           },
           {
+            "name": "matches",
+            "kind": "variable",
+            "signature": "assignment:matches",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 74,
+            "end_line": 74
+          },
+          {
+            "name": "matches",
+            "kind": "variable",
+            "signature": "assignment:matches",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 145,
+            "end_line": 145
+          },
+          {
             "name": "max_cat_regression",
             "kind": "variable",
             "signature": "assignment:max_cat_regression",
@@ -4468,6 +4632,46 @@
             "file": "scripts/compare_strategies.py",
             "line": 116,
             "end_line": 116
+          },
+          {
+            "name": "normalized",
+            "kind": "variable",
+            "signature": "assignment:normalized",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 45,
+            "end_line": 45
+          },
+          {
+            "name": "normalized",
+            "kind": "variable",
+            "signature": "assignment:normalized",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 47,
+            "end_line": 47
+          },
+          {
+            "name": "normalized",
+            "kind": "variable",
+            "signature": "assignment:normalized",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 49,
+            "end_line": 49
+          },
+          {
+            "name": "normalized",
+            "kind": "variable",
+            "signature": "assignment:normalized",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 65,
+            "end_line": 65
+          },
+          {
+            "name": "normalized",
+            "kind": "variable",
+            "signature": "assignment:normalized",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 77,
+            "end_line": 77
           },
           {
             "name": "old_key",
@@ -4500,6 +4704,22 @@
             "file": "scripts/compare_strategies.py",
             "line": 239,
             "end_line": 241
+          },
+          {
+            "name": "parser",
+            "kind": "variable",
+            "signature": "assignment:parser",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 115,
+            "end_line": 115
+          },
+          {
+            "name": "paths",
+            "kind": "variable",
+            "signature": "assignment:paths",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 144,
+            "end_line": 144
           },
           {
             "name": "report",
@@ -4574,6 +4794,14 @@
             "end_line": 316
           },
           {
+            "name": "seen",
+            "kind": "variable",
+            "signature": "assignment:seen",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 75,
+            "end_line": 75
+          },
+          {
             "name": "strategy_a",
             "kind": "variable",
             "signature": "assignment:strategy_a",
@@ -4630,6 +4858,14 @@
             "end_line": 111
           },
           {
+            "name": "benchmark_relevant_paths",
+            "kind": "function",
+            "signature": "function_definition:benchmark_relevant_paths",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 71,
+            "end_line": 82
+          },
+          {
             "name": "build_comparison_report",
             "kind": "function",
             "signature": "function_definition:build_comparison_report",
@@ -4644,6 +4880,14 @@
             "file": "scripts/compare_strategies.py",
             "line": 37,
             "end_line": 44
+          },
+          {
+            "name": "changed_paths",
+            "kind": "function",
+            "signature": "function_definition:changed_paths",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 91,
+            "end_line": 111
           },
           {
             "name": "compute_deltas",
@@ -4686,15 +4930,87 @@
             "end_line": 223
           },
           {
+            "name": "is_benchmark_relevant",
+            "kind": "function",
+            "signature": "function_definition:is_benchmark_relevant",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 62,
+            "end_line": 68
+          },
+          {
             "name": "main",
             "kind": "function",
             "signature": "function_definition:main",
             "file": "scripts/compare_strategies.py",
             "line": 238,
             "end_line": 351
+          },
+          {
+            "name": "main",
+            "kind": "function",
+            "signature": "function_definition:main",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 141,
+            "end_line": 159
+          },
+          {
+            "name": "normalize_repo_path",
+            "kind": "function",
+            "signature": "function_definition:normalize_repo_path",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 42,
+            "end_line": 50
+          },
+          {
+            "name": "parse_args",
+            "kind": "function",
+            "signature": "function_definition:parse_args",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 114,
+            "end_line": 138
+          },
+          {
+            "name": "requires_benchmark",
+            "kind": "function",
+            "signature": "function_definition:requires_benchmark",
+            "file": "scripts/retrieval_benchmark_gate.py",
+            "line": 85,
+            "end_line": 88
           }
         ],
         "mag.quality.tests": [
+          {
+            "name": "GATE",
+            "kind": "variable",
+            "signature": "assignment:GATE",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 17,
+            "end_line": 17
+          },
+          {
+            "name": "REPO_ROOT",
+            "kind": "variable",
+            "signature": "assignment:REPO_ROOT",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 12,
+            "end_line": 12
+          },
+          {
+            "name": "SCRIPT_PATH",
+            "kind": "variable",
+            "signature": "assignment:SCRIPT_PATH",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 13,
+            "end_line": 13
+          },
+          {
+            "name": "SPEC",
+            "kind": "variable",
+            "signature": "assignment:SPEC",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 14,
+            "end_line": 14
+          },
           {
             "name": "calls",
             "kind": "variable",
@@ -4904,6 +5220,38 @@
             "end_line": 90
           },
           {
+            "name": "paths",
+            "kind": "variable",
+            "signature": "assignment:paths",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 23,
+            "end_line": 28
+          },
+          {
+            "name": "paths",
+            "kind": "variable",
+            "signature": "assignment:paths",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 33,
+            "end_line": 40
+          },
+          {
+            "name": "paths",
+            "kind": "variable",
+            "signature": "assignment:paths",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 45,
+            "end_line": 51
+          },
+          {
+            "name": "paths",
+            "kind": "variable",
+            "signature": "assignment:paths",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 57,
+            "end_line": 61
+          },
+          {
             "name": "questions",
             "kind": "variable",
             "signature": "assignment:questions",
@@ -4926,6 +5274,14 @@
             "file": "tests/python/test_longmemeval_runner.py",
             "line": 107,
             "end_line": 109
+          },
+          {
+            "name": "relevant",
+            "kind": "variable",
+            "signature": "assignment:relevant",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 69,
+            "end_line": 80
           },
           {
             "name": "resp",
@@ -5176,6 +5532,14 @@
             "end_line": 76
           },
           {
+            "name": "unrelated",
+            "kind": "variable",
+            "signature": "assignment:unrelated",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 81,
+            "end_line": 87
+          },
+          {
             "name": "FakeClient",
             "kind": "class",
             "signature": "class_definition:FakeClient",
@@ -5190,6 +5554,14 @@
             "file": "tests/python/test_longmemeval_runner.py",
             "line": 7,
             "end_line": 20
+          },
+          {
+            "name": "RetrievalBenchmarkGateTests",
+            "kind": "class",
+            "signature": "class_definition:RetrievalBenchmarkGateTests",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 21,
+            "end_line": 90
           },
           {
             "name": "mock_call_tool",
@@ -5248,6 +5620,14 @@
             "end_line": 78
           },
           {
+            "name": "test_cli_paths_mode_emits_machine_readable_boolean",
+            "kind": "function",
+            "signature": "function_definition:test_cli_paths_mode_emits_machine_readable_boolean",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 68,
+            "end_line": 90
+          },
+          {
             "name": "test_context_manager",
             "kind": "function",
             "signature": "function_definition:test_context_manager",
@@ -5278,6 +5658,14 @@
             "file": "tests/python/test_active_strategies.py",
             "line": 22,
             "end_line": 34
+          },
+          {
+            "name": "test_paths_are_normalized_and_deduplicated",
+            "kind": "function",
+            "signature": "function_definition:test_paths_are_normalized_and_deduplicated",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 56,
+            "end_line": 66
           },
           {
             "name": "test_periodic_strategy_includes_summaries",
@@ -5344,6 +5732,14 @@
             "end_line": 33
           },
           {
+            "name": "test_sqlite_retrieval_and_pipeline_paths_are_governed",
+            "kind": "function",
+            "signature": "function_definition:test_sqlite_retrieval_and_pipeline_paths_are_governed",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 32,
+            "end_line": 42
+          },
+          {
             "name": "test_strategies_registry",
             "kind": "function",
             "signature": "function_definition:test_strategies_registry",
@@ -5366,11 +5762,27 @@
             "file": "tests/python/test_active_strategies.py",
             "line": 37,
             "end_line": 46
+          },
+          {
+            "name": "test_top_level_retrieval_scoring_and_reranking_files_are_governed",
+            "kind": "function",
+            "signature": "function_definition:test_top_level_retrieval_scoring_and_reranking_files_are_governed",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 22,
+            "end_line": 30
+          },
+          {
+            "name": "test_unrelated_paths_do_not_require_the_benchmark",
+            "kind": "function",
+            "signature": "function_definition:test_unrelated_paths_do_not_require_the_benchmark",
+            "file": "tests/test_retrieval_benchmark_gate.py",
+            "line": 44,
+            "end_line": 54
           }
         ]
       },
       "fingerprint": {
-        "hash": "426d79f6f1c34886"
+        "hash": "ce5766bd23c01d8b"
       },
       "findings": []
     },

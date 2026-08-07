@@ -30,10 +30,14 @@ The first `doctor` may report missing embedding artifacts. Normal ingest/search
 commands can download the model and tokenizer on first use, so rerun `doctor`
 after one real command before concluding the runtime is broken.
 
-## CLI versus MCP server
+## CLI and optional MCP transport
 
-- CLI commands initialize SQLite and the embedder directly. No daemon is needed.
-- `mag serve` is an MCP **stdio** server, not a background system daemon.
+- Operate MAG through CLI commands by default. Skills, examples, automation, and
+  local debugging should prefer the CLI unless the consuming host specifically
+  requires MCP.
+- CLI handlers and MCP tools use the same entrypoint-owned `LocalMemoryRuntime`;
+  MCP must not own another storage/runtime composition or independent behavior.
+- `mag serve` is an MCP **stdio** transport, not a background system daemon.
 - A client must keep the child process alive and speak JSON-RPC over stdin/stdout.
 - Never write logs to stdout in server mode; stdout is the protocol channel.
 - Use `HOME`, `USERPROFILE`, and `MAG_DATA_ROOT` isolation for hermetic tests.
@@ -46,7 +50,7 @@ Do not stop at the unit suite. Store several distinct memories, then check:
 2. paraphrase recall with no shared words;
 3. unrelated-query abstention;
 4. persistence across processes;
-5. MCP `initialize`, `tools/list`, store, and search;
+5. MCP `initialize`, `tools/list`, store, and search when MCP changed;
 6. duplicate/conflicting memory handling;
 7. cold-start and warm latency.
 
@@ -56,12 +60,25 @@ For retrieval changes, run:
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
-./scripts/bench.sh --gate
+
+required="$(python3 scripts/retrieval_benchmark_gate.py \
+  --base main --head HEAD --explain)"
+if [[ "$required" == "true" ]]; then
+  ./scripts/bench.sh --gate
+fi
+
 bash scripts/smoke-test.sh
 ```
 
-Any change under `src/memory_core/storage/sqlite/pipeline/` is retrieval logic and
-must trigger the benchmark gate.
+The classifier owns the governed path contract for scoring, reranking,
+retrieval-strategy, SQLite search/advanced-search, and the SQLite query pipeline.
+CI consumes the same script. Do not duplicate its path list in workflow YAML.
+
+When changing the classifier itself, also run:
+
+```bash
+python3 -m unittest tests/test_retrieval_benchmark_gate.py
+```
 
 ## Experimental local generative backend
 

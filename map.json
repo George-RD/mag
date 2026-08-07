@@ -3391,12 +3391,29 @@
         "./scripts"
       ],
       "files": [
-        "scripts/compare_strategies.py"
+        "scripts/compare_strategies.py",
+        "scripts/retrieval_benchmark_gate.py"
       ],
       "contracts": [
         "./meta/contracts/quality.scripts.md"
       ],
       "symbols": [
+        {
+          "name": "BENCHMARK_RELEVANT_PREFIXES",
+          "kind": "variable",
+          "signature": "assignment:BENCHMARK_RELEVANT_PREFIXES",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 37,
+          "end_line": 39
+        },
+        {
+          "name": "BENCHMARK_RELEVANT_STEMS",
+          "kind": "variable",
+          "signature": "assignment:BENCHMARK_RELEVANT_STEMS",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 28,
+          "end_line": 35
+        },
         {
           "name": "BETTER_CATEGORY_MAX_REGRESSION",
           "kind": "variable",
@@ -3460,6 +3477,22 @@
           "file": "scripts/compare_strategies.py",
           "line": 263,
           "end_line": 263
+        },
+        {
+          "name": "args",
+          "kind": "variable",
+          "signature": "assignment:args",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 128,
+          "end_line": 128
+        },
+        {
+          "name": "args",
+          "kind": "variable",
+          "signature": "assignment:args",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 142,
+          "end_line": 142
         },
         {
           "name": "b_name",
@@ -3582,6 +3615,14 @@
           "end_line": 72
         },
         {
+          "name": "completed",
+          "kind": "variable",
+          "signature": "assignment:completed",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 99,
+          "end_line": 104
+        },
+        {
           "name": "data_a",
           "kind": "variable",
           "signature": "assignment:data_a",
@@ -3654,6 +3695,14 @@
           "end_line": 63
         },
         {
+          "name": "detail",
+          "kind": "variable",
+          "signature": "assignment:detail",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 106,
+          "end_line": 106
+        },
+        {
           "name": "dirname",
           "kind": "variable",
           "signature": "assignment:dirname",
@@ -3670,6 +3719,14 @@
           "end_line": 106
         },
         {
+          "name": "explicit_paths",
+          "kind": "variable",
+          "signature": "assignment:explicit_paths",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 130,
+          "end_line": 130
+        },
+        {
           "name": "f1_sum",
           "kind": "variable",
           "signature": "assignment:f1_sum",
@@ -3684,6 +3741,14 @@
           "file": "scripts/compare_strategies.py",
           "line": 212,
           "end_line": 212
+        },
+        {
+          "name": "git_diff",
+          "kind": "variable",
+          "signature": "assignment:git_diff",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 131,
+          "end_line": 131
         },
         {
           "name": "json_path",
@@ -3710,6 +3775,22 @@
           "end_line": 288
         },
         {
+          "name": "matches",
+          "kind": "variable",
+          "signature": "assignment:matches",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 74,
+          "end_line": 74
+        },
+        {
+          "name": "matches",
+          "kind": "variable",
+          "signature": "assignment:matches",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 145,
+          "end_line": 145
+        },
+        {
           "name": "max_cat_regression",
           "kind": "variable",
           "signature": "assignment:max_cat_regression",
@@ -3732,6 +3813,46 @@
           "file": "scripts/compare_strategies.py",
           "line": 116,
           "end_line": 116
+        },
+        {
+          "name": "normalized",
+          "kind": "variable",
+          "signature": "assignment:normalized",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 45,
+          "end_line": 45
+        },
+        {
+          "name": "normalized",
+          "kind": "variable",
+          "signature": "assignment:normalized",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 47,
+          "end_line": 47
+        },
+        {
+          "name": "normalized",
+          "kind": "variable",
+          "signature": "assignment:normalized",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 49,
+          "end_line": 49
+        },
+        {
+          "name": "normalized",
+          "kind": "variable",
+          "signature": "assignment:normalized",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 65,
+          "end_line": 65
+        },
+        {
+          "name": "normalized",
+          "kind": "variable",
+          "signature": "assignment:normalized",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 77,
+          "end_line": 77
         },
         {
           "name": "old_key",
@@ -3764,6 +3885,22 @@
           "file": "scripts/compare_strategies.py",
           "line": 239,
           "end_line": 241
+        },
+        {
+          "name": "parser",
+          "kind": "variable",
+          "signature": "assignment:parser",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 115,
+          "end_line": 115
+        },
+        {
+          "name": "paths",
+          "kind": "variable",
+          "signature": "assignment:paths",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 144,
+          "end_line": 144
         },
         {
           "name": "report",
@@ -3838,6 +3975,14 @@
           "end_line": 316
         },
         {
+          "name": "seen",
+          "kind": "variable",
+          "signature": "assignment:seen",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 75,
+          "end_line": 75
+        },
+        {
           "name": "strategy_a",
           "kind": "variable",
           "signature": "assignment:strategy_a",
@@ -3894,6 +4039,14 @@
           "end_line": 111
         },
         {
+          "name": "benchmark_relevant_paths",
+          "kind": "function",
+          "signature": "function_definition:benchmark_relevant_paths",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 71,
+          "end_line": 82
+        },
+        {
           "name": "build_comparison_report",
           "kind": "function",
           "signature": "function_definition:build_comparison_report",
@@ -3908,6 +4061,14 @@
           "file": "scripts/compare_strategies.py",
           "line": 37,
           "end_line": 44
+        },
+        {
+          "name": "changed_paths",
+          "kind": "function",
+          "signature": "function_definition:changed_paths",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 91,
+          "end_line": 111
         },
         {
           "name": "compute_deltas",
@@ -3950,12 +4111,52 @@
           "end_line": 223
         },
         {
+          "name": "is_benchmark_relevant",
+          "kind": "function",
+          "signature": "function_definition:is_benchmark_relevant",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 62,
+          "end_line": 68
+        },
+        {
           "name": "main",
           "kind": "function",
           "signature": "function_definition:main",
           "file": "scripts/compare_strategies.py",
           "line": 238,
           "end_line": 351
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "signature": "function_definition:main",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 141,
+          "end_line": 159
+        },
+        {
+          "name": "normalize_repo_path",
+          "kind": "function",
+          "signature": "function_definition:normalize_repo_path",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 42,
+          "end_line": 50
+        },
+        {
+          "name": "parse_args",
+          "kind": "function",
+          "signature": "function_definition:parse_args",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 114,
+          "end_line": 138
+        },
+        {
+          "name": "requires_benchmark",
+          "kind": "function",
+          "signature": "function_definition:requires_benchmark",
+          "file": "scripts/retrieval_benchmark_gate.py",
+          "line": 85,
+          "end_line": 88
         }
       ]
     },
