@@ -7,6 +7,10 @@ nodes:
   - mag.runtime.memory.retrieval
   - mag.runtime.memory.storage.sqlite
   - mag.quality.benchmarks
+sources:
+  - src.current-runtime-baseline
+  - src.mag-agents-guide
+  - src.source-tree-recon
 date: 2026-08-07
 ---
 # Architecture convergence and code-quality review
