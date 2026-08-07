@@ -1,0 +1,58 @@
+name: Apply one-module-graph correction
+
+on:
+  push:
+    branches:
+      - agent/role-aware-embedding-boundary
+    paths:
+      - .github/agent-one-module-graph.patch
+      - .github/workflows/agent-apply-one-module-graph.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Apply architecture correction
+        run: |
+          git apply --check --recount .github/agent-one-module-graph.patch
+          git apply --recount .github/agent-one-module-graph.patch
+          rm .github/agent-one-module-graph.patch
+          cargo fmt --all
+
+      - name: Verify Rust targets
+        run: |
+          cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter
+          cargo test --quiet --all-features
+
+      - name: Install and reconcile Cairn
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/cairn" scan
+          "$HOME/.cargo/bin/cairn" hook all
+
+      - name: Commit correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor(runtime): share one production module graph"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
