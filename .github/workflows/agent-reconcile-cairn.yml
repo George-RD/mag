@@ -1,0 +1,46 @@
+name: Reconcile Cairn state for benchmark classifier
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/agent-reconcile-cairn.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reconcile-cairn-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TARGET_BRANCH: ${{ github.head_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Reconcile and verify
+        run: |
+          cairn scan
+          cairn hook all
+
+      - name: Remove one-off workflow and commit generated state
+        run: |
+          rm .github/workflows/agent-reconcile-cairn.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs(cairn): reconcile benchmark classifier state"
+          git push origin "HEAD:${TARGET_BRANCH}"
