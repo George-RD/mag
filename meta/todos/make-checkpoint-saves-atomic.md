@@ -1,7 +1,8 @@
 ---
 node: mag.runtime.memory.storage.sqlite
-status: in_progress
+status: done
 created: 2026-08-07
+completed: 2026-08-07
 ---
 # Make checkpoint saves atomic and return their saved outcome
 
@@ -27,7 +28,7 @@ was never stored.
 - [x] Existing CLI and MCP output contracts remain byte/field compatible.
 - [x] A concurrent file-backed regression proves unique monotonic numbers from
   independent connection pools.
-- [ ] Exact-head CI and Cairn pass before merge.
+- [x] Exact-head CI and Cairn passed before merge.
 
 ## Implementation
 
@@ -62,9 +63,11 @@ Implementation runner `31187234232` applied the production slice and passed:
 - all-target, all-feature Clippy;
 - Cairn scan and hooks.
 
-The committed implementation is
-`fa0f3949c9cc3cfb3f79b9a2d833c94ae878547b`. Repository-owner exact-head CI and
-Cairn remain the final merge gate.
+The implementation at `ad4b592f1fe19110b72c9c95f971785ed97b6637` passed CI
+run #1151 (`31187874779`) and Cairn run #444 (`31187875883`). CI covered
+all-feature Rust tests, Rustfmt, Clippy, smoke behavior, npm installation, Python
+3.8 and 3.13 wrappers, version consistency, classifier contract tests, and all
+installer-integrity variants.
 
 ## Boundary
 
