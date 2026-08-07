@@ -43,6 +43,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
 
             Module Models "Embedding, generation, and local/remote model adapters" id "mag.runtime.memory.models" @local-inference {
                 path "./src/memory_core/embedder.rs"
+                path "./src/memory_core/embedding_model.rs"
                 path "./src/memory_core/llm.rs"
                 contract "./meta/contracts/memory.models.md"
             }

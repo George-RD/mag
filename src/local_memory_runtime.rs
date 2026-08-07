@@ -327,6 +327,11 @@ impl LocalMemoryRuntime {
         self.storage.maybe_startup_backup().await
     }
 
+    /// Runs SQLite query-planner maintenance through the selected runtime.
+    pub async fn optimize(&self) -> Result<()> {
+        self.storage.optimize().await
+    }
+
     /// Runs the current basic search implementation.
     pub async fn search(
         &self,

@@ -8,7 +8,8 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::memory_core::{
-    MemoryInput, MemoryUpdate, ScoringParams, SemanticResult, Storage, Updater,
+    EmbeddingModel, LegacyEmbedderAdapter, MemoryInput, MemoryUpdate, ScoringParams,
+    SemanticResult, Storage, Updater,
     embedder::Embedder,
     reranker::Reranker,
     scoring_strategy::{DefaultScoringStrategy, ScoringStrategy},
@@ -41,7 +42,7 @@ pub(super) enum StoreOutcome {
 pub struct SqliteStorage {
     pub(crate) db_path: PathBuf,
     pub(crate) pool: Arc<ConnPool>,
-    pub(crate) embedder: Arc<dyn Embedder>,
+    pub(crate) embedder: Arc<dyn EmbeddingModel>,
     pub(crate) scoring_params: ScoringParams,
     pub(crate) query_cache: QueryCache,
     pub(crate) hot_cache: Option<HotTierCache>,
@@ -77,10 +78,26 @@ impl SqliteStorage {
         }
     }
 
+    /// Creates a new `SqliteStorage` with an explicit embedding-model boundary.
+    pub fn new_with_embedding_model(
+        mode: InitMode,
+        embedder: Arc<dyn EmbeddingModel>,
+    ) -> Result<Self> {
+        match mode {
+            InitMode::Default => Self::new_default_with_embedding_model(embedder),
+        }
+    }
+
     /// Opens (or creates) the database at the default path.
     pub fn new_default(embedder: Arc<dyn Embedder>) -> Result<Self> {
         let path = default_db_path()?;
         Self::new_with_path(path, embedder)
+    }
+
+    /// Opens (or creates) the default database with an explicit embedding model.
+    pub fn new_default_with_embedding_model(embedder: Arc<dyn EmbeddingModel>) -> Result<Self> {
+        let path = default_db_path()?;
+        Self::new_with_path_and_embedding_model(path, embedder)
     }
 
     /// Opens (or creates) a database at the given `path`, creating parent directories as needed.
@@ -92,6 +109,25 @@ impl SqliteStorage {
     /// Performs blocking filesystem and SQLite I/O. Call before entering the
     /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
     pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self> {
+        Self::new_with_path_and_embedding_model(
+            path,
+            Arc::new(LegacyEmbedderAdapter::new(embedder)),
+        )
+    }
+
+    /// Opens (or creates) a database at the given `path` with an embedding model
+    /// that receives input roles, creating parent directories as needed.
+    ///
+    /// If `path` is `:memory:`, an in-memory single-connection pool is used
+    /// (reader pool is skipped because in-memory databases cannot share state
+    /// across connections).
+    ///
+    /// Performs blocking filesystem and SQLite I/O. Call before entering the
+    /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
+    pub fn new_with_path_and_embedding_model(
+        path: PathBuf,
+        embedder: Arc<dyn EmbeddingModel>,
+    ) -> Result<Self> {
         let pool = if path.as_os_str() == ":memory:" {
             ConnPool::open_in_memory(embedder.dimension())?
         } else {
@@ -114,6 +150,7 @@ impl SqliteStorage {
             scoring_strategy: Arc::new(DefaultScoringStrategy::new()),
         })
     }
+
     /// Run `ANALYZE` to update SQLite query planner statistics.
     /// Call after bulk inserts to ensure optimal index selection.
     #[allow(dead_code)]
@@ -206,6 +243,12 @@ impl SqliteStorage {
     #[allow(dead_code)]
     pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
         Self::new_with_path(PathBuf::from(":memory:"), embedder)
+    }
+
+    /// Creates an in-memory storage with an explicit embedding model.
+    #[allow(dead_code)]
+    pub fn new_in_memory_with_embedding_model(embedder: Arc<dyn EmbeddingModel>) -> Result<Self> {
+        Self::new_with_path_and_embedding_model(PathBuf::from(":memory:"), embedder)
     }
 
     /// Returns a guard to the writer connection for test assertions.

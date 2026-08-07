@@ -1,7 +1,6 @@
 use super::*;
-use crate::memory_core::REL_PRECEDED_BY;
-use crate::memory_core::embedder::Embedder;
 use crate::memory_core::storage::sqlite::pipeline::scoring::bump_token_cache_gen;
+use crate::memory_core::{EmbeddingInputKind, EmbeddingModel, REL_PRECEDED_BY};
 
 #[async_trait]
 impl Storage for SqliteStorage {
@@ -122,7 +121,9 @@ impl Updater for SqliteStorage {
                 Some(new_content) => {
                     let hash = content_hash(new_content);
                     let canonical = canonical_hash(new_content);
-                    let emb = encode_embedding(&embedder.embed(new_content)?);
+                    let emb = encode_embedding(
+                        &embedder.embed_for(EmbeddingInputKind::Document, new_content)?,
+                    );
                     Some((new_content.to_string(), hash, canonical, emb))
                 }
                 None => None,
@@ -411,7 +412,7 @@ impl SqliteStorage {
 
     fn store_one_in_tx(
         tx: &rusqlite::Transaction<'_>,
-        embedder: &dyn Embedder,
+        embedder: &dyn EmbeddingModel,
         id: &str,
         data: &str,
         input: &MemoryInput,
@@ -535,7 +536,7 @@ impl SqliteStorage {
         // ── Phase 2: Embedding ──
         let embedding_vec = match precomputed_embedding {
             Some(vec) => vec,
-            None => embedder.embed(data)?,
+            None => embedder.embed_for(EmbeddingInputKind::Document, data)?,
         };
         let embedding = encode_embedding(&embedding_vec);
 
@@ -818,7 +819,7 @@ impl SqliteStorage {
 
     /// Batch store multiple memories inside a single SQLite transaction.
     ///
-    /// Pre-computes embeddings with one batched `embed_batch()` call, then inserts
+    /// Pre-computes embeddings with one batched `embed_batch_for()` call, then inserts
     /// every item through [`Self::store_one_in_tx`] within a single transaction.
     /// This eliminates the per-item transaction overhead — and the mid-batch WAL
     /// auto-checkpoint / FTS5 segment-merge stalls — that caused pathological
@@ -837,7 +838,7 @@ impl SqliteStorage {
         let embedder = Arc::clone(&self.embedder);
         let embeddings = tokio::task::spawn_blocking(move || {
             let refs: Vec<&str> = contents.iter().map(|s| s.as_str()).collect();
-            embedder.embed_batch(&refs)
+            embedder.embed_batch_for(EmbeddingInputKind::Document, &refs)
         })
         .await
         .context("spawn_blocking join error for embed_batch")??;

@@ -3,6 +3,7 @@ use super::query_classifier::{
     IntentProfile, QueryIntent, classify_query_intent, detect_dynamic_limit_mult,
 };
 use super::*;
+use crate::memory_core::EmbeddingInputKind;
 use crate::memory_core::retrieval_strategy::{CandidateSet, FtsSearcher, QueryContext};
 
 #[async_trait]
@@ -145,7 +146,7 @@ impl AdvancedSearcher for SqliteStorage {
                         Vec::new()
                     } else {
                         embedder
-                            .embed(&query)
+                            .embed_for(EmbeddingInputKind::Query, &query)
                             .context("failed to compute query embedding")?
                     };
                     Ok::<_, anyhow::Error>(emb)
