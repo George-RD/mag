@@ -104,28 +104,35 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v7
-
-      - name: Detect scoring/search changes
-        id: filter
-        uses: dorny/paths-filter@v4
         with:
-          filters: |
-            scoring:
-              - 'src/memory_core/scoring/**'
-              - 'src/memory_core/storage/sqlite/search*'
-              - 'src/memory_core/storage/sqlite/advanced*'
-              - 'src/memory_core/storage/sqlite/pipeline/**'
+          fetch-depth: 0
+
+      - name: Test retrieval benchmark classifier
+        run: python3 -m unittest tests/test_retrieval_benchmark_gate.py
+
+      - name: Detect retrieval and scoring changes
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          required="$(python3 scripts/retrieval_benchmark_gate.py --base "$BASE_SHA" --head "$HEAD_SHA")"
+          case "$required" in
+            true|false) ;;
+            *) echo "::error::Unexpected classifier output: $required"; exit 1 ;;
+          esac
+          echo "required=$required" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
-        if: steps.filter.outputs.scoring == 'true'
+        if: steps.filter.outputs.required == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust build artifacts
-        if: steps.filter.outputs.scoring == 'true'
+        if: steps.filter.outputs.required == 'true'
         uses: Swatinem/rust-cache@v2
 
       - name: Run benchmark gate
-        if: steps.filter.outputs.scoring == 'true'
+        if: steps.filter.outputs.required == 'true'
         run: ./scripts/bench.sh --gate
 
   smoke-test:
