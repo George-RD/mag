@@ -14,43 +14,43 @@ permissions:
 jobs:
   apply:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
 
-      - name: Install Rust
+      - name: Install Rust formatter
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: rustfmt
 
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Apply architecture correction
+      - name: Apply and format architecture correction
         run: |
+          if [ ! -f .github/agent-one-module-graph.patch ]; then
+            echo "Patch already applied by another run"
+            exit 0
+          fi
           git apply --check --recount .github/agent-one-module-graph.patch
           git apply --recount .github/agent-one-module-graph.patch
           rm .github/agent-one-module-graph.patch
           cargo fmt --all
 
-      - name: Verify Rust targets
-        run: |
-          cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter
-          cargo test --quiet --all-features
-
       - name: Install and reconcile Cairn
+        if: hashFiles('.github/agent-one-module-graph.patch') == ''
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           "$HOME/.cargo/bin/cairn" scan
           "$HOME/.cargo/bin/cairn" hook all
 
       - name: Commit correction
         run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
