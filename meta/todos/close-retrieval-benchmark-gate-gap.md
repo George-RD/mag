@@ -1,7 +1,8 @@
 ---
 node: mag.quality.benchmarks
-status: in_progress
+status: done
 created: 2026-08-07
+completed: 2026-08-07
 ---
 # Close the retrieval benchmark gate gap
 
@@ -28,7 +29,7 @@ It also watched `src/memory_core/scoring/**`, which did not match the actual
 - [x] Classifier errors fail CI rather than silently skipping the benchmark.
 - [x] Classifier contract tests run on every pull request; the full benchmark
   runs only when governed production paths changed.
-- [ ] Exact-head CI and Cairn pass before merge.
+- [x] Exact-head CI and Cairn passed before merge.
 
 ## TDD evidence
 
@@ -40,6 +41,14 @@ the benchmark were skipped after that red test.
 The implementation at `2891145e5ac2ff50b03fb4ecb595128aea308e80` adds the
 classifier with normalized, deduplicated path matching and rename-safe three-dot
 Git diffing. CI and local guidance now call that same script.
+
+The first complete implementation head,
+`b9e1f58c5f0f7891e7a18ae64c55865777b25d37`, passed CI run #1134
+(`31183808674`) and Cairn run #425 (`31183809950`). Classifier contract tests
+passed and correctly classified the verification-only pull request as not
+requiring the expensive retrieval benchmark. Formatting, Clippy, all-feature
+Rust tests, smoke coverage, npm installation, Python wrappers, version checks,
+and installer integrity also passed.
 
 ## Boundary
 
