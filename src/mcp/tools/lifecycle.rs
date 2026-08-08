@@ -1,6 +1,6 @@
 use rmcp::{
     ErrorData as McpError,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde_json::json;
 
@@ -46,7 +46,7 @@ pub(crate) async fn memory_update(
         .await
         .map_err(|e| McpError::internal_error(format!("failed to update memory: {e}"), None))?;
 
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({ "id": req.id, "updated": true }).to_string(),
     )]))
 }
@@ -67,7 +67,7 @@ pub(crate) async fn memory_feedback(
         .await
         .map_err(|e| McpError::internal_error(format!("failed to record feedback: {e}"), None))?;
 
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({"memory_id": req.memory_id, "feedback": result}).to_string(),
     )]))
 }
@@ -85,7 +85,7 @@ pub(crate) async fn memory_lifecycle(
             let swept_count = runtime.sweep_expired().await.map_err(|e| {
                 McpError::internal_error(format!("failed to sweep expired: {e}"), None)
             })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "swept_count": swept_count }).to_string(),
             )]))
         }
@@ -99,7 +99,7 @@ pub(crate) async fn memory_lifecycle(
                 .check_health(warn, crit, max)
                 .await
                 .map_err(|e| McpError::internal_error(format!("health check failed: {e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
@@ -115,7 +115,7 @@ pub(crate) async fn memory_lifecycle(
             let result = runtime.consolidate(prune, max_sum).await.map_err(|e| {
                 McpError::internal_error(format!("consolidation failed: {e}"), None)
             })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
@@ -146,7 +146,7 @@ pub(crate) async fn memory_lifecycle(
                 .compact(et, thresh, min_cs, dry)
                 .await
                 .map_err(|e| McpError::internal_error(format!("compaction failed: {e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
@@ -157,7 +157,7 @@ pub(crate) async fn memory_lifecycle(
                 .auto_compact(threshold, dry)
                 .await
                 .map_err(|e| McpError::internal_error(format!("auto_compact failed: {e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
@@ -168,7 +168,7 @@ pub(crate) async fn memory_lifecycle(
             let removed = runtime.clear_session(sid).await.map_err(|e| {
                 McpError::internal_error(format!("clear_session failed: {e}"), None)
             })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({"session_id": sid, "removed": removed}).to_string(),
             )]))
         }
@@ -177,7 +177,7 @@ pub(crate) async fn memory_lifecycle(
                 .rebuild_fts()
                 .await
                 .map_err(|e| McpError::internal_error(format!("fts_rebuild failed: {e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
@@ -187,7 +187,7 @@ pub(crate) async fn memory_lifecycle(
                 .await
                 .map_err(|e| McpError::internal_error(format!("backup failed: {e}"), None))?;
             let _ = runtime.rotate_backups(5).await;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({
                     "path": info.path.display().to_string(),
                     "size_bytes": info.size_bytes,
@@ -211,7 +211,7 @@ pub(crate) async fn memory_lifecycle(
                     })
                 })
                 .collect();
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "backups": payload, "count": backups.len() }).to_string(),
             )]))
         }

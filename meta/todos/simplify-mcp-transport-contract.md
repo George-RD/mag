@@ -15,6 +15,16 @@ and models once, and `McpMemoryServer` receives the same
 `Arc<LocalMemoryRuntime>` used by CLI handlers. A pointer-identity regression
 prevents MCP from silently constructing a second runtime again.
 
+## Evidence
+
+- 2026-08-08 — PR #412 upgraded the optional MCP transport from RMCP 0.16 to
+  3.1.1 and migrated adapter/test construction to RMCP's typed constructors,
+  content blocks, and response types. The reviewed source artifact from run
+  `31265783135` (`sha256:68d85c874d32d6087cde256b82fa30c73e98944080b26e6fe324ecc37389e49b`)
+  passed formatting, all-target/all-feature Clippy, all-feature tests, and the
+  smoke suite. This is a transport-compatibility prerequisite; it does not
+  complete the owned MCP contract-source work below.
+
 ## Remaining work
 
 - [x] Remove the binary-private production copies of `memory_core` and

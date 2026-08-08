@@ -1,20 +1,15 @@
+mod mcp_support;
+
 use std::{fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use tokio::{process::Command, time::timeout};
 
 const MINIMAL_TOOL_NAMES: &[&str] = &["memory", "memory_admin", "memory_manage", "memory_session"];
-
-fn arguments(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
-    value
-        .as_object()
-        .expect("tool arguments should be an object")
-        .clone()
-}
 
 fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
     result
@@ -56,17 +51,15 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
 
     let store = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({
                 "content": "protocol-visible session lesson",
                 "id": "mcp-session-lesson",
                 "event_type": "lesson_learned",
                 "project": "mcp-session"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert!(
@@ -77,14 +70,12 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
 
     let welcome = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_session",
+            serde_json::json!({
                 "project": "mcp-session"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let welcome_text = text_contents(&welcome).join("");
@@ -100,16 +91,14 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
 
     let lessons = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_session",
+            serde_json::json!({
                 "action": "lessons",
                 "project": "mcp-session",
                 "limit": 5
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert!(
@@ -121,28 +110,24 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
 
     let profile_update = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_session",
+            serde_json::json!({
                 "action": "profile",
                 "profile_action": "update",
                 "update": {"preferred_editor": "helix"}
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(text_contents(&profile_update), vec![r#"{"updated":true}"#]);
 
     let profile = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session".into(),
-            arguments: Some(arguments(serde_json::json!({"action": "profile"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_session",
+            serde_json::json!({"action": "profile"}),
+        )),
     )
     .await??;
     assert!(
@@ -153,15 +138,13 @@ async fn minimal_mode_routes_unified_session_state_and_errors_through_the_local_
 
     let missing_title = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_session",
+            serde_json::json!({
                 "action": "checkpoint",
                 "progress": "missing title"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await?
     .expect_err("checkpoint title should remain a protocol invalid-params error");

@@ -1,8 +1,10 @@
+mod mcp_support;
+
 use std::{fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use tokio::{process::Command, time::timeout};
@@ -121,17 +123,7 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_admin (default action=health, detail=basic) ───
     let health_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(
-                serde_json::json!({})
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request("memory_admin", serde_json::json!({}))),
     )
     .await??;
 
@@ -145,17 +137,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_store (3 items) ───
     let store_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(
-                serde_json::json!({ "content": "search needle item" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({ "content": "search needle item" }),
+        )),
     )
     .await??;
 
@@ -169,17 +154,7 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
 
     let store2_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(
-                serde_json::json!({ "content": "update target", "id": "test-id-2", "tags": ["alpha", "beta"] })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request("memory_store", serde_json::json!({ "content": "update target", "id": "test-id-2", "tags": ["alpha", "beta"] }))),
     )
     .await??;
     assert!(
@@ -191,22 +166,15 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
 
     let store3_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "content": "important memory",
-                    "id": "test-id-3",
-                    "importance": 0.95,
-                    "metadata": {"source": "test"}
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({
+                "content": "important memory",
+                "id": "test-id-3",
+                "importance": 0.95,
+                "metadata": {"source": "test"}
+            }),
+        )),
     )
     .await??;
     assert!(
@@ -219,17 +187,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_search (text mode, default) ───
     let search_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_search".into(),
-            arguments: Some(
-                serde_json::json!({ "query": "needle", "limit": 5 })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_search",
+            serde_json::json!({ "query": "needle", "limit": 5 }),
+        )),
     )
     .await??;
 
@@ -249,17 +210,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_search (semantic mode) ───
     let semantic_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_search".into(),
-            arguments: Some(
-                serde_json::json!({ "mode": "semantic", "query": "needle", "limit": 5 })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_search",
+            serde_json::json!({ "mode": "semantic", "query": "needle", "limit": 5 }),
+        )),
     )
     .await??;
 
@@ -280,17 +234,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_list (sort=recent) ───
     let recent_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_list".into(),
-            arguments: Some(
-                serde_json::json!({ "sort": "recent", "limit": 5 })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_list",
+            serde_json::json!({ "sort": "recent", "limit": 5 }),
+        )),
     )
     .await??;
 
@@ -304,17 +251,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_list (sort=created, default) ───
     let list_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_list".into(),
-            arguments: Some(
-                serde_json::json!({ "limit": 10 })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_list",
+            serde_json::json!({ "limit": 10 }),
+        )),
     )
     .await??;
 
@@ -329,17 +269,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_search (tag mode) ───
     let tag_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_search".into(),
-            arguments: Some(
-                serde_json::json!({ "mode": "tag", "tags": ["alpha"], "limit": 5 })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_search",
+            serde_json::json!({ "mode": "tag", "tags": ["alpha"], "limit": 5 }),
+        )),
     )
     .await??;
 
@@ -353,17 +286,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_update ───
     let update_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_update".into(),
-            arguments: Some(
-                serde_json::json!({ "id": "test-id-2", "content": "updated content" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_update",
+            serde_json::json!({ "id": "test-id-2", "content": "updated content" }),
+        )),
     )
     .await??;
 
@@ -377,17 +303,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_delete ───
     let delete_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_delete".into(),
-            arguments: Some(
-                serde_json::json!({ "id": "test-id-2" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_delete",
+            serde_json::json!({ "id": "test-id-2" }),
+        )),
     )
     .await??;
 
@@ -402,17 +321,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_admin (action=health, detail=stats) ───
     let stats_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "health", "detail": "stats" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_admin",
+            serde_json::json!({ "action": "health", "detail": "stats" }),
+        )),
     )
     .await??;
 
@@ -426,17 +338,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_admin (action=export) ───
     let export_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "export" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_admin",
+            serde_json::json!({ "action": "export" }),
+        )),
     )
     .await??;
 
@@ -456,17 +361,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
 
     let import_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "import", "data": export_json })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_admin",
+            serde_json::json!({ "action": "import", "data": export_json }),
+        )),
     )
     .await??;
 
@@ -480,17 +378,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_session_info (protocol) ───
     let protocol_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session_info".into(),
-            arguments: Some(
-                serde_json::json!({ "mode": "protocol" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_session_info",
+            serde_json::json!({ "mode": "protocol" }),
+        )),
     )
     .await??;
 
@@ -504,23 +395,16 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_store_batch ───
     let batch_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store_batch".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "items": [
-                        { "content": "batch item one", "id": "batch-1", "tags": ["batch"] },
-                        { "content": "batch item two", "id": "batch-2", "tags": ["batch"] },
-                        { "content": "batch item three", "id": "batch-3", "importance": 0.9 }
-                    ]
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_store_batch",
+            serde_json::json!({
+                "items": [
+                    { "content": "batch item one", "id": "batch-1", "tags": ["batch"] },
+                    { "content": "batch item two", "id": "batch-2", "tags": ["batch"] },
+                    { "content": "batch item three", "id": "batch-3", "importance": 0.9 }
+                ]
+            }),
+        )),
     )
     .await??;
 
@@ -545,17 +429,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_retrieve ───
     let retrieve_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_retrieve".into(),
-            arguments: Some(
-                serde_json::json!({ "id": "batch-1" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_retrieve",
+            serde_json::json!({ "id": "batch-1" }),
+        )),
     )
     .await??;
 
@@ -576,23 +453,16 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // First, add a relation between two memories
     let add_rel_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_relations".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "action": "add",
-                    "source_id": "batch-1",
-                    "target_id": "batch-2",
-                    "rel_type": "related_to",
-                    "weight": 0.8
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_relations",
+            serde_json::json!({
+                "action": "add",
+                "source_id": "batch-1",
+                "target_id": "batch-2",
+                "rel_type": "related_to",
+                "weight": 0.8
+            }),
+        )),
     )
     .await??;
 
@@ -611,17 +481,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // List relations for batch-1
     let list_rel_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_relations".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "list", "id": "batch-1" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_relations",
+            serde_json::json!({ "action": "list", "id": "batch-1" }),
+        )),
     )
     .await??;
 
@@ -637,22 +500,15 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // Traverse graph from batch-1
     let traverse_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_relations".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "action": "traverse",
-                    "id": "batch-1",
-                    "max_hops": 2,
-                    "min_weight": 0.5
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_relations",
+            serde_json::json!({
+                "action": "traverse",
+                "id": "batch-1",
+                "max_hops": 2,
+                "min_weight": 0.5
+            }),
+        )),
     )
     .await??;
 
@@ -666,21 +522,14 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_feedback ───
     let feedback_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_feedback".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "memory_id": "batch-1",
-                    "rating": "helpful",
-                    "reason": "accurate and useful"
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_feedback",
+            serde_json::json!({
+                "memory_id": "batch-1",
+                "rating": "helpful",
+                "reason": "accurate and useful"
+            }),
+        )),
     )
     .await??;
 
@@ -694,17 +543,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_lifecycle (action=health) ───
     let lifecycle_health_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_lifecycle".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "health" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_lifecycle",
+            serde_json::json!({ "action": "health" }),
+        )),
     )
     .await??;
 
@@ -719,17 +561,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_lifecycle (action=fts_rebuild) ───
     let lifecycle_fts_rebuild_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_lifecycle".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "fts_rebuild" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_lifecycle",
+            serde_json::json!({ "action": "fts_rebuild" }),
+        )),
     )
     .await??;
 
@@ -745,23 +580,16 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_checkpoint (save + resume) ───
     let checkpoint_save_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_checkpoint".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "action": "save",
-                    "task_title": "smoke test task",
-                    "progress": "50% done with MCP testing",
-                    "next_steps": "finish remaining tools",
-                    "decisions": ["chose to test in priority order"]
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_checkpoint",
+            serde_json::json!({
+                "action": "save",
+                "task_title": "smoke test task",
+                "progress": "50% done with MCP testing",
+                "next_steps": "finish remaining tools",
+                "decisions": ["chose to test in priority order"]
+            }),
+        )),
     )
     .await??;
 
@@ -777,21 +605,14 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // Resume the checkpoint
     let checkpoint_resume_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_checkpoint".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "action": "resume",
-                    "task_title": "smoke test task",
-                    "limit": 1
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_checkpoint",
+            serde_json::json!({
+                "action": "resume",
+                "task_title": "smoke test task",
+                "limit": 1
+            }),
+        )),
     )
     .await??;
 
@@ -807,22 +628,15 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_remind (set + list) ───
     let remind_set_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_remind".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "action": "set",
-                    "text": "review smoke test coverage",
-                    "duration": "1h",
-                    "context": "testing MCP tools"
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_remind",
+            serde_json::json!({
+                "action": "set",
+                "text": "review smoke test coverage",
+                "duration": "1h",
+                "context": "testing MCP tools"
+            }),
+        )),
     )
     .await??;
 
@@ -837,17 +651,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // List reminders
     let remind_list_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_remind".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "list" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_remind",
+            serde_json::json!({ "action": "list" }),
+        )),
     )
     .await??;
 
@@ -862,39 +669,25 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // First store a lesson_learned type memory
     let _lesson_store = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "content": "always test edge cases in MCP tools",
-                    "id": "lesson-1",
-                    "event_type": "lesson_learned",
-                    "tags": ["testing", "mcp"],
-                    "importance": 0.8
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({
+                "content": "always test edge cases in MCP tools",
+                "id": "lesson-1",
+                "event_type": "lesson_learned",
+                "tags": ["testing", "mcp"],
+                "importance": 0.8
+            }),
+        )),
     )
     .await??;
 
     let lessons_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_lessons".into(),
-            arguments: Some(
-                serde_json::json!({ "limit": 5 })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_lessons",
+            serde_json::json!({ "limit": 5 }),
+        )),
     )
     .await??;
 
@@ -908,17 +701,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── memory_profile (read + update + read) ───
     let profile_read_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_profile".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "read" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_profile",
+            serde_json::json!({ "action": "read" }),
+        )),
     )
     .await??;
 
@@ -933,20 +719,13 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // Update the profile
     let profile_update_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_profile".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "action": "update",
-                    "update": { "preferred_language": "Rust", "experience_level": "senior" }
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_profile",
+            serde_json::json!({
+                "action": "update",
+                "update": { "preferred_language": "Rust", "experience_level": "senior" }
+            }),
+        )),
     )
     .await??;
 
@@ -960,17 +739,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // Read updated profile to verify persistence
     let profile_verify_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_profile".into(),
-            arguments: Some(
-                serde_json::json!({ "action": "read" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_profile",
+            serde_json::json!({ "action": "read" }),
+        )),
     )
     .await??;
 
@@ -985,17 +757,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── Edge case: store with empty content ───
     let empty_store_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(
-                serde_json::json!({ "content": "", "id": "empty-content-1" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({ "content": "", "id": "empty-content-1" }),
+        )),
     )
     .await??;
 
@@ -1009,17 +774,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── Edge case: search with empty query ───
     let empty_search_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_search".into(),
-            arguments: Some(
-                serde_json::json!({ "query": "", "mode": "text", "advanced": false })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_search",
+            serde_json::json!({ "query": "", "mode": "text", "advanced": false }),
+        )),
     )
     .await??;
 
@@ -1034,21 +792,14 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // ─── Edge case: store with unicode content (emoji + CJK) ───
     let unicode_store_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(
-                serde_json::json!({
-                    "content": "\u{1F680} rocket launch \u{4F60}\u{597D}\u{4E16}\u{754C}",
-                    "id": "unicode-1",
-                    "tags": ["\u{1F3F7}\u{FE0F}tag"]
-                })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({
+                "content": "\u{1F680} rocket launch \u{4F60}\u{597D}\u{4E16}\u{754C}",
+                "id": "unicode-1",
+                "tags": ["\u{1F3F7}\u{FE0F}tag"]
+            }),
+        )),
     )
     .await??;
 
@@ -1062,17 +813,10 @@ async fn mcp_stdio_lists_tools_and_calls_health() -> Result<(), Box<dyn std::err
     // Verify we can retrieve the unicode content back
     let unicode_retrieve_result = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_retrieve".into(),
-            arguments: Some(
-                serde_json::json!({ "id": "unicode-1" })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_retrieve",
+            serde_json::json!({ "id": "unicode-1" }),
+        )),
     )
     .await??;
 
