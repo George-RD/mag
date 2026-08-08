@@ -87,7 +87,11 @@ pub(crate) struct ConnPool {
 }
 
 impl ConnPool {
-    pub(super) fn open_file(path: &Path, embedding_dim: usize, embedding_space: &str) -> Result<Self> {
+    pub(super) fn open_file(
+        path: &Path,
+        embedding_dim: usize,
+        embedding_space: &str,
+    ) -> Result<Self> {
         #[cfg(feature = "sqlite-vec")]
         super::ensure_vec_extension_registered();
 
