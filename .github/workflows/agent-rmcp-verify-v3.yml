@@ -1,0 +1,156 @@
+name: Verify RMCP migration v3
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Apply reviewed migration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import hashlib
+
+          workflow = Path(".github/workflows/agent-source-export.yml").read_text()
+          start_marker = "          cat <<'PATCH_B64' | base64 --decode > /tmp/rmcp-migration.patch.gz\n"
+          end_marker = "          PATCH_B64\n"
+          encoded = workflow.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          encoded = "".join(line.strip() for line in encoded.splitlines())
+          payload = base64.b64decode(encoded)
+          digest = hashlib.sha256(payload).hexdigest()
+          expected = "19b55932a064b1a21bd1126831947c61a1d5b4e927b070b8df2ecd2566485636"
+          assert digest == expected, (digest, expected)
+          Path("/tmp/rmcp-migration.patch.gz").write_bytes(payload)
+          PY
+          gzip --decompress --stdout /tmp/rmcp-migration.patch.gz > /tmp/rmcp-migration.patch
+          git apply --check /tmp/rmcp-migration.patch
+          git apply /tmp/rmcp-migration.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          for path in (
+              Path("src/mcp/tools/facades.rs"),
+              Path("src/mcp/tools/lifecycle.rs"),
+              Path("src/mcp/tools/relations.rs"),
+              Path("src/mcp/tools/search.rs"),
+              Path("src/mcp/tools/session.rs"),
+              Path("src/mcp/tools/storage.rs"),
+          ):
+              text = path.read_text()
+              old_import = "model::{CallToolResult, Content}"
+              assert old_import in text, path
+              text = text.replace(old_import, "model::{CallToolResult, ContentBlock}")
+              assert "Content::text" in text, path
+              text = text.replace("Content::text", "ContentBlock::text")
+              path.write_text(text)
+
+          path = Path("src/mcp/mod.rs")
+          text = path.read_text()
+          replacements = (
+              (
+                  "CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams,\n"
+                  "        ServerCapabilities, ServerInfo, Tool,",
+                  "CallToolRequestParams, CallToolResponse, CallToolResult, ListToolsResult,\n"
+                  "        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,",
+              ),
+              (
+                  "    fn get_info(&self) -> ServerInfo {\n"
+                  "        ServerInfo {\n"
+                  "            instructions: Some(MCP_INSTRUCTIONS.to_string()),\n"
+                  "            capabilities: ServerCapabilities::builder().enable_tools().build(),\n"
+                  "            ..Default::default()\n"
+                  "        }\n"
+                  "    }\n",
+                  "    fn get_info(&self) -> ServerInfo {\n"
+                  "        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())\n"
+                  "            .with_instructions(MCP_INSTRUCTIONS.to_string())\n"
+                  "    }\n",
+              ),
+              (
+                  "    ) -> Result<CallToolResult, McpError> {\n"
+                  "        let tcc = ToolCallContext::new(self, request, context);\n"
+                  "        self.tool_router.call(tcc).await\n"
+                  "    }\n",
+                  "    ) -> Result<CallToolResponse, McpError> {\n"
+                  "        let tcc = ToolCallContext::new(self, request, context);\n"
+                  "        self.tool_router.call(tcc).await\n"
+                  "    }\n",
+              ),
+              (
+                  "        Ok(ListToolsResult {\n"
+                  "            tools,\n"
+                  "            meta: None,\n"
+                  "            next_cursor: None,\n"
+                  "        })\n",
+                  "        Ok(ListToolsResult::with_all_items(tools))\n",
+              ),
+          )
+          for old, new in replacements:
+              assert old in text, old
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          test_files = sorted(Path("tests").glob("mcp*.rs"))
+          calls = sum(path.read_text().count("tool_request(") for path in test_files)
+          literals = sum(path.read_text().count("CallToolRequestParams {") for path in test_files)
+          modules = sum(path.read_text().count("mod mcp_support;") for path in test_files)
+          content_aliases = sum(
+              path.read_text().count("Content::text")
+              for path in Path("src/mcp").rglob("*.rs")
+          )
+          assert calls == 81, calls
+          assert literals == 0, literals
+          assert modules == 8, modules
+          assert content_aliases == 0, content_aliases
+          PY
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+          git diff --check
+
+      - name: Lint
+        run: cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter
+
+      - name: Test
+        run: cargo test --quiet --all-features
+
+      - name: Smoke test
+        run: bash scripts/smoke-test.sh
+
+      - name: Archive verified source
+        shell: bash
+        run: |
+          rm .github/workflows/agent-source-export.yml
+          rm .github/workflows/agent-rmcp-verify-v2.yml
+          rm .github/workflows/agent-rmcp-verify-v3.yml
+          tar --exclude=.git --exclude=target -czf /tmp/mag-verified-source.tar.gz .
+
+      - name: Upload verified source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mag-rmcp-verified-v3-${{ github.sha }}
+          path: /tmp/mag-verified-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
