@@ -44,9 +44,6 @@ where
             Ok(val) => return Ok(val),
             Err(err) if is_lock_error(&err) && retries < RETRY_MAX_RETRIES => {
                 let base_ms = RETRY_BASE_DELAY_MS * 2_u64.pow(retries);
-                // Simple jitter: add 0-50% of base_ms using a cheap hash of the
-                // retry counter and a timestamp nanos component to avoid pulling
-                // in a rand dependency.
                 let jitter_ms = {
                     let nanos = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -77,56 +74,32 @@ where
     }
 }
 
-/// Default number of reader connections in the pool for file-backed databases.
 const DEFAULT_READER_COUNT: usize = 4;
-
-/// Default number of writes between WAL checkpoints.
 const WAL_CHECKPOINT_INTERVAL: u64 = 10;
 
-/// Connection pool providing one writer connection and N reader connections.
-///
-/// In WAL mode, SQLite allows concurrent readers while a single writer holds
-/// the write lock. `rusqlite::Connection` is `!Sync`, so each connection is
-/// wrapped in its own `Mutex`.
-///
-/// For in-memory databases (`:memory:` or `file::memory:`) that cannot share
-/// state across connections, the pool falls back to single-connection mode
-/// where all operations use the writer.
 #[derive(Debug)]
 pub(crate) struct ConnPool {
     writer: Mutex<Connection>,
     readers: Vec<Mutex<Connection>>,
-    /// Round-robin counter for reader selection.
     reader_idx: AtomicUsize,
-    /// Monotonic write counter for periodic WAL checkpoints.
     write_count: AtomicU64,
-    /// Whether this pool is file-backed (WAL checkpoints only apply to files).
     is_file_backed: bool,
 }
 
 impl ConnPool {
-    /// Opens a file-backed connection pool: one writer + N readers.
-    ///
-    /// All connections share the same SQLite database file and run in WAL mode.
-    /// Performs a startup WAL checkpoint (TRUNCATE) to reclaim any stale WAL
-    /// from previous runs.
-    pub(super) fn open_file(path: &Path, embedding_dim: usize) -> Result<Self> {
+    pub(super) fn open_file(path: &Path, embedding_dim: usize, embedding_space: &str) -> Result<Self> {
         #[cfg(feature = "sqlite-vec")]
         super::ensure_vec_extension_registered();
 
         super::schema::initialize_parent_dir(path)?;
 
         let writer = open_connection(path)?;
-        // Writer sets WAL mode; readers inherit it from the file.
-        initialize_schema(&writer, embedding_dim)?;
+        initialize_schema(&writer, embedding_dim, embedding_space)?;
 
-        // Startup checkpoint: safe because we're the only writer at init time.
         if let Err(e) = writer.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);") {
             tracing::debug!("startup WAL checkpoint skipped: {e}");
         }
 
-        // Self-heal a diverged FTS5 index from a reused database (issue #343).
-        // Non-fatal: a repair failure must not block opening the DB.
         match super::schema::ensure_fts_sync(&writer) {
             Ok(0) => {}
             Ok(repaired) => tracing::warn!(repaired, "repaired out-of-sync FTS5 index on open"),
@@ -149,16 +122,12 @@ impl ConnPool {
         })
     }
 
-    /// Opens an in-memory pool (single connection, no reader pool).
-    ///
-    /// Used for tests and non-file-backed scenarios where multiple connections
-    /// cannot share state.
-    pub(super) fn open_in_memory(embedding_dim: usize) -> Result<Self> {
+    pub(super) fn open_in_memory(embedding_dim: usize, embedding_space: &str) -> Result<Self> {
         #[cfg(feature = "sqlite-vec")]
         super::ensure_vec_extension_registered();
 
         let conn = Connection::open_in_memory().context("failed to open in-memory sqlite")?;
-        initialize_schema(&conn, embedding_dim)?;
+        initialize_schema(&conn, embedding_dim, embedding_space)?;
 
         Ok(Self {
             writer: Mutex::new(conn),
@@ -169,21 +138,16 @@ impl ConnPool {
         })
     }
 
-    /// Acquires the writer connection.
     pub(super) fn writer(&self) -> Result<MutexGuard<'_, Connection>> {
         self.writer
             .lock()
             .map_err(|_| anyhow!("sqlite writer mutex poisoned"))
     }
 
-    /// Returns `true` when the pool has dedicated reader connections.
     pub(crate) fn has_readers(&self) -> bool {
         !self.readers.is_empty()
     }
 
-    /// Increments the write counter and runs a passive WAL checkpoint every
-    /// [`WAL_CHECKPOINT_INTERVAL`] writes. Call after each write transaction
-    /// commits. No-op for in-memory databases.
     pub(super) fn note_write(&self) {
         if !self.is_file_backed {
             return;
@@ -192,7 +156,6 @@ impl ConnPool {
         if !count.is_multiple_of(WAL_CHECKPOINT_INTERVAL) {
             return;
         }
-        // Use try_lock to avoid deadlock if the caller still holds the writer guard.
         if let Ok(conn) = self.writer.try_lock() {
             match conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);") {
                 Ok(()) => tracing::debug!(writes = count, "WAL passive checkpoint completed"),
@@ -203,11 +166,6 @@ impl ConnPool {
         }
     }
 
-    /// Runs a passive WAL checkpoint on an already-held writer connection and
-    /// counts it toward checkpoint cadence. Use after a bulk write (e.g. a batch
-    /// transaction) that holds the writer for the whole transaction, to flush the
-    /// accumulated WAL without blocking readers. Retries on transient lock
-    /// contention with bounded backoff; no-op for in-memory databases.
     pub(super) fn checkpoint_passive(&self, conn: &Connection) {
         if !self.is_file_backed {
             return;
@@ -218,8 +176,6 @@ impl ConnPool {
         }
     }
 
-    /// Acquires a reader connection via round-robin. Falls back to the writer
-    /// when no dedicated readers exist (in-memory mode).
     pub(crate) fn reader(&self) -> Result<MutexGuard<'_, Connection>> {
         if self.readers.is_empty() {
             return self.writer();
@@ -231,7 +187,6 @@ impl ConnPool {
     }
 }
 
-/// Opens a single SQLite connection with standard PRAGMAs.
 fn open_connection(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)
         .with_context(|| format!("failed to open sqlite database at {}", path.display()))?;
@@ -239,7 +194,6 @@ fn open_connection(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
-/// Applies read-oriented PRAGMAs shared by all connections (writer and readers).
 fn configure_reader(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;\
@@ -353,10 +307,6 @@ mod tests {
             ))
         });
         assert!(result.is_err());
-        assert_eq!(
-            attempts,
-            RETRY_MAX_RETRIES + 1,
-            "should attempt initial + RETRY_MAX_RETRIES times"
-        );
+        assert_eq!(attempts, RETRY_MAX_RETRIES + 1);
     }
 }
