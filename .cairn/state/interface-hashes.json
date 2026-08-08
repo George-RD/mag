@@ -25,7 +25,7 @@
   "mag.runtime.memory.retrieval:src/memory_core/scoring_strategy.rs": "7ab54fc40cb4826a",
   "mag.runtime.memory.storage.api:src/memory_core/storage/mod.rs": "b1be532ee79adc24",
   "mag.runtime.memory.storage.memory:src/memory_core/storage/memory": "a3784fc33bac37a3",
-  "mag.runtime.memory.storage.sqlite:src/memory_core/storage/sqlite": "9b06a338478a76f6",
+  "mag.runtime.memory.storage.sqlite:src/memory_core/storage/sqlite": "762ac3e56a2d0e2b",
   "mag.runtime.setup:src/app_paths.rs": "256e222bcfbef49e",
   "mag.runtime.setup:src/config_writer.rs": "256e222bcfbef49e",
   "mag.runtime.setup:src/setup.rs": "256e222bcfbef49e",
