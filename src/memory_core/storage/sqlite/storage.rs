@@ -34,6 +34,10 @@ pub(super) enum StoreOutcome {
 }
 
 /// SQLite-backed persistent storage for the memory system.
+///
+/// Uses a connection pool with one writer and N readers (WAL mode) for
+/// concurrent read access. The pool is behind `Arc` so the struct can
+/// be cloned into both the `Storage` and `Retriever` roles of a [`Pipeline`].
 #[derive(Clone)]
 pub struct SqliteStorage {
     pub(crate) db_path: PathBuf,
@@ -97,6 +101,13 @@ impl SqliteStorage {
     }
 
     /// Opens (or creates) a database at the given `path`, creating parent directories as needed.
+    ///
+    /// If `path` is `:memory:`, an in-memory single-connection pool is used
+    /// (reader pool is skipped because in-memory databases cannot share state
+    /// across connections).
+    ///
+    /// Performs blocking filesystem and SQLite I/O. Call before entering the
+    /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
     pub fn new_with_path(path: PathBuf, embedder: Arc<dyn Embedder>) -> Result<Self> {
         Self::new_with_path_and_embedding_model(
             path,
@@ -104,7 +115,15 @@ impl SqliteStorage {
         )
     }
 
-    /// Opens (or creates) a database with an explicit embedding-space identity.
+    /// Opens (or creates) a database at the given `path` with an embedding model
+    /// that receives input roles and declares its persisted embedding-space identity.
+    ///
+    /// If `path` is `:memory:`, an in-memory single-connection pool is used
+    /// (reader pool is skipped because in-memory databases cannot share state
+    /// across connections).
+    ///
+    /// Performs blocking filesystem and SQLite I/O. Call before entering the
+    /// async runtime or wrap the call in [`tokio::task::spawn_blocking`].
     pub fn new_with_path_and_embedding_model(
         path: PathBuf,
         embedder: Arc<dyn EmbeddingModel>,
@@ -135,6 +154,7 @@ impl SqliteStorage {
     }
 
     /// Run `ANALYZE` to update SQLite query planner statistics.
+    /// Call after bulk inserts to ensure optimal index selection.
     #[allow(dead_code)]
     pub fn analyze(&self) -> Result<()> {
         let conn = self.pool.writer()?;
@@ -149,17 +169,21 @@ impl SqliteStorage {
         self
     }
 
+    /// Returns a reference to the reranker, if configured.
     #[allow(dead_code)]
     pub fn reranker(&self) -> Option<&Arc<dyn Reranker>> {
         self.reranker.as_ref()
     }
 
+    /// Sets the scoring strategy for this storage instance.
     #[allow(dead_code)]
     pub fn with_scoring_strategy(mut self, strategy: Arc<dyn ScoringStrategy>) -> Self {
         self.scoring_strategy = strategy;
         self
     }
 
+    /// Runs `PRAGMA optimize` to update SQLite query planner statistics.
+    /// Call periodically (e.g. on shutdown or after large writes).
     pub async fn optimize(&self) -> Result<()> {
         let pool = Arc::clone(&self.pool);
         tokio::task::spawn_blocking(move || {
@@ -172,6 +196,7 @@ impl SqliteStorage {
         .context("spawn_blocking join error")?
     }
 
+    /// Returns a reference to the current scoring parameters.
     #[allow(dead_code)]
     pub fn scoring_params(&self) -> &ScoringParams {
         &self.scoring_params
@@ -183,6 +208,11 @@ impl SqliteStorage {
         self
     }
 
+    /// Replaces the scoring parameters on an existing instance.
+    ///
+    /// Also invalidates the query cache so subsequent searches use the new
+    /// parameters.  This is cheaper than rebuilding the entire storage when
+    /// only the ranking configuration changes (e.g. during grid search).
     #[allow(dead_code)]
     pub fn set_scoring_params(&mut self, mut params: ScoringParams) {
         if params.graph_seed_min > params.graph_seed_max {
@@ -205,6 +235,7 @@ impl SqliteStorage {
         <Self as Updater>::update(self, id, input).await
     }
 
+    // Public library/test helpers; retained for external consumers and tests.
     #[allow(dead_code)]
     pub fn new_in_memory() -> Result<Self> {
         Self::new_in_memory_with_embedder(Arc::new(crate::memory_core::PlaceholderEmbedder))
@@ -215,11 +246,16 @@ impl SqliteStorage {
         Self::new_with_path(PathBuf::from(":memory:"), embedder)
     }
 
+    /// Creates an in-memory storage with an explicit embedding model.
     #[allow(dead_code)]
     pub fn new_in_memory_with_embedding_model(embedder: Arc<dyn EmbeddingModel>) -> Result<Self> {
         Self::new_with_path_and_embedding_model(PathBuf::from(":memory:"), embedder)
     }
 
+    /// Returns a guard to the writer connection for test assertions.
+    ///
+    /// In single-connection (in-memory) mode this is the only connection;
+    /// in pooled mode it is the dedicated writer.
     #[cfg(test)]
     pub(super) fn test_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
         self.pool.writer()
@@ -308,13 +344,18 @@ impl SqliteStorage {
 pub struct RankedSemanticCandidate {
     pub result: SemanticResult,
     pub created_at: String,
+    /// The `event_at` timestamp for temporal filtering (may differ from `created_at`).
     pub event_at: String,
     pub score: f64,
+    /// Resolved priority (from stored value or event-type default), for explain mode.
     pub priority_value: u8,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Stored for diagnostics; abstention uses collection-level text_overlap
     pub vec_sim: Option<f64>,
     pub text_overlap: f64,
+    /// Stored for in-memory filtering and kept in sync with `SemanticResult`.
     pub entity_id: Option<String>,
+    /// Stored for in-memory filtering and kept in sync with `SemanticResult`.
     pub agent_type: Option<String>,
+    /// Component scores for explain mode; populated only when `SearchOptions.explain` is true.
     pub explain: Option<serde_json::Value>,
 }
