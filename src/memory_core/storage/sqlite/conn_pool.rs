@@ -110,7 +110,11 @@ impl ConnPool {
     /// All connections share the same SQLite database file and run in WAL mode.
     /// Performs a startup WAL checkpoint (TRUNCATE) to reclaim any stale WAL
     /// from previous runs.
-    pub(super) fn open_file(path: &Path, embedding_dim: usize) -> Result<Self> {
+    pub(super) fn open_file(
+        path: &Path,
+        embedding_dim: usize,
+        embedding_space: &str,
+    ) -> Result<Self> {
         #[cfg(feature = "sqlite-vec")]
         super::ensure_vec_extension_registered();
 
@@ -118,7 +122,7 @@ impl ConnPool {
 
         let writer = open_connection(path)?;
         // Writer sets WAL mode; readers inherit it from the file.
-        initialize_schema(&writer, embedding_dim)?;
+        initialize_schema(&writer, embedding_dim, embedding_space)?;
 
         // Startup checkpoint: safe because we're the only writer at init time.
         if let Err(e) = writer.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);") {
@@ -153,12 +157,12 @@ impl ConnPool {
     ///
     /// Used for tests and non-file-backed scenarios where multiple connections
     /// cannot share state.
-    pub(super) fn open_in_memory(embedding_dim: usize) -> Result<Self> {
+    pub(super) fn open_in_memory(embedding_dim: usize, embedding_space: &str) -> Result<Self> {
         #[cfg(feature = "sqlite-vec")]
         super::ensure_vec_extension_registered();
 
         let conn = Connection::open_in_memory().context("failed to open in-memory sqlite")?;
-        initialize_schema(&conn, embedding_dim)?;
+        initialize_schema(&conn, embedding_dim, embedding_space)?;
 
         Ok(Self {
             writer: Mutex::new(conn),

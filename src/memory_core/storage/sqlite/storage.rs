@@ -116,7 +116,7 @@ impl SqliteStorage {
     }
 
     /// Opens (or creates) a database at the given `path` with an embedding model
-    /// that receives input roles, creating parent directories as needed.
+    /// that receives input roles and declares its persisted embedding-space identity.
     ///
     /// If `path` is `:memory:`, an in-memory single-connection pool is used
     /// (reader pool is skipped because in-memory databases cannot share state
@@ -128,10 +128,12 @@ impl SqliteStorage {
         path: PathBuf,
         embedder: Arc<dyn EmbeddingModel>,
     ) -> Result<Self> {
+        let embedding_dim = embedder.dimension();
+        let embedding_space = embedder.embedding_space_identity().to_string();
         let pool = if path.as_os_str() == ":memory:" {
-            ConnPool::open_in_memory(embedder.dimension())?
+            ConnPool::open_in_memory(embedding_dim, &embedding_space)?
         } else {
-            ConnPool::open_file(&path, embedder.dimension())?
+            ConnPool::open_file(&path, embedding_dim, &embedding_space)?
         };
 
         Ok(Self {
@@ -233,8 +235,7 @@ impl SqliteStorage {
         <Self as Updater>::update(self, id, input).await
     }
 
-    // Public library/test helpers; the binary compiles a private module copy
-    // where they intentionally have no direct caller.
+    // Public library/test helpers; retained for external consumers and tests.
     #[allow(dead_code)]
     pub fn new_in_memory() -> Result<Self> {
         Self::new_in_memory_with_embedder(Arc::new(crate::memory_core::PlaceholderEmbedder))

@@ -11,8 +11,6 @@ pub(super) fn initialize_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Returns the current schema version from the `schema_migrations` table.
-/// Returns `0` if the table does not exist or is empty.
 fn current_schema_version(conn: &Connection) -> Result<i64> {
     let table_exists: bool = conn
         .query_row(
@@ -35,31 +33,64 @@ fn current_schema_version(conn: &Connection) -> Result<i64> {
     .map_err(|e| anyhow!("Failed to read schema version: {e}"))
 }
 
-/// Canonical DDL for the `memories_fts` full-text index, shared by schema
-/// initialization, the porter-tokenizer migration, and corruption recovery so
-/// every path recreates the index with an identical definition.
 const FTS5_TABLE_DDL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     id UNINDEXED,
     content,
     tokenize='porter unicode61'
 );";
 
-/// Creates the `memories` and `relationships` tables if they don't exist and enables foreign keys.
-pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Result<()> {
+fn ensure_embedding_space_identity(conn: &Connection, embedding_space: &str) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS runtime_metadata (
+            key TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL
+        );",
+    )
+    .context("failed to create runtime_metadata table")?;
+
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT value FROM runtime_metadata WHERE key = 'embedding_space_identity'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to read persisted embedding-space identity")?;
+
+    match existing {
+        None => {
+            conn.execute(
+                "INSERT INTO runtime_metadata (key, value) VALUES ('embedding_space_identity', ?1)",
+                params![embedding_space],
+            )
+            .context("failed to persist embedding-space identity")?;
+        }
+        Some(existing) if existing == embedding_space => {}
+        Some(existing) => {
+            return Err(anyhow!(
+                "embedding space mismatch: database uses '{existing}' but configured model uses '{embedding_space}'; run an explicit re-embedding migration before changing profiles"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Creates the SQLite schema and verifies that persisted vectors belong to the
+/// same embedding space as the configured model.
+pub(super) fn initialize_schema(
+    conn: &Connection,
+    embedding_dim: usize,
+    embedding_space: &str,
+) -> Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")
         .context("failed to enable foreign key enforcement")?;
-
-    // Enable WAL mode for better concurrent read performance
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-    // Truncate WAL on startup to reclaim disk space
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-
-    // Performance PRAGMAs
     let _ = conn.execute_batch(
         "PRAGMA cache_size=-16000; PRAGMA mmap_size=33554432; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY;",
     );
 
-    // --- Schema version tracking ---
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY NOT NULL,
@@ -68,9 +99,6 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
     )
     .context("failed to create schema_migrations table")?;
 
-    // Seed version records for existing databases that pre-date version tracking.
-    // If the memories table already exists but schema_migrations is empty, this is
-    // an existing DB — mark all historical migrations as applied.
     let memories_exist: bool = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories'",
@@ -91,7 +119,6 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
 
     let current = current_schema_version(conn)?;
 
-    // --- v1: Base schema (CREATE TABLE IF NOT EXISTS is always idempotent) ---
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS memories (
             id TEXT PRIMARY KEY,
@@ -136,7 +163,6 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         )?;
     }
 
-    // --- v2: Memory + relationship column ALTERs ---
     if current < 2 {
         let new_columns = [
             "ALTER TABLE memories ADD COLUMN session_id TEXT",
@@ -170,7 +196,6 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         )?;
     }
 
-    // --- v3: Performance indexes ---
     if current < 3 {
         let indexes = [
             "CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)",
@@ -204,7 +229,6 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         )?;
     }
 
-    // --- v4: FTS porter migration ---
     if current < 4 {
         migrate_fts_to_porter(conn)?;
         rebuild_fts_index(conn)?;
@@ -215,7 +239,6 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         )?;
     }
 
-    // --- v5: vec_memories initialization (feature-gated) ---
     #[cfg(feature = "sqlite-vec")]
     {
         if current < 5 {
@@ -227,7 +250,6 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
         }
     }
 
-    // --- v6: last_confirmed_at column for UserPreference dedup ---
     if current < 6 {
         let _ = conn.execute_batch("ALTER TABLE memories ADD COLUMN last_confirmed_at TEXT");
         conn.execute(
@@ -235,7 +257,7 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
             [],
         )?;
     }
-    // --- v7: Partial index for vector search ---
+
     if current < 7 {
         let indexes = [
             "CREATE INDEX IF NOT EXISTS idx_memories_vec_created ON memories(created_at DESC) WHERE embedding IS NOT NULL AND superseded_by_id IS NULL",
@@ -248,17 +270,16 @@ pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Resu
             [],
         )?;
     }
+
     #[cfg(not(feature = "sqlite-vec"))]
     let _ = embedding_dim;
+
+    ensure_embedding_space_identity(conn, embedding_space)?;
     Ok(())
 }
 
 #[cfg(feature = "sqlite-vec")]
 pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> Result<()> {
-    // Check if vec_memories already exists with a different dimension.
-    // vec0 shadow tables store column metadata; if dimension mismatches we must
-    // recreate. We detect this by attempting a probe insert with a zero vector
-    // of the expected dimension — a dimension mismatch produces an error.
     let table_exists: bool = conn
         .query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='vec_memories'",
@@ -305,8 +326,6 @@ pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> R
     ))
     .context("failed to create vec_memories virtual table")?;
 
-    // Idempotent migration: populate from existing embeddings.
-    // Uses streaming decode/re-encode to handle legacy JSON embeddings.
     let vec_count: i64 = conn
         .query_row("SELECT count(*) FROM vec_memories", [], |row| row.get(0))
         .context("failed to count vec_memories rows")?;
@@ -355,7 +374,6 @@ pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> R
             }
         }
 
-        // Drop statements before committing to release borrows on tx
         drop(insert_stmt);
         drop(read_stmt);
         tx.commit()
@@ -369,16 +387,7 @@ pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> R
     Ok(())
 }
 
-/// Migrates an existing FTS5 table from `unicode61` to `porter unicode61` tokenizer.
-///
-/// For existing databases the `CREATE VIRTUAL TABLE IF NOT EXISTS` in `initialize_schema`
-/// is a no-op because the table already exists with the old tokenizer.  This migration
-/// detects that case by inspecting `sqlite_master`, drops the stale virtual table, and
-/// recreates it with the porter stemmer.  Data is repopulated from `memories`.
-///
-/// The check is idempotent: once the table uses `porter unicode61` the function is a no-op.
 fn migrate_fts_to_porter(conn: &Connection) -> Result<()> {
-    // Read the DDL that SQLite recorded for the FTS virtual table.
     let sql: Option<String> = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memories_fts'",
@@ -388,9 +397,7 @@ fn migrate_fts_to_porter(conn: &Connection) -> Result<()> {
         .ok();
 
     let needs_migration = match &sql {
-        // Table exists but doesn't contain 'porter' → old tokenizer
         Some(ddl) => !ddl.to_lowercase().contains("porter"),
-        // Table doesn't exist yet (fresh DB) → CREATE in initialize_schema already uses porter
         None => false,
     };
 
@@ -406,8 +413,6 @@ fn migrate_fts_to_porter(conn: &Connection) -> Result<()> {
     conn.execute_batch(FTS5_TABLE_DDL)
         .context("failed to recreate FTS5 table with porter tokenizer")?;
 
-    // Repopulate from existing memories (rebuild_fts_index will also check, but we do it
-    // here so the migration is self-contained).
     conn.execute_batch("INSERT INTO memories_fts(id, content) SELECT id, content FROM memories;")
         .context("failed to repopulate FTS5 index during porter migration")?;
 
@@ -432,15 +437,6 @@ pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Counts FTS5 index divergence from the `memories` table as
-/// `(orphaned, missing)`: `orphaned` is FTS rows with no backing memory and
-/// `missing` is memories absent from the index. Both zero ⇒ the id sets are
-/// identical (in sync).
-///
-/// This is the set-membership signal — two anti-joins — that distinguishes a
-/// truly synced index from an equal-count id mismatch that row counts alone
-/// cannot detect. Shared by `ensure_fts_sync` (repair) and the `fts5_in_sync`
-/// health/stats reports so all three agree on what "in sync" means.
 pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)> {
     let orphaned: i64 = conn
         .query_row(
@@ -458,16 +454,10 @@ pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)> {
         .context("failed to count unindexed memory rows")?;
     Ok((orphaned, missing))
 }
-/// Read-only diagnostic snapshot of the FTS5 index.
-///
-/// Tolerates a structurally corrupt `memories_fts` virtual table so that
-/// diagnostics paths can report degradation instead of returning an opaque
-/// error.
+
 pub(super) struct FtsDiagnostic {
     pub indexed_count: Option<i64>,
     pub divergence: Option<(i64, i64)>,
-    /// `Some` when the FTS5 virtual table or its shadow tables could not be
-    /// queried, indicating corruption or severe unreadability.
     pub corruption_error: Option<String>,
 }
 
@@ -495,8 +485,6 @@ impl FtsDiagnostic {
     }
 }
 
-/// Returns a read-only diagnostic snapshot of the FTS5 index, catching a
-/// structurally corrupt index instead of propagating the error.
 pub(super) fn fts_diagnostic(conn: &Connection) -> FtsDiagnostic {
     let indexed_count = conn.query_row("SELECT COUNT(*) FROM memories_fts", [], |row| row.get(0));
     let divergence = fts_divergence(conn);
@@ -514,35 +502,9 @@ pub(super) fn fts_diagnostic(conn: &Connection) -> FtsDiagnostic {
     }
 }
 
-/// Detects and repairs divergence between the `memories` table and the
-/// `memories_fts` full-text index, returning the number of FTS rows changed.
-///
-/// The index is maintained inline within each write transaction, so a healthy
-/// database keeps the two row sets identical. Divergence can still arise from
-/// interrupted writes (e.g. a `kill -9`'d process), concurrent writers, or
-/// historical bugs — and once diverged, search silently returns nothing for the
-/// affected rows with no recovery path short of deleting the database
-/// (issue #343). Running this on every file-backed open lets a reused `~/.mag`
-/// self-heal.
-///
-/// Divergence is gated on set membership (two anti-joins), not row counts: an
-/// equal-count id mismatch (one row dropped, an unrelated one orphaned) also
-/// breaks search and must be caught. The repair is bidirectional — orphaned
-/// FTS rows (no backing memory) are deleted and unindexed memories are added.
-///
-/// A structurally corrupt index (e.g. a damaged `memories_fts_data` segment
-/// tree) makes the anti-join probe itself error; there is no surgical repair,
-/// so the whole index is rebuilt from `memories`.
-/// Content-level drift (matching ids, stale text) is not an id-set divergence
-/// and is out of scope here; `MaintenanceManager::rebuild_fts` is the
-/// full-rebuild escape hatch for that.
 pub(super) fn ensure_fts_sync(conn: &Connection) -> Result<usize> {
     let (orphaned, missing) = match fts_divergence(conn) {
         Ok(counts) => counts,
-        // An unreadable index — e.g. a corrupt `memories_fts_data` segment tree
-        // left by an interrupted write — makes the divergence probe itself
-        // error. A corrupt segment tree has no surgical repair, so rebuild the
-        // whole index from the `memories` source of truth.
         Err(e) => {
             tracing::warn!(
                 error = %e,
@@ -580,14 +542,7 @@ pub(super) fn ensure_fts_sync(conn: &Connection) -> Result<usize> {
     Ok(deleted + inserted)
 }
 
-/// Rebuilds the `memories_fts` index from the `memories` table — the recovery
-/// path for a structurally corrupt index, where a `DELETE`+re-`INSERT` would
-/// leave residual shadow-table damage that still fails `integrity-check`. The
-/// full `DROP`+recreate+repopulate restores a clean, internally consistent
-/// index. Returns the number of rows reindexed.
 pub(super) fn rebuild_fts_from_source(conn: &Connection) -> Result<usize> {
-    // Atomic so a crash mid-rebuild can never leave a half-populated index
-    // visible: either the whole DROP+recreate+repopulate lands or none of it.
     let tx = retry_on_lock(|| conn.unchecked_transaction())
         .context("failed to start FTS rebuild transaction")?;
     tx.execute_batch("DROP TABLE IF EXISTS memories_fts;")
@@ -603,7 +558,6 @@ pub(super) fn rebuild_fts_from_source(conn: &Connection) -> Result<usize> {
     Ok(usize::try_from(reindexed).unwrap_or(0))
 }
 
-/// Resolves the default database path: `$HOME/.mag/memory.db`.
 pub(super) fn default_db_path() -> Result<PathBuf> {
     app_paths::resolve_app_paths().map(|paths| paths.database_path)
 }
