@@ -1,20 +1,15 @@
+mod mcp_support;
+
 use std::{fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use tokio::{process::Command, time::timeout};
 
 const MINIMAL_TOOL_NAMES: &[&str] = &["memory", "memory_admin", "memory_manage", "memory_session"];
-
-fn arguments(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
-    value
-        .as_object()
-        .expect("tool arguments should be an object")
-        .clone()
-}
 
 fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
     result
@@ -56,18 +51,16 @@ async fn minimal_mode_routes_unified_memory_actions_and_errors_through_the_local
 
     let stored = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({
                 "content": "runtime-bound raw memory",
                 "id": "mcp-memory-runtime",
                 "tags": ["runtime"],
                 "importance": 0.75,
                 "metadata": {"source": "stdio"}
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -77,15 +70,13 @@ async fn minimal_mode_routes_unified_memory_actions_and_errors_through_the_local
 
     let retrieved = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({
                 "action": "retrieve",
                 "id": "mcp-memory-runtime"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -95,18 +86,16 @@ async fn minimal_mode_routes_unified_memory_actions_and_errors_through_the_local
 
     let batch = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({
                 "action": "store_batch",
                 "items": [
                     {"content": "first raw batch memory", "id": "mcp-memory-batch-1"},
                     {"content": "second raw batch memory", "id": "mcp-memory-batch-2"}
                 ]
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -116,15 +105,13 @@ async fn minimal_mode_routes_unified_memory_actions_and_errors_through_the_local
 
     let batch_retrieved = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({
                 "action": "retrieve",
                 "id": "mcp-memory-batch-2"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -134,15 +121,13 @@ async fn minimal_mode_routes_unified_memory_actions_and_errors_through_the_local
 
     let deleted = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({
                 "action": "delete",
                 "id": "mcp-memory-runtime"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -152,12 +137,10 @@ async fn minimal_mode_routes_unified_memory_actions_and_errors_through_the_local
 
     let missing_content = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({"action": "store"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({"action": "store"}),
+        )),
     )
     .await?
     .expect_err("store content should remain a protocol invalid-params error");

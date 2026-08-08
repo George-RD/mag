@@ -1,6 +1,6 @@
 use rmcp::{
     ErrorData as McpError,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde_json::json;
 
@@ -44,7 +44,7 @@ pub(crate) async fn memory_checkpoint(
                 McpError::internal_error(format!("failed to save checkpoint: {e}"), None)
             })?;
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({
                     "memory_id": saved.memory_id,
                     "checkpoint_number": saved.checkpoint_number
@@ -75,7 +75,7 @@ pub(crate) async fn memory_checkpoint(
                 markdown.push_str(entry["created_at"].as_str().unwrap_or(""));
             }
 
-            Ok(CallToolResult::success(vec![Content::text(markdown)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(markdown)]))
         }
         other => Err(McpError::invalid_params(
             format!("unknown checkpoint action: {other} (expected save|resume)"),
@@ -112,7 +112,7 @@ pub(crate) async fn memory_remind(
                 .map_err(|e| {
                     McpError::internal_error(format!("failed to create reminder: {e}"), None)
                 })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
@@ -123,7 +123,7 @@ pub(crate) async fn memory_remind(
                 .map_err(|e| {
                     McpError::internal_error(format!("failed to list reminders: {e}"), None)
                 })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": result }).to_string(),
             )]))
         }
@@ -134,7 +134,7 @@ pub(crate) async fn memory_remind(
             let result = runtime.dismiss_reminder(reminder_id).await.map_err(|e| {
                 McpError::internal_error(format!("failed to dismiss reminder: {e}"), None)
             })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
@@ -163,7 +163,7 @@ pub(crate) async fn memory_lessons(
         .await
         .map_err(|e| McpError::internal_error(format!("failed to query lessons: {e}"), None))?;
 
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({ "results": lessons }).to_string(),
     )]))
 }
@@ -180,7 +180,7 @@ pub(crate) async fn memory_profile(
             let profile = runtime.get_profile().await.map_err(|e| {
                 McpError::internal_error(format!("failed to read profile: {e}"), None)
             })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 profile.to_string(),
             )]))
         }
@@ -191,7 +191,7 @@ pub(crate) async fn memory_profile(
             runtime.set_profile(updates).await.map_err(|e| {
                 McpError::internal_error(format!("failed to update profile: {e}"), None)
             })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "updated": true }).to_string(),
             )]))
         }
@@ -220,13 +220,13 @@ pub(crate) async fn memory_session_info(
                 .await
                 .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 result.to_string(),
             )]))
         }
         "protocol" => {
             let protocol = generate_protocol_markdown();
-            Ok(CallToolResult::success(vec![Content::text(protocol)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(protocol)]))
         }
         other => Err(McpError::invalid_params(
             format!("unknown session info mode: {other} (expected welcome|protocol)"),

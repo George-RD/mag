@@ -1,6 +1,6 @@
 use rmcp::{
     ErrorData as McpError,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde_json::json;
 
@@ -41,7 +41,7 @@ pub(crate) async fn memory_relations(
                     })
                 })
                 .collect();
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "relationships": payload }).to_string(),
             )]))
         }
@@ -73,7 +73,7 @@ pub(crate) async fn memory_relations(
                 .map_err(|e| {
                     McpError::internal_error(format!("failed to add relationship: {e}"), None)
                 })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "id": rel_id, "source_id": source_id, "target_id": target_id, "rel_type": rel_type, "weight": weight, "metadata": metadata }).to_string(),
             )]))
         }
@@ -124,7 +124,7 @@ pub(crate) async fn memory_relations(
                     }));
                 }
             }
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::Value::Object(grouped).to_string(),
             )]))
         }
@@ -136,7 +136,7 @@ pub(crate) async fn memory_relations(
                 McpError::internal_error(format!("failed to get version chain: {e}"), None)
             })?;
             let payload = serialize_results(results)?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "chain": payload }).to_string(),
             )]))
         }

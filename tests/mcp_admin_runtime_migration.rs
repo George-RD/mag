@@ -1,8 +1,10 @@
+mod mcp_support;
+
 use std::{fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use tokio::{process::Command, time::timeout};
@@ -41,13 +43,6 @@ fn advertised_tool_names(tools: &rmcp::model::ListToolsResult) -> Vec<String> {
     names
 }
 
-fn arguments(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
-    value
-        .as_object()
-        .expect("tool arguments should be an object")
-        .clone()
-}
-
 fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
     result
         .content
@@ -83,27 +78,20 @@ async fn full_mode_routes_memory_admin_through_the_local_runtime_without_protoco
 
     let health = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(serde_json::Map::new()),
-            task: None,
-        }),
+        service.call_tool(tool_request("memory_admin", serde_json::json!({}))),
     )
     .await??;
     assert_eq!(text_contents(&health), vec![r#"{"status":"healthy"}"#]);
 
     let invalid_sort = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_admin",
+            serde_json::json!({
                 "action": "list",
                 "sort": "ranked"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await?
     .expect_err("unknown sort should remain a protocol invalid-params error");
@@ -149,24 +137,17 @@ async fn minimal_mode_routes_memory_admin_through_the_same_local_runtime_without
 
     let health = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(serde_json::Map::new()),
-            task: None,
-        }),
+        service.call_tool(tool_request("memory_admin", serde_json::json!({}))),
     )
     .await??;
     assert_eq!(text_contents(&health), vec![r#"{"status":"healthy"}"#]);
 
     let missing_import_data = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_admin".into(),
-            arguments: Some(arguments(serde_json::json!({"action": "import"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_admin",
+            serde_json::json!({"action": "import"}),
+        )),
     )
     .await?
     .expect_err("missing import data should remain a protocol invalid-params error");

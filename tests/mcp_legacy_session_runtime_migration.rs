@@ -1,8 +1,10 @@
+mod mcp_support;
+
 use std::{fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use tokio::{process::Command, time::timeout};
@@ -28,13 +30,6 @@ const FULL_TOOL_NAMES: &[&str] = &[
     "memory_store_batch",
     "memory_update",
 ];
-
-fn arguments(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
-    value
-        .as_object()
-        .expect("tool arguments should be an object")
-        .clone()
-}
 
 fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
     result
@@ -81,17 +76,15 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let stored = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({
                 "content": "protocol-visible legacy session lesson",
                 "id": "mcp-legacy-session-lesson",
                 "event_type": "lesson_learned",
                 "project": "mcp-legacy-session"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -101,14 +94,12 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let welcome = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session_info".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_session_info",
+            serde_json::json!({
                 "project": "mcp-legacy-session"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let welcome_payload = text_json(&welcome);
@@ -123,12 +114,10 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let protocol = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session_info".into(),
-            arguments: Some(arguments(serde_json::json!({"mode": "protocol"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_session_info",
+            serde_json::json!({"mode": "protocol"}),
+        )),
     )
     .await??;
     let protocol_text = text_contents(&protocol).join("");
@@ -137,16 +126,14 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let checkpoint = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_checkpoint".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_checkpoint",
+            serde_json::json!({
                 "task_title": "migrate legacy session tools",
                 "progress": "stdio contract is pinned",
                 "project": "mcp-legacy-session"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let checkpoint_payload = text_json(&checkpoint);
@@ -155,17 +142,15 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let resumed = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_checkpoint".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_checkpoint",
+            serde_json::json!({
                 "action": "resume",
                 "task_title": "migrate legacy session tools",
                 "project": "mcp-legacy-session",
                 "limit": 1
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let resumed_text = text_contents(&resumed).join("");
@@ -174,16 +159,14 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let reminder = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_remind".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_remind",
+            serde_json::json!({
                 "text": "finish the legacy session migration",
                 "duration": "1h",
                 "project": "mcp-legacy-session"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let reminder_payload = text_json(&reminder);
@@ -194,12 +177,10 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let reminders = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_remind".into(),
-            arguments: Some(arguments(serde_json::json!({"action": "list"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_remind",
+            serde_json::json!({"action": "list"}),
+        )),
     )
     .await??;
     assert!(
@@ -212,30 +193,26 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let dismissed = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_remind".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_remind",
+            serde_json::json!({
                 "action": "dismiss",
                 "reminder_id": reminder_id
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(text_json(&dismissed)["status"], "dismissed");
 
     let lessons = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_lessons".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_lessons",
+            serde_json::json!({
                 "project": "mcp-legacy-session",
                 "limit": 5
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert!(
@@ -251,41 +228,32 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let profile_update = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_profile".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_profile",
+            serde_json::json!({
                 "action": "update",
                 "update": {"preferred_editor": "helix"}
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(text_contents(&profile_update), vec![r#"{"updated":true}"#]);
 
     let profile = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_profile".into(),
-            arguments: Some(arguments(serde_json::json!({}))),
-            task: None,
-        }),
+        service.call_tool(tool_request("memory_profile", serde_json::json!({}))),
     )
     .await??;
     assert_eq!(text_json(&profile)["preferred_editor"], "helix");
 
     let missing_title = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_checkpoint".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_checkpoint",
+            serde_json::json!({
                 "progress": "missing title"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await?
     .expect_err("legacy checkpoint title should remain a protocol invalid-params error");
@@ -296,12 +264,10 @@ async fn full_mode_preserves_legacy_session_tools_through_the_local_runtime()
 
     let invalid_mode = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_session_info".into(),
-            arguments: Some(arguments(serde_json::json!({"mode": "summary"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_session_info",
+            serde_json::json!({"mode": "summary"}),
+        )),
     )
     .await?
     .expect_err("unknown legacy session info mode should remain invalid");

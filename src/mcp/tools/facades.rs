@@ -1,6 +1,6 @@
 use rmcp::{
     ErrorData as McpError,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde_json::json;
 
@@ -188,13 +188,13 @@ pub(crate) async fn memory_session(
                     .welcome_scoped(&options)
                     .await
                     .map_err(|e| McpError::internal_error(format!("welcome failed: {e}"), None))?;
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     result.to_string(),
                 )]))
             }
             "protocol" => {
                 let protocol = generate_protocol_markdown();
-                Ok(CallToolResult::success(vec![Content::text(protocol)]))
+                Ok(CallToolResult::success(vec![ContentBlock::text(protocol)]))
             }
             other => Err(McpError::invalid_params(
                 format!("unknown info_mode: {other} (expected welcome|protocol)"),
@@ -246,7 +246,7 @@ pub(crate) async fn memory_session(
                         .and_then(|metadata| metadata.get("checkpoint_number"))
                         .and_then(serde_json::Value::as_i64)
                         .unwrap_or(1);
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         json!({ "memory_id": memory_id, "checkpoint_number": checkpoint_number })
                             .to_string(),
                     )]))
@@ -272,7 +272,7 @@ pub(crate) async fn memory_session(
                         markdown.push_str("\n\nCreated At: ");
                         markdown.push_str(entry["created_at"].as_str().unwrap_or(""));
                     }
-                    Ok(CallToolResult::success(vec![Content::text(markdown)]))
+                    Ok(CallToolResult::success(vec![ContentBlock::text(markdown)]))
                 }
                 other => Err(McpError::invalid_params(
                     format!("unknown checkpoint_action: {other} (expected save|resume)"),
@@ -305,7 +305,7 @@ pub(crate) async fn memory_session(
                                 None,
                             )
                         })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         result.to_string(),
                     )]))
                 }
@@ -316,7 +316,7 @@ pub(crate) async fn memory_session(
                         .map_err(|e| {
                             McpError::internal_error(format!("failed to list reminders: {e}"), None)
                         })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         json!({ "results": result }).to_string(),
                     )]))
                 }
@@ -330,7 +330,7 @@ pub(crate) async fn memory_session(
                     let result = runtime.dismiss_reminder(reminder_id).await.map_err(|e| {
                         McpError::internal_error(format!("failed to dismiss reminder: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         result.to_string(),
                     )]))
                 }
@@ -354,7 +354,7 @@ pub(crate) async fn memory_session(
                 .map_err(|e| {
                     McpError::internal_error(format!("failed to query lessons: {e}"), None)
                 })?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": lessons }).to_string(),
             )]))
         }
@@ -365,7 +365,7 @@ pub(crate) async fn memory_session(
                     let profile = runtime.get_profile().await.map_err(|e| {
                         McpError::internal_error(format!("failed to read profile: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         profile.to_string(),
                     )]))
                 }
@@ -379,7 +379,7 @@ pub(crate) async fn memory_session(
                     runtime.set_profile(updates).await.map_err(|e| {
                         McpError::internal_error(format!("failed to update profile: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         json!({ "updated": true }).to_string(),
                     )]))
                 }
@@ -436,7 +436,7 @@ pub(crate) async fn memory_admin(
                         McpError::internal_error(format!("failed to list memories: {e}"), None)
                     })?;
                     let payload = serialize_results(result.memories)?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         json!({ "results": payload, "total": result.total }).to_string(),
                     )]))
                 }
@@ -445,7 +445,7 @@ pub(crate) async fn memory_admin(
                         McpError::internal_error(format!("failed to list recents: {e}"), None)
                     })?;
                     let payload = serialize_results(results)?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         json!({ "results": payload }).to_string(),
                     )]))
                 }
@@ -462,7 +462,7 @@ pub(crate) async fn memory_admin(
                     runtime.stats().await.map_err(|e| {
                         McpError::internal_error(format!("storage probe failed: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         json!({ "status": "healthy" }).to_string(),
                     )]))
                 }
@@ -470,7 +470,7 @@ pub(crate) async fn memory_admin(
                     let stats = runtime.stats().await.map_err(|e| {
                         McpError::internal_error(format!("failed to get stats: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         serde_json::to_string(&stats).map_err(|e| {
                             McpError::internal_error(
                                 format!("failed to serialize stats: {e}"),
@@ -483,7 +483,7 @@ pub(crate) async fn memory_admin(
                     let result = runtime.type_stats().await.map_err(|e| {
                         McpError::internal_error(format!("type_stats failed: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         result.to_string(),
                     )]))
                 }
@@ -491,7 +491,7 @@ pub(crate) async fn memory_admin(
                     let result = runtime.session_stats().await.map_err(|e| {
                         McpError::internal_error(format!("session_stats failed: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         result.to_string(),
                     )]))
                 }
@@ -500,7 +500,7 @@ pub(crate) async fn memory_admin(
                     let result = runtime.weekly_digest(days).await.map_err(|e| {
                         McpError::internal_error(format!("weekly_digest failed: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         result.to_string(),
                     )]))
                 }
@@ -508,7 +508,7 @@ pub(crate) async fn memory_admin(
                     let result = runtime.access_rate_stats().await.map_err(|e| {
                         McpError::internal_error(format!("access_rate_stats failed: {e}"), None)
                     })?;
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         result.to_string(),
                     )]))
                 }
@@ -525,7 +525,9 @@ pub(crate) async fn memory_admin(
                 .export_all()
                 .await
                 .map_err(|e| McpError::internal_error(format!("failed to export: {e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(export_data)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(
+                export_data,
+            )]))
         }
         "import" => {
             let data = req.data.as_deref().ok_or_else(|| {
@@ -535,7 +537,7 @@ pub(crate) async fn memory_admin(
                 .import_all(data)
                 .await
                 .map_err(|e| McpError::internal_error(format!("failed to import: {e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "imported_memories": count.0, "imported_relationships": count.1 })
                     .to_string(),
             )]))

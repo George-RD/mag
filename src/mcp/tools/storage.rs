@@ -1,6 +1,6 @@
 use rmcp::{
     ErrorData as McpError,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde_json::json;
 
@@ -22,7 +22,7 @@ async fn execute_store(
         .await
         .map_err(|e| McpError::internal_error(format!("failed to store memory: {e}"), None))?;
 
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({ "id": id }).to_string(),
     )]))
 }
@@ -53,7 +53,7 @@ async fn execute_store_batch(
         .map_err(|e| McpError::internal_error(format!("failed to batch store: {e}"), None))?;
 
     let ids: Vec<&str> = batch_items.iter().map(|(id, _, _)| id.as_str()).collect();
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({ "ids": ids, "count": ids.len() }).to_string(),
     )]))
 }
@@ -67,7 +67,7 @@ async fn execute_retrieve(
         .await
         .map_err(|e| McpError::internal_error(format!("failed to retrieve memory: {e}"), None))?;
 
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({ "id": id, "content": content }).to_string(),
     )]))
 }
@@ -81,7 +81,7 @@ async fn execute_delete(
         .await
         .map_err(|e| McpError::internal_error(format!("failed to delete memory: {e}"), None))?;
 
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({ "id": id, "deleted": deleted }).to_string(),
     )]))
 }

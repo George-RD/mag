@@ -1,8 +1,10 @@
+mod mcp_support;
+
 use std::{collections::BTreeSet, fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use serde_json::Value;
@@ -29,13 +31,6 @@ const FULL_TOOL_NAMES: &[&str] = &[
     "memory_store_batch",
     "memory_update",
 ];
-
-fn arguments(value: Value) -> serde_json::Map<String, Value> {
-    value
-        .as_object()
-        .expect("tool arguments should be an object")
-        .clone()
-}
 
 fn result_payload(result: &rmcp::model::CallToolResult) -> Value {
     assert_eq!(result.content.len(), 1, "expected one text content item");
@@ -66,12 +61,7 @@ async fn call_tool(
     value: Value,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ServiceError> {
     service
-        .call_tool(CallToolRequestParams {
-            meta: None,
-            name: name.to_owned().into(),
-            arguments: Some(arguments(value)),
-            task: None,
-        })
+        .call_tool(tool_request(name.to_owned(), value))
         .await
 }
 

@@ -1,8 +1,10 @@
+mod mcp_support;
+
 use std::{fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use tokio::{process::Command, time::timeout};
@@ -28,13 +30,6 @@ const FULL_TOOL_NAMES: &[&str] = &[
     "memory_store_batch",
     "memory_update",
 ];
-
-fn arguments(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
-    value
-        .as_object()
-        .expect("tool arguments should be an object")
-        .clone()
-}
 
 fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
     result
@@ -77,18 +72,16 @@ async fn full_mode_routes_legacy_storage_tools_through_the_local_runtime()
 
     let stored = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({
                 "content": "legacy runtime-bound raw memory",
                 "id": "mcp-legacy-runtime",
                 "tags": ["legacy", "runtime"],
                 "importance": 0.8,
                 "metadata": {"source": "stdio"}
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -98,12 +91,10 @@ async fn full_mode_routes_legacy_storage_tools_through_the_local_runtime()
 
     let retrieved = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_retrieve".into(),
-            arguments: Some(arguments(serde_json::json!({"id": "mcp-legacy-runtime"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_retrieve",
+            serde_json::json!({"id": "mcp-legacy-runtime"}),
+        )),
     )
     .await??;
     assert_eq!(
@@ -113,17 +104,15 @@ async fn full_mode_routes_legacy_storage_tools_through_the_local_runtime()
 
     let batch = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store_batch".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_store_batch",
+            serde_json::json!({
                 "items": [
                     {"content": "first legacy batch memory", "id": "mcp-legacy-batch-1"},
                     {"content": "second legacy batch memory", "id": "mcp-legacy-batch-2"}
                 ]
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -133,15 +122,13 @@ async fn full_mode_routes_legacy_storage_tools_through_the_local_runtime()
 
     let batch_retrieved = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory",
+            serde_json::json!({
                 "action": "retrieve",
                 "id": "mcp-legacy-batch-2"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -151,12 +138,10 @@ async fn full_mode_routes_legacy_storage_tools_through_the_local_runtime()
 
     let deleted = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_delete".into(),
-            arguments: Some(arguments(serde_json::json!({"id": "mcp-legacy-runtime"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_delete",
+            serde_json::json!({"id": "mcp-legacy-runtime"}),
+        )),
     )
     .await??;
     assert_eq!(
@@ -166,15 +151,13 @@ async fn full_mode_routes_legacy_storage_tools_through_the_local_runtime()
 
     let invalid_event_type = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_store".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_store",
+            serde_json::json!({
                 "content": "invalid event type",
                 "event_type": "unknown_event"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await?
     .expect_err("legacy store should preserve invalid-params errors");

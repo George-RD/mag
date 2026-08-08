@@ -1,6 +1,6 @@
 use rmcp::{
     ErrorData as McpError,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde_json::json;
 
@@ -112,7 +112,7 @@ pub(crate) async fn memory_search(
             McpError::internal_error(format!("failed to find similar memories: {e}"), None)
         })?;
         let payload = serialize_results(results)?;
-        return Ok(CallToolResult::success(vec![Content::text(
+        return Ok(CallToolResult::success(vec![ContentBlock::text(
             json!({ "results": payload }).to_string(),
         )]));
     }
@@ -159,7 +159,7 @@ pub(crate) async fn memory_search(
                     response["confidence"] = json!(confidence);
                 }
 
-                return Ok(CallToolResult::success(vec![Content::text(
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
                     response.to_string(),
                 )]));
             }
@@ -185,7 +185,7 @@ pub(crate) async fn memory_search(
                 McpError::internal_error(format!("failed to search memories: {e}"), None)
             })?;
             let payload = serialize_results(results)?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": payload }).to_string(),
             )]))
         }
@@ -203,7 +203,7 @@ pub(crate) async fn memory_search(
                     )
                 })?;
             let payload = serialize_results(results)?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": payload }).to_string(),
             )]))
         }
@@ -218,7 +218,7 @@ pub(crate) async fn memory_search(
                     McpError::internal_error(format!("failed to phrase-search memories: {e}"), None)
                 })?;
             let payload = serialize_results(results)?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": payload }).to_string(),
             )]))
         }
@@ -228,7 +228,7 @@ pub(crate) async fn memory_search(
                 .as_ref()
                 .ok_or_else(|| McpError::invalid_params("tags is required for mode=tag", None))?;
             if tags.is_empty() {
-                return Ok(CallToolResult::success(vec![Content::text(
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
                     json!({ "results": [] }).to_string(),
                 )]));
             }
@@ -236,7 +236,7 @@ pub(crate) async fn memory_search(
                 McpError::internal_error(format!("failed to search by tags: {e}"), None)
             })?;
             let payload = serialize_results(results)?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": payload }).to_string(),
             )]))
         }
@@ -265,7 +265,7 @@ pub(crate) async fn memory_list(
                 McpError::internal_error(format!("failed to list memories: {e}"), None)
             })?;
             let payload = serialize_results(result.memories)?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": payload, "total": result.total }).to_string(),
             )]))
         }
@@ -274,7 +274,7 @@ pub(crate) async fn memory_list(
                 McpError::internal_error(format!("failed to list recents: {e}"), None)
             })?;
             let payload = serialize_results(results)?;
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 json!({ "results": payload }).to_string(),
             )]))
         }

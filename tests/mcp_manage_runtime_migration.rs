@@ -1,18 +1,13 @@
+mod mcp_support;
+
 use std::{fs, time::Duration};
 
+use mcp_support::tool_request;
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use tokio::{process::Command, time::timeout};
-
-fn arguments(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
-    value
-        .as_object()
-        .expect("tool arguments should be an object")
-        .clone()
-}
 
 fn text_contents(result: &rmcp::model::CallToolResult) -> Vec<String> {
     result
@@ -71,15 +66,13 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
     ] {
         let stored = timeout(
             Duration::from_secs(20),
-            service.call_tool(CallToolRequestParams {
-                meta: None,
-                name: "memory_store".into(),
-                arguments: Some(arguments(serde_json::json!({
+            service.call_tool(tool_request(
+                "memory_store",
+                serde_json::json!({
                     "id": id,
                     "content": content
-                }))),
-                task: None,
-            }),
+                }),
+            )),
         )
         .await??;
         assert_eq!(text_contents(&stored), vec![format!(r#"{{"id":"{id}"}}"#)]);
@@ -87,16 +80,14 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 
     let updated = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_update".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_update",
+            serde_json::json!({
                 "id": "stdio-manage-source",
                 "content": "stdio source updated",
                 "tags": ["runtime"]
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -106,16 +97,14 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 
     let feedback = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_feedback".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_feedback",
+            serde_json::json!({
                 "memory_id": "stdio-manage-source",
                 "rating": "helpful",
                 "reason": "stdio parity"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let feedback_payload: serde_json::Value = serde_json::from_str(&text_contents(&feedback)[0])?;
@@ -124,18 +113,16 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 
     let added = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_relations".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_relations",
+            serde_json::json!({
                 "action": "add",
                 "source_id": "stdio-manage-source",
                 "target_id": "stdio-manage-target",
                 "rel_type": "supports",
                 "weight": 0.7
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let added_payload: serde_json::Value = serde_json::from_str(&text_contents(&added)[0])?;
@@ -144,15 +131,13 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 
     let listed = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_relations".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_relations",
+            serde_json::json!({
                 "action": "list",
                 "id": "stdio-manage-source"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     let listed_payload: serde_json::Value = serde_json::from_str(&text_contents(&listed)[0])?;
@@ -167,28 +152,24 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 
     let swept = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_lifecycle".into(),
-            arguments: Some(arguments(serde_json::json!({"action": "sweep"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_lifecycle",
+            serde_json::json!({"action": "sweep"}),
+        )),
     )
     .await??;
     assert_eq!(text_contents(&swept), vec![r#"{"swept_count":0}"#]);
 
     let facade_update = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_manage".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_manage",
+            serde_json::json!({
                 "action": "update",
                 "id": "stdio-manage-target",
                 "content": "stdio target updated"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await??;
     assert_eq!(
@@ -198,12 +179,10 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 
     let retrieved = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_retrieve".into(),
-            arguments: Some(arguments(serde_json::json!({"id": "stdio-manage-target"}))),
-            task: None,
-        }),
+        service.call_tool(tool_request(
+            "memory_retrieve",
+            serde_json::json!({"id": "stdio-manage-target"}),
+        )),
     )
     .await??;
     assert_eq!(
@@ -213,15 +192,13 @@ async fn full_mode_routes_legacy_and_unified_manage_tools_through_one_runtime()
 
     let missing_relation_source = timeout(
         Duration::from_secs(20),
-        service.call_tool(CallToolRequestParams {
-            meta: None,
-            name: "memory_manage".into(),
-            arguments: Some(arguments(serde_json::json!({
+        service.call_tool(tool_request(
+            "memory_manage",
+            serde_json::json!({
                 "action": "relations",
                 "relations_action": "add"
-            }))),
-            task: None,
-        }),
+            }),
+        )),
     )
     .await?
     .expect_err("missing unified relation source should remain invalid params");
