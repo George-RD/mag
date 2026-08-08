@@ -1,21 +1,18 @@
-name: Apply RMCP migration
+name: Verify RMCP migration
 
 on:
-  push:
+  pull_request:
     branches:
-      - dependabot/cargo/rmcp-3.1.0
+      - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  migrate:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: dependabot/cargo/rmcp-3.1.0
-          fetch-depth: 0
 
       - name: Apply reviewed migration patch
         shell: bash
@@ -175,13 +172,16 @@ jobs:
       - name: Smoke test
         run: bash scripts/smoke-test.sh
 
-      - name: Commit verified migration and remove temporary workflow
+      - name: Archive verified source
         shell: bash
         run: |
           rm .github/workflows/agent-source-export.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/agent-source-export.yml meta/todos/simplify-mcp-transport-contract.md tests
-          git diff --cached --check
-          git commit -m "test(mcp): migrate RMCP request construction"
-          git push origin HEAD:dependabot/cargo/rmcp-3.1.0
+          tar --exclude=.git --exclude=target -czf /tmp/mag-verified-source.tar.gz .
+
+      - name: Upload verified source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mag-rmcp-verified-${{ github.sha }}
+          path: /tmp/mag-verified-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
