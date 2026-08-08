@@ -33,6 +33,10 @@ impl EmbeddingModel for RoleAwareOnlyEmbedder {
         2
     }
 
+    fn embedding_space_identity(&self) -> &str {
+        "test-role-aware:v1"
+    }
+
     fn embed_for(&self, input: EmbeddingInputKind, _text: &str) -> Result<Vec<f32>> {
         self.record(EmbeddingCall::Single(input));
         Ok(vec![1.0, 0.0])
