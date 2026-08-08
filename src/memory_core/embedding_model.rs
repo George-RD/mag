@@ -25,6 +25,13 @@ pub trait EmbeddingModel: Send + Sync {
     /// Returns the embedding dimension.
     fn dimension(&self) -> usize;
 
+    /// Returns the stable identity of the persisted embedding space.
+    ///
+    /// This identity must change whenever stored vectors would no longer be
+    /// comparable, including model, revision, quantization, pooling, output
+    /// dimension, or query/document transformation changes.
+    fn embedding_space_identity(&self) -> &str;
+
     /// Generates an embedding for an explicit retrieval input kind.
     fn embed_for(&self, input: EmbeddingInputKind, text: &str) -> Result<Vec<f32>>;
 
@@ -47,17 +54,26 @@ pub trait EmbeddingModel: Send + Sync {
 /// boundary carries explicit query/document intent.
 pub(crate) struct LegacyEmbedderAdapter {
     inner: Arc<dyn Embedder>,
+    embedding_space_identity: String,
 }
 
 impl LegacyEmbedderAdapter {
     pub(crate) fn new(inner: Arc<dyn Embedder>) -> Self {
-        Self { inner }
+        let embedding_space_identity = format!("legacy-role-neutral:v1:dim={}", inner.dimension());
+        Self {
+            inner,
+            embedding_space_identity,
+        }
     }
 }
 
 impl EmbeddingModel for LegacyEmbedderAdapter {
     fn dimension(&self) -> usize {
         self.inner.dimension()
+    }
+
+    fn embedding_space_identity(&self) -> &str {
+        &self.embedding_space_identity
     }
 
     fn embed_for(&self, _input: EmbeddingInputKind, text: &str) -> Result<Vec<f32>> {
