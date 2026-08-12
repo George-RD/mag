@@ -21,8 +21,6 @@ use crate::LocalMemoryRuntime;
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{MemoryInput, is_valid_event_type};
 
-// ── Submodule declarations ──
-
 mod request_types;
 mod tools;
 pub(crate) mod validation;
@@ -30,14 +28,6 @@ pub(crate) mod validation;
 use request_types::*;
 use validation::require_finite;
 
-// ──────────────────────── Tool mode ────────────────────────
-
-/// Controls which tools are advertised to MCP clients.
-///
-/// - `Full` (default): all 19 tools — 15 legacy + 4 unified facades.
-/// - `Minimal`: only the 4 unified facades (memory, memory_manage,
-///   memory_session, memory_admin) — reduces tool-list noise for clients
-///   that support action-based routing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum McpToolMode {
     #[default]
@@ -45,188 +35,136 @@ pub enum McpToolMode {
     Minimal,
 }
 
-/// Tools advertised in `McpToolMode::Minimal`.
-///
-/// The four unified facade tools replace the 15 legacy tools via `action`
-/// fields and are sufficient for all memory operations:
-/// - `memory`         — store / store_batch / retrieve / delete
-/// - `memory_manage`  — update / feedback / relations / lifecycle
-/// - `memory_session` — info / checkpoint / remind / lessons / profile
-/// - `memory_admin`   — health / list / export / import
-const MINIMAL_TOOL_NAMES: &[&str] = &["memory", "memory_manage", "memory_session", "memory_admin"];
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum McpToolSurface {
+    Legacy,
+    Facade,
+}
 
-// ──────────────────────── MCP Instructions ────────────────────────
-
-/// Instructions returned in the MCP `initialize` handshake.
-///
-/// These guide AI clients that connect via MCP-only (no CLI/hooks).
-/// The 9-prefix system indicates priority:
-///   99999 = critical session behaviour
-///   9999  = important per-interaction behaviour
-///   999   = recommended practices
-const MCP_INSTRUCTIONS: &str = "\
-MAG — persistent memory for AI agents. Stores, searches, and recalls context across sessions.\n\
-\n\
-## 99999 — SESSION START (do this FIRST, every session)\n\
-Call memory_session(action=\"info\", info_mode=\"welcome\") BEFORE your first substantive response.\n\
-This returns recalled context, active project, and session state.\n\
-Do NOT skip this. Without it you are operating without memory.\n\
-\n\
-## 99999 — STORE DECISIONS AND LESSONS\n\
-After completing non-trivial work, call memory_store to persist:\n\
-- Architectural decisions with rationale\n\
-- Bug root causes and fixes\n\
-- User preferences and corrections\n\
-- Workflow patterns that worked\n\
-You are the ONLY mechanism that stores memories in MCP-only mode. If you don't store, nothing is remembered.\n\
-\n\
-## 9999 — SEARCH BEFORE DECIDING\n\
-Before making architectural choices or debugging recurring issues,\n\
-call memory_search to check for prior context. Past-you may have solved this already.\n\
-\n\
-## 9999 — DO NOT ANNOUNCE MEMORY OPERATIONS\n\
-Never say \"let me check my memory\" or \"I'll store that\". Just do it silently.\n\
-Weave recalled context naturally into your responses as if you simply know it.\n\
-\n\
-## 999 — TOOL REFERENCE\n\
-Call memory_session(action=\"info\", info_mode=\"protocol\") for the full tool inventory.\n\
-\n\
-## 999 — DIAGNOSTICS\n\
-If tool calls fail, ask the user to run: mag doctor\n\
-\n\
-## 999 — UPGRADE AVAILABLE\n\
-MAG works best with the CLI + hooks plugin, which provides automatic memory\n\
-at session start/end, after compaction, and on every prompt — no manual tool calls needed.\n\
-If this is a coding environment (Claude Code, Cursor, etc.), mention this once per session:\n\
-  \"Tip: install the MAG plugin for automatic memory. Run: mag setup --plugin\"\n\
-Do not repeat after the first mention.\n\
-\n\
-## 999 — UNIFIED TOOL INTERFACE (Wave 2)\n\
-Four unified facade tools replace the 16 legacy tools via `action` fields:\n\
-- `memory` — store/store_batch/retrieve/delete\n\
-- `memory_manage` — update/feedback/relations/lifecycle\n\
-- `memory_session` — info/checkpoint/remind/lessons/profile\n\
-- `memory_admin` — health/list/export/import\n\
-Legacy tools remain available in full mode. Use `--mcp-tools=minimal` to advertise only the 4 facades.\
-";
-
-// ──────────────────────── Tool Registry ────────────────────────
-
-/// Metadata for a single MCP tool, used to generate protocol docs and CLI output.
 pub struct ToolMeta {
     pub name: &'static str,
     pub summary: &'static str,
     pub category: &'static str,
+    pub surface: McpToolSurface,
 }
 
-/// Canonical registry of all MCP tools. This is the single source of truth for
-/// tool names, summaries, and categories. Keep in sync with `#[tool(...)]` attrs.
 pub const TOOL_REGISTRY: &[ToolMeta] = &[
-    // Storage & Retrieval
     ToolMeta {
         name: "memory",
-        summary: "Unified facade (Wave 2 preview): store/store_batch/retrieve/delete via action field",
+        summary: "Unified facade: store/store_batch/retrieve/delete via action field",
         category: "Storage & Retrieval",
+        surface: McpToolSurface::Facade,
     },
     ToolMeta {
         name: "memory_store",
         summary: "Store new memory content with tags, importance, metadata",
         category: "Storage & Retrieval",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_store_batch",
         summary: "Batch store multiple memories with optimized embedding",
         category: "Storage & Retrieval",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_retrieve",
         summary: "Retrieve a memory by ID",
         category: "Storage & Retrieval",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_delete",
         summary: "Delete a memory by ID",
         category: "Storage & Retrieval",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_update",
         summary: "Update content, tags, importance, or metadata",
         category: "Storage & Retrieval",
+        surface: McpToolSurface::Legacy,
     },
-    // Search & Listing
     ToolMeta {
         name: "memory_search",
-        summary: "Unified search (mode: text|semantic|phrase|tag|similar, advanced: bool)",
+        summary: "Search memories using text, semantic, phrase, tag, or similarity modes",
         category: "Search & Listing",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_list",
-        summary: "List memories (sort: created|recent)",
+        summary: "List memories sorted by creation or recency",
         category: "Search & Listing",
+        surface: McpToolSurface::Legacy,
     },
-    // Relationships & Graph
     ToolMeta {
         name: "memory_relations",
-        summary: "Manage relationships (action: list|add|traverse|version_chain)",
+        summary: "Manage relationships and graph traversal",
         category: "Relationships & Graph",
+        surface: McpToolSurface::Legacy,
     },
-    // Lifecycle & Feedback
     ToolMeta {
         name: "memory_feedback",
-        summary: "Record feedback (helpful/unhelpful/outdated)",
+        summary: "Record helpful, unhelpful, or outdated feedback",
         category: "Lifecycle & Feedback",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_lifecycle",
-        summary: "System maintenance (action: sweep|health|consolidate|compact|auto_compact|fts_rebuild|clear_session)",
+        summary: "Run maintenance, health, consolidation, backup, and cleanup actions",
         category: "Lifecycle & Feedback",
+        surface: McpToolSurface::Legacy,
     },
-    // Cross-Session
     ToolMeta {
         name: "memory_checkpoint",
-        summary: "Task checkpoints (action: save|resume)",
+        summary: "Save or resume task checkpoints",
         category: "Cross-Session",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_remind",
         summary: "Set, list, or dismiss reminders",
         category: "Cross-Session",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_lessons",
-        summary: "Query lesson_learned memories",
+        summary: "Query lesson-learned memories",
         category: "Cross-Session",
+        surface: McpToolSurface::Legacy,
     },
     ToolMeta {
         name: "memory_profile",
-        summary: "Read/update user profile",
+        summary: "Read or update the user profile",
         category: "Cross-Session",
+        surface: McpToolSurface::Legacy,
     },
-    // System
     ToolMeta {
         name: "memory_session_info",
-        summary: "Welcome briefing or protocol (mode: welcome|protocol)",
+        summary: "Return the welcome briefing or MCP protocol information",
         category: "System",
+        surface: McpToolSurface::Legacy,
     },
-    // ── Wave 2 unified facades ──
     ToolMeta {
         name: "memory_manage",
-        summary: "Unified manage facade: update/feedback/relations/lifecycle via action field",
+        summary: "Unified facade: update/feedback/relations/lifecycle via action field",
         category: "Storage & Retrieval",
+        surface: McpToolSurface::Facade,
     },
     ToolMeta {
         name: "memory_session",
-        summary: "Unified session facade: info/checkpoint/remind/lessons/profile via action field",
+        summary: "Unified facade: info/checkpoint/remind/lessons/profile via action field",
         category: "Cross-Session",
+        surface: McpToolSurface::Facade,
     },
     ToolMeta {
         name: "memory_admin",
-        summary: "Unified admin facade: health/list/export/import via action field (Wave 2 — replaces legacy admin+list)",
+        summary: "Unified facade: health/list/export/import via action field",
         category: "System",
+        surface: McpToolSurface::Facade,
     },
 ];
 
-/// Category display order for protocol markdown output.
 const CATEGORY_ORDER: &[&str] = &[
     "Storage & Retrieval",
     "Search & Listing",
@@ -236,7 +174,46 @@ const CATEGORY_ORDER: &[&str] = &[
     "System",
 ];
 
-/// Generate the protocol markdown from [`TOOL_REGISTRY`].
+fn tools_for_surface(surface: McpToolSurface) -> impl Iterator<Item = &'static ToolMeta> {
+    TOOL_REGISTRY.iter().filter(move |tool| tool.surface == surface)
+}
+
+fn facade_tool_names() -> Vec<&'static str> {
+    tools_for_surface(McpToolSurface::Facade)
+        .map(|tool| tool.name)
+        .collect()
+}
+
+fn legacy_tool_count() -> usize {
+    tools_for_surface(McpToolSurface::Legacy).count()
+}
+
+fn mcp_instructions() -> String {
+    let facade_names = facade_tool_names();
+    format!(
+        "MAG — optional MCP transport for MAG's canonical CLI/runtime workflows.\n\n\
+## SESSION START\n\
+Call memory_session(action=\"info\", info_mode=\"welcome\") before substantive work when MCP is your only MAG integration.\n\n\
+## STORE DECISIONS AND LESSONS\n\
+After non-trivial work, persist architectural decisions, bug root causes, user preferences, corrections, and reusable workflow lessons.\n\n\
+## SEARCH BEFORE DECIDING\n\
+Check prior memory before recurring debugging or architecture decisions.\n\n\
+## DO NOT ANNOUNCE MEMORY OPERATIONS\n\
+Use memory operations silently and weave recalled context into normal responses.\n\n\
+## TOOL REFERENCE\n\
+Call memory_session(action=\"info\", info_mode=\"protocol\") for the generated tool inventory.\n\n\
+## DIAGNOSTICS\n\
+If MCP calls fail, ask the user to run: mag doctor\n\n\
+## CANONICAL INTERFACE\n\
+Prefer MAG CLI commands and hooks when the host can run them. MCP is a thin optional transport over the same runtime behavior.\n\n\
+## UNIFIED MCP INTERFACE\n\
+The {} facade tools are: {}. Full mode also exposes {} legacy compatibility tools. Use --mcp-tools=minimal to advertise only the facade tools.\n",
+        facade_names.len(),
+        facade_names.join(", "),
+        legacy_tool_count(),
+    )
+}
+
 pub fn generate_protocol_markdown() -> String {
     let count = TOOL_REGISTRY.len();
     let mut out = format!("# MAG Protocol\n\n## Available Tools ({count})\n");
@@ -248,30 +225,40 @@ pub fn generate_protocol_markdown() -> String {
         }
     }
 
+    let facade_names = facade_tool_names();
+    let _ = write!(
+        out,
+        "\n## Interface Modes\n- Minimal: {} facade tools ({})\n- Full: {} total tools ({} facade + {} legacy compatibility)\n",
+        facade_names.len(),
+        facade_names.join(", "),
+        TOOL_REGISTRY.len(),
+        facade_names.len(),
+        legacy_tool_count(),
+    );
+
     out.push_str(
         "\n## Usage Guidelines\n\
-         - Call **memory_session_info** with `mode=\"welcome\"` at session start for context\n\
-         - Use **memory_search** with `advanced=true` when you want the multi-phase retrieval path for a supported mode\n\
-         - Use **memory_lifecycle** with action=sweep periodically to clean expired memories\n\
-         - Use **memory_lifecycle** with action=consolidate to prune stale data\n",
+         - Prefer the MAG CLI when the host can execute it; MCP is an optional transport\n\
+         - Call **memory_session** with `action=\"info\"` and `info_mode=\"welcome\"` at session start in MCP-only hosts\n\
+         - Prefer the four facade tools for new MCP integrations\n\
+         - Keep legacy tools for compatibility only\n",
     );
 
     out
 }
 
-/// Return a JSON value with `tools` (name array) and `tool_count` derived from
-/// [`TOOL_REGISTRY`]. Used by the CLI `protocol` sub-command.
 pub fn tool_registry_json() -> serde_json::Value {
     let names: Vec<&str> = TOOL_REGISTRY.iter().map(|t| t.name).collect();
-    let count = names.len();
+    let facade_names = facade_tool_names();
     json!({
         "tools": names,
-        "tool_count": count,
+        "tool_count": TOOL_REGISTRY.len(),
+        "facade_tools": facade_names,
+        "facade_tool_count": tools_for_surface(McpToolSurface::Facade).count(),
+        "legacy_tool_count": legacy_tool_count(),
     })
 }
 
-/// Serialize a collection of items into a `Vec<serde_json::Value>`, returning
-/// `McpError::internal_error` on the first serialization failure.
 fn serialize_results<T: Serialize>(
     items: impl IntoIterator<Item = T>,
 ) -> Result<Vec<serde_json::Value>, McpError> {
@@ -285,8 +272,6 @@ fn serialize_results<T: Serialize>(
         .collect()
 }
 
-/// Convert a StoreRequest into (id, MemoryInput) with defaults applied.
-/// Validates event_type so callers don't need to duplicate the check.
 fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpError> {
     if let Some(et) = item.event_type.as_deref()
         && !is_valid_event_type(et)
@@ -322,8 +307,6 @@ fn build_memory_input(item: &StoreRequest) -> Result<(String, MemoryInput), McpE
     Ok((id, input))
 }
 
-// ──────────────────────── Server struct ────────────────────────
-
 #[derive(Clone)]
 pub struct McpMemoryServer {
     runtime: Arc<LocalMemoryRuntime>,
@@ -332,7 +315,6 @@ pub struct McpMemoryServer {
 }
 
 impl McpMemoryServer {
-    /// Creates the optional MCP transport around the entrypoint-owned runtime.
     pub fn from_runtime(runtime: Arc<LocalMemoryRuntime>) -> Self {
         Self {
             runtime,
@@ -358,220 +340,108 @@ impl McpMemoryServer {
     }
 }
 
-// ──────────────────────── Tool router (thin delegation wrappers) ────────────────────────
-
 #[tool_router]
 impl McpMemoryServer {
-    #[tool(
-        name = "memory_store",
-        description = "Store memory content in SQLite and return the memory id"
-    )]
-    async fn memory_store(
-        &self,
-        params: Parameters<StoreRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_store", description = "Store memory content in SQLite and return the memory id")]
+    async fn memory_store(&self, params: Parameters<StoreRequest>) -> Result<CallToolResult, McpError> {
         tools::storage::memory_store(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_store_batch",
-        description = "Batch store multiple memories with optimized embedding computation. Pre-warms embedding cache with a single batched inference call for better throughput."
-    )]
-    async fn memory_store_batch(
-        &self,
-        params: Parameters<StoreBatchRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_store_batch", description = "Batch store multiple memories with optimized embedding computation. Pre-warms embedding cache with a single batched inference call for better throughput.")]
+    async fn memory_store_batch(&self, params: Parameters<StoreBatchRequest>) -> Result<CallToolResult, McpError> {
         tools::storage::memory_store_batch(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_retrieve",
-        description = "Retrieve stored memory content by memory id"
-    )]
-    async fn memory_retrieve(
-        &self,
-        params: Parameters<RetrieveRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_retrieve", description = "Retrieve stored memory content by memory id")]
+    async fn memory_retrieve(&self, params: Parameters<RetrieveRequest>) -> Result<CallToolResult, McpError> {
         tools::storage::memory_retrieve(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_search",
-        description = "Search stored memories. Modes: 'text' (default, FTS5), 'semantic' (embedding similarity), 'phrase' (exact substring), 'tag' (AND-match tags), 'similar' (find similar to memory_id). advanced=true enables multi-phase retrieval; only 'text' and 'semantic' modes support it ('phrase', 'tag', 'similar' always use their standard paths). Text mode defaults to advanced=true. Required params vary by mode: text/semantic/phrase need 'query', tag needs 'tags', similar needs 'memory_id'."
-    )]
-    async fn memory_search(
-        &self,
-        params: Parameters<SearchRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_search", description = "Search stored memories. Modes: text, semantic, phrase, tag, similar. advanced=true enables the multi-phase path where supported.")]
+    async fn memory_search(&self, params: Parameters<SearchRequest>) -> Result<CallToolResult, McpError> {
         tools::search::memory_search(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_list",
-        description = "List stored memories. Sort: 'created' (default, paginated by creation time with offset) or 'recent' (recently accessed)."
-    )]
-    async fn memory_list(
-        &self,
-        params: Parameters<ListRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_list", description = "List stored memories with optional filters")]
+    async fn memory_list(&self, params: Parameters<ListRequest>) -> Result<CallToolResult, McpError> {
         tools::search::memory_list(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(name = "memory_delete", description = "Delete a memory by its id")]
-    async fn memory_delete(
-        &self,
-        params: Parameters<DeleteRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_delete", description = "Delete a memory by id")]
+    async fn memory_delete(&self, params: Parameters<DeleteRequest>) -> Result<CallToolResult, McpError> {
         tools::storage::memory_delete(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_update",
-        description = "Update content and optionally tags of an existing memory"
-    )]
-    async fn memory_update(
-        &self,
-        params: Parameters<UpdateRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        tools::lifecycle::memory_update(self.runtime.as_ref(), &params.0).await
+    #[tool(name = "memory_update", description = "Update a memory's content, tags, importance, or metadata")]
+    async fn memory_update(&self, params: Parameters<UpdateRequest>) -> Result<CallToolResult, McpError> {
+        tools::manage::memory_update(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_relations",
-        description = "Manage memory relationships and graph traversal. Actions: 'list' (default, get relationships for a memory), 'add' (create directed relationship), 'traverse' (BFS graph traversal), 'version_chain' (full version history)."
-    )]
-    async fn memory_relations(
-        &self,
-        params: Parameters<RelationsRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        tools::relations::memory_relations(self.runtime.as_ref(), &params.0).await
+    #[tool(name = "memory_relations", description = "Manage memory relationships and graph traversal")]
+    async fn memory_relations(&self, params: Parameters<RelationsRequest>) -> Result<CallToolResult, McpError> {
+        tools::manage::memory_relations(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_feedback",
-        description = "Record user feedback signal for a memory"
-    )]
-    async fn memory_feedback(
-        &self,
-        params: Parameters<FeedbackRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        tools::lifecycle::memory_feedback(self.runtime.as_ref(), &params.0).await
+    #[tool(name = "memory_feedback", description = "Record feedback for a memory")]
+    async fn memory_feedback(&self, params: Parameters<FeedbackRequest>) -> Result<CallToolResult, McpError> {
+        tools::manage::memory_feedback(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_lifecycle",
-        description = "System maintenance. Actions: 'sweep' (default, expire TTL-based memories), 'health' (diagnostic with thresholds, incl. FTS5 sync status), 'consolidate' (prune stale data), 'compact' (merge near-duplicates), 'auto_compact' (embedding-based dedup), 'fts_rebuild' (rebuild the full-text index from source), 'clear_session' (remove session data), 'backup' (create binary backup), 'backup_list' (list available backups)."
-    )]
-    async fn memory_lifecycle(
-        &self,
-        params: Parameters<LifecycleRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        tools::lifecycle::memory_lifecycle(self.runtime.as_ref(), &params.0).await
+    #[tool(name = "memory_lifecycle", description = "Run memory maintenance and lifecycle actions")]
+    async fn memory_lifecycle(&self, params: Parameters<LifecycleRequest>) -> Result<CallToolResult, McpError> {
+        tools::manage::memory_lifecycle(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_checkpoint",
-        description = "Manage cross-session task checkpoints. Actions: 'save' (default, save a checkpoint) or 'resume' (retrieve prior checkpoints)."
-    )]
-    async fn memory_checkpoint(
-        &self,
-        params: Parameters<CheckpointRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_checkpoint", description = "Save or resume a task checkpoint")]
+    async fn memory_checkpoint(&self, params: Parameters<CheckpointRequest>) -> Result<CallToolResult, McpError> {
         tools::session::memory_checkpoint(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_remind",
-        description = "Set, list, or dismiss reminders"
-    )]
-    async fn memory_remind(
-        &self,
-        params: Parameters<RemindRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_remind", description = "Set, list, or dismiss reminders")]
+    async fn memory_remind(&self, params: Parameters<RemindRequest>) -> Result<CallToolResult, McpError> {
         tools::session::memory_remind(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_lessons",
-        description = "Query lesson_learned memories for a task or project"
-    )]
-    async fn memory_lessons(
-        &self,
-        params: Parameters<LessonsRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_lessons", description = "Query lesson-learned memories")]
+    async fn memory_lessons(&self, params: Parameters<LessonsRequest>) -> Result<CallToolResult, McpError> {
         tools::session::memory_lessons(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_profile",
-        description = "Read or update the cross-session user profile"
-    )]
-    async fn memory_profile(
-        &self,
-        params: Parameters<ProfileRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_profile", description = "Read or update the cross-session user profile")]
+    async fn memory_profile(&self, params: Parameters<ProfileRequest>) -> Result<CallToolResult, McpError> {
         tools::session::memory_profile(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_session_info",
-        description = "Session-oriented information. mode='welcome' (default) returns the startup briefing; mode='protocol' returns the tool inventory and usage guidelines."
-    )]
-    async fn memory_session_info(
-        &self,
-        params: Parameters<SessionInfoRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_session_info", description = "Return the startup briefing or generated MCP protocol inventory")]
+    async fn memory_session_info(&self, params: Parameters<SessionInfoRequest>) -> Result<CallToolResult, McpError> {
         tools::session::memory_session_info(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory",
-        description = "Unified memory facade (Wave 2 preview). Routes to store/store_batch/retrieve/delete based on `action` field (default: \"store\"). Use this single tool instead of the four individual tools when you prefer a collapsed interface."
-    )]
+    #[tool(name = "memory", description = "Unified memory facade. Routes store/store_batch/retrieve/delete by action.")]
     async fn memory(&self, params: Parameters<MemoryRequest>) -> Result<CallToolResult, McpError> {
         tools::storage::memory_facade(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_manage",
-        description = "Unified manage facade (Wave 2). Routes to update/feedback/relations/lifecycle based on `action` field (default: \"update\"). Sub-actions: relations_action (list|add|traverse|version_chain), lifecycle_action (sweep|health|consolidate|compact|auto_compact|fts_rebuild|clear_session|backup|backup_list)."
-    )]
-    async fn memory_manage(
-        &self,
-        params: Parameters<MemoryManageRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_manage", description = "Unified manage facade. Routes update/feedback/relations/lifecycle by action.")]
+    async fn memory_manage(&self, params: Parameters<MemoryManageRequest>) -> Result<CallToolResult, McpError> {
         tools::facades::memory_manage(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_session",
-        description = "Unified session facade (Wave 2). Routes to info/checkpoint/remind/lessons/profile based on `action` field (default: \"info\"). Sub-actions: checkpoint_action (save|resume), remind_action (set|list|dismiss), profile_action (read|update)."
-    )]
-    async fn memory_session(
-        &self,
-        params: Parameters<MemorySessionRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_session", description = "Unified session facade. Routes info/checkpoint/remind/lessons/profile by action.")]
+    async fn memory_session(&self, params: Parameters<MemorySessionRequest>) -> Result<CallToolResult, McpError> {
         tools::facades::memory_session(self.runtime.as_ref(), &params.0).await
     }
 
-    #[tool(
-        name = "memory_admin",
-        description = "Unified admin facade (Wave 2). Routes to health/list/export/import based on `action` field (default: \"health\"). Use list_limit and list_event_type for the list action to avoid ambiguity with health parameters."
-    )]
-    async fn memory_admin(
-        &self,
-        params: Parameters<MemoryAdminFacadeRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(name = "memory_admin", description = "Unified admin facade. Routes health/list/export/import by action.")]
+    async fn memory_admin(&self, params: Parameters<MemoryAdminFacadeRequest>) -> Result<CallToolResult, McpError> {
         tools::facades::memory_admin(self.runtime.as_ref(), &params.0).await
     }
 }
 
-// ──────────────────────── ServerHandler impl ────────────────────────
-
 impl ServerHandler for McpMemoryServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions(MCP_INSTRUCTIONS.to_string())
+            .with_instructions(mcp_instructions())
     }
 
     async fn call_tool(
@@ -583,11 +453,6 @@ impl ServerHandler for McpMemoryServer {
         self.tool_router.call(tcc).await
     }
 
-    /// Returns the tool list filtered by the configured [`McpToolMode`].
-    ///
-    /// - [`McpToolMode::Full`]: all tools registered in the router.
-    /// - [`McpToolMode::Minimal`]: only the tools listed in [`MINIMAL_TOOL_NAMES`]
-    ///   (the four unified facades).
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
@@ -596,19 +461,20 @@ impl ServerHandler for McpMemoryServer {
         let all = self.tool_router.list_all();
         let tools = match self.tool_mode {
             McpToolMode::Full => all,
-            McpToolMode::Minimal => all
-                .into_iter()
-                .filter(|t| MINIMAL_TOOL_NAMES.contains(&t.name.as_ref()))
-                .collect(),
+            McpToolMode::Minimal => {
+                let minimal = facade_tool_names();
+                all.into_iter()
+                    .filter(|tool| minimal.contains(&tool.name.as_ref()))
+                    .collect()
+            }
         };
         Ok(ListToolsResult::with_all_items(tools))
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
         let tool = self.tool_router.get(name)?;
-        // In Minimal mode, only return tools that are in the minimal set
         if self.tool_mode == McpToolMode::Minimal
-            && !MINIMAL_TOOL_NAMES.contains(&tool.name.as_ref())
+            && !facade_tool_names().contains(&tool.name.as_ref())
         {
             return None;
         }
@@ -616,150 +482,62 @@ impl ServerHandler for McpMemoryServer {
     }
 }
 
-// ──────────────────────── Tests ────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Guard against registry drift — update `TOOL_REGISTRY` when adding or
-    /// removing MCP tools.
     #[test]
-    fn tool_registry_has_expected_count() {
-        assert_eq!(
-            TOOL_REGISTRY.len(),
-            19,
-            "TOOL_REGISTRY length changed — update the expected count and verify all tools are listed"
-        );
+    fn owned_contract_matches_router_names() {
+        let router = McpMemoryServer::tool_router();
+        let mut router_names: Vec<&str> = router.list_all().iter().map(|tool| tool.name.as_ref()).collect();
+        let mut contract_names: Vec<&str> = TOOL_REGISTRY.iter().map(|tool| tool.name).collect();
+        router_names.sort_unstable();
+        contract_names.sort_unstable();
+        assert_eq!(contract_names, router_names, "owned MCP contract and tool router drifted");
     }
 
-    /// Every tool name in the registry must be unique.
     #[test]
-    fn tool_registry_names_are_unique() {
+    fn contract_names_and_categories_are_valid() {
         let mut seen = std::collections::HashSet::new();
         for tool in TOOL_REGISTRY {
-            assert!(
-                seen.insert(tool.name),
-                "duplicate tool name in TOOL_REGISTRY: {}",
-                tool.name
-            );
+            assert!(seen.insert(tool.name), "duplicate MCP contract tool: {}", tool.name);
+            assert!(CATEGORY_ORDER.contains(&tool.category), "unknown category '{}' for {}", tool.category, tool.name);
         }
     }
 
-    /// Every category referenced in TOOL_REGISTRY must appear in CATEGORY_ORDER.
     #[test]
-    fn tool_registry_categories_in_order() {
+    fn facade_surface_is_the_minimal_mode_contract() {
+        assert_eq!(facade_tool_names(), vec!["memory", "memory_manage", "memory_session", "memory_admin"]);
+        assert_eq!(legacy_tool_count(), 15);
+        assert_eq!(TOOL_REGISTRY.len(), 19);
+    }
+
+    #[test]
+    fn generated_protocol_contains_every_contract_tool_and_counts() {
+        let markdown = generate_protocol_markdown();
         for tool in TOOL_REGISTRY {
-            assert!(
-                CATEGORY_ORDER.contains(&tool.category),
-                "tool '{}' has category '{}' not in CATEGORY_ORDER",
-                tool.name,
-                tool.category
-            );
+            assert!(markdown.contains(tool.name), "protocol missing {}", tool.name);
         }
+        assert!(markdown.contains("Full: 19 total tools (4 facade + 15 legacy compatibility)"));
+        assert!(markdown.contains("Minimal: 4 facade tools"));
     }
 
     #[test]
-    fn generate_protocol_markdown_contains_all_tools() {
-        let md = generate_protocol_markdown();
-        for tool in TOOL_REGISTRY {
-            assert!(
-                md.contains(tool.name),
-                "protocol markdown missing tool: {}",
-                tool.name
-            );
-        }
-        // Verify computed count in header
-        assert!(md.contains(&format!("## Available Tools ({})", TOOL_REGISTRY.len())));
+    fn initialization_instructions_derive_interface_counts() {
+        let instructions = mcp_instructions();
+        assert!(instructions.contains("4 facade tools"));
+        assert!(instructions.contains("15 legacy compatibility tools"));
+        assert!(!instructions.contains("16 legacy"));
+        assert!(instructions.contains("MCP is a thin optional transport"));
     }
 
     #[test]
-    fn tool_registry_json_matches_registry() {
-        let val = tool_registry_json();
-        let tools = val["tools"].as_array().expect("tools should be an array");
+    fn tool_registry_json_matches_contract() {
+        let value = tool_registry_json();
+        assert_eq!(value["tool_count"], 19);
+        assert_eq!(value["facade_tool_count"], 4);
+        assert_eq!(value["legacy_tool_count"], 15);
+        let tools = value["tools"].as_array().expect("tools array");
         assert_eq!(tools.len(), TOOL_REGISTRY.len());
-        assert_eq!(val["tool_count"], TOOL_REGISTRY.len());
-        for (i, tool) in TOOL_REGISTRY.iter().enumerate() {
-            assert_eq!(
-                tools[i].as_str().expect("tool name should be a string"),
-                tool.name
-            );
-        }
-    }
-
-    #[test]
-    fn test_tool_registry_json_schema() {
-        let json = tool_registry_json();
-        assert!(json.is_object(), "Result should be a JSON object");
-
-        let obj = json.as_object().unwrap();
-        assert!(obj.contains_key("tools"), "Must contain 'tools' key");
-        assert!(
-            obj.contains_key("tool_count"),
-            "Must contain 'tool_count' key"
-        );
-
-        assert!(json["tools"].is_array(), "'tools' should be an array");
-        assert!(
-            json["tool_count"].is_number(),
-            "'tool_count' should be a number"
-        );
-    }
-
-    /// `MINIMAL_TOOL_NAMES` must be a strict subset of the names in the tool router.
-    #[test]
-    fn minimal_tool_names_are_valid_router_entries() {
-        let router = McpMemoryServer::tool_router();
-        let all_tools = router.list_all();
-        let all_names: std::collections::HashSet<&str> =
-            all_tools.iter().map(|t| t.name.as_ref()).collect();
-        for &name in MINIMAL_TOOL_NAMES {
-            assert!(
-                all_names.contains(name),
-                "MINIMAL_TOOL_NAMES entry '{name}' is not registered in the tool router"
-            );
-        }
-    }
-
-    /// `McpToolMode::Minimal` must return fewer tools than `McpToolMode::Full`.
-    #[test]
-    fn minimal_mode_returns_strict_subset_of_full_mode() {
-        let router = McpMemoryServer::tool_router();
-        let all = router.list_all();
-        let full_names: Vec<&str> = all.iter().map(|t| t.name.as_ref()).collect();
-        let minimal_names: Vec<&str> = all
-            .iter()
-            .filter(|t| MINIMAL_TOOL_NAMES.contains(&t.name.as_ref()))
-            .map(|t| t.name.as_ref())
-            .collect();
-        assert!(
-            minimal_names.len() < full_names.len(),
-            "Minimal mode ({} tools) must return fewer tools than Full mode ({} tools)",
-            minimal_names.len(),
-            full_names.len()
-        );
-        assert_eq!(
-            minimal_names.len(),
-            MINIMAL_TOOL_NAMES.len(),
-            "every MINIMAL_TOOL_NAMES entry must appear exactly once in the router"
-        );
-        for name in &minimal_names {
-            assert!(
-                full_names.contains(name),
-                "minimal tool '{name}' is missing from the full tool list"
-            );
-        }
-    }
-
-    /// `MINIMAL_TOOL_NAMES` must not contain duplicates.
-    #[test]
-    fn minimal_tool_names_are_unique() {
-        let mut seen = std::collections::HashSet::new();
-        for &name in MINIMAL_TOOL_NAMES {
-            assert!(
-                seen.insert(name),
-                "duplicate entry in MINIMAL_TOOL_NAMES: {name}"
-            );
-        }
     }
 }
