@@ -645,8 +645,8 @@ mod tests {
     #[test]
     fn tool_registry_matches_router() {
         let router = McpMemoryServer::tool_router();
-        let mut registered: Vec<&str> = router
-            .list_all()
+        let registered_tools = router.list_all();
+        let mut registered: Vec<&str> = registered_tools
             .iter()
             .map(|tool| tool.name.as_ref())
             .collect();
