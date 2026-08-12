@@ -4,9 +4,7 @@ use serde_json::json;
 
 use super::facades;
 use crate::LocalMemoryRuntime;
-use crate::mcp::{
-    MINIMAL_TOOL_NAMES, McpMemoryServer, McpToolMode, request_types::MemoryAdminFacadeRequest,
-};
+use crate::mcp::{McpMemoryServer, McpToolMode, request_types::MemoryAdminFacadeRequest};
 use crate::memory_core::storage::SqliteStorage;
 use crate::memory_core::{MemoryInput, Storage};
 
@@ -103,7 +101,7 @@ fn memory_admin_remains_available_in_full_and_minimal_tool_modes() {
         "full mode must advertise memory_admin"
     );
     assert!(
-        MINIMAL_TOOL_NAMES.contains(&"memory_admin"),
+        super::super::facade_tool_names().contains(&"memory_admin"),
         "minimal mode must advertise memory_admin"
     );
 
