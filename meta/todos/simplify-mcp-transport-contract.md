@@ -24,6 +24,15 @@ prevents MCP from silently constructing a second runtime again.
   passed formatting, all-target/all-feature Clippy, all-feature tests, and the
   smoke suite. This is a transport-compatibility prerequisite; it does not
   complete the owned MCP contract-source work below.
+- 2026-08-12 — PR #420 made `TOOL_REGISTRY` the owned source for full/minimal
+  mode membership and counts, initialization instructions, protocol markdown,
+  and CLI protocol JSON. A router-parity test now fails if RMCP `#[tool]`
+  registration diverges from the registry. The contradictory 16-legacy wording
+  was removed; the registry-derived contract is 4 facade tools plus 15 legacy
+  compatibility tools. Exact-head `3b0a7d61ef291834d241e4b14745a4a6c915eee7`
+  passed CI run `31619679372` and Cairn architecture run `31619679421` (the
+  latter required one retry after GitHub returned HTTP 503 while downloading
+  Cairn; the retry passed without source changes).
 
 ## Remaining work
 
@@ -32,12 +41,12 @@ prevents MCP from silently constructing a second runtime again.
 - [x] Construct one runtime after model and storage configuration, then inject it
   into the MCP adapter.
 - [x] Keep MCP request adaptation and response formatting outside the runtime.
-- [ ] Define one owned MCP contract source from which tool advertisement,
+- [x] Define one owned MCP contract source from which tool advertisement,
   full/minimal modes, counts, initialization instructions, protocol output, and
   generated documentation are derived.
-- [ ] Remove the contradictory 15-versus-16 legacy-tool descriptions and add a
+- [x] Remove the contradictory 15-versus-16 legacy-tool descriptions and add a
   contract parity test that makes future drift fail CI.
-- [ ] Prefer the four cohesive facade tools for new integrations. Retain legacy
+- [x] Prefer the four cohesive facade tools for new integrations. Retain legacy
   tools only through their explicit compatibility gate; do not expand them with
   new behavior.
 - [ ] Align MAG skills and examples on CLI commands by default. Mention MCP only
