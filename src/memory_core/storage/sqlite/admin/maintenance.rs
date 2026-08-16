@@ -7,6 +7,10 @@
 
 use super::super::*;
 
+fn sqlite_integer_to_usize(column: usize, value: i64) -> rusqlite::Result<usize> {
+    usize::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(column, value))
+}
+
 #[async_trait]
 impl MaintenanceManager for SqliteStorage {
     async fn check_health(
@@ -408,7 +412,7 @@ impl MaintenanceManager for SqliteStorage {
                     .query_map(params![et_str], |row| {
                         Ok((
                             row.get::<_, String>(0)?,
-                            row.get::<_, usize>(1)?,
+                            sqlite_integer_to_usize(1, row.get::<_, i64>(1)?)?,
                             row.get::<_, Vec<u8>>(2)?,
                         ))
                     })
@@ -633,5 +637,24 @@ impl MaintenanceManager for SqliteStorage {
         self.invalidate_query_cache();
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sqlite_integer_to_usize;
+
+    #[test]
+    fn sqlite_integer_to_usize_accepts_non_negative_values() {
+        assert_eq!(sqlite_integer_to_usize(1, 42).unwrap(), 42);
+    }
+
+    #[test]
+    fn sqlite_integer_to_usize_rejects_negative_values() {
+        let error = sqlite_integer_to_usize(1, -1).unwrap_err();
+        assert!(matches!(
+            error,
+            rusqlite::Error::IntegralValueOutOfRange(1, -1)
+        ));
     }
 }
