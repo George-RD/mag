@@ -8,8 +8,7 @@
 use super::super::*;
 
 fn sqlite_integer_to_usize(column: usize, value: i64) -> rusqlite::Result<usize> {
-    usize::try_from(value)
-        .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(column, value))
+    usize::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(column, value))
 }
 
 #[async_trait]
