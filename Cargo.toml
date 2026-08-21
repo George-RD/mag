@@ -76,7 +76,7 @@ cast_sign_loss = "deny"
 cast_precision_loss = "deny"
 
 [dev-dependencies]
-serial_test = "3.2"
+serial_test = "4.0"
 tempfile = "3"
 
 [[bin]]
