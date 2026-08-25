@@ -1,9 +1,8 @@
-use rmcp::ServerHandler;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use super::storage;
-use crate::mcp::{McpMemoryServer, McpToolMode, request_types::MemoryRequest};
+use crate::mcp::{McpMemoryServer, request_types::MemoryRequest};
 use crate::memory_core::storage::SqliteStorage;
 
 fn request<T: DeserializeOwned>(value: serde_json::Value) -> T {
@@ -99,16 +98,45 @@ async fn unified_memory_facade_routes_all_actions_through_the_server_runtime() {
     );
 }
 
-#[test]
-fn minimal_mode_keeps_the_unified_search_tool_available() {
+#[tokio::test]
+async fn unified_memory_facade_keeps_search_available_in_minimal_mode() {
     let server = McpMemoryServer::new(
         SqliteStorage::new_in_memory().expect("in-memory storage should initialize"),
-    )
-    .with_tool_mode(McpToolMode::Minimal);
+    );
 
+    storage::memory_facade(
+        server.runtime.as_ref(),
+        &request::<MemoryRequest>(json!({
+            "content": "facade searchable retrieval evidence",
+            "id": "mcp-memory-searchable"
+        })),
+    )
+    .await
+    .expect("unified memory store should succeed");
+
+    let searched = storage::memory_facade(
+        server.runtime.as_ref(),
+        &request::<MemoryRequest>(json!({
+            "action": "search",
+            "query": "searchable",
+            "advanced": false,
+            "limit": 5
+        })),
+    )
+    .await
+    .expect("minimal memory facade must preserve search capability");
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&result_text(&searched)).expect("search result should be JSON");
+    let ids: Vec<&str> = payload["results"]
+        .as_array()
+        .expect("search results should be an array")
+        .iter()
+        .filter_map(|item| item["id"].as_str())
+        .collect();
     assert!(
-        server.get_tool("memory_search").is_some(),
-        "minimal MCP mode must retain the unified search tool so it can perform MAG's core retrieval workflow"
+        ids.contains(&"mcp-memory-searchable"),
+        "minimal facade search should return the stored memory: {payload}"
     );
 }
 
@@ -147,8 +175,9 @@ async fn unified_memory_facade_preserves_validation_at_the_runtime_boundary() {
     .await
     .expect_err("unknown actions should remain invalid");
     assert!(
-        format!("{invalid_action:?}")
-            .contains("unknown action: archive (expected store|store_batch|retrieve|delete)"),
+        format!("{invalid_action:?}").contains(
+            "unknown action: archive (expected store|store_batch|retrieve|search|delete)"
+        ),
         "unexpected invalid-action error: {invalid_action:?}"
     );
 }
