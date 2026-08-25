@@ -176,9 +176,7 @@ pub(crate) async fn memory_facade(
             execute_delete(runtime, id).await
         }
         other => Err(McpError::invalid_params(
-            format!(
-                "unknown action: {other} (expected store|store_batch|retrieve|search|delete)"
-            ),
+            format!("unknown action: {other} (expected store|store_batch|retrieve|search|delete)"),
             None,
         )),
     }
