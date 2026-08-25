@@ -200,11 +200,11 @@ pub(crate) struct ProfileRequest {
     pub update: Option<serde_json::Value>,
 }
 
-/// Unified facade request — routes to store / store_batch / retrieve / delete
-/// based on `action` (default: "store").  Preview tool for Wave 2 MCP collapse.
+/// Unified facade request — routes to store / store_batch / retrieve / search / delete
+/// based on `action` (default: "store"). Preview tool for Wave 2 MCP collapse.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub(crate) struct MemoryRequest {
-    /// Action to perform: "store" (default), "store_batch", "retrieve", "delete".
+    /// Action to perform: "store" (default), "store_batch", "retrieve", "search", "delete".
     pub action: Option<String>,
     // ── store fields (all optional; required only for action=store) ──
     pub content: Option<String>,
@@ -224,6 +224,50 @@ pub(crate) struct MemoryRequest {
     // ── store_batch fields ──
     /// Items for action=store_batch.
     pub items: Option<Vec<StoreRequest>>,
+    // ── search fields ──
+    /// Search mode for action=search: "text" (default), "semantic", "phrase", "tag", or "similar".
+    pub mode: Option<String>,
+    /// Run advanced multi-phase retrieval for action=search where the selected mode supports it.
+    pub advanced: Option<bool>,
+    /// Query string for text, semantic, and phrase search modes.
+    pub query: Option<String>,
+    /// Source memory ID for similar search mode.
+    pub memory_id: Option<String>,
+    /// Maximum result count for action=search.
+    pub limit: Option<usize>,
+    pub include_superseded: Option<bool>,
+    pub event_after: Option<String>,
+    pub event_before: Option<String>,
+    pub importance_min: Option<f64>,
+    pub created_after: Option<String>,
+    pub created_before: Option<String>,
+    pub context_tags: Option<Vec<String>>,
+    /// Include retrieval component scores in result metadata.
+    pub explain: Option<bool>,
+}
+
+impl From<&MemoryRequest> for SearchRequest {
+    fn from(req: &MemoryRequest) -> Self {
+        Self {
+            mode: req.mode.clone(),
+            advanced: req.advanced,
+            query: req.query.clone(),
+            tags: req.tags.clone(),
+            memory_id: req.memory_id.clone(),
+            limit: req.limit,
+            event_type: req.event_type.clone(),
+            project: req.project.clone(),
+            session_id: req.session_id.clone(),
+            include_superseded: req.include_superseded,
+            event_after: req.event_after.clone(),
+            event_before: req.event_before.clone(),
+            importance_min: req.importance_min,
+            created_after: req.created_after.clone(),
+            created_before: req.created_before.clone(),
+            context_tags: req.context_tags.clone(),
+            explain: req.explain,
+        }
+    }
 }
 
 /// Unified facade for update / feedback / relations / lifecycle.
