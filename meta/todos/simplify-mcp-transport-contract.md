@@ -40,6 +40,17 @@ prevents MCP from silently constructing a second runtime again.
   MCP tool name. The CLI-first setup/examples slice removes the duplicate,
   verifies local runtime behavior through `mag` commands first, and confines MCP
   instructions to hosts that specifically require the optional transport.
+- 2026-08-25 — Reassessing full/minimal modes exposed a released contract defect:
+  PR #293 intentionally defined minimal mode as the four facade tools, but those
+  facades could not perform search because `memory` only routed
+  store/store_batch/retrieve/delete. A TDD regression for
+  `memory(action="search")` failed on exact head
+  `01042b092e24dff4e1573b180ff69a043fad3855` in CI run `32832446621` while
+  Cairn architecture run `32832446611` passed. The fix preserves the published
+  four-tool minimal surface: `MemoryRequest` converts to the existing typed
+  `SearchRequest`, then delegates to the same `tools::search::memory_search`
+  adapter/runtime workflow used by the compatibility tool. No second retrieval
+  implementation or MCP-specific storage path is introduced.
 
 ## Remaining work
 
@@ -58,6 +69,9 @@ prevents MCP from silently constructing a second runtime again.
   new behavior.
 - [x] Align MAG skills and examples on CLI commands by default. Mention MCP only
   where the consuming AI host specifically requires MCP transport.
+- [x] Restore core search capability to the four-tool minimal surface by routing
+  `memory(action="search")` through the existing typed search adapter/runtime
+  workflow rather than adding another facade or retrieval implementation.
 - [ ] Reassess whether full mode still earns its maintenance cost after the
   compatibility release. Any removal remains a separate public-contract change.
 
