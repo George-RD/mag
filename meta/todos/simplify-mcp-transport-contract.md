@@ -33,6 +33,13 @@ prevents MCP from silently constructing a second runtime again.
   passed CI run `31619679372` and Cairn architecture run `31619679421` (the
   latter required one retry after GitHub returned HTTP 503 while downloading
   Cairn; the retry passed without source changes).
+- 2026-08-25 — CLI-first documentation audit found the repository development
+  skill already preferred CLI commands, while `docs/SETUP.md` still made MCP
+  configuration the default verification path, contained a duplicated copy of
+  the full guide, and `docs/what-to-store.md` coupled usage guidance to a legacy
+  MCP tool name. The CLI-first setup/examples slice removes the duplicate,
+  verifies local runtime behavior through `mag` commands first, and confines MCP
+  instructions to hosts that specifically require the optional transport.
 
 ## Remaining work
 
@@ -49,7 +56,7 @@ prevents MCP from silently constructing a second runtime again.
 - [x] Prefer the four cohesive facade tools for new integrations. Retain legacy
   tools only through their explicit compatibility gate; do not expand them with
   new behavior.
-- [ ] Align MAG skills and examples on CLI commands by default. Mention MCP only
+- [x] Align MAG skills and examples on CLI commands by default. Mention MCP only
   where the consuming AI host specifically requires MCP transport.
 - [ ] Reassess whether full mode still earns its maintenance cost after the
   compatibility release. Any removal remains a separate public-contract change.
