@@ -1,49 +1,73 @@
 # MAG Setup Guide
 
-This guide is designed for both humans and AI assistants. If you're an AI tool helping a user set up MAG, follow each step in order.
+MAG's CLI is the canonical interface. Use it for normal storage, retrieval,
+maintenance, and debugging. Configure MCP only when an AI host specifically
+needs MCP transport.
 
-## Step 1: Install
+## 1. Install
 
-Pick one method. The shell installer is recommended — it downloads the correct binary for your platform and runs `mag setup` automatically.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
-```
-
-If you prefer a package manager:
+Choose one method:
 
 | Method | Command |
 |---|---|
+| Shell | `curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh` |
 | Homebrew | `brew install George-RD/mag/mag` |
 | npm | `npm install -g mag-memory` |
 | Cargo | `cargo install mag-memory` |
 | uv | `uv tool install mag-memory` |
 | pip | `pip install mag-memory` |
 
-After installing via a package manager, run `mag setup` manually (the shell installer does this automatically).
+The shell installer currently runs `mag setup` after installing, which can
+configure detected MCP clients and download local model artifacts. Package-manager
+installs only install MAG; run `mag setup` later if you want host integration.
 
-## Step 2: Configure Your AI Tools
+## 2. Verify the CLI first
+
+Run a real store/search cycle before debugging any host integration:
+
+```bash
+mag doctor || true
+mag ingest "Use exponential backoff with jitter for retries" \
+  --tags "project:api-gateway,decision" --importance 0.8
+mag advanced-search "How should retries work?" --explain
+mag doctor
+```
+
+The first `doctor` may report missing model artifacts. A real ingest or search can
+download the embedding model on first use, so rerun `doctor` afterwards before
+concluding the runtime is broken.
+
+If these commands work, MAG's local runtime and SQLite store are working. MCP is
+not required for this path.
+
+## 3. Optional: connect an AI host through MCP
+
+Only do this when the consuming host needs MCP transport.
 
 ```bash
 mag setup
 ```
 
-This detects installed AI tools, shows their status, and writes the correct MCP config for each one. If you used the shell installer, this already ran.
+`mag setup` detects supported AI tools and writes command-transport configuration
+that launches `mag serve`. The MCP adapter uses the same application/runtime
+workflows as the CLI; it is not a separate memory implementation.
 
-Setup currently writes command transport (`mag serve`) only. HTTP service mode remains a separate optional milestone.
+To reconfigure later, run `mag setup` again.
 
-To reconfigure later or add new tools, run `mag setup` again.
+### Manual MCP configuration
 
-### Manual Configuration (if `mag setup` doesn't support your tool)
-
-MAG is an MCP server. Add it to your tool's MCP config:
+If `mag setup` does not support your host, configure it to launch `mag serve` over
+stdio.
 
 **Claude Code:**
+
 ```bash
 claude mcp add mag -- mag serve
 ```
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+**Hosts using an `mcpServers` object** (for example Claude Desktop, Cursor, and
+Windsurf):
+
 ```json
 {
   "mcpServers": {
@@ -55,31 +79,8 @@ claude mcp add mag -- mag serve
 }
 ```
 
-**Cursor** (`.cursor/mcp.json` in project root or `~/.cursor/mcp.json` for global):
-```json
-{
-  "mcpServers": {
-    "mag": {
-      "command": "mag",
-      "args": ["serve"]
-    }
-  }
-}
-```
+**VS Code / Copilot** (`.vscode/mcp.json`):
 
-**Windsurf** (`~/.codeium/windsurf/mcp_config.json`):
-```json
-{
-  "mcpServers": {
-    "mag": {
-      "command": "mag",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-**VS Code / Copilot** (`.vscode/mcp.json` in project root):
 ```json
 {
   "servers": {
@@ -91,7 +92,9 @@ claude mcp add mag -- mag serve
 }
 ```
 
-**npx (no install needed)** — use this in any config above instead of the `mag` binary:
+If you want the npm package to supply the executable instead of a global `mag`
+binary, use:
+
 ```json
 {
   "command": "npx",
@@ -99,263 +102,71 @@ claude mcp add mag -- mag serve
 }
 ```
 
-## Step 3: Verify
+`mag serve` is an MCP **stdio** transport. It is not a background HTTP daemon.
+The host must keep the child process alive and communicate over stdin/stdout.
 
-After configuring, verify MAG is working:
+## 4. Verify MCP only when you configured it
 
-1. Open your AI tool
-2. Ask it: "What MCP tools are available?" — it should list MAG's 19 tools (memory_store, recall_memory, etc.)
-3. Test a store and recall:
-   - "Remember that I prefer dark mode in all my editors"
-   - "What are my editor preferences?"
+First confirm the CLI still works. Then restart the AI host and verify that MAG's
+facade tools are advertised and can store/search the same data. If MCP fails while
+the CLI succeeds, debug host configuration or stdio transport rather than the
+memory runtime.
 
-If tools don't appear, restart your AI tool. MCP servers are loaded at startup.
+The generated MCP contract and compatibility-tool details live in
+[MCP Tools Reference](mcp-tools.md).
 
-## Step 4: Best Practices
+## 5. Store useful memory
 
-### What to store
+Be specific. "Store important things" produces noise. "Store architectural
+decisions with rationale" produces signal.
 
-Be specific. "Store important things" produces noise. "Store architectural decisions with rationale" produces signal.
+High-value examples include:
 
-**High-value memories:**
-- Architectural decisions and why you made them
-- Bug fixes with the root cause and error message (so future searches match)
-- Project conventions (naming, branching, deployment steps)
-- Personal preferences (coding style, tool configs)
-- Session handoffs (what you were working on, what's next)
+- architectural decisions and their rationale;
+- bug fixes with the root cause and exact error text;
+- project conventions such as naming, branching, and deployment rules;
+- stable preferences and constraints;
+- session handoffs: what was done, what remains, and why.
 
-**Do not store:**
-- API keys, passwords, tokens, or secrets. MAG stores in plaintext SQLite.
-- Ephemeral info that changes hourly (use your tool's built-in context for that)
-- Entire files or large code blocks (store the pattern or decision instead)
+Do not store API keys, passwords, tokens, or other secrets. MAG stores memories in
+plaintext SQLite.
 
-### Tagging
+Use consistent tags where they add retrieval value:
 
-Tags make recall precise. Use a consistent scheme:
-
-```
-project:<name>     — scope to a project
-decision           — architectural choices
-bugfix             — root cause + fix pairs
-preference         — personal/team preferences
-handoff            — session continuity
+```bash
+mag ingest "Deploys require manual approval in staging" \
+  --tags "project:api-gateway,decision,deploy" --importance 0.9
 ```
 
-Example: `memory_store("Use exponential backoff with jitter for retries", tags: ["project:api-gateway", "decision"])`
+For prompt-driven workflows, describe the behavior rather than coupling prompts to
+a transport-specific tool name:
 
-### Importance scores
-
-- `0.9` — Critical decisions, security-sensitive choices
-- `0.7` — Standard decisions, useful patterns
-- `0.5` (default) — General notes, preferences
-- `0.3` — Low-priority context, nice-to-have
-
-### System prompt integration
-
-Add these patterns to your AI tool's system prompt or project instructions (e.g., CLAUDE.md) to guide automatic memory usage:
-
+```text
+When I make an architectural decision, store it with the rationale and project tag.
+When I solve a bug, store the root cause, fix, and exact error message.
+At the end of a work session, store what was done and what is next as a handoff.
+Before starting work, search memory for the current project and task.
 ```
-When I make an architectural decision, store it with the rationale. Tag with the project name.
-When I solve a bug, store the root cause and fix. Include the error message.
-At the end of a work session, store what I was working on and what's next. Tag as "handoff".
-Before starting work, recall memories for the current project to load context.
-```
+
+If the host is connected through MCP, it can adapt these intentions to MAG's MCP
+facade. Otherwise use the CLI commands directly.
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---------|-----|
-| Tools not appearing | Restart your AI tool. MCP servers load at startup. |
-| Slow first query | Normal. The ONNX embedding model loads on first use (~2s). Subsequent queries are fast. |
-| "command not found: mag" | The binary isn't in PATH. Run `which mag` or reinstall with the shell installer. |
-| Permission denied | Run `chmod +x $(which mag)` to make the binary executable. |
-| Want to uninstall | `mag setup --uninstall` removes configs. Delete the binary and `~/.mag/` directory. |
-
-## More Resources
-
-- [MCP Tools Reference](mcp-tools.md) — all 19 tools MAG exposes
-- [What to Store](what-to-store.md) — 10 system prompt patterns
-- [Architecture](architecture.md) — how the search pipeline works
-- [Security](../SECURITY.md) — data-flow audit
-# MAG Setup Guide
-
-This guide is designed for both humans and AI assistants. If you're an AI tool helping a user set up MAG, follow each step in order.
-
-## Step 1: Install
-
-Pick one method. The shell installer is recommended — it downloads the correct binary for your platform and runs `mag setup` automatically.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/George-RD/mag/main/install.sh | sh
-```
-
-If you prefer a package manager:
-
-| Method | Command |
+| Problem | Check |
 |---|---|
-| Homebrew | `brew install George-RD/mag/mag` |
-| npm | `npm install -g mag-memory` |
-| Cargo | `cargo install mag-memory` |
-| uv | `uv tool install mag-memory` |
-| pip | `pip install mag-memory` |
+| CLI command fails | Run `mag doctor`; isolate `MAG_DATA_ROOT` if testing. |
+| Slow first query | Separate first-use model download/warmup from steady-state latency. |
+| AI host cannot see MAG | Verify the CLI first, then restart the host and inspect its MCP config. |
+| `mag serve` appears to exit | Confirm the MCP client keeps stdin open. |
+| `command not found: mag` | Run `which mag`; restart the shell or fix `PATH`. |
+| Permission denied | Run `chmod +x "$(which mag)"`. |
+| Want to remove host configs | Run `mag setup --uninstall`; delete the binary/data separately if required. |
 
-After installing via a package manager, run `mag setup` manually (the shell installer does this automatically).
+## More resources
 
-## Step 2: Configure Your AI Tools
-
-```bash
-mag setup
-```
-
-This detects installed AI tools, shows their status, and writes the correct MCP config for each one. If you used the shell installer, this already ran.
-
-Setup currently writes command transport (`mag serve`) only. HTTP service mode remains a separate optional milestone.
-
-To reconfigure later or add new tools, run `mag setup` again.
-
-### Manual Configuration (if `mag setup` doesn't support your tool)
-
-MAG is an MCP server. Add it to your tool's MCP config:
-
-**Claude Code:**
-```bash
-claude mcp add mag -- mag serve
-```
-
-**Claude Desktop** (config file location varies by platform):
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%/Claude/claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
-```json
-{
-  "mcpServers": {
-    "mag": {
-      "command": "mag",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-**Cursor** (`.cursor/mcp.json` in project root or `~/.cursor/mcp.json` for global):
-```json
-{
-  "mcpServers": {
-    "mag": {
-      "command": "mag",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-**Windsurf** (`~/.codeium/windsurf/mcp_config.json`):
-```json
-{
-  "mcpServers": {
-    "mag": {
-      "command": "mag",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-**VS Code / Copilot** (`.vscode/mcp.json` in project root):
-```json
-{
-  "servers": {
-    "mag": {
-      "command": "mag",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-**npx (no install needed)** — use this in any config above instead of the `mag` binary:
-```json
-{
-  "command": "npx",
-  "args": ["-y", "mag-memory", "serve"]
-}
-```
-
-## Step 3: Verify
-
-After configuring, verify MAG is working:
-
-1. Open your AI tool
-2. Ask it: "What MCP tools are available?" — it should list MAG's 19 tools (memory_store, memory_search, etc.)
-3. Test a store and recall:
-   - "Remember that I prefer dark mode in all my editors"
-   - "What are my editor preferences?"
-
-If tools don't appear, restart your AI tool. MCP servers are loaded at startup.
-
-## Step 4: Best Practices
-
-### What to store
-
-Be specific. "Store important things" produces noise. "Store architectural decisions with rationale" produces signal.
-
-**High-value memories:**
-- Architectural decisions and why you made them
-- Bug fixes with the root cause and error message (so future searches match)
-- Project conventions (naming, branching, deployment steps)
-- Personal preferences (coding style, tool configs)
-- Session handoffs (what you were working on, what's next)
-
-**Do not store:**
-- API keys, passwords, tokens, or secrets. MAG stores in plaintext SQLite.
-- Ephemeral info that changes hourly (use your tool's built-in context for that)
-- Entire files or large code blocks (store the pattern or decision instead)
-
-### Tagging
-
-Tags make recall precise. Use a consistent scheme:
-
-```
-project:<name>     — scope to a project
-decision           — architectural choices
-bugfix             — root cause + fix pairs
-preference         — personal/team preferences
-handoff            — session continuity
-```
-
-Example: `memory_store("Use exponential backoff with jitter for retries", tags: ["project:api-gateway", "decision"])`
-
-### Importance scores
-
-- `0.9` — Critical decisions, security-sensitive choices
-- `0.7` — Standard decisions, useful patterns
-- `0.5` (default) — General notes, preferences
-- `0.3` — Low-priority context, nice-to-have
-
-### System prompt integration
-
-Add these patterns to your AI tool's system prompt or project instructions (e.g., CLAUDE.md) to guide automatic memory usage:
-
-```
-When I make an architectural decision, store it with the rationale. Tag with the project name.
-When I solve a bug, store the root cause and fix. Include the error message.
-At the end of a work session, store what I was working on and what's next. Tag as "handoff".
-Before starting work, recall memories for the current project to load context.
-```
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| Tools not appearing | Restart your AI tool. MCP servers load at startup. |
-| Slow first query | Normal. The ONNX embedding model loads on first use (~2s). Subsequent queries are fast. |
-| "command not found: mag" | The binary isn't in PATH. Run `which mag` or reinstall with the shell installer. |
-| Permission denied | Run `chmod +x $(which mag)` to make the binary executable. |
-| Want to uninstall | `mag setup --uninstall` removes configs. Delete the binary and `~/.mag/` directory. |
-
-## More Resources
-
-- [MCP Tools Reference](mcp-tools.md) — all 19 tools MAG exposes
-- [What to Store](what-to-store.md) — 10 system prompt patterns
-- [Architecture](architecture.md) — how the search pipeline works
-- [Security](../SECURITY.md) — data-flow audit
+- [CLI Reference](cli-reference.md)
+- [What to Store](what-to-store.md)
+- [MCP Tools Reference](mcp-tools.md) — optional transport contract
+- [Architecture](architecture.md)
+- [Security](../SECURITY.md)

@@ -1,7 +1,9 @@
 # What to Store
-<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
+<!-- Last verified: 2026-08-25 | Valid for: v0.1.10-dev+ -->
 
-10 system prompt patterns for building useful memory with MAG. Copy-paste these into your AI tool's system prompt or CLAUDE.md to guide what gets stored.
+10 prompt patterns for building useful memory with MAG. Add the ones you want to
+your AI tool's project instructions, or use them as guidance when storing memory
+from the CLI.
 
 ## 1. Project Decisions
 
@@ -47,10 +49,23 @@
 
 ## What NOT to Store
 
-Do not store API keys, passwords, tokens, or unredacted personal data. MAG stores memories in plaintext SQLite. Treat it like a notebook, not a vault.
+Do not store API keys, passwords, tokens, or unredacted personal data. MAG stores
+memories in plaintext SQLite. Treat it like a notebook, not a vault.
 
 ## Usage
 
-Add the patterns you want to your system prompt or `CLAUDE.md`. MAG's `memory_store` tool will be invoked by your AI assistant when the pattern matches.
+Use the CLI by default:
 
-The key to useful memory: be specific in what you store. "Store important things" produces noise. "Store architectural decisions with rationale" produces signal.
+```bash
+mag ingest "Use exponential backoff with jitter for retries" \
+  --tags "project:api-gateway,decision" --importance 0.8
+
+mag advanced-search "How should retries work?" --explain
+```
+
+If an AI host specifically needs MCP transport, connect it to MAG and keep the
+prompt transport-neutral: describe what should be remembered or recalled rather
+than naming a legacy MCP tool. The host can adapt that intent to MAG's MCP facade.
+
+The key to useful memory is specificity. "Store important things" produces noise.
+"Store architectural decisions with rationale" produces signal.
