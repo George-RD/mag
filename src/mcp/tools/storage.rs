@@ -8,9 +8,10 @@ use crate::LocalMemoryRuntime;
 
 use super::super::build_memory_input;
 use super::super::request_types::{
-    DeleteRequest, MemoryRequest, RetrieveRequest, StoreBatchRequest, StoreRequest,
+    DeleteRequest, MemoryRequest, RetrieveRequest, SearchRequest, StoreBatchRequest, StoreRequest,
 };
 use super::super::validation::MAX_BATCH_SIZE;
+use super::search;
 
 async fn execute_store(
     runtime: &LocalMemoryRuntime,
@@ -164,6 +165,10 @@ pub(crate) async fn memory_facade(
             })?;
             execute_retrieve(runtime, id).await
         }
+        "search" => {
+            let search_req = SearchRequest::from(req);
+            search::memory_search(runtime, &search_req).await
+        }
         "delete" => {
             let id = req.id.as_deref().ok_or_else(|| {
                 McpError::invalid_params("id is required for action=delete", None)
@@ -171,7 +176,7 @@ pub(crate) async fn memory_facade(
             execute_delete(runtime, id).await
         }
         other => Err(McpError::invalid_params(
-            format!("unknown action: {other} (expected store|store_batch|retrieve|delete)"),
+            format!("unknown action: {other} (expected store|store_batch|retrieve|search|delete)"),
             None,
         )),
     }
