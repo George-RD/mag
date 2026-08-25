@@ -66,7 +66,7 @@ pub const TOOL_REGISTRY: &[ToolMeta] = &[
     // Storage & Retrieval
     ToolMeta {
         name: "memory",
-        summary: "Unified facade (Wave 2 preview): store/store_batch/retrieve/delete via action field",
+        summary: "Unified facade (Wave 2 preview): store/store_batch/retrieve/search/delete via action field",
         category: "Storage & Retrieval",
         surface: ToolSurface::Facade,
     },
@@ -549,7 +549,7 @@ impl McpMemoryServer {
 
     #[tool(
         name = "memory",
-        description = "Unified memory facade (Wave 2 preview). Routes to store/store_batch/retrieve/delete based on `action` field (default: \"store\"). Use this single tool instead of the four individual tools when you prefer a collapsed interface."
+        description = "Unified memory facade (Wave 2 preview). Routes to store/store_batch/retrieve/search/delete based on `action` field (default: \"store\"). Search delegates to the same search workflow used by memory_search."
     )]
     async fn memory(&self, params: Parameters<MemoryRequest>) -> Result<CallToolResult, McpError> {
         tools::storage::memory_facade(self.runtime.as_ref(), &params.0).await
