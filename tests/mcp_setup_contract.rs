@@ -86,8 +86,8 @@ fn live_claude_plugin_stays_compatible_with_latest_release() {
 
 #[test]
 fn temporary_mcp_patch_workflow_is_not_committed() {
-    let workflow = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(".github/workflows/agent-apply-mcp-minimal.yml");
+    let workflow =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/agent-apply-mcp-minimal.yml");
     assert!(
         !workflow.exists(),
         "remove the self-modifying PR patch workflow after it has served its purpose"
