@@ -1,4 +1,4 @@
-name: Finish PR 426 documentation alignment
+name: Complete PR 426 MCP reference
 
 on:
   push:
@@ -18,70 +18,76 @@ jobs:
           ref: ${{ github.ref_name }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Correct facade names and CLI reference
+      - name: Document the preferred facade actions
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          def replace_once(path: str, old: str, new: str, label: str) -> None:
-              file = Path(path)
-              text = file.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected exactly one match in {path}, found {count}")
-              file.write_text(text.replace(old, new, 1))
-
-          replace_once(
-              "docs/mcp-tools.md",
-              "the four facade tools: `memory`, `session`, `manage`, and `admin`.",
-              "the four facade tools: `memory`, `memory_manage`, `memory_session`, and `memory_admin`.",
-              "canonical facade names",
+          path = Path("docs/mcp-tools.md")
+          source = path.read_text()
+          old = (
+              "New integrations should launch `mag serve --mcp-tools minimal`, which advertises "
+              "the four facade tools: `memory`, `memory_manage`, `memory_session`, and "
+              "`memory_admin`. Plain `mag serve` and explicit `--mcp-tools full` retain the "
+              "19-tool compatibility surface documented below for existing callers. All tools "
+              "delegate to the same application/runtime workflows used by the CLI.\n\n"
+              "## Storage"
           )
-
-          replace_once(
-              "docs/cli-reference.md",
-              "<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->",
-              "<!-- Last verified: 2026-08-26 | Valid for: v0.1.10+ -->",
-              "CLI reference verification header",
+          new = (
+              "New integrations should launch `mag serve --mcp-tools minimal`, which advertises "
+              "the four facade tools below. Plain `mag serve` and explicit `--mcp-tools full` "
+              "retain the 19-tool compatibility surface for existing callers. All tools delegate "
+              "to the same application/runtime workflows used by the CLI.\n\n"
+              "## Preferred minimal surface\n\n"
+              "| Tool | Actions | Purpose |\n"
+              "|------|---------|---------|\n"
+              "| `memory` | `store`, `store_batch`, `retrieve`, `search`, `delete` | Core storage and retrieval |\n"
+              "| `memory_manage` | `update`, `feedback`, `relations`, `lifecycle` | Changes, relationships, and maintenance |\n"
+              "| `memory_session` | `info`, `checkpoint`, `remind`, `lessons`, `profile` | Session and cross-session workflows |\n"
+              "| `memory_admin` | `health`, `list`, `export`, `import` | Diagnostics and data administration |\n\n"
+              "Use the tool schema advertised by the MCP host for exact request fields. The "
+              "sections below document the legacy compatibility tool names retained by full mode.\n\n"
+              "## Storage"
           )
-          replace_once(
-              "docs/cli-reference.md",
-              "| `--cross-encoder` | `false` | Enable cross-encoder reranking |",
-              "| `--cross-encoder` | `false` | Enable cross-encoder reranking |\n| `--mcp-tools <full|minimal>` | `full` | Advertise the 19-tool compatibility surface or the preferred four facades |",
-              "serve flag table",
-          )
-          replace_once(
-              "docs/cli-reference.md",
-              "```bash\nmag serve\nmag serve --cross-encoder\n```",
-              "```bash\n# Preferred for new MCP integrations\nmag serve --mcp-tools minimal\n\n# Full 19-tool compatibility mode for existing callers\nmag serve\nmag serve --cross-encoder --mcp-tools full\n```",
-              "serve examples",
-          )
-
-          replace_once(
-              "site/index.html",
-              "<div class=\"fact\"><b>Interface</b><span>CLI + 19 MCP tools</span></div>",
-              "<div class=\"fact\"><b>Interface</b><span>CLI + 4-tool MCP facade</span></div>",
-              "site interface summary",
-          )
-
-          test_path = Path("tests/mcp_setup_contract.rs")
-          source = test_path.read_text()
-          old = '''        ("Python README", include_str!("../python/README.md")),\n    ] {'''
-          new = '''        ("Python README", include_str!("../python/README.md")),\n        ("CLI reference", include_str!("../docs/cli-reference.md")),\n        ("MCP reference", include_str!("../docs/mcp-tools.md")),\n        (\n            "setup contract",\n            include_str!("../meta/contracts/runtime.setup.md"),\n        ),\n    ] {'''
           count = source.count(old)
           if count != 1:
-              raise SystemExit(f"manual example test list: expected one match, found {count}")
-          test_path.write_text(source.replace(old, new, 1))
+              raise SystemExit(f"MCP reference introduction: expected one match, found {count}")
+          path.write_text(source.replace(old, new, 1))
+
+          tests = Path("tests/mcp_setup_contract.rs")
+          source = tests.read_text()
+          addition = r'''
+
+          #[test]
+          fn mcp_reference_describes_canonical_minimal_facades() {
+              let reference = include_str!("../docs/mcp-tools.md");
+              for expected_row in [
+                  "| `memory` | `store`, `store_batch`, `retrieve`, `search`, `delete` |",
+                  "| `memory_manage` | `update`, `feedback`, `relations`, `lifecycle` |",
+                  "| `memory_session` | `info`, `checkpoint`, `remind`, `lessons`, `profile` |",
+                  "| `memory_admin` | `health`, `list`, `export`, `import` |",
+              ] {
+                  assert!(
+                      reference.contains(expected_row),
+                      "MCP reference is missing canonical facade row: {expected_row}"
+                  );
+              }
+          }
+          '''
+          marker = "\n#[test]\nfn bundled_manifests_prefer_minimal_mcp_surface()"
+          if source.count(marker) != 1:
+              raise SystemExit("MCP contract test insertion marker drifted")
+          tests.write_text(source.replace(marker, addition + marker, 1))
           PY
           cargo fmt --all
           cargo fmt --all -- --check
           cargo test --quiet --all-features --test mcp_setup_contract
-      - name: Commit final documentation alignment
+      - name: Commit completed MCP reference
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/mcp-tools.md docs/cli-reference.md site/index.html tests/mcp_setup_contract.rs
-          git commit -m "docs(mcp): use canonical facade names"
+          git add docs/mcp-tools.md tests/mcp_setup_contract.rs
+          git commit -m "docs(mcp): describe preferred facade actions"
           git push origin HEAD:${{ github.ref_name }}
