@@ -2,7 +2,7 @@
   "mcpServers": {
     "mag": {
       "command": "mag",
-      "args": ["serve"]
+      "args": ["serve", "--mcp-tools", "minimal"]
     }
   }
 }
