@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{Value, json};
 
 fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let (_, after_start) = source
@@ -8,6 +8,16 @@ fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .split_once(end)
         .unwrap_or_else(|| panic!("missing end marker: {end}"));
     region
+}
+
+fn assert_manifest_prefers_minimal(label: &str, source: &str, server_name: &str) {
+    let manifest: Value = serde_json::from_str(source)
+        .unwrap_or_else(|error| panic!("invalid {label} manifest: {error}"));
+    assert_eq!(
+        manifest["mcpServers"][server_name]["args"],
+        json!(["serve", "--mcp-tools", "minimal"]),
+        "{label} must advertise MAG's four-tool minimal MCP surface"
+    );
 }
 
 #[test]
@@ -46,12 +56,46 @@ fn generated_command_transport_prefers_minimal_mcp_surface() {
 }
 
 #[test]
-fn claude_plugin_manifest_prefers_minimal_mcp_surface() {
-    let manifest: serde_json::Value =
-        serde_json::from_str(include_str!("../plugin/.mcp.json")).expect("valid plugin manifest");
+fn bundled_manifests_prefer_minimal_mcp_surface() {
+    for (label, source, server_name) in [
+        ("Claude plugin", include_str!("../plugin/.mcp.json"), "mag"),
+        ("root example", include_str!("../.mcp.json.example"), "mag"),
+        (
+            "plugin development",
+            include_str!("../plugin/dev/mcp.json"),
+            "mag-dev",
+        ),
+    ] {
+        assert_manifest_prefers_minimal(label, source, server_name);
+    }
+}
 
-    assert_eq!(
-        manifest["mcpServers"]["mag"]["args"],
-        json!(["serve", "--mcp-tools", "minimal"])
-    );
+#[test]
+fn active_manual_setup_examples_prefer_minimal_mcp_surface() {
+    for (label, source) in [
+        ("README", include_str!("../README.md")),
+        ("setup guide", include_str!("../docs/SETUP.md")),
+        (
+            "Claude Code guide",
+            include_str!("../docs/setup/claude-code.md"),
+        ),
+        (
+            "Claude Desktop guide",
+            include_str!("../docs/setup/claude-desktop.md"),
+        ),
+        ("Cline guide", include_str!("../docs/setup/cline.md")),
+        ("Cursor guide", include_str!("../docs/setup/cursor.md")),
+        ("Windsurf guide", include_str!("../docs/setup/windsurf.md")),
+        ("npm README", include_str!("../npm/README.md")),
+        ("Python README", include_str!("../python/README.md")),
+    ] {
+        assert!(
+            source.contains("--mcp-tools") && source.contains("minimal"),
+            "{label} must show the preferred minimal MCP command"
+        );
+        assert!(
+            !source.contains(r#""args": ["serve"]"#),
+            "{label} must not publish a new full-mode command config"
+        );
+    }
 }

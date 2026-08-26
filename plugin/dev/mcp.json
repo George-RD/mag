@@ -2,7 +2,7 @@
   "mcpServers": {
     "mag-dev": {
       "command": "${HOME}/.dev-mag/bin/mag",
-      "args": ["serve"],
+      "args": ["serve", "--mcp-tools", "minimal"],
       "env": {"MAG_DATA_ROOT": "${HOME}/.dev-mag"}
     }
   }

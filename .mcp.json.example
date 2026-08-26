@@ -2,7 +2,7 @@
   "mcpServers": {
     "mag": {
       "command": "./target/release/mag",
-      "args": ["serve"],
+      "args": ["serve", "--mcp-tools", "minimal"],
       "env": {
         "RUST_LOG": "info"
       }
