@@ -88,6 +88,12 @@ fn active_manual_setup_examples_prefer_minimal_mcp_surface() {
         ("Windsurf guide", include_str!("../docs/setup/windsurf.md")),
         ("npm README", include_str!("../npm/README.md")),
         ("Python README", include_str!("../python/README.md")),
+        ("CLI reference", include_str!("../docs/cli-reference.md")),
+        ("MCP reference", include_str!("../docs/mcp-tools.md")),
+        (
+            "setup contract",
+            include_str!("../meta/contracts/runtime.setup.md"),
+        ),
     ] {
         assert!(
             source.contains("--mcp-tools") && source.contains("minimal"),

@@ -1,7 +1,7 @@
 # MCP Tools Reference
 <!-- Last verified: 2026-08-26 | Valid for: v0.1.10+ -->
 
-New integrations should launch `mag serve --mcp-tools minimal`, which advertises the four facade tools: `memory`, `session`, `manage`, and `admin`. Plain `mag serve` and explicit `--mcp-tools full` retain the 19-tool compatibility surface documented below for existing callers. All tools delegate to the same application/runtime workflows used by the CLI.
+New integrations should launch `mag serve --mcp-tools minimal`, which advertises the four facade tools: `memory`, `memory_manage`, `memory_session`, and `memory_admin`. Plain `mag serve` and explicit `--mcp-tools full` retain the 19-tool compatibility surface documented below for existing callers. All tools delegate to the same application/runtime workflows used by the CLI.
 
 ## Storage
 

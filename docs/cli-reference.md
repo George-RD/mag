@@ -1,5 +1,5 @@
 # CLI Reference
-<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
+<!-- Last verified: 2026-08-26 | Valid for: v0.1.10+ -->
 
 All commands follow the form `mag <command> [args] [flags]`. Run `mag --help` or `mag <command> --help` for built-in usage.
 
@@ -461,10 +461,15 @@ Start the MCP server over stdio transport.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--cross-encoder` | `false` | Enable cross-encoder reranking |
+| `--mcp-tools <full|minimal>` | `full` | Advertise the 19-tool compatibility surface or the preferred four facades |
 
 ```bash
+# Preferred for new MCP integrations
+mag serve --mcp-tools minimal
+
+# Full 19-tool compatibility mode for existing callers
 mag serve
-mag serve --cross-encoder
+mag serve --cross-encoder --mcp-tools full
 ```
 
 ### `mag download-model`
