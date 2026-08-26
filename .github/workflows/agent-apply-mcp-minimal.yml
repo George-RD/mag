@@ -1,0 +1,144 @@
+name: Apply minimal MCP setup patch
+
+on:
+  push:
+    branches:
+      - agent/mcp-new-integrations-minimal
+    paths:
+      - .github/workflows/agent-apply-mcp-minimal.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Reconcile generated MCP config defaults
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/config_writer.rs")
+          source = path.read_text()
+
+          def update_section(text, start_marker, end_marker, replacements):
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              section = text[start:end]
+              for old, new, label in replacements:
+                  if old in section:
+                      section = section.replace(old, new)
+                  elif new not in section:
+                      raise SystemExit(f"could not reconcile {label}")
+              return text[:start] + section + text[end:]
+
+          source = source.replace(
+              '/// Command transport: `{ "command": "/abs/path/to/mag", "args": ["serve"] }`',
+              '/// Command transport: `{ "command": "/abs/path/to/mag", "args": ["serve", "--mcp-tools", "minimal"] }`',
+          )
+          source = source.replace(
+              '/// Stdio transport: `{ "command": "/abs/path/to/mag", "args": ["serve", "--stdio"] }`',
+              '/// Stdio transport: `{ "command": "/abs/path/to/mag", "args": ["serve", "--stdio", "--mcp-tools", "minimal"] }`',
+          )
+
+          source = update_section(
+              source,
+              "pub fn build_mag_entry",
+              "// ---------------------------------------------------------------------------\n// Claude Code plugin",
+              [
+                  ('"args": ["serve"]', '"args": ["serve", "--mcp-tools", "minimal"]', "JSON command args"),
+                  ('"args": ["serve", "--stdio"]', '"args": ["serve", "--stdio", "--mcp-tools", "minimal"]', "JSON stdio args"),
+              ],
+          )
+          source = update_section(
+              source,
+              "fn build_zed_entry",
+              "/// Returns the backup path",
+              [
+                  ('"args": ["serve", "--stdio"]', '"args": ["serve", "--stdio", "--mcp-tools", "minimal"]', "Zed stdio args"),
+              ],
+          )
+          source = update_section(
+              source,
+              "fn verify_toml_config",
+              "// ---------------------------------------------------------------------------\n// TOML write / remove",
+              [
+                  ('content.contains("args = [\\\"serve\\\"]")', 'content.contains("args = [\\\"serve\\\", \\\"--mcp-tools\\\", \\\"minimal\\\"]")', "TOML command verification"),
+                  ('&& content.contains("\\\"--stdio\\\"")', '&& content.contains("args = [\\\"serve\\\", \\\"--stdio\\\", \\\"--mcp-tools\\\", \\\"minimal\\\"]")', "TOML stdio verification"),
+              ],
+          )
+          source = update_section(
+              source,
+              "fn build_mag_toml_block",
+              "/// Returns `(start, end)` byte indices",
+              [
+                  ('args = [\\\"serve\\\"]\\n")', 'args = [\\\"serve\\\", \\\"--mcp-tools\\\", \\\"minimal\\\"]\\n")', "TOML command rendering"),
+                  ('args = [\\\"serve\\\", \\\"--stdio\\\"]\\n")', 'args = [\\\"serve\\\", \\\"--stdio\\\", \\\"--mcp-tools\\\", \\\"minimal\\\"]\\n")', "TOML stdio rendering"),
+              ],
+          )
+
+          tests_start = source.index("#[cfg(test)]\nmod tests")
+          tests = source[tests_start:]
+          tests = tests.replace(
+              'serde_json::json!(["serve"])',
+              'serde_json::json!(["serve", "--mcp-tools", "minimal"])',
+          )
+          tests = tests.replace(
+              'serde_json::json!(["serve", "--stdio"])',
+              'serde_json::json!(["serve", "--stdio", "--mcp-tools", "minimal"])',
+          )
+          tests = tests.replace(
+              'content.contains("args = [\\\"serve\\\"]")',
+              'content.contains("args = [\\\"serve\\\", \\\"--mcp-tools\\\", \\\"minimal\\\"]")',
+          )
+          source = source[:tests_start] + tests
+
+          required = [
+              '"args": ["serve", "--mcp-tools", "minimal"]',
+              '"args": ["serve", "--stdio", "--mcp-tools", "minimal"]',
+              'args = [\\"serve\\", \\"--mcp-tools\\", \\"minimal\\"]',
+              'args = [\\"serve\\", \\"--stdio\\", \\"--mcp-tools\\", \\"minimal\\"]',
+          ]
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit(f"missing expected generated config contracts: {missing}")
+
+          path.write_text(source)
+
+          todo = Path("meta/todos/simplify-mcp-transport-contract.md")
+          todo_text = todo.read_text()
+          marker = "## Implementation evidence — generated integrations prefer minimal tools (2026-08-26)"
+          if marker not in todo_text:
+              todo_text = todo_text.rstrip() + f"""
+
+{marker}
+
+PR #426 adds a red-to-green setup contract for the accepted facade direction.
+New process-backed MCP configurations now start `mag serve` with
+`--mcp-tools minimal`; stdio configurations retain `--stdio` and add the same
+minimal selection. The explicit `mag serve` default remains full mode, so
+existing and manually configured integrations keep the legacy compatibility
+surface unless they opt into minimal mode.
+"""
+              todo.write_text(todo_text)
+          PY
+      - name: Format and run focused contract
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo test --quiet --all-features --test mcp_setup_contract
+      - name: Commit reconciled change and remove helper workflow
+        shell: bash
+        run: |
+          git config user.name "George"
+          git config user.email "180932462+George-RD@users.noreply.github.com"
+          git rm .github/workflows/agent-apply-mcp-minimal.yml
+          git add src/config_writer.rs tests/mcp_setup_contract.rs meta/todos/simplify-mcp-transport-contract.md
+          git diff --cached --check
+          git commit -m "refactor(setup): default generated MCP configs to minimal tools"
+          git push origin HEAD:${GITHUB_REF_NAME}

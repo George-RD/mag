@@ -18,7 +18,7 @@ use crate::tool_detection::{AiTool, ConfigFormat, DetectedTool};
 pub enum TransportMode {
     /// HTTP transport: `{ "type": "http", "url": "http://127.0.0.1:{port}/mcp" }`
     Http { port: u16 },
-    /// Command transport: `{ "command": "/abs/path/to/mag", "args": ["serve"] }`
+    /// Command transport: `{ "command": "/abs/path/to/mag", "args": ["serve", "--mcp-tools", "minimal"] }`
     Command,
     /// Stdio transport: `{ "command": "/abs/path/to/mag", "args": ["serve", "--stdio"] }`
     Stdio,
@@ -305,7 +305,7 @@ pub fn build_mag_entry(tool: AiTool, mode: TransportMode) -> serde_json::Value {
             let binary = resolve_mag_binary();
             serde_json::json!({
                 "command": binary,
-                "args": ["serve"]
+                "args": ["serve", "--mcp-tools", "minimal"]
             })
         }
         TransportMode::Stdio => {
@@ -616,7 +616,7 @@ fn verify_toml_config(path: &Path, mode: TransportMode) -> Result<ConfigStatus> 
             if content
                 .lines()
                 .any(|l| l.trim().starts_with("command = ") && l.ends_with("mag\""))
-                && content.contains("args = [\"serve\"]")
+                && content.contains("args = [\"serve\", \"--mcp-tools\", \"minimal\"]")
                 && !content.contains("\"--stdio\"")
             {
                 Ok(ConfigStatus::Valid { mode })
@@ -656,7 +656,9 @@ fn build_mag_toml_block(mode: TransportMode) -> String {
         }
         TransportMode::Command => {
             let binary = resolve_mag_binary();
-            format!("[mcp_servers.mag]\ncommand = \"{binary}\"\nargs = [\"serve\"]\n")
+            format!(
+                "[mcp_servers.mag]\ncommand = \"{binary}\"\nargs = [\"serve\", \"--mcp-tools\", \"minimal\"]\n"
+            )
         }
         TransportMode::Stdio => {
             let binary = resolve_mag_binary();
@@ -938,7 +940,10 @@ mod tests {
             "command should be an absolute path to mag, got: {:?}",
             entry["command"]
         );
-        assert_eq!(entry["args"], serde_json::json!(["serve"]));
+        assert_eq!(
+            entry["args"],
+            serde_json::json!(["serve", "--mcp-tools", "minimal"])
+        );
     }
 
     #[test]
@@ -1015,7 +1020,10 @@ mod tests {
                 "command should be absolute path to mag, got: {:?}",
                 mag["command"]
             );
-            assert_eq!(mag["args"], serde_json::json!(["serve"]));
+            assert_eq!(
+                mag["args"],
+                serde_json::json!(["serve", "--mcp-tools", "minimal"])
+            );
         });
     }
 
@@ -1441,7 +1449,7 @@ mod tests {
                     .any(|l| l.starts_with("command = \"") && l.ends_with("mag\"")),
                 "expected a command line ending with mag, content:\n{content}"
             );
-            assert!(content.contains("args = [\"serve\"]"));
+            assert!(content.contains("args = [\"serve\", \"--mcp-tools\", \"minimal\"]"));
         });
     }
 

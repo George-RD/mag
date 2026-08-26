@@ -2,7 +2,7 @@
 
 PyPI wrapper for [mag](https://github.com/George-RD/mag), a Rust-based MCP memory server.
 
-mag stores memories in SQLite with ONNX embeddings for semantic search, exposing 19 MCP tools via stdio protocol. No external services required.
+mag stores memories in SQLite with ONNX embeddings for semantic search. New MCP integrations use four facade tools; a full 19-tool mode remains for compatibility. No external services required.
 
 ## Installation
 
@@ -13,12 +13,15 @@ pip install mag-memory
 ## Usage
 
 ```bash
-# Start the MCP server
-mag serve
+# Start the preferred four-tool MCP server
+mag serve --mcp-tools minimal
 
 # The native binary is downloaded automatically on first run.
 # All CLI arguments are passed through to the Rust binary.
 ```
+
+Plain `mag serve` retains the full 19-tool compatibility mode for existing
+integrations.
 
 ## How it works
 

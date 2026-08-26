@@ -49,20 +49,20 @@ mag setup
 ```
 
 `mag setup` detects supported AI tools and writes command-transport configuration
-that launches `mag serve`. The MCP adapter uses the same application/runtime
+that launches `mag serve --mcp-tools minimal`. The MCP adapter uses the same application/runtime
 workflows as the CLI; it is not a separate memory implementation.
 
 To reconfigure later, run `mag setup` again.
 
 ### Manual MCP configuration
 
-If `mag setup` does not support your host, configure it to launch `mag serve` over
-stdio.
+If `mag setup` does not support your host, configure it to launch
+`mag serve --mcp-tools minimal` over stdio.
 
 **Claude Code:**
 
 ```bash
-claude mcp add mag -- mag serve
+claude mcp add mag -- mag serve --mcp-tools minimal
 ```
 
 **Hosts using an `mcpServers` object** (for example Claude Desktop, Cursor, and
@@ -73,7 +73,7 @@ Windsurf):
   "mcpServers": {
     "mag": {
       "command": "mag",
-      "args": ["serve"]
+      "args": ["serve", "--mcp-tools", "minimal"]
     }
   }
 }
@@ -86,7 +86,7 @@ Windsurf):
   "servers": {
     "mag": {
       "command": "mag",
-      "args": ["serve"]
+      "args": ["serve", "--mcp-tools", "minimal"]
     }
   }
 }
@@ -98,12 +98,14 @@ binary, use:
 ```json
 {
   "command": "npx",
-  "args": ["-y", "mag-memory", "serve"]
+  "args": ["-y", "mag-memory", "serve", "--mcp-tools", "minimal"]
 }
 ```
 
-`mag serve` is an MCP **stdio** transport. It is not a background HTTP daemon.
-The host must keep the child process alive and communicate over stdin/stdout.
+`mag serve --mcp-tools minimal` is an MCP **stdio** transport. It is not a
+background HTTP daemon. The host must keep the child process alive and communicate
+over stdin/stdout. Plain `mag serve` retains the full 19-tool compatibility mode
+for existing callers.
 
 ## 4. Verify MCP only when you configured it
 

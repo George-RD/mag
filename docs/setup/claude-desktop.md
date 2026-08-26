@@ -1,5 +1,5 @@
 # Claude Desktop Setup
-<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->
+<!-- Last verified: 2026-08-26 | Valid for: v0.1.10+ -->
 
 Add MAG to your Claude Desktop MCP configuration.
 
@@ -12,7 +12,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
   "mcpServers": {
     "mag": {
       "command": "/path/to/mag",
-      "args": ["serve"],
+      "args": ["serve", "--mcp-tools", "minimal"],
       "env": {
         "RUST_LOG": "info"
       }
@@ -22,6 +22,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 ```
 
 Replace `/path/to/mag` with the actual path to your MAG binary (e.g., `~/.cargo/bin/mag` on Unix or `C:\Users\<user>\.cargo\bin\mag.exe` on Windows).
+
+The minimal surface exposes MAG's four facade tools. Plain `serve` remains
+available only for compatibility with older 19-tool integrations.
 
 ## Common Issues
 

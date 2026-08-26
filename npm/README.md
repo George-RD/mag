@@ -26,8 +26,8 @@ OS and architecture from [GitHub Releases](https://github.com/George-RD/mag/rele
 After installation, `mag` is available on your PATH:
 
 ```bash
-# Start the MCP server (stdio transport)
-mag serve
+# Start the preferred four-tool MCP server (stdio transport)
+mag serve --mcp-tools minimal
 
 # Show help
 mag --help
@@ -42,11 +42,14 @@ Add to your Claude Desktop MCP config (`claude_desktop_config.json`):
   "mcpServers": {
     "mag": {
       "command": "npx",
-      "args": ["-y", "mag-memory", "serve"]
+      "args": ["-y", "mag-memory", "serve", "--mcp-tools", "minimal"]
     }
   }
 }
 ```
+
+Plain `mag serve` retains the full 19-tool compatibility mode for existing
+integrations. New integrations should use minimal mode.
 
 ## Local development
 

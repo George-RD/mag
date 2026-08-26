@@ -1,7 +1,18 @@
 # MCP Tools Reference
-<!-- Last verified: 2026-04-14 | Valid for: v0.1.9+ -->
+<!-- Last verified: 2026-08-26 | Valid for: v0.1.10+ -->
 
-MAG exposes 19 tools via the Model Context Protocol. Any MCP-compatible client can use these tools.
+New integrations should launch `mag serve --mcp-tools minimal`, which advertises the four facade tools below. Plain `mag serve` and explicit `--mcp-tools full` retain the 19-tool compatibility surface for existing callers. All tools delegate to the same application/runtime workflows used by the CLI.
+
+## Preferred minimal surface
+
+| Tool | Actions | Purpose |
+|------|---------|---------|
+| `memory` | `store`, `store_batch`, `retrieve`, `search`, `delete` | Core storage and retrieval |
+| `memory_manage` | `update`, `feedback`, `relations`, `lifecycle` | Changes, relationships, and maintenance |
+| `memory_session` | `info`, `checkpoint`, `remind`, `lessons`, `profile` | Session and cross-session workflows |
+| `memory_admin` | `health`, `list`, `export`, `import` | Diagnostics and data administration |
+
+Use the tool schema advertised by the MCP host for exact request fields. The sections below document the legacy compatibility tool names retained by full mode.
 
 ## Storage
 

@@ -82,7 +82,7 @@ The default embedding model downloads once on first use. Optional API embedders 
 | **Local retrieval** | Full-text, semantic, phrase, tag and similar-memory search; hybrid ranking and abstention |
 | **Memory model** | Projects, sessions, tags, importance, TTL, version chains and typed relationships |
 | **Maintenance** | Feedback, health checks, cleanup, compaction, FTS repair and backups |
-| **Interfaces** | CLI plus 19 MCP tools; `mag setup` configures common clients |
+| **Interfaces** | CLI plus a four-tool MCP facade for new integrations; full 19-tool mode remains for compatibility |
 | **Local models** | `bge-small-en-v1.5` ONNX embeddings by default; optional local LLM through an OpenAI-compatible endpoint |
 
 See the [MCP tools reference](docs/mcp-tools.md) and [CLI reference](docs/cli-reference.md) for the full surface.
@@ -165,13 +165,13 @@ Tested or documented clients include Claude Code, Claude Desktop, Cursor, VS Cod
   "mcpServers": {
     "mag": {
       "command": "mag",
-      "args": ["serve"]
+      "args": ["serve", "--mcp-tools", "minimal"]
     }
   }
 }
 ```
 
-For client-specific paths and troubleshooting, use the [setup guide](docs/SETUP.md).
+New integrations use the four facade tools. Plain `mag serve` retains the full 19-tool compatibility surface for existing callers. For client-specific paths and troubleshooting, use the [setup guide](docs/SETUP.md).
 
 ## Data and security
 
