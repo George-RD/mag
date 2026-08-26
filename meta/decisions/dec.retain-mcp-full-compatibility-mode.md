@@ -62,6 +62,14 @@ with a red exact-head regression at
 new generated-config contract test after the existing Rust suites passed, while
 Cairn architecture run `32834662273` remained green.
 
+Implementation commit `b7b85e952779e93695748db9149ba97dd2804bbe`
+updates command-mode JSON and TOML generation plus the bundled Claude plugin
+manifest to request `--mcp-tools minimal`; full-mode and stdio behavior are left
+unchanged. Focused run `32950589249` passed the contract and config-writer tests.
+Broader CI then exposed two setup tests that still encoded the old generated
+invocation. Commit `bf435de85546a29a644630c0594d4361b1371c01`
+aligned those expectations, and focused run `32951209730` passed both regressions.
+
 ## Trade-offs
 
 Keeping full mode means MAG continues to advertise and test 15 compatibility tool
