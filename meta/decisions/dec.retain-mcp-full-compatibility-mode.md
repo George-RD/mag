@@ -70,6 +70,16 @@ Broader CI then exposed two setup tests that still encoded the old generated
 invocation. Commit `bf435de85546a29a644630c0594d4361b1371c01`
 aligned those expectations, and focused run `32951209730` passed both regressions.
 
+The active-integration audit then aligned the root example, setup guides, package
+READMEs, CLI reference, MCP reference, site summary, and plugin development
+configuration on explicit minimal mode. Focused runs `32952329067`, `32952628401`,
+and `32952878591` passed the generated-config, manifest, active-example, and
+canonical-facade contract tests. The public `George-RD/mag-plugins` marketplace
+does not copy the plugin: its `marketplace.json` points to `George-RD/mag.git`,
+subdirectory `plugin`, ref `main`. Therefore the bundled `plugin/.mcp.json`
+changed by PR #426 is also the source installed by the Claude Code setup path
+after merge; no second repository release is required.
+
 ## Trade-offs
 
 Keeping full mode means MAG continues to advertise and test 15 compatibility tool
