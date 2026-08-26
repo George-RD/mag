@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde_json::{Value, json};
 
 fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -72,9 +74,29 @@ fn mcp_reference_describes_canonical_minimal_facades() {
 }
 
 #[test]
-fn bundled_manifests_prefer_minimal_mcp_surface() {
+fn live_claude_plugin_stays_compatible_with_latest_release() {
+    let manifest: Value = serde_json::from_str(include_str!("../plugin/.mcp.json"))
+        .expect("invalid Claude plugin manifest");
+    assert_eq!(
+        manifest["mcpServers"]["mag"]["args"],
+        json!(["serve"]),
+        "the marketplace reads plugin/.mcp.json from main, so it must keep the released full-mode contract until a binary containing facade search is published"
+    );
+}
+
+#[test]
+fn temporary_mcp_patch_workflow_is_not_committed() {
+    let workflow = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".github/workflows/agent-apply-mcp-minimal.yml");
+    assert!(
+        !workflow.exists(),
+        "remove the self-modifying PR patch workflow after it has served its purpose"
+    );
+}
+
+#[test]
+fn bundled_development_manifests_prefer_minimal_mcp_surface() {
     for (label, source, server_name) in [
-        ("Claude plugin", include_str!("../plugin/.mcp.json"), "mag"),
         ("root example", include_str!("../.mcp.json.example"), "mag"),
         (
             "plugin development",
