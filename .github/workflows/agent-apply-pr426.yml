@@ -1,0 +1,129 @@
+name: Apply PR 426 implementation
+
+on:
+  push:
+    branches:
+      - agent/mcp-new-integrations-minimal
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Apply focused implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/config_writer.rs")
+          source = path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              source = source.replace(old, new, 1)
+
+          replace_once(
+              '    /// Command transport: `{ "command": "/abs/path/to/mag", "args": ["serve"] }`\n',
+              '    /// Command transport: `{ "command": "/abs/path/to/mag", "args": ["serve", "--mcp-tools", "minimal"] }`\n',
+              "command transport documentation",
+          )
+          replace_once(
+              '''            serde_json::json!({
+                  "command": binary,
+                  "args": ["serve"]
+              })''',
+              '''            serde_json::json!({
+                  "command": binary,
+                  "args": ["serve", "--mcp-tools", "minimal"]
+              })''',
+              "JSON command entry",
+          )
+          replace_once(
+              '                && content.contains("args = [\\"serve\\"]")\n',
+              '                && content.contains("args = [\\"serve\\", \\"--mcp-tools\\", \\"minimal\\"]")\n',
+              "TOML command verification",
+          )
+          replace_once(
+              '            format!("[mcp_servers.mag]\\ncommand = \\"{binary}\\"\\nargs = [\\"serve\\"]\\n")\n',
+              '            format!("[mcp_servers.mag]\\ncommand = \\"{binary}\\"\\nargs = [\\"serve\\", \\"--mcp-tools\\", \\"minimal\\"]\\n")\n',
+              "TOML command block",
+          )
+          replace_once(
+              '        assert_eq!(entry["args"], serde_json::json!(["serve"]));\n',
+              '        assert_eq!(\n            entry["args"],\n            serde_json::json!(["serve", "--mcp-tools", "minimal"])\n        );\n',
+              "command entry unit expectation",
+          )
+          replace_once(
+              '            assert_eq!(mag["args"], serde_json::json!(["serve"]));\n',
+              '            assert_eq!(\n                mag["args"],\n                serde_json::json!(["serve", "--mcp-tools", "minimal"])\n            );\n',
+              "written command unit expectation",
+          )
+          replace_once(
+              '            assert!(content.contains("args = [\\"serve\\"]"));\n',
+              '            assert!(content.contains(\n                "args = [\\"serve\\", \\"--mcp-tools\\", \\"minimal\\"]"\n            ));\n',
+              "Codex command unit expectation",
+          )
+
+          path.write_text(source)
+
+          Path("plugin/.mcp.json").write_text('''{
+            "mcpServers": {
+              "mag": {
+                "command": "mag",
+                "args": ["serve", "--mcp-tools", "minimal"]
+              }
+            }
+          }
+          ''')
+
+          Path("tests/mcp_setup_contract.rs").write_text('''use serde_json::json;
+
+          #[test]
+          fn generated_command_transport_prefers_minimal_mcp_surface() {
+              let source = include_str!("../src/config_writer.rs");
+
+              assert!(
+                  source.contains(r#""args": ["serve", "--mcp-tools", "minimal"]"#),
+                  "new command-transport configs must explicitly request MAG's four-tool minimal MCP surface"
+              );
+          }
+
+          #[test]
+          fn claude_plugin_manifest_prefers_minimal_mcp_surface() {
+              let manifest: serde_json::Value =
+                  serde_json::from_str(include_str!("../plugin/.mcp.json")).expect("valid plugin manifest");
+
+              assert_eq!(
+                  manifest["mcpServers"]["mag"]["args"],
+                  json!(["serve", "--mcp-tools", "minimal"])
+              );
+          }
+          ''')
+          PY
+          cargo fmt --all
+          cargo test --quiet --all-features --test mcp_setup_contract
+          cargo test --quiet --all-features config_writer
+      - name: Commit implementation
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No implementation changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/config_writer.rs plugin/.mcp.json tests/mcp_setup_contract.rs
+          git commit -m "refactor(setup): generate minimal MCP command configs"
+          git push origin HEAD:${{ github.ref_name }}
