@@ -56,6 +56,22 @@ fn generated_command_transport_prefers_minimal_mcp_surface() {
 }
 
 #[test]
+fn mcp_reference_describes_canonical_minimal_facades() {
+    let reference = include_str!("../docs/mcp-tools.md");
+    for expected_row in [
+        "| `memory` | `store`, `store_batch`, `retrieve`, `search`, `delete` |",
+        "| `memory_manage` | `update`, `feedback`, `relations`, `lifecycle` |",
+        "| `memory_session` | `info`, `checkpoint`, `remind`, `lessons`, `profile` |",
+        "| `memory_admin` | `health`, `list`, `export`, `import` |",
+    ] {
+        assert!(
+            reference.contains(expected_row),
+            "MCP reference is missing canonical facade row: {expected_row}"
+        );
+    }
+}
+
+#[test]
 fn bundled_manifests_prefer_minimal_mcp_surface() {
     for (label, source, server_name) in [
         ("Claude plugin", include_str!("../plugin/.mcp.json"), "mag"),
