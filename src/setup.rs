@@ -1206,7 +1206,10 @@ mod tests {
     #[test]
     fn command_transport_generates_current_serve_invocation() {
         let entry = config_writer::build_mag_entry(AiTool::Cursor, TransportMode::Command);
-        assert_eq!(entry["args"], serde_json::json!(["serve"]));
+        assert_eq!(
+            entry["args"],
+            serde_json::json!(["serve", "--mcp-tools", "minimal"])
+        );
         assert!(entry.get("url").is_none());
     }
 
@@ -1257,7 +1260,7 @@ mod tests {
             let mag_binary = home.join(".mag").join("bin").join("mag");
             let mag_binary_str = mag_binary.to_string_lossy();
             let initial = format!(
-                r#"{{"mcpServers":{{"mag":{{"command":"{mag_binary_str}","args":["serve"]}}}}}}"#
+                r#"{{"mcpServers":{{"mag":{{"command":"{mag_binary_str}","args":["serve","--mcp-tools","minimal"]}}}}}}"#
             );
             std::fs::write(&config_path, &initial).unwrap();
 
