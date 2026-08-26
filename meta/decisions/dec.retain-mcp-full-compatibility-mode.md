@@ -6,6 +6,7 @@ nodes:
 status: accepted
 date: 2026-08-25
 revisit_triggers:
+  - "A MAG binary containing facade search is published for the live Claude marketplace plugin"
   - "A versioned MCP contract release is prepared with an explicit migration path for legacy tool callers"
   - "Usage evidence shows the legacy compatibility tools no longer have meaningful callers"
   - "Maintaining the legacy tool schemas requires independent semantics or materially duplicates application workflows"
@@ -28,6 +29,13 @@ facades and is the preferred MCP contract for new callers. Full mode remains
 available through `--mcp-tools full` and the existing default until a separate,
 versioned public-contract decision removes or changes it.
 
+The live Claude marketplace manifest is a release-bound exception. The
+marketplace reads `plugin/.mcp.json` from `main`, but that manifest launches the
+separately installed MAG binary. It shall therefore retain plain `mag serve`
+until the latest published binary contains facade search through
+`memory(action="search")`. Development manifests and generated configurations
+that run current source continue to prefer explicit minimal mode.
+
 ## Boundary rules
 
 1. The CLI remains MAG's canonical external interface. MCP is optional transport.
@@ -40,7 +48,10 @@ versioned public-contract decision removes or changes it.
    they launch plain `mag serve`. The normal setup flow treats an existing MAG
    entry as configured; an explicit reconfiguration may generate the preferred
    minimal contract.
-5. Removing full mode, changing the default for existing manual callers, or
+5. The live marketplace manifest must not opt into minimal mode before a
+   published MAG binary contains facade search. A manifest update on `main` does
+   not upgrade the binary it invokes.
+6. Removing full mode, changing the default for existing manual callers, or
    deleting legacy tool names is a public-contract change and requires its own
    versioned migration decision and regression coverage.
 
@@ -74,11 +85,25 @@ The active-integration audit then aligned the root example, setup guides, packag
 READMEs, CLI reference, MCP reference, site summary, and plugin development
 configuration on explicit minimal mode. Focused runs `32952329067`, `32952628401`,
 and `32952878591` passed the generated-config, manifest, active-example, and
-canonical-facade contract tests. The public `George-RD/mag-plugins` marketplace
-does not copy the plugin: its `marketplace.json` points to `George-RD/mag.git`,
-subdirectory `plugin`, ref `main`. Therefore the bundled `plugin/.mcp.json`
-changed by PR #426 is also the source installed by the Claude Code setup path
-after merge; no second repository release is required.
+canonical-facade contract tests.
+
+Post-merge review of PR #426 found a release-boundary defect in the live plugin.
+The public marketplace points to this repository's `plugin/` directory on
+`main`, so manifest changes deploy independently of MAG binary releases. The
+latest published binary was v0.1.9 while facade search existed only in the
+0.1.10-dev source line. Selecting minimal mode in the live manifest would
+therefore remove `memory_search` before the installed binary could replace it
+with `memory(action="search")`.
+
+PR #427 adds release-contract regressions before correcting that defect. At the
+test-only head `8a84264b1c56f946a6368a9716997653b8a52447`, CI run
+`32962060438` failed only the two new tests: the live manifest still selected
+minimal mode and the one-shot self-modifying patch workflow still existed. The
+implementation restores plain `mag serve` in the live manifest and deletes the
+144-line patch workflow without changing generated configs, development
+manifests, runtime routing, or facade semantics. Exact-head
+`fcfbb48190147bc09f5d1afe027d4328488467d9` passed CI run `32962441497` and Cairn
+architecture run `32962441510`.
 
 ## Trade-offs
 
@@ -87,6 +112,12 @@ schemas for the current release line. That maintenance cost is acceptable while
 it prevents silent breakage for existing MCP callers. The cost is bounded by
 making minimal mode the default for newly generated integrations and by refusing
 to add independent behavior to legacy wrappers.
+
+Keeping the live plugin on plain `mag serve` for one release means marketplace
+users do not receive the smaller tool inventory immediately. The alternative is
+worse: changing a manifest independently of its executable can silently remove
+search. Once a compatible binary is published, the live manifest can move to
+explicit minimal mode as a focused release follow-up.
 
 Changing `mag serve` itself to minimal now would be simpler internally, but would
 silently change the tool inventory for existing configurations that rely on the
