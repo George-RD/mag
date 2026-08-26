@@ -1,0 +1,304 @@
+name: Align PR 426 integration examples
+
+on:
+  push:
+    branches:
+      - agent/mcp-new-integrations-minimal
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Align active MCP integration examples
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          def replace_once(path: str, old: str, new: str, label: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match in {path}, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "README.md",
+              "| **Interfaces** | CLI plus 19 MCP tools; `mag setup` configures common clients |",
+              "| **Interfaces** | CLI plus a four-tool MCP facade for new integrations; full 19-tool mode remains for compatibility |",
+              "README interface summary",
+          )
+          replace_once(
+              "README.md",
+              '      "args": ["serve"]',
+              '      "args": ["serve", "--mcp-tools", "minimal"]',
+              "README manual config",
+          )
+          replace_once(
+              "README.md",
+              "For client-specific paths and troubleshooting, use the [setup guide](docs/SETUP.md).",
+              "New integrations use the four facade tools. Plain `mag serve` retains the full 19-tool compatibility surface for existing callers. For client-specific paths and troubleshooting, use the [setup guide](docs/SETUP.md).",
+              "README compatibility note",
+          )
+
+          replace_once(
+              "docs/SETUP.md",
+              "`mag setup` detects supported AI tools and writes command-transport configuration\nthat launches `mag serve`. The MCP adapter uses the same application/runtime",
+              "`mag setup` detects supported AI tools and writes command-transport configuration\nthat launches `mag serve --mcp-tools minimal`. The MCP adapter uses the same application/runtime",
+              "generated setup command",
+          )
+          replace_once(
+              "docs/SETUP.md",
+              "If `mag setup` does not support your host, configure it to launch `mag serve` over\nstdio.",
+              "If `mag setup` does not support your host, configure it to launch\n`mag serve --mcp-tools minimal` over stdio.",
+              "manual setup introduction",
+          )
+          replace_once(
+              "docs/SETUP.md",
+              "claude mcp add mag -- mag serve",
+              "claude mcp add mag -- mag serve --mcp-tools minimal",
+              "Claude Code manual command",
+          )
+          text = Path("docs/SETUP.md").read_text()
+          count = text.count('      "args": ["serve"]')
+          if count != 2:
+              raise SystemExit(f"manual JSON configs: expected two stale args arrays, found {count}")
+          text = text.replace(
+              '      "args": ["serve"]',
+              '      "args": ["serve", "--mcp-tools", "minimal"]',
+          )
+          Path("docs/SETUP.md").write_text(text)
+          replace_once(
+              "docs/SETUP.md",
+              '  "args": ["-y", "mag-memory", "serve"]',
+              '  "args": ["-y", "mag-memory", "serve", "--mcp-tools", "minimal"]',
+              "npm manual config",
+          )
+          replace_once(
+              "docs/SETUP.md",
+              "`mag serve` is an MCP **stdio** transport. It is not a background HTTP daemon.\nThe host must keep the child process alive and communicate over stdin/stdout.",
+              "`mag serve --mcp-tools minimal` is an MCP **stdio** transport. It is not a\nbackground HTTP daemon. The host must keep the child process alive and communicate\nover stdin/stdout. Plain `mag serve` retains the full 19-tool compatibility mode\nfor existing callers.",
+              "setup transport explanation",
+          )
+
+          setup_guides = [
+              "docs/setup/claude-code.md",
+              "docs/setup/claude-desktop.md",
+              "docs/setup/cline.md",
+              "docs/setup/cursor.md",
+              "docs/setup/windsurf.md",
+          ]
+          for path in setup_guides:
+              file = Path(path)
+              text = file.read_text()
+              old_header = "<!-- Last verified: 2026-03-28 | Valid for: v0.1.2+ -->"
+              if text.count(old_header) != 1:
+                  raise SystemExit(f"verification header drift in {path}")
+              text = text.replace(
+                  old_header,
+                  "<!-- Last verified: 2026-08-26 | Valid for: v0.1.10+ -->",
+                  1,
+              )
+              old_args = '      "args": ["serve"],'
+              if text.count(old_args) != 1:
+                  raise SystemExit(f"command args drift in {path}")
+              text = text.replace(
+                  old_args,
+                  '      "args": ["serve", "--mcp-tools", "minimal"],',
+                  1,
+              )
+              marker = "\n## Common Issues" if "\n## Common Issues" in text else "\n## Status"
+              if text.count(marker) != 1:
+                  raise SystemExit(f"section marker drift in {path}")
+              text = text.replace(
+                  marker,
+                  "\nThe minimal surface exposes MAG's four facade tools. Plain `serve` remains\navailable only for compatibility with older 19-tool integrations.\n" + marker,
+                  1,
+              )
+              file.write_text(text)
+
+          replace_once(
+              ".mcp.json.example",
+              '      "args": ["serve"],',
+              '      "args": ["serve", "--mcp-tools", "minimal"],',
+              "root MCP example",
+          )
+          replace_once(
+              "plugin/dev/mcp.json",
+              '      "args": ["serve"],',
+              '      "args": ["serve", "--mcp-tools", "minimal"],',
+              "plugin development config",
+          )
+
+          replace_once(
+              "npm/README.md",
+              "# Start the MCP server (stdio transport)\nmag serve",
+              "# Start the preferred four-tool MCP server (stdio transport)\nmag serve --mcp-tools minimal",
+              "npm usage command",
+          )
+          replace_once(
+              "npm/README.md",
+              '      "args": ["-y", "mag-memory", "serve"]',
+              '      "args": ["-y", "mag-memory", "serve", "--mcp-tools", "minimal"]',
+              "npm Claude config",
+          )
+          replace_once(
+              "npm/README.md",
+              "```\n\n## Local development",
+              "```\n\nPlain `mag serve` retains the full 19-tool compatibility mode for existing\nintegrations. New integrations should use minimal mode.\n\n## Local development",
+              "npm compatibility note",
+          )
+
+          replace_once(
+              "python/README.md",
+              "mag stores memories in SQLite with ONNX embeddings for semantic search, exposing 19 MCP tools via stdio protocol. No external services required.",
+              "mag stores memories in SQLite with ONNX embeddings for semantic search. New MCP integrations use four facade tools; a full 19-tool mode remains for compatibility. No external services required.",
+              "Python surface summary",
+          )
+          replace_once(
+              "python/README.md",
+              "# Start the MCP server\nmag serve",
+              "# Start the preferred four-tool MCP server\nmag serve --mcp-tools minimal",
+              "Python usage command",
+          )
+          replace_once(
+              "python/README.md",
+              "# All CLI arguments are passed through to the Rust binary.\n```",
+              "# All CLI arguments are passed through to the Rust binary.\n```\n\nPlain `mag serve` retains the full 19-tool compatibility mode for existing\nintegrations.",
+              "Python compatibility note",
+          )
+
+          replace_once(
+              "docs/mcp-tools.md",
+              "# MCP Tools Reference\n<!-- Last verified: 2026-04-14 | Valid for: v0.1.9+ -->\n\nMAG exposes 19 tools via the Model Context Protocol. Any MCP-compatible client can use these tools.",
+              "# MCP Tools Reference\n<!-- Last verified: 2026-08-26 | Valid for: v0.1.10+ -->\n\nNew integrations should launch `mag serve --mcp-tools minimal`, which advertises the four facade tools: `memory`, `session`, `manage`, and `admin`. Plain `mag serve` and explicit `--mcp-tools full` retain the 19-tool compatibility surface documented below for existing callers. All tools delegate to the same application/runtime workflows used by the CLI.",
+              "MCP reference introduction",
+          )
+
+          replace_once(
+              "meta/contracts/runtime.setup.md",
+              "current binary actually serves. Command transport (`mag serve`) is the current\nverified path.",
+              "current binary actually serves. Command transport\n(`mag serve --mcp-tools minimal`) is the current generated and verified path;\nplain `mag serve` remains the full compatibility path for existing callers.",
+              "setup contract command",
+          )
+
+          Path("tests/mcp_setup_contract.rs").write_text(
+              dedent(
+                  '''\
+                  use serde_json::{Value, json};
+
+                  fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+                      let (_, after_start) = source
+                          .split_once(start)
+                          .unwrap_or_else(|| panic!("missing start marker: {start}"));
+                      let (region, _) = after_start
+                          .split_once(end)
+                          .unwrap_or_else(|| panic!("missing end marker: {end}"));
+                      region
+                  }
+
+                  fn assert_manifest_prefers_minimal(label: &str, source: &str, server_name: &str) {
+                      let manifest: Value = serde_json::from_str(source)
+                          .unwrap_or_else(|error| panic!("invalid {label} manifest: {error}"));
+                      assert_eq!(
+                          manifest["mcpServers"][server_name]["args"],
+                          json!(["serve", "--mcp-tools", "minimal"]),
+                          "{label} must advertise MAG's four-tool minimal MCP surface"
+                      );
+                  }
+
+                  #[test]
+                  fn generated_command_transport_prefers_minimal_mcp_surface() {
+                      let source = include_str!("../src/config_writer.rs");
+
+                      let json_builder = between(
+                          source,
+                          "pub fn build_mag_entry(",
+                          "// ---------------------------------------------------------------------------\\n// Claude Code plugin",
+                      );
+                      let json_command = between(
+                          json_builder,
+                          "TransportMode::Command => {",
+                          "TransportMode::Stdio => {",
+                      );
+                      assert!(
+                          json_command.contains(r#""args": ["serve", "--mcp-tools", "minimal"]"#),
+                          "JSON command transport must request MAG's four-tool minimal MCP surface"
+                      );
+
+                      let toml_builder = between(
+                          source,
+                          "fn build_mag_toml_block(",
+                          "/// Returns `(start, end)` byte indices",
+                      );
+                      let toml_command = between(
+                          toml_builder,
+                          "TransportMode::Command => {",
+                          "TransportMode::Stdio => {",
+                      );
+                      assert!(
+                          toml_command.contains(r#"args = [\\"serve\\", \\"--mcp-tools\\", \\"minimal\\"]"#),
+                          "TOML command transport must request MAG's four-tool minimal MCP surface"
+                      );
+                  }
+
+                  #[test]
+                  fn bundled_manifests_prefer_minimal_mcp_surface() {
+                      for (label, source, server_name) in [
+                          ("Claude plugin", include_str!("../plugin/.mcp.json"), "mag"),
+                          ("root example", include_str!("../.mcp.json.example"), "mag"),
+                          ("plugin development", include_str!("../plugin/dev/mcp.json"), "mag-dev"),
+                      ] {
+                          assert_manifest_prefers_minimal(label, source, server_name);
+                      }
+                  }
+
+                  #[test]
+                  fn active_manual_setup_examples_prefer_minimal_mcp_surface() {
+                      for (label, source) in [
+                          ("README", include_str!("../README.md")),
+                          ("setup guide", include_str!("../docs/SETUP.md")),
+                          ("Claude Code guide", include_str!("../docs/setup/claude-code.md")),
+                          ("Claude Desktop guide", include_str!("../docs/setup/claude-desktop.md")),
+                          ("Cline guide", include_str!("../docs/setup/cline.md")),
+                          ("Cursor guide", include_str!("../docs/setup/cursor.md")),
+                          ("Windsurf guide", include_str!("../docs/setup/windsurf.md")),
+                          ("npm README", include_str!("../npm/README.md")),
+                          ("Python README", include_str!("../python/README.md")),
+                      ] {
+                          assert!(
+                              source.contains("--mcp-tools") && source.contains("minimal"),
+                              "{label} must show the preferred minimal MCP command"
+                          );
+                          assert!(
+                              !source.contains(r#""args": ["serve"]"#),
+                              "{label} must not publish a new full-mode command config"
+                          );
+                      }
+                  }
+                  '''
+              )
+          )
+          PY
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo test --quiet --all-features --test mcp_setup_contract
+      - name: Commit aligned examples
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/SETUP.md docs/setup .mcp.json.example plugin/dev/mcp.json npm/README.md python/README.md docs/mcp-tools.md meta/contracts/runtime.setup.md tests/mcp_setup_contract.rs
+          git commit -m "docs(mcp): align new integrations on minimal mode"
+          git push origin HEAD:${{ github.ref_name }}
