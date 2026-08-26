@@ -1,0 +1,68 @@
+name: Fix PR 426 setup tests
+
+on:
+  push:
+    branches:
+      - agent/mcp-new-integrations-minimal
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Update setup contract expectations
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/setup.rs")
+          source = path.read_text()
+
+          def replace_in_region(start_marker: str, end_marker: str, old: str, new: str, label: str) -> None:
+              global source
+              start = source.index(start_marker)
+              end = source.index(end_marker, start)
+              region = source[start:end]
+              count = region.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              source = source[:start] + region.replace(old, new, 1) + source[end:]
+
+          replace_in_region(
+              "fn command_transport_generates_current_serve_invocation()",
+              "fn configure_tools_writes_config()",
+              'serde_json::json!(["serve"])',
+              'serde_json::json!(["serve", "--mcp-tools", "minimal"])',
+              "command transport expectation",
+          )
+          replace_in_region(
+              "fn configure_tools_idempotent()",
+              "fn configure_tools_zed_unsupported()",
+              '"args":["serve"]',
+              '"args":["serve","--mcp-tools","minimal"]',
+              "idempotent config fixture",
+          )
+
+          path.write_text(source)
+          PY
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo test --quiet --all-features command_transport_generates_current_serve_invocation
+          cargo test --quiet --all-features configure_tools_idempotent
+      - name: Commit test alignment
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/setup.rs
+          git commit -m "test(setup): align command transport expectations"
+          git push origin HEAD:${{ github.ref_name }}
