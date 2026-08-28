@@ -60,19 +60,16 @@ jobs:
               raise SystemExit("doctor start marker not found")
           source = source.replace(start_old, start_new, 1)
 
-          ready_old = '''    if failures.is_empty() {
-              println!("\\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
-              return Ok(());
-          }
-          '''
-          ready_new = '''    if failures.is_empty() {
-              println!("\\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
-              return Ok(DoctorPassOutcome::Complete);
-          }
-          '''
-          if ready_old not in source:
-              raise SystemExit("doctor ready marker not found")
-          source = source.replace(ready_old, ready_new, 1)
+          ready_text = "MAG is ready."
+          ready_at = source.find(ready_text, source.find("async fn run_doctor_pass"))
+          return_at = source.find("return Ok(());", ready_at)
+          if ready_at < 0 or return_at < 0:
+              raise SystemExit("doctor ready anchors not found")
+          source = (
+              source[:return_at]
+              + "return Ok(DoctorPassOutcome::Complete);"
+              + source[return_at + len("return Ok(());"):]
+          )
 
           prompt_old = "    if fix {\n"
           prompt_new = "    if run_state.allows_fixes() && fix {\n"
@@ -110,29 +107,19 @@ jobs:
               raise SystemExit("interactive fix call not found")
           source = source.replace(interactive_apply, interactive_new, 1)
 
-          final_old = '''    let hard_failures: Vec<_> = failures
-              .iter()
-              .filter(|r| r.status == CheckStatus::Fail)
-              .collect();
-          if hard_failures.is_empty() {
-              Ok(())
-          } else {
-              anyhow::bail!(
-                  "{} doctor check(s) failed. See above for details.",
-                  hard_failures.len()
-              );
-          }
-          }
-          '''
+          final_start = source.find(
+              "    let hard_failures: Vec<_> = failures",
+              source.find("async fn run_doctor_pass"),
+          )
+          final_end = source.find("\n}\n\nasync fn apply_doctor_fixes", final_start)
+          if final_start < 0 or final_end < 0:
+              raise SystemExit("doctor finalization anchors not found")
           final_new = '''    anyhow::bail!(
               "{} doctor check(s) failed. See above for details.",
               failures.len()
           );
-          }
           '''
-          if final_old not in source:
-              raise SystemExit("doctor finalization marker not found")
-          source = source.replace(final_old, final_new, 1)
+          source = source[:final_start] + final_new + source[final_end:]
 
           path.write_text(source)
           PY
