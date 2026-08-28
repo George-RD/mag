@@ -84,3 +84,105 @@ impl EmbeddingModel for LegacyEmbedderAdapter {
         self.inner.embed_batch(texts)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory_core::embedder::PlaceholderEmbedder;
+
+    const MODEL_CHECKSUMS: [RetrieverArtifactChecksum; 1] = [RetrieverArtifactChecksum {
+        artifact: "model.onnx",
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+    }];
+
+    fn production_profile_spec(role: &'static str) -> RetrieverModelProfileSpec {
+        RetrieverModelProfileSpec {
+            model_id: "example/retriever",
+            revision: "0123456789abcdef",
+            checksums: &MODEL_CHECKSUMS,
+            role,
+            runtime: "onnx-cpu",
+            quantization: "int8",
+            output_dimensions: 384,
+            pooling: "mean-l2",
+            query_transform: "query-prefix:v1",
+            document_transform: "document-prefix:v1",
+            max_input_tokens: 512,
+            licence: "apache-2.0",
+            local_resources: LocalResourceExpectations {
+                model_disk_bytes: 32_000_000,
+                peak_ram_bytes: 160_000_000,
+            },
+            production_ready: true,
+        }
+    }
+
+    #[test]
+    fn production_retriever_profiles_require_complete_metadata() {
+        let dense = RetrieverModelProfile::new(production_profile_spec("dense-embedding"));
+        assert!(dense.is_ok());
+
+        let reranker = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            role: "cross-encoder-reranker",
+            output_dimensions: 1,
+            query_transform: "pair-query:v1",
+            document_transform: "pair-document:v1",
+            ..production_profile_spec("cross-encoder-reranker")
+        });
+        assert!(reranker.is_ok());
+
+        let missing_checksum = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            checksums: &[],
+            ..production_profile_spec("dense-embedding")
+        });
+        assert!(missing_checksum.is_err());
+
+        let missing_resources = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            local_resources: LocalResourceExpectations {
+                model_disk_bytes: 0,
+                peak_ram_bytes: 0,
+            },
+            ..production_profile_spec("dense-embedding")
+        });
+        assert!(missing_resources.is_err());
+    }
+
+    #[test]
+    fn embedding_space_identity_tracks_vector_semantics_not_operational_metadata() {
+        let base = RetrieverModelProfile::new(production_profile_spec("dense-embedding"))
+            .expect("complete dense profile should validate");
+        let operational_change = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            runtime: "onnx-gpu",
+            licence: "mit",
+            local_resources: LocalResourceExpectations {
+                model_disk_bytes: 64_000_000,
+                peak_ram_bytes: 320_000_000,
+            },
+            ..production_profile_spec("dense-embedding")
+        })
+        .expect("operational metadata change should remain a valid profile");
+        let vector_change = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            quantization: "fp16",
+            ..production_profile_spec("dense-embedding")
+        })
+        .expect("vector-semantic change should remain a valid profile");
+
+        assert_eq!(
+            base.embedding_space_identity(),
+            operational_change.embedding_space_identity()
+        );
+        assert_ne!(
+            base.embedding_space_identity(),
+            vector_change.embedding_space_identity()
+        );
+    }
+
+    #[test]
+    fn legacy_adapter_preserves_existing_embedding_space_identity() {
+        let adapter = LegacyEmbedderAdapter::new(Arc::new(PlaceholderEmbedder));
+        assert_eq!(
+            adapter.embedding_space_identity(),
+            "legacy-role-neutral:v1:dim=32"
+        );
+    }
+}
