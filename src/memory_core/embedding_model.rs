@@ -63,9 +63,6 @@ pub(super) struct LocalResourceExpectations {
 }
 
 /// Complete metadata used to construct an immutable retriever model profile.
-///
-/// Production profiles must fill every field. Compatibility adapters may mark
-/// themselves as not production-ready while they are being retired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RetrieverModelProfileSpec {
     pub(super) model_id: &'static str,
@@ -81,7 +78,6 @@ pub(super) struct RetrieverModelProfileSpec {
     pub(super) max_input_tokens: usize,
     pub(super) licence: &'static str,
     pub(super) local_resources: LocalResourceExpectations,
-    pub(super) production_ready: bool,
 }
 
 /// Validated, immutable contract shared by dense encoders and rerankers.
@@ -152,13 +148,24 @@ impl RetrieverModelProfile {
             );
         }
         ensure!(
-            matches!(spec.role, "dense-embedding" | "cross-encoder-reranker"),
-            "retriever profile role is unsupported: {}",
-            spec.role
-        );
-        ensure!(
             spec.output_dimensions > 0,
             "retriever profile output_dimensions must be greater than zero"
+        );
+        ensure!(
+            !spec.checksums.is_empty(),
+            "retriever profile must record at least one artifact checksum"
+        );
+        ensure!(
+            spec.max_input_tokens > 0,
+            "retriever profile must record max_input_tokens"
+        );
+        ensure!(
+            spec.local_resources.model_disk_bytes > 0,
+            "retriever profile must record expected model disk bytes"
+        );
+        ensure!(
+            spec.local_resources.peak_ram_bytes > 0,
+            "retriever profile must record expected peak RAM bytes"
         );
 
         for checksum in spec.checksums {
@@ -174,52 +181,7 @@ impl RetrieverModelProfile {
             );
         }
 
-        if spec.production_ready {
-            ensure!(
-                !spec.checksums.is_empty(),
-                "production retriever profile must record at least one artifact checksum"
-            );
-            ensure!(
-                spec.max_input_tokens > 0,
-                "production retriever profile must record max_input_tokens"
-            );
-            ensure!(
-                spec.local_resources.model_disk_bytes > 0,
-                "production retriever profile must record expected model disk bytes"
-            );
-            ensure!(
-                spec.local_resources.peak_ram_bytes > 0,
-                "production retriever profile must record expected peak RAM bytes"
-            );
-            ensure!(
-                !self.embedding_space_identity().is_empty(),
-                "production retriever profile must have an embedding-space identity"
-            );
-        }
-
         Ok(())
-    }
-
-    fn legacy_role_neutral(dimension: usize) -> Result<Self> {
-        Self::new(RetrieverModelProfileSpec {
-            model_id: "legacy-role-neutral",
-            revision: "v1",
-            checksums: &[],
-            role: "dense-embedding",
-            runtime: "compatibility-adapter",
-            quantization: "unknown",
-            output_dimensions: dimension,
-            pooling: "legacy-role-neutral",
-            query_transform: "identity",
-            document_transform: "identity",
-            max_input_tokens: 0,
-            licence: "unknown",
-            local_resources: LocalResourceExpectations {
-                model_disk_bytes: 0,
-                peak_ram_bytes: 0,
-            },
-            production_ready: false,
-        })
     }
 }
 
@@ -234,12 +196,7 @@ pub(crate) struct LegacyEmbedderAdapter {
 
 impl LegacyEmbedderAdapter {
     pub(crate) fn new(inner: Arc<dyn Embedder>) -> Self {
-        let profile = RetrieverModelProfile::legacy_role_neutral(inner.dimension())
-            .expect("built-in legacy retriever profile must be valid");
-        let embedding_space_identity = format!(
-            "legacy-role-neutral:v1:dim={}",
-            profile.metadata().output_dimensions
-        );
+        let embedding_space_identity = format!("legacy-role-neutral:v1:dim={}", inner.dimension());
         Self {
             inner,
             embedding_space_identity,
@@ -298,7 +255,6 @@ mod tests {
                 model_disk_bytes: 32_000_000,
                 peak_ram_bytes: 160_000_000,
             },
-            production_ready: true,
         }
     }
 
