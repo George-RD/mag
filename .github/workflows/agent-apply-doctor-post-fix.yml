@@ -1,9 +1,11 @@
 name: Apply doctor post-fix recheck
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/doctor-post-fix-recheck
+      - main
+    types:
+      - synchronize
     paths:
       - .github/workflows/agent-apply-doctor-post-fix.yml
 
@@ -12,11 +14,12 @@ permissions:
 
 jobs:
   patch:
+    if: github.event.pull_request.head.ref == 'agent/doctor-post-fix-recheck'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
       - name: Implement bounded doctor recheck
         shell: bash
         run: |
@@ -145,4 +148,4 @@ jobs:
           git add src/main.rs src/doctor_checks.rs
           git diff --cached --check
           git commit -m "fix(doctor): recheck after applying fixes"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
