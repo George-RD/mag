@@ -266,10 +266,8 @@ mod tests {
             sha256: "1111111111111111111111111111111111111111111111111111111111111111",
         },
     ];
-    const REORDERED_CHECKSUMS: [RetrieverArtifactChecksum; 2] = [
-        ORDERED_CHECKSUMS[1],
-        ORDERED_CHECKSUMS[0],
-    ];
+    const REORDERED_CHECKSUMS: [RetrieverArtifactChecksum; 2] =
+        [ORDERED_CHECKSUMS[1], ORDERED_CHECKSUMS[0]];
 
     fn production_profile_spec(role: &'static str) -> RetrieverModelProfileSpec {
         RetrieverModelProfileSpec {
