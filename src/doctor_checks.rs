@@ -2,6 +2,22 @@
 
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DoctorRunState {
+    Initial,
+    PostFix,
+}
+
+impl DoctorRunState {
+    pub(crate) const fn allows_fixes(self) -> bool {
+        matches!(self, Self::Initial)
+    }
+
+    pub(crate) const fn after_fixes(self) -> Self {
+        Self::PostFix
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum DirCheckResult {
     Ok { size_mb: f64 },
@@ -75,5 +91,15 @@ mod tests {
             }
             other => panic!("expected MissingFiles, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn post_fix_pass_disables_a_second_fix_attempt() {
+        let initial = DoctorRunState::Initial;
+        assert!(initial.allows_fixes());
+
+        let recheck = initial.after_fixes();
+        assert_eq!(recheck, DoctorRunState::PostFix);
+        assert!(!recheck.allows_fixes());
     }
 }

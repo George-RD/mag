@@ -1220,7 +1220,26 @@ struct CheckResult {
     fix_action: Option<FixAction>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DoctorPassOutcome {
+    Complete,
+    Recheck,
+}
+
 async fn run_doctor(fix: bool) -> anyhow::Result<()> {
+    let mut run_state = doctor_checks::DoctorRunState::Initial;
+    loop {
+        match run_doctor_pass(fix, run_state).await? {
+            DoctorPassOutcome::Complete => return Ok(()),
+            DoctorPassOutcome::Recheck => run_state = run_state.after_fixes(),
+        }
+    }
+}
+
+async fn run_doctor_pass(
+    fix: bool,
+    run_state: doctor_checks::DoctorRunState,
+) -> anyhow::Result<DoctorPassOutcome> {
     let mut results: Vec<CheckResult> = Vec::new();
 
     // 1. Paths check
@@ -1578,7 +1597,7 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
 
     if failures.is_empty() {
         println!("\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
-        return Ok(());
+        return Ok(DoctorPassOutcome::Complete);
     }
 
     println!(
@@ -1610,10 +1629,13 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
         .collect();
 
     // ── Fix prompt ────────────────────────────────────────────────────────────
-    if fix {
+    if run_state.allows_fixes() && fix {
         println!("Applying fixes (--fix)...");
         apply_doctor_fixes(&auto_fixable).await?;
-    } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        if !auto_fixable.is_empty() {
+            return Ok(DoctorPassOutcome::Recheck);
+        }
+    } else if run_state.allows_fixes() && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         let count = auto_fixable.len();
         print!(
             "Fix {} auto-fixable issue{}? [Y/n] ",
@@ -1627,10 +1649,13 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
         let answer = input.trim().to_ascii_lowercase();
         if answer.is_empty() || answer == "y" || answer == "yes" {
             apply_doctor_fixes(&auto_fixable).await?;
+            if !auto_fixable.is_empty() {
+                return Ok(DoctorPassOutcome::Recheck);
+            }
         } else {
             println!("Skipped. Run `mag doctor --fix` to apply automatically.");
         }
-    } else if !auto_fixable.is_empty() {
+    } else if run_state.allows_fixes() && !auto_fixable.is_empty() {
         let count = auto_fixable.len();
         println!(
             "Run `mag doctor --fix` to apply {} auto-fixable issue{} automatically.",
@@ -1639,18 +1664,10 @@ async fn run_doctor(fix: bool) -> anyhow::Result<()> {
         );
     }
 
-    let hard_failures: Vec<_> = failures
-        .iter()
-        .filter(|r| r.status == CheckStatus::Fail)
-        .collect();
-    if hard_failures.is_empty() {
-        Ok(())
-    } else {
-        anyhow::bail!(
-            "{} doctor check(s) failed. See above for details.",
-            hard_failures.len()
-        );
-    }
+    anyhow::bail!(
+        "{} doctor check(s) failed. See above for details.",
+        failures.len()
+    );
 }
 
 async fn apply_doctor_fixes(fixable: &[&CheckResult]) -> anyhow::Result<()> {
