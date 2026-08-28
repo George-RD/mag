@@ -248,6 +248,20 @@ mod tests {
         artifact: "model.onnx",
         sha256: "0000000000000000000000000000000000000000000000000000000000000000",
     }];
+    const ORDERED_CHECKSUMS: [RetrieverArtifactChecksum; 2] = [
+        RetrieverArtifactChecksum {
+            artifact: "model.onnx",
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        },
+        RetrieverArtifactChecksum {
+            artifact: "tokenizer.json",
+            sha256: "1111111111111111111111111111111111111111111111111111111111111111",
+        },
+    ];
+    const REORDERED_CHECKSUMS: [RetrieverArtifactChecksum; 2] = [
+        ORDERED_CHECKSUMS[1],
+        ORDERED_CHECKSUMS[0],
+    ];
 
     fn production_profile_spec(role: &'static str) -> RetrieverModelProfileSpec {
         RetrieverModelProfileSpec {
@@ -327,6 +341,25 @@ mod tests {
         assert_ne!(
             base.embedding_space_identity(),
             vector_change.embedding_space_identity()
+        );
+    }
+
+    #[test]
+    fn embedding_space_identity_ignores_artifact_checksum_order() {
+        let ordered = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            checksums: &ORDERED_CHECKSUMS,
+            ..production_profile_spec("dense-embedding")
+        })
+        .expect("ordered profile should validate");
+        let reordered = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            checksums: &REORDERED_CHECKSUMS,
+            ..production_profile_spec("dense-embedding")
+        })
+        .expect("reordered profile should validate");
+
+        assert_eq!(
+            ordered.embedding_space_identity(),
+            reordered.embedding_space_identity()
         );
     }
 
