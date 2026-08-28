@@ -32,6 +32,15 @@ pub trait EmbeddingModel: Send + Sync {
     /// dimension, or query/document transformation changes.
     fn embedding_space_identity(&self) -> &str;
 
+    /// Returns validated immutable model metadata when this adapter has a
+    /// pinned retriever profile.
+    ///
+    /// Compatibility-only adapters return `None` rather than fabricating
+    /// revision or checksum metadata.
+    fn model_profile(&self) -> Option<RetrieverModelProfile> {
+        None
+    }
+
     /// Generates an embedding for an explicit retrieval input kind.
     fn embed_for(&self, input: EmbeddingInputKind, text: &str) -> Result<Vec<f32>>;
 
@@ -50,50 +59,50 @@ pub trait EmbeddingModel: Send + Sync {
 
 /// One immutable artifact checksum recorded by a retriever model profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RetrieverArtifactChecksum {
-    pub(super) artifact: &'static str,
-    pub(super) sha256: &'static str,
+pub struct RetrieverArtifactChecksum {
+    pub artifact: &'static str,
+    pub sha256: &'static str,
 }
 
 /// Expected local footprint for a retriever model profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct LocalResourceExpectations {
-    pub(super) model_disk_bytes: u64,
-    pub(super) peak_ram_bytes: u64,
+pub struct LocalResourceExpectations {
+    pub model_disk_bytes: u64,
+    pub peak_ram_bytes: u64,
 }
 
 /// Complete metadata used to construct an immutable retriever model profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RetrieverModelProfileSpec {
-    pub(super) model_id: &'static str,
-    pub(super) revision: &'static str,
-    pub(super) checksums: &'static [RetrieverArtifactChecksum],
-    pub(super) role: &'static str,
-    pub(super) runtime: &'static str,
-    pub(super) quantization: &'static str,
-    pub(super) output_dimensions: usize,
-    pub(super) pooling: &'static str,
-    pub(super) query_transform: &'static str,
-    pub(super) document_transform: &'static str,
-    pub(super) max_input_tokens: usize,
-    pub(super) licence: &'static str,
-    pub(super) local_resources: LocalResourceExpectations,
+pub struct RetrieverModelProfileSpec {
+    pub model_id: &'static str,
+    pub revision: &'static str,
+    pub checksums: &'static [RetrieverArtifactChecksum],
+    pub role: &'static str,
+    pub runtime: &'static str,
+    pub quantization: &'static str,
+    pub output_dimensions: usize,
+    pub pooling: &'static str,
+    pub query_transform: &'static str,
+    pub document_transform: &'static str,
+    pub max_input_tokens: usize,
+    pub licence: &'static str,
+    pub local_resources: LocalResourceExpectations,
 }
 
 /// Validated, immutable contract shared by dense encoders and rerankers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RetrieverModelProfile {
+pub struct RetrieverModelProfile {
     spec: RetrieverModelProfileSpec,
 }
 
 impl RetrieverModelProfile {
-    pub(super) fn new(spec: RetrieverModelProfileSpec) -> Result<Self> {
+    pub fn new(spec: RetrieverModelProfileSpec) -> Result<Self> {
         let profile = Self { spec };
         profile.validate()?;
         Ok(profile)
     }
 
-    pub(super) const fn metadata(&self) -> RetrieverModelProfileSpec {
+    pub const fn metadata(&self) -> RetrieverModelProfileSpec {
         self.spec
     }
 
@@ -102,7 +111,7 @@ impl RetrieverModelProfile {
     /// Runtime choice, licence text, and resource estimates are intentionally
     /// excluded: changing those does not make otherwise identical vectors
     /// incomparable and therefore must not force a re-embedding migration.
-    pub(super) fn embedding_space_identity(&self) -> String {
+    pub fn embedding_space_identity(&self) -> String {
         let spec = self.metadata();
         let mut identity = String::from("retriever-profile:v1");
         push_identity_component(&mut identity, "model", spec.model_id);
