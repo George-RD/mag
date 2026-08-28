@@ -18,11 +18,17 @@ visible migration requirement instead of silently mixing vector spaces. The
 legacy role-neutral `Embedder` path remains compatibility-only; profile changes
 must use the explicit embedding-model boundary.
 
-Remaining work is to define one immutable model-profile contract for dense
-encoders and rerankers. It must record model ID, revision, checksum, role,
-runtime, quantization, dimensions, pooling, query/document transformation,
-maximum input length, licence, and local resource expectations. An explicit,
-recoverable re-embedding migration is required before profile switching can ship.
+The immutable shared model-profile contract is now implemented for dense encoders
+and cross-encoder rerankers. It records model ID, revision, artifact checksums,
+role, runtime, quantization, dimensions, pooling, query/document transformation,
+maximum input length, licence, and local resource expectations. Production-ready
+profiles reject incomplete metadata, while embedding-space identity changes only
+for metadata that can alter vector semantics. The legacy adapter preserves its
+existing persisted identity. Evidence: PR #429 and the profile contract tests in
+`src/memory_core/embedding_model.rs`.
+
+Remaining work is an explicit, recoverable re-embedding migration before profile
+switching can ship.
 
 Keep generation, dense embedding, cross-encoding, and late interaction as
 separate roles even when they use the same model family.
