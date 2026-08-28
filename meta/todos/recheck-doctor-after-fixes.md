@@ -1,6 +1,6 @@
 ---
 node: mag.runtime.doctor
-status: in_progress
+status: done
 created: 2026-08-07
 ---
 # Recheck doctor state after applying fixes
@@ -21,7 +21,7 @@ non-zero and report stale failures.
 - [x] The workflow is covered without downloading real models in the test suite.
 - [x] Existing check content, fix actions, interactive behavior, and non-fix
   diagnostics remain compatible.
-- [ ] Exact-head CI and Cairn pass before merge.
+- [x] Exact-head CI and Cairn pass before merge.
 
 ## Implementation evidence
 
@@ -34,6 +34,13 @@ non-zero and report stale failures.
   final implementation, formatted it, and ran
   `cargo test --quiet --all-features post_fix_pass_disables_a_second_fix_attempt`
   before committing the source change.
+- Verified implementation/evidence head:
+  `bc58e054b01c06be96d94e3dc44ef412385144a9`.
+  - CI run `33162542979`: all jobs passed, including full tests, Rustfmt,
+    Clippy, smoke test, npm install, wrappers, installer integrity, version
+    consistency, and the benchmark classifier (retrieval benchmark execution was
+    correctly skipped because retrieval/scoring paths were unchanged).
+  - Cairn architecture gate run `33162542972`: passed.
 - The final implementation keeps the existing doctor checks and fix actions in a
   single pass function. `run_doctor` owns only the bounded orchestration: an
   accepted/applied fix returns `Recheck`; the next pass is `PostFix`, cannot offer
