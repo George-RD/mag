@@ -76,4 +76,14 @@ mod tests {
             other => panic!("expected MissingFiles, got {other:?}"),
         }
     }
+
+    #[test]
+    fn post_fix_pass_disables_a_second_fix_attempt() {
+        let initial = DoctorRunState::Initial;
+        assert!(initial.allows_fixes());
+
+        let recheck = initial.after_fixes();
+        assert_eq!(recheck, DoctorRunState::PostFix);
+        assert!(!recheck.allows_fixes());
+    }
 }
