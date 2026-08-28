@@ -165,6 +165,11 @@ impl RetrieverModelProfile {
             );
         }
         ensure!(
+            matches!(spec.role, "dense-embedding" | "cross-encoder-reranker"),
+            "unsupported retriever profile role: {}",
+            spec.role
+        );
+        ensure!(
             spec.output_dimensions > 0,
             "retriever profile output_dimensions must be greater than zero"
         );
