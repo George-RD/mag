@@ -2,6 +2,22 @@
 
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DoctorRunState {
+    Initial,
+    PostFix,
+}
+
+impl DoctorRunState {
+    pub(crate) const fn allows_fixes(self) -> bool {
+        matches!(self, Self::Initial)
+    }
+
+    pub(crate) const fn after_fixes(self) -> Self {
+        Self::PostFix
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum DirCheckResult {
     Ok { size_mb: f64 },
