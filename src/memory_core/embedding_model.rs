@@ -304,6 +304,10 @@ mod tests {
         });
         assert!(reranker.is_ok());
 
+        let unsupported_role =
+            RetrieverModelProfile::new(production_profile_spec("late-interaction"));
+        assert!(unsupported_role.is_err());
+
         let missing_checksum = RetrieverModelProfile::new(RetrieverModelProfileSpec {
             checksums: &[],
             ..production_profile_spec("dense-embedding")
