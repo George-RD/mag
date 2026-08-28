@@ -60,11 +60,15 @@ jobs:
               raise SystemExit("doctor start marker not found")
           source = source.replace(start_old, start_new, 1)
 
-          ready_old = '''        println!("\\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
+          ready_old = '''    if failures.is_empty() {
+              println!("\\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
               return Ok(());
+          }
           '''
-          ready_new = '''        println!("\\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
+          ready_new = '''    if failures.is_empty() {
+              println!("\\n{ok_count}/{total} checks passed{warn_suffix}. MAG is ready.");
               return Ok(DoctorPassOutcome::Complete);
+          }
           '''
           if ready_old not in source:
               raise SystemExit("doctor ready marker not found")
