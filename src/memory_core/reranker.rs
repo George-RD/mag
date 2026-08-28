@@ -5,6 +5,8 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::app_paths;
 
+use super::embedding_model::RetrieverModelProfile;
+
 /// Abstraction over relevance re-ranking strategies.
 ///
 /// Implementors receive a query and a slice of (id, passage) pairs and return
@@ -16,6 +18,15 @@ use crate::app_paths;
 /// runs ONNX inference (CPU-bound) and is always called from inside a
 /// `tokio::task::spawn_blocking` closure in `advanced.rs`.
 pub trait Reranker: Send + Sync {
+    /// Returns validated immutable model metadata when this adapter has a
+    /// pinned retriever profile.
+    ///
+    /// Compatibility-only and no-op adapters return `None` rather than
+    /// fabricating revision or checksum metadata.
+    fn model_profile(&self) -> Option<RetrieverModelProfile> {
+        None
+    }
+
     /// Re-rank `candidates` (each a `(memory_id, passage_text)` pair) against
     /// `query`.  Returns a map from memory-id to a relevance score in [0, 1].
     fn rerank(&self, query: &str, candidates: &[(&str, &str)]) -> Result<HashMap<String, f32>>;
