@@ -1,8 +1,180 @@
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 
 use super::embedder::Embedder;
+
+/// One immutable artifact checksum recorded by a retriever model profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RetrieverArtifactChecksum {
+    pub(super) artifact: &'static str,
+    pub(super) sha256: &'static str,
+}
+
+/// Expected local footprint for a retriever model profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct LocalResourceExpectations {
+    pub(super) model_disk_bytes: u64,
+    pub(super) peak_ram_bytes: u64,
+}
+
+/// Complete metadata used to construct an immutable retriever model profile.
+///
+/// Production profiles must fill every field. Compatibility adapters may mark
+/// themselves as not production-ready while they are being retired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RetrieverModelProfileSpec {
+    pub(super) model_id: &'static str,
+    pub(super) revision: &'static str,
+    pub(super) checksums: &'static [RetrieverArtifactChecksum],
+    pub(super) role: &'static str,
+    pub(super) runtime: &'static str,
+    pub(super) quantization: &'static str,
+    pub(super) output_dimensions: usize,
+    pub(super) pooling: &'static str,
+    pub(super) query_transform: &'static str,
+    pub(super) document_transform: &'static str,
+    pub(super) max_input_tokens: usize,
+    pub(super) licence: &'static str,
+    pub(super) local_resources: LocalResourceExpectations,
+    pub(super) production_ready: bool,
+}
+
+/// Validated, immutable contract shared by dense encoders and rerankers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RetrieverModelProfile {
+    spec: RetrieverModelProfileSpec,
+}
+
+impl RetrieverModelProfile {
+    pub(super) fn new(spec: RetrieverModelProfileSpec) -> Result<Self> {
+        let profile = Self { spec };
+        profile.validate()?;
+        Ok(profile)
+    }
+
+    pub(super) const fn metadata(&self) -> RetrieverModelProfileSpec {
+        self.spec
+    }
+
+    /// Stable identity for semantics that determine persisted vector values.
+    ///
+    /// Runtime choice, licence text, and resource estimates are intentionally
+    /// excluded: changing those does not make otherwise identical vectors
+    /// incomparable and therefore must not force a re-embedding migration.
+    pub(super) fn embedding_space_identity(&self) -> String {
+        let spec = self.metadata();
+        let mut identity = String::from("retriever-profile:v1");
+        push_identity_component(&mut identity, "model", spec.model_id);
+        push_identity_component(&mut identity, "revision", spec.revision);
+        push_identity_component(&mut identity, "role", spec.role);
+        for checksum in spec.checksums {
+            push_identity_component(&mut identity, "artifact", checksum.artifact);
+            push_identity_component(&mut identity, "sha256", checksum.sha256);
+        }
+        push_identity_component(&mut identity, "quantization", spec.quantization);
+        push_identity_component(
+            &mut identity,
+            "dimensions",
+            &spec.output_dimensions.to_string(),
+        );
+        push_identity_component(&mut identity, "pooling", spec.pooling);
+        push_identity_component(&mut identity, "query", spec.query_transform);
+        push_identity_component(&mut identity, "document", spec.document_transform);
+        push_identity_component(
+            &mut identity,
+            "max_input_tokens",
+            &spec.max_input_tokens.to_string(),
+        );
+        identity
+    }
+
+    fn validate(&self) -> Result<()> {
+        let spec = self.metadata();
+        for (name, value) in [
+            ("model_id", spec.model_id),
+            ("revision", spec.revision),
+            ("role", spec.role),
+            ("runtime", spec.runtime),
+            ("quantization", spec.quantization),
+            ("pooling", spec.pooling),
+            ("query_transform", spec.query_transform),
+            ("document_transform", spec.document_transform),
+            ("licence", spec.licence),
+        ] {
+            ensure!(!value.trim().is_empty(), "retriever profile {name} is empty");
+        }
+        ensure!(
+            spec.output_dimensions > 0,
+            "retriever profile output_dimensions must be greater than zero"
+        );
+
+        for checksum in spec.checksums {
+            ensure!(
+                !checksum.artifact.trim().is_empty(),
+                "retriever profile checksum artifact is empty"
+            );
+            ensure!(
+                checksum.sha256.len() == 64
+                    && checksum.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "retriever profile checksum for {} is not a SHA-256 digest",
+                checksum.artifact
+            );
+        }
+
+        if spec.production_ready {
+            ensure!(
+                !spec.checksums.is_empty(),
+                "production retriever profile must record at least one artifact checksum"
+            );
+            ensure!(
+                spec.max_input_tokens > 0,
+                "production retriever profile must record max_input_tokens"
+            );
+            ensure!(
+                spec.local_resources.model_disk_bytes > 0,
+                "production retriever profile must record expected model disk bytes"
+            );
+            ensure!(
+                spec.local_resources.peak_ram_bytes > 0,
+                "production retriever profile must record expected peak RAM bytes"
+            );
+            ensure!(
+                !self.embedding_space_identity().is_empty(),
+                "production retriever profile must have an embedding-space identity"
+            );
+        }
+
+        Ok(())
+    }
+
+    fn legacy_role_neutral(dimension: usize) -> Result<Self> {
+        Self::new(RetrieverModelProfileSpec {
+            model_id: "legacy-role-neutral",
+            revision: "v1",
+            checksums: &[],
+            role: "dense-embedding",
+            runtime: "compatibility-adapter",
+            quantization: "unknown",
+            output_dimensions: dimension,
+            pooling: "legacy-role-neutral",
+            query_transform: "identity",
+            document_transform: "identity",
+            max_input_tokens: 0,
+            licence: "unknown",
+            local_resources: LocalResourceExpectations {
+                model_disk_bytes: 0,
+                peak_ram_bytes: 0,
+            },
+            production_ready: false,
+        })
+    }
+}
+
+fn push_identity_component(identity: &mut String, name: &str, value: &str) {
+    write!(identity, ";{name}={}:{}", value.len(), value)
+        .expect("writing retriever identity to String cannot fail");
+}
 
 /// Identifies how text participates in retrieval.
 ///
@@ -59,7 +231,12 @@ pub(crate) struct LegacyEmbedderAdapter {
 
 impl LegacyEmbedderAdapter {
     pub(crate) fn new(inner: Arc<dyn Embedder>) -> Self {
-        let embedding_space_identity = format!("legacy-role-neutral:v1:dim={}", inner.dimension());
+        let profile = RetrieverModelProfile::legacy_role_neutral(inner.dimension())
+            .expect("built-in legacy retriever profile must be valid");
+        let embedding_space_identity = format!(
+            "legacy-role-neutral:v1:dim={}",
+            profile.metadata().output_dimensions
+        );
         Self {
             inner,
             embedding_space_identity,
