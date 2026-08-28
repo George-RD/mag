@@ -106,32 +106,19 @@ jobs:
               raise SystemExit("interactive fix call not found")
           source = source.replace(interactive_apply, interactive_recheck, 1)
 
-          final_old = '''    let hard_failures: Vec<_> = failures
-              .iter()
-              .filter(|r| r.status == CheckStatus::Fail)
-              .collect();
-          if hard_failures.is_empty() {
-              Ok(())
-          } else {
-              anyhow::bail!(
-                  "{} doctor check(s) failed. See above for details.",
-                  hard_failures.len()
-              );
-          }
-          }
-
-          async fn apply_doctor_fixes'''
-          final_new = '''        anyhow::bail!(
+          final_start_marker = "    let hard_failures: Vec<_> = failures\n"
+          final_end_marker = "\n}\n\nasync fn apply_doctor_fixes"
+          final_start = source.find(final_start_marker)
+          final_end = source.find(final_end_marker, final_start)
+          if final_start < 0 or final_end < 0:
+              raise SystemExit("doctor finalization anchors not found")
+          final_new = '''    anyhow::bail!(
               "{} doctor check(s) failed. See above for details.",
               failures.len()
           );
               }
-          }
-
-          async fn apply_doctor_fixes'''
-          if final_old not in source:
-              raise SystemExit("doctor finalization marker not found")
-          source = source.replace(final_old, final_new, 1)
+          '''
+          source = source[:final_start] + final_new + source[final_end:]
           main_path.write_text(source)
           PY
       - name: Format and run focused regression
