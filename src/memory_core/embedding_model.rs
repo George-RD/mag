@@ -230,7 +230,10 @@ fn push_identity_component(identity: &mut String, name: &str, value: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_core::embedder::PlaceholderEmbedder;
+    use crate::memory_core::{
+        embedder::PlaceholderEmbedder,
+        reranker::{NoOpReranker, Reranker},
+    };
 
     const MODEL_CHECKSUMS: [RetrieverArtifactChecksum; 1] = [RetrieverArtifactChecksum {
         artifact: "model.onnx",
@@ -316,6 +319,15 @@ mod tests {
             base.embedding_space_identity(),
             vector_change.embedding_space_identity()
         );
+    }
+
+    #[test]
+    fn compatibility_adapters_do_not_claim_validated_profiles() {
+        let embedder = LegacyEmbedderAdapter::new(Arc::new(PlaceholderEmbedder));
+        assert!(embedder.model_profile().is_none());
+
+        let reranker = NoOpReranker;
+        assert!(reranker.model_profile().is_none());
     }
 
     #[test]
