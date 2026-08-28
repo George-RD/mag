@@ -108,19 +108,27 @@ impl RetrieverModelProfile {
 
     /// Stable identity for semantics that determine persisted vector values.
     ///
-    /// Runtime choice, licence text, and resource estimates are intentionally
-    /// excluded: changing those does not make otherwise identical vectors
-    /// incomparable and therefore must not force a re-embedding migration.
+    /// Runtime choice, licence text, resource estimates, and artifact-list
+    /// ordering are intentionally excluded: changing those does not make
+    /// otherwise identical vectors incomparable and must not force migration.
     pub fn embedding_space_identity(&self) -> String {
         let spec = self.metadata();
         let mut identity = String::from("retriever-profile:v1");
         push_identity_component(&mut identity, "model", spec.model_id);
         push_identity_component(&mut identity, "revision", spec.revision);
         push_identity_component(&mut identity, "role", spec.role);
-        for checksum in spec.checksums {
+
+        let mut checksums: Vec<_> = spec.checksums.iter().collect();
+        checksums.sort_unstable_by(|left, right| {
+            left.artifact
+                .cmp(right.artifact)
+                .then_with(|| left.sha256.cmp(right.sha256))
+        });
+        for checksum in checksums {
             push_identity_component(&mut identity, "artifact", checksum.artifact);
             push_identity_component(&mut identity, "sha256", checksum.sha256);
         }
+
         push_identity_component(&mut identity, "quantization", spec.quantization);
         push_identity_component(
             &mut identity,
