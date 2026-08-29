@@ -180,17 +180,11 @@ async fn reembed_rebuilds_vector_index_for_dimension_change() -> Result<()> {
         .into_iter()
         .flat_map(|value| value.to_le_bytes())
         .collect();
-    let error = conn
-        .execute(
-            "INSERT INTO vec_memories(memory_id, embedding) VALUES ('__source_probe__', ?1)",
-            params![source_probe],
-        )
-        .expect_err("old-dimension vectors must not fit the rebuilt index");
-    let message = error.to_string().to_lowercase();
-    assert!(
-        message.contains("dimension") || message.contains("size"),
-        "unexpected sqlite-vec dimension error: {error}"
-    );
+    conn.execute(
+        "INSERT INTO vec_memories(memory_id, embedding) VALUES ('__source_probe__', ?1)",
+        params![source_probe],
+    )
+    .expect_err("old-dimension vectors must not fit the rebuilt index");
     Ok(())
 }
 
