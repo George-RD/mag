@@ -62,7 +62,9 @@ fn reembed_path_sync(
         return Err(anyhow!("re-embed batch size must be greater than zero"));
     }
     if embedding_model.dimension() == 0 {
-        return Err(anyhow!("target embedding dimension must be greater than zero"));
+        return Err(anyhow!(
+            "target embedding dimension must be greater than zero"
+        ));
     }
     if path.as_os_str() == ":memory:" {
         return Err(anyhow!("re-embed requires a file-backed database"));
@@ -217,7 +219,8 @@ fn reembed_path_sync(
         ));
     }
 
-    tx.commit().context("failed to commit re-embed transaction")?;
+    tx.commit()
+        .context("failed to commit re-embed transaction")?;
 
     Ok(ReembedReport {
         source_embedding_space,
