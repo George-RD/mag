@@ -153,3 +153,37 @@ async fn reembed_failure_rolls_back_vectors_and_embedding_space_identity() -> Re
     assert!(SqliteStorage::new_with_path_and_embedding_model(path, target).is_err());
     Ok(())
 }
+
+#[cfg(not(feature = "sqlite-vec"))]
+#[tokio::test]
+async fn reembed_refuses_existing_vector_index_without_sqlite_vec_support() -> Result<()> {
+    use rusqlite::Connection;
+
+    let dir = tempdir()?;
+    let path = dir.path().join("memory.db");
+    let source: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-a", 4));
+    let target: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-b", 4));
+    seed_database(&path, Arc::clone(&source)).await?;
+
+    let conn = Connection::open(&path)?;
+    conn.execute_batch(
+        "CREATE TABLE vec_memories (memory_id TEXT PRIMARY KEY, embedding BLOB NOT NULL);",
+    )?;
+    drop(conn);
+
+    let error = LocalMemoryRuntime::reembed_path_with_embedding_model(
+        path.clone(),
+        Arc::clone(&target),
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
+    )
+    .await
+    .expect_err("migration must not leave an existing vector index stale");
+
+    assert!(error.to_string().contains("sqlite-vec"));
+    assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), source).is_ok());
+    assert!(SqliteStorage::new_with_path_and_embedding_model(path, target).is_err());
+    Ok(())
+}
