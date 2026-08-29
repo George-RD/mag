@@ -55,7 +55,7 @@ pub struct SearchFilterArgs {
     pub event_before: Option<String>,
 }
 
-/// The main CLI entry point for MAG.
+/// Parses a strictly positive batch size for bounded CLI work.
 fn parse_positive_usize(value: &str) -> Result<usize, String> {
     let value = value
         .parse::<usize>()
@@ -66,6 +66,7 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
     Ok(value)
 }
 
+/// The main CLI entry point for MAG.
 #[derive(Parser)]
 #[command(name = "mag", version)]
 #[command(about = "Memory-Augmented Generation for local agents and MCP clients", long_about = None)]
