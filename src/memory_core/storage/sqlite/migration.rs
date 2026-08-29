@@ -71,7 +71,7 @@ fn reembed_path_sync(
     #[cfg(feature = "sqlite-vec")]
     super::ensure_vec_extension_registered();
 
-    let mut conn = Connection::open(path)
+    let conn = Connection::open(path)
         .with_context(|| format!("failed to open sqlite database at {}", path.display()))?;
     conn.execute_batch(
         "PRAGMA foreign_keys=ON;\
@@ -142,9 +142,9 @@ fn reembed_path_sync(
         let rows: Vec<(String, String)> = {
             let mut stmt = tx
                 .prepare(
-                    "SELECT id, content FROM memories\
-                     WHERE (?1 IS NULL OR id > ?1)\
-                     ORDER BY id\
+                    "SELECT id, content FROM memories \
+                     WHERE (?1 IS NULL OR id > ?1) \
+                     ORDER BY id \
                      LIMIT ?2",
                 )
                 .context("failed to prepare re-embed batch query")?;
