@@ -129,6 +129,71 @@ async fn reembed_migrates_same_dimension_space_atomically_and_creates_backup() -
     Ok(())
 }
 
+#[cfg(feature = "sqlite-vec")]
+#[tokio::test]
+async fn reembed_rebuilds_vector_index_for_dimension_change() -> Result<()> {
+    use rusqlite::{Connection, params};
+
+    let dir = tempdir()?;
+    let path = dir.path().join("memory.db");
+    let source: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-a", 4));
+    let target: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-b", 6));
+    seed_database(&path, Arc::clone(&source)).await?;
+
+    let report = LocalMemoryRuntime::reembed_path_with_embedding_model(
+        path.clone(),
+        Arc::clone(&target),
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
+    )
+    .await?;
+
+    assert_eq!(report.target_dimension, 6);
+    assert_eq!(report.migrated_count, 2);
+    assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), target).is_ok());
+    assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), source).is_err());
+
+    let conn = Connection::open(&path)?;
+    let blob_lengths = {
+        let mut stmt = conn.prepare("SELECT length(embedding) FROM memories ORDER BY id")?;
+        stmt.query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    assert_eq!(blob_lengths, vec![24, 24]);
+
+    let target_probe: Vec<u8> = vec![0.0_f32; 6]
+        .into_iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
+    conn.execute(
+        "INSERT INTO vec_memories(memory_id, embedding) VALUES ('__target_probe__', ?1)",
+        params![target_probe],
+    )?;
+    conn.execute(
+        "DELETE FROM vec_memories WHERE memory_id = '__target_probe__'",
+        [],
+    )?;
+
+    let source_probe: Vec<u8> = vec![0.0_f32; 4]
+        .into_iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
+    let error = conn
+        .execute(
+            "INSERT INTO vec_memories(memory_id, embedding) VALUES ('__source_probe__', ?1)",
+            params![source_probe],
+        )
+        .expect_err("old-dimension vectors must not fit the rebuilt index");
+    let message = error.to_string().to_lowercase();
+    assert!(
+        message.contains("dimension") || message.contains("size"),
+        "unexpected sqlite-vec dimension error: {error}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn reembed_failure_rolls_back_vectors_and_embedding_space_identity() -> Result<()> {
     let dir = tempdir()?;
