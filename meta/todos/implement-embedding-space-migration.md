@@ -1,6 +1,6 @@
 ---
 node: mag.runtime.memory.storage.sqlite
-status: open
+status: in_progress
 created: 2026-07-29
 unblocked: 2026-08-28
 ---
