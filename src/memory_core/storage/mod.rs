@@ -3,4 +3,4 @@ pub mod memory;
 /// SQLite-backed storage implementation.
 pub mod sqlite;
 
-pub use sqlite::{InitMode, SqliteStorage};
+pub use sqlite::{InitMode, ReembedOptions, ReembedReport, SqliteStorage};
