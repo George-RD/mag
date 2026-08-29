@@ -1,8 +1,12 @@
+#[cfg(feature = "real-embeddings")]
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+#[cfg(feature = "real-embeddings")]
+use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "real-embeddings")]
 use crate::app_paths;
 
 /// Trait for generating text embeddings.
