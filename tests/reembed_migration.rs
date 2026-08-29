@@ -118,7 +118,12 @@ async fn reembed_migrates_same_dimension_space_atomically_and_creates_backup() -
 
     assert_eq!(report.memory_count, 2);
     assert_eq!(report.migrated_count, 2);
-    assert!(report.backup_path.as_ref().is_some_and(|path| path.exists()));
+    assert!(
+        report
+            .backup_path
+            .as_ref()
+            .is_some_and(|path| path.exists())
+    );
     assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), target).is_ok());
     assert!(SqliteStorage::new_with_path_and_embedding_model(path, source).is_err());
     Ok(())
