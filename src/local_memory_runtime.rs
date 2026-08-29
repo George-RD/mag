@@ -9,9 +9,9 @@ use crate::memory_core::{
     CheckpointSaveOutcome, Deleter, Embedder, EmbeddingModel, ExpirationSweeper, FeedbackRecorder,
     GraphNode, GraphTraverser, LegacyEmbedderAdapter, LessonQuerier, ListResult, Lister,
     MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
-    ProfileManager, Relationship, RelationshipQuerier, ReminderManager, SearchOptions, SearchResult,
-    SemanticResult, SimilarFinder, StatsProvider, Storage, Tagger, VersionChainQuerier,
-    WelcomeOptions, WelcomeProvider,
+    ProfileManager, Relationship, RelationshipQuerier, ReminderManager, SearchOptions,
+    SearchResult, SemanticResult, SimilarFinder, StatsProvider, Storage, Tagger,
+    VersionChainQuerier, WelcomeOptions, WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
