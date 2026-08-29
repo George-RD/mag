@@ -7,11 +7,11 @@ use crate::memory_core::storage::{InitMode, ReembedOptions, ReembedReport, Sqlit
 use crate::memory_core::{
     AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager,
     CheckpointSaveOutcome, Deleter, Embedder, EmbeddingModel, ExpirationSweeper, FeedbackRecorder,
-    GraphNode, GraphTraverser, LessonQuerier, ListResult, Lister, MaintenanceManager, MemoryInput,
-    MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, Relationship,
-    RelationshipQuerier, ReminderManager, SearchOptions, SearchResult, SemanticResult,
-    SimilarFinder, StatsProvider, Storage, Tagger, VersionChainQuerier, WelcomeOptions,
-    WelcomeProvider,
+    GraphNode, GraphTraverser, LegacyEmbedderAdapter, LessonQuerier, ListResult, Lister,
+    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
+    ProfileManager, Relationship, RelationshipQuerier, ReminderManager, SearchOptions, SearchResult,
+    SemanticResult, SimilarFinder, StatsProvider, Storage, Tagger, VersionChainQuerier,
+    WelcomeOptions, WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -56,6 +56,23 @@ impl LocalMemoryRuntime {
             storage,
             compatibility_pipeline,
         }
+    }
+
+    /// Migrates a file-backed database using the current legacy CLI embedder.
+    ///
+    /// The compatibility adapter remains inside the application runtime so CLI
+    /// callers do not invent a second embedding-space identity contract.
+    pub async fn reembed_path(
+        path: PathBuf,
+        embedder: Arc<dyn Embedder>,
+        options: ReembedOptions,
+    ) -> Result<ReembedReport> {
+        Self::reembed_path_with_embedding_model(
+            path,
+            Arc::new(LegacyEmbedderAdapter::new(embedder)),
+            options,
+        )
+        .await
     }
 
     /// Migrates a file-backed database into a selected embedding model.
