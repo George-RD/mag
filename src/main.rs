@@ -5,7 +5,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use chrono::{DateTime, FixedOffset, NaiveDate, SecondsFormat, TimeZone, Utc};
 use clap::Parser;
 use cli::{Cli, Commands, InitModeArg, SearchFilterArgs};
-use mag::memory_core::storage::{InitMode, SqliteStorage};
+use mag::memory_core::storage::{InitMode, ReembedOptions, SqliteStorage};
 use mag::memory_core::{
     CheckpointInput, Embedder, EventType, MemoryInput, MemoryUpdate, SearchOptions, WelcomeOptions,
     is_valid_event_type,
@@ -165,6 +165,37 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(not(feature = "real-embeddings"))]
     let embedder: Arc<dyn Embedder> = Arc::new(PlaceholderEmbedder);
+
+    if let Commands::ReEmbed {
+        batch_size,
+        dry_run,
+    } = &cli.command
+    {
+        let paths = app_paths::resolve_app_paths()?;
+        let report = LocalMemoryRuntime::reembed_path(
+            paths.database_path,
+            Arc::clone(&embedder),
+            ReembedOptions {
+                batch_size: *batch_size,
+                dry_run: *dry_run,
+            },
+        )
+        .await?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "source_embedding_space": report.source_embedding_space,
+                "target_embedding_space": report.target_embedding_space,
+                "target_dimension": report.target_dimension,
+                "memory_count": report.memory_count,
+                "migrated_count": report.migrated_count,
+                "backup_path": report.backup_path.map(|path| path.display().to_string()),
+                "dry_run": dry_run,
+            }))?
+        );
+        return Ok(());
+    }
+
     let sqlite_storage = SqliteStorage::new(storage_mode, Arc::clone(&embedder))?;
 
     #[cfg(feature = "real-embeddings")]
@@ -349,6 +380,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Paths => {
             unreachable!("paths is handled before storage initialization");
+        }
+        Commands::ReEmbed { .. } => {
+            unreachable!("re-embed is handled before storage initialization");
         }
         Commands::Search {
             query,
