@@ -150,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
     let storage_mode = match cli.init_mode {
         InitModeArg::Default => InitMode::Default,
     };
+    #[cfg(feature = "real-embeddings")]
     let warmup = matches!(&cli.command, Commands::Serve { .. });
 
     #[cfg(feature = "real-embeddings")]
