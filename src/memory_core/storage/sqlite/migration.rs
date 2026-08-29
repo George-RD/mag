@@ -125,6 +125,9 @@ fn reembed_path_sync(
         });
     }
 
+    #[cfg(not(feature = "sqlite-vec"))]
+    refuse_stale_vec_index_without_sqlite_vec(&conn)?;
+
     let backup = super::admin::backup::create_backup_sync(&conn, path)
         .context("failed to create pre-migration backup")?;
     let batch_limit = i64::try_from(options.batch_size)
@@ -230,6 +233,28 @@ fn reembed_path_sync(
         migrated_count,
         backup_path: Some(backup.path),
     })
+}
+
+#[cfg(not(feature = "sqlite-vec"))]
+fn refuse_stale_vec_index_without_sqlite_vec(conn: &Connection) -> Result<()> {
+    let vec_index_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(\
+                SELECT 1 FROM sqlite_master \
+                WHERE type = 'table' AND name = 'vec_memories'\
+            )",
+            [],
+            |row| row.get(0),
+        )
+        .context("failed to inspect vec_memories before re-embed")?;
+
+    if vec_index_exists {
+        return Err(anyhow!(
+            "cannot re-embed a database with an existing vec_memories index because this build does not include sqlite-vec support"
+        ));
+    }
+
+    Ok(())
 }
 
 #[cfg(feature = "sqlite-vec")]
