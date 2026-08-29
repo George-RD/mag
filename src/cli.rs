@@ -164,6 +164,13 @@ pub enum Commands {
     },
     /// Shows the active MAG data, model, and benchmark cache paths.
     Paths,
+    /// Rebuilds persisted embeddings using the currently selected embedding model.
+    ReEmbed {
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(usize).range(1..))]
+        batch_size: usize,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Searches stored memories by query string.
     Search {
         query: String,
