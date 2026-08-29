@@ -15,18 +15,30 @@ struct TestEmbeddingModel {
 
 impl TestEmbeddingModel {
     fn new(identity: &'static str, dimension: usize) -> Self {
-        Self { identity, dimension, fail_on: None }
+        Self {
+            identity,
+            dimension,
+            fail_on: None,
+        }
     }
 
     fn failing_on(identity: &'static str, dimension: usize, text: &'static str) -> Self {
-        Self { identity, dimension, fail_on: Some(text) }
+        Self {
+            identity,
+            dimension,
+            fail_on: Some(text),
+        }
     }
 }
 
 impl EmbeddingModel for TestEmbeddingModel {
-    fn dimension(&self) -> usize { self.dimension }
+    fn dimension(&self) -> usize {
+        self.dimension
+    }
 
-    fn embedding_space_identity(&self) -> &str { self.identity }
+    fn embedding_space_identity(&self) -> &str {
+        self.identity
+    }
 
     fn embed_for(&self, _input: EmbeddingInputKind, text: &str) -> Result<Vec<f32>> {
         if self.fail_on.is_some_and(|needle| text.contains(needle)) {
@@ -48,8 +60,12 @@ async fn seed_database(path: &std::path::Path, model: Arc<dyn EmbeddingModel>) -
     let storage = SqliteStorage::new_with_path_and_embedding_model(path.to_path_buf(), model)?;
     let runtime = LocalMemoryRuntime::from_storage(storage);
 
-    runtime.store_raw("alpha", "alpha memory", &MemoryInput::default()).await?;
-    runtime.store_raw("beta", "beta memory", &MemoryInput::default()).await?;
+    runtime
+        .store_raw("alpha", "alpha memory", &MemoryInput::default())
+        .await?;
+    runtime
+        .store_raw("beta", "beta memory", &MemoryInput::default())
+        .await?;
     Ok(())
 }
 
@@ -62,8 +78,14 @@ async fn reembed_dry_run_reports_affected_memories_without_changing_space() -> R
     seed_database(&path, Arc::clone(&source)).await?;
 
     let report = LocalMemoryRuntime::reembed_path_with_embedding_model(
-        path.clone(), Arc::clone(&target), ReembedOptions { batch_size: 1, dry_run: true },
-    ).await?;
+        path.clone(),
+        Arc::clone(&target),
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: true,
+        },
+    )
+    .await?;
 
     assert_eq!(report.source_embedding_space, "space-a");
     assert_eq!(report.target_embedding_space, "space-b");
@@ -85,12 +107,23 @@ async fn reembed_migrates_same_dimension_space_atomically_and_creates_backup() -
     seed_database(&path, Arc::clone(&source)).await?;
 
     let report = LocalMemoryRuntime::reembed_path_with_embedding_model(
-        path.clone(), Arc::clone(&target), ReembedOptions { batch_size: 1, dry_run: false },
-    ).await?;
+        path.clone(),
+        Arc::clone(&target),
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
+    )
+    .await?;
 
     assert_eq!(report.memory_count, 2);
     assert_eq!(report.migrated_count, 2);
-    assert!(report.backup_path.as_ref().is_some_and(|path| path.exists()));
+    assert!(
+        report
+            .backup_path
+            .as_ref()
+            .is_some_and(|path| path.exists())
+    );
     assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), target).is_ok());
     assert!(SqliteStorage::new_with_path_and_embedding_model(path, source).is_err());
     Ok(())
@@ -108,8 +141,14 @@ async fn reembed_rebuilds_vector_index_for_dimension_change() -> Result<()> {
     seed_database(&path, Arc::clone(&source)).await?;
 
     let report = LocalMemoryRuntime::reembed_path_with_embedding_model(
-        path.clone(), Arc::clone(&target), ReembedOptions { batch_size: 1, dry_run: false },
-    ).await?;
+        path.clone(),
+        Arc::clone(&target),
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
+    )
+    .await?;
 
     assert_eq!(report.target_dimension, 6);
     assert_eq!(report.migrated_count, 2);
@@ -125,19 +164,27 @@ async fn reembed_rebuilds_vector_index_for_dimension_change() -> Result<()> {
     assert_eq!(blob_lengths, vec![24, 24]);
 
     let target_probe: Vec<u8> = vec![0.0_f32; 6]
-        .into_iter().flat_map(|value| value.to_le_bytes()).collect();
+        .into_iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
     conn.execute(
         "INSERT INTO vec_memories(memory_id, embedding) VALUES ('__target_probe__', ?1)",
         params![target_probe],
     )?;
-    conn.execute("DELETE FROM vec_memories WHERE memory_id = '__target_probe__'", [])?;
+    conn.execute(
+        "DELETE FROM vec_memories WHERE memory_id = '__target_probe__'",
+        [],
+    )?;
 
     let source_probe: Vec<u8> = vec![0.0_f32; 4]
-        .into_iter().flat_map(|value| value.to_le_bytes()).collect();
+        .into_iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
     conn.execute(
         "INSERT INTO vec_memories(memory_id, embedding) VALUES ('__source_probe__', ?1)",
         params![source_probe],
-    ).expect_err("old-dimension vectors must not fit the rebuilt index");
+    )
+    .expect_err("old-dimension vectors must not fit the rebuilt index");
     Ok(())
 }
 
@@ -146,12 +193,19 @@ async fn reembed_failure_rolls_back_vectors_and_embedding_space_identity() -> Re
     let dir = tempdir()?;
     let path = dir.path().join("memory.db");
     let source: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-a", 4));
-    let target: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::failing_on("space-b", 4, "beta"));
+    let target: Arc<dyn EmbeddingModel> =
+        Arc::new(TestEmbeddingModel::failing_on("space-b", 4, "beta"));
     seed_database(&path, Arc::clone(&source)).await?;
 
     let result = LocalMemoryRuntime::reembed_path_with_embedding_model(
-        path.clone(), Arc::clone(&target), ReembedOptions { batch_size: 1, dry_run: false },
-    ).await;
+        path.clone(),
+        Arc::clone(&target),
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
+    )
+    .await;
 
     assert!(result.is_err());
     assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), source).is_ok());
@@ -177,11 +231,20 @@ async fn reembed_refuses_existing_vector_index_without_sqlite_vec_support() -> R
     drop(conn);
 
     let error = LocalMemoryRuntime::reembed_path_with_embedding_model(
-        path.clone(), Arc::clone(&target), ReembedOptions { batch_size: 1, dry_run: false },
-    ).await.expect_err("migration must not leave an existing vector index stale");
+        path.clone(),
+        Arc::clone(&target),
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
+    )
+    .await
+    .expect_err("migration must not leave an existing vector index stale");
 
     assert!(
-        error.chain().any(|cause| cause.to_string().contains("sqlite-vec")),
+        error
+            .chain()
+            .any(|cause| cause.to_string().contains("sqlite-vec")),
         "expected sqlite-vec refusal, got: {error:#}"
     );
     assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), source).is_ok());
