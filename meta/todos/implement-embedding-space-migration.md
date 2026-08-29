@@ -24,3 +24,24 @@ The CLI is the canonical command surface and the migration workflow belongs in
 `LocalMemoryRuntime` (or a typed application workflow it owns). Any MCP exposure
 must remain an optional thin transport over that same workflow rather than
 calling `SqliteStorage` directly.
+
+## Current implementation evidence
+
+PR #433 implements the recoverable migration slice through `LocalMemoryRuntime`:
+dry-run affected-memory reporting, bounded embedding batches with progress logs,
+a pre-migration backup, one transactional BLOB/vector-index/identity migration,
+rollback on failure or interruption, vector-index recreation for dimension
+changes, and a feature-minimal refusal path when an existing vector index cannot
+be repaired without `sqlite-vec`. The CLI is the command surface; MCP is unchanged.
+
+Exact-head verification for implementation commit
+`2c74b8d1f5cbf1e44bce84505f03a688a7fbe9e8` passed CI run `33257233088`,
+including Rustfmt, Clippy, the full Rust suite, the no-default-features migration
+test, benchmark gate, smoke test, wrappers, npm install, installer integrity, and
+version consistency. Cairn architecture gate run `33257233085` also passed.
+
+Keep this todo `in_progress`: the legacy `Embedder` path deliberately preserves
+its compatibility-only dimension identity and must not fabricate validated model
+metadata. Production profile switching therefore remains on the explicit
+`EmbeddingModel` boundary once a pinned profile-backed composition path is
+selected; this PR does not claim that remaining profile-selection work is done.
