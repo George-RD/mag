@@ -47,7 +47,10 @@ pub(super) fn collect_backup_entries(backups_dir: &Path) -> Result<Vec<fs::DirEn
 
 /// Create a binary backup of the database file.
 /// Performs WAL checkpoint first to ensure all data is in the main file.
-pub(super) fn create_backup_sync(conn: &Connection, db_path: &Path) -> Result<BackupInfo> {
+pub(in crate::memory_core::storage::sqlite) fn create_backup_sync(
+    conn: &Connection,
+    db_path: &Path,
+) -> Result<BackupInfo> {
     // Skip for in-memory databases
     if db_path.as_os_str() == ":memory:" {
         anyhow::bail!("cannot create backup of in-memory database");
