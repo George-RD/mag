@@ -1,8 +1,12 @@
 use std::collections::HashMap;
+#[cfg(feature = "real-embeddings")]
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+#[cfg(feature = "real-embeddings")]
+use anyhow::{Context, anyhow};
 
+#[cfg(feature = "real-embeddings")]
 use crate::app_paths;
 
 use super::embedding_model::RetrieverModelProfile;
@@ -312,6 +316,7 @@ impl Reranker for CrossEncoderReranker {
     }
 }
 
+#[cfg(any(feature = "real-embeddings", test))]
 fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }

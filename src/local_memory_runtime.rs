@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::memory_core::storage::{InitMode, SqliteStorage};
+use crate::memory_core::storage::{InitMode, ReembedOptions, ReembedReport, SqliteStorage};
 use crate::memory_core::{
     AdvancedSearcher, BackupInfo, BackupManager, CheckpointInput, CheckpointManager,
-    CheckpointSaveOutcome, Deleter, Embedder, ExpirationSweeper, FeedbackRecorder, GraphNode,
-    GraphTraverser, LessonQuerier, ListResult, Lister, MaintenanceManager, MemoryInput,
-    MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline, ProfileManager, Relationship,
-    RelationshipQuerier, ReminderManager, SearchOptions, SearchResult, SemanticResult,
-    SimilarFinder, StatsProvider, Storage, Tagger, VersionChainQuerier, WelcomeOptions,
-    WelcomeProvider,
+    CheckpointSaveOutcome, Deleter, Embedder, EmbeddingModel, ExpirationSweeper, FeedbackRecorder,
+    GraphNode, GraphTraverser, LegacyEmbedderAdapter, LessonQuerier, ListResult, Lister,
+    MaintenanceManager, MemoryInput, MemoryUpdate, PhraseSearcher, Pipeline, PlaceholderPipeline,
+    ProfileManager, Relationship, RelationshipQuerier, ReminderManager, SearchOptions,
+    SearchResult, SemanticResult, SimilarFinder, StatsProvider, Storage, Tagger,
+    VersionChainQuerier, WelcomeOptions, WelcomeProvider,
 };
 
 /// Transport-independent composition root for MAG's local memory capabilities.
@@ -56,6 +56,38 @@ impl LocalMemoryRuntime {
             storage,
             compatibility_pipeline,
         }
+    }
+
+    /// Migrates a file-backed database using the current legacy CLI embedder.
+    ///
+    /// The compatibility adapter remains inside the application runtime so CLI
+    /// callers do not invent a second embedding-space identity contract.
+    pub async fn reembed_path(
+        path: PathBuf,
+        embedder: Arc<dyn Embedder>,
+        options: ReembedOptions,
+    ) -> Result<ReembedReport> {
+        Self::reembed_path_with_embedding_model(
+            path,
+            Arc::new(LegacyEmbedderAdapter::new(embedder)),
+            options,
+        )
+        .await
+    }
+
+    /// Migrates a file-backed database into a selected embedding model.
+    ///
+    /// This is intentionally a path-level application workflow rather than an
+    /// operation on an already-open runtime: the normal SQLite composition path
+    /// rejects incompatible embedding-space identities before a runtime exists.
+    /// Keeping migration here lets CLI and any future transport reuse one typed
+    /// workflow without bypassing that guard independently.
+    pub async fn reembed_path_with_embedding_model(
+        path: PathBuf,
+        embedding_model: Arc<dyn EmbeddingModel>,
+        options: ReembedOptions,
+    ) -> Result<ReembedReport> {
+        SqliteStorage::reembed_path_with_embedding_model(path, embedding_model, options).await
     }
 
     /// Stores content through the compatibility-sensitive CLI pipeline.

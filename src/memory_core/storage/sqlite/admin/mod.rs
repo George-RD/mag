@@ -10,7 +10,7 @@
 //! All impl blocks target [`super::SqliteStorage`] and are kept in separate
 //! files purely for readability — the public API is unchanged.
 
-mod backup;
+pub(super) mod backup;
 mod maintenance;
 mod stats;
 mod welcome;

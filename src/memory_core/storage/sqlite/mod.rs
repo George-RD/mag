@@ -48,6 +48,7 @@ mod hot_cache;
 mod hot_cache_mgmt;
 mod io;
 mod lifecycle;
+mod migration;
 mod nlp;
 pub(crate) mod pipeline;
 mod query_classifier;
@@ -63,6 +64,7 @@ mod tests;
 
 // ── Re-exports ──────────────────────────────────────────────────────────
 
+pub use migration::{ReembedOptions, ReembedReport};
 use storage::StoreOutcome;
 pub use storage::{InitMode, RankedSemanticCandidate, SqliteStorage};
 

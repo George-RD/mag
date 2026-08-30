@@ -55,6 +55,17 @@ pub struct SearchFilterArgs {
     pub event_before: Option<String>,
 }
 
+/// Parses a strictly positive batch size for bounded CLI work.
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let value = value
+        .parse::<usize>()
+        .map_err(|error| format!("invalid positive integer: {error}"))?;
+    if value == 0 {
+        return Err("value must be greater than zero".to_string());
+    }
+    Ok(value)
+}
+
 /// The main CLI entry point for MAG.
 #[derive(Parser)]
 #[command(name = "mag", version)]
@@ -164,6 +175,13 @@ pub enum Commands {
     },
     /// Shows the active MAG data, model, and benchmark cache paths.
     Paths,
+    /// Rebuilds persisted embeddings using the currently selected embedding model.
+    ReEmbed {
+        #[arg(long, default_value_t = 100, value_parser = parse_positive_usize)]
+        batch_size: usize,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Searches stored memories by query string.
     Search {
         query: String,
