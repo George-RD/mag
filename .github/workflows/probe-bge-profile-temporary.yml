@@ -1,0 +1,35 @@
+name: Probe BGE profile temporarily
+
+on:
+  push:
+    branches:
+      - agent/complete-embedding-space-migration
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve pinned model metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=$(git ls-remote https://huggingface.co/Xenova/bge-small-en-v1.5 refs/heads/main | awk '{print $1}')
+          test -n "$revision"
+          mkdir -p probe/onnx
+          for artifact in onnx/model_int8.onnx tokenizer.json; do
+            curl --proto '=https' --tlsv1.2 -fL --retry 3 \
+              "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/${revision}/${artifact}" \
+              -o "probe/${artifact}"
+          done
+          {
+            echo "revision=${revision}"
+            sha256sum probe/onnx/model_int8.onnx probe/tokenizer.json
+            stat --printf='%n bytes=%s\n' probe/onnx/model_int8.onnx probe/tokenizer.json
+          } | tee bge-profile.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bge-profile-metadata-${{ github.sha }}
+          path: bge-profile.txt
