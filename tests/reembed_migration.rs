@@ -99,6 +99,31 @@ async fn reembed_dry_run_reports_affected_memories_without_changing_space() -> R
 }
 
 #[tokio::test]
+async fn reembed_rejects_legacy_dimension_only_target_identity() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join("memory.db");
+    let source: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-a", 4));
+    let legacy_target: Arc<dyn EmbeddingModel> =
+        Arc::new(TestEmbeddingModel::new("legacy-role-neutral:v1:dim=4", 4));
+    seed_database(&path, Arc::clone(&source)).await?;
+
+    let error = LocalMemoryRuntime::reembed_path_with_embedding_model(
+        path.clone(),
+        legacy_target,
+        ReembedOptions::default(),
+    )
+    .await
+    .expect_err("dimension-only legacy identity must not be accepted for migration");
+
+    assert!(
+        error.to_string().contains("profile-backed"),
+        "expected profile-backed model refusal, got: {error:#}"
+    );
+    assert!(SqliteStorage::new_with_path_and_embedding_model(path, source).is_ok());
+    Ok(())
+}
+
+#[tokio::test]
 async fn reembed_migrates_same_dimension_space_atomically_and_creates_backup() -> Result<()> {
     let dir = tempdir()?;
     let path = dir.path().join("memory.db");
@@ -126,6 +151,54 @@ async fn reembed_migrates_same_dimension_space_atomically_and_creates_backup() -
     );
     assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), target).is_ok());
     assert!(SqliteStorage::new_with_path_and_embedding_model(path, source).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn reembed_backup_includes_committed_wal_frames_with_active_reader() -> Result<()> {
+    use rusqlite::Connection;
+
+    let dir = tempdir()?;
+    let path = dir.path().join("memory.db");
+    let source: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-a", 4));
+    let target: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-b", 4));
+    seed_database(&path, Arc::clone(&source)).await?;
+
+    let reader = Connection::open(&path)?;
+    reader.execute_batch("BEGIN")?;
+    let reader_count: i64 = reader.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
+    assert_eq!(reader_count, 2);
+
+    let writer_storage =
+        SqliteStorage::new_with_path_and_embedding_model(path.clone(), Arc::clone(&source))?;
+    let writer_runtime = LocalMemoryRuntime::from_storage(writer_storage);
+    writer_runtime
+        .store_raw("gamma", "gamma memory", &MemoryInput::default())
+        .await?;
+    drop(writer_runtime);
+
+    let report = LocalMemoryRuntime::reembed_path_with_embedding_model(
+        path.clone(),
+        target,
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
+    )
+    .await?;
+
+    let backup_path = report
+        .backup_path
+        .expect("live migration must create a rollback backup");
+    let backup = Connection::open(backup_path)?;
+    let gamma_count: i64 = backup.query_row(
+        "SELECT COUNT(*) FROM memories WHERE id = 'gamma'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(gamma_count, 1, "backup lost a committed WAL frame");
+
+    reader.execute_batch("ROLLBACK")?;
     Ok(())
 }
 
