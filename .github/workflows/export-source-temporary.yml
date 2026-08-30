@@ -1,0 +1,22 @@
+name: Export source temporarily
+
+on:
+  push:
+    branches:
+      - agent/complete-embedding-space-migration
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mag-source-${{ github.sha }}
+          path: .
+          include-hidden-files: true
