@@ -53,6 +53,7 @@ impl SqliteStorage {
     }
 }
 
+/// Executes the offline migration while holding the single SQLite writer slot.
 fn reembed_path_sync(
     path: &Path,
     embedding_model: &dyn EmbeddingModel,
@@ -73,7 +74,7 @@ fn reembed_path_sync(
     #[cfg(feature = "sqlite-vec")]
     super::ensure_vec_extension_registered();
 
-    let conn = Connection::open(path)
+    let mut conn = Connection::open(path)
         .with_context(|| format!("failed to open sqlite database at {}", path.display()))?;
     conn.execute_batch(
         "PRAGMA foreign_keys=ON;\
@@ -96,6 +97,12 @@ fn reembed_path_sync(
         )
     })?;
     let target_embedding_space = embedding_model.embedding_space_identity().to_string();
+
+    if target_embedding_space.starts_with("legacy-role-neutral:") {
+        return Err(anyhow!(
+            "re-embed requires a profile-backed EmbeddingModel; legacy role-neutral embedders do not provide a stable model identity"
+        ));
+    }
 
     if source_embedding_space == target_embedding_space {
         return Ok(ReembedReport {
@@ -128,14 +135,17 @@ fn reembed_path_sync(
     #[cfg(not(feature = "sqlite-vec"))]
     refuse_stale_vec_index_without_sqlite_vec(&conn)?;
 
-    let backup = super::admin::backup::create_backup_sync(&conn, path)
-        .context("failed to create pre-migration backup")?;
     let batch_limit = i64::try_from(options.batch_size)
         .context("re-embed batch size does not fit into SQLite integer")?;
     let target_dimension = embedding_model.dimension();
 
+    // Reserve the SQLite writer slot before taking the rollback snapshot. This
+    // prevents another process from committing old-space vectors after the
+    // snapshot but before this migration begins writing.
+    conn.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
     let tx = retry_on_lock(|| conn.unchecked_transaction())
         .context("failed to begin re-embed transaction")?;
+    let backup_path = create_reembed_backup(path)?;
 
     #[cfg(feature = "sqlite-vec")]
     recreate_vec_table(&tx, target_dimension)?;
@@ -231,10 +241,53 @@ fn reembed_path_sync(
         target_dimension,
         memory_count,
         migrated_count,
-        backup_path: Some(backup.path),
+        backup_path: Some(backup_path),
     })
 }
 
+/// Creates a transactionally consistent rollback snapshot while the migration
+/// connection holds SQLite's writer reservation.
+fn create_reembed_backup(db_path: &Path) -> Result<PathBuf> {
+    let parent = db_path
+        .parent()
+        .ok_or_else(|| anyhow!("database path has no parent directory"))?;
+    let backup_dir = parent.join("backups");
+    std::fs::create_dir_all(&backup_dir).with_context(|| {
+        format!(
+            "failed to create backups directory {}",
+            backup_dir.display()
+        )
+    })?;
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let mut backup_path = backup_dir.join(format!("memory.db.{timestamp}.bak"));
+    if backup_path.exists() {
+        backup_path = backup_dir.join(format!(
+            "memory.db.{timestamp}_{}.bak",
+            uuid::Uuid::new_v4().simple()
+        ));
+    }
+    let backup_path_str = backup_path.to_str().ok_or_else(|| {
+        anyhow!(
+            "backup path is not valid UTF-8: {}",
+            backup_path.display()
+        )
+    })?;
+
+    let backup_conn = Connection::open(db_path).with_context(|| {
+        format!(
+            "failed to open sqlite database for rollback snapshot at {}",
+            db_path.display()
+        )
+    })?;
+    backup_conn
+        .execute("VACUUM INTO ?1", params![backup_path_str])
+        .context("failed to create SQLite-consistent pre-migration backup")?;
+
+    Ok(backup_path)
+}
+
+/// Refuses a migration that cannot keep an existing vector index coherent.
 #[cfg(not(feature = "sqlite-vec"))]
 fn refuse_stale_vec_index_without_sqlite_vec(conn: &Connection) -> Result<()> {
     let vec_index_exists: bool = conn
@@ -257,6 +310,7 @@ fn refuse_stale_vec_index_without_sqlite_vec(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Rebuilds the sqlite-vec table at the target embedding dimension.
 #[cfg(feature = "sqlite-vec")]
 fn recreate_vec_table(conn: &Connection, embedding_dim: usize) -> Result<()> {
     conn.execute_batch("DROP TABLE IF EXISTS vec_memories;")
