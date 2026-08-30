@@ -166,7 +166,8 @@ async fn reembed_backup_includes_committed_wal_frames_with_active_reader() -> Re
 
     let reader = Connection::open(&path)?;
     reader.execute_batch("BEGIN")?;
-    let reader_count: i64 = reader.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
+    let reader_count: i64 =
+        reader.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
     assert_eq!(reader_count, 2);
 
     let writer_storage =
