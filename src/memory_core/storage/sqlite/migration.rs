@@ -267,12 +267,9 @@ fn create_reembed_backup(db_path: &Path) -> Result<PathBuf> {
             uuid::Uuid::new_v4().simple()
         ));
     }
-    let backup_path_str = backup_path.to_str().ok_or_else(|| {
-        anyhow!(
-            "backup path is not valid UTF-8: {}",
-            backup_path.display()
-        )
-    })?;
+    let backup_path_str = backup_path
+        .to_str()
+        .ok_or_else(|| anyhow!("backup path is not valid UTF-8: {}", backup_path.display()))?;
 
     let backup_conn = Connection::open(db_path).with_context(|| {
         format!(
