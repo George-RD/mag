@@ -28,7 +28,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .github/pr435-implementation.patch.gz.b64 | gzip --decompress > /tmp/pr435.patch
+          cat .github/pr435-patch.part-* | tr -d '\r\n' > /tmp/pr435.patch.gz.b64
+          test "$(wc -c < /tmp/pr435.patch.gz.b64)" -eq 12452
+          echo "364bc7979a7b8bf31f54ce6f464b0d5e7c83eab7a066bb87df878f150a15c733  /tmp/pr435.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/pr435.patch.gz.b64 | gzip --decompress > /tmp/pr435.patch
+          echo "dcedb2d65ecb55b7b37c156b56447af3e2b92685f4782e221d4227e0d8eb1743  /tmp/pr435.patch" | sha256sum --check
           git apply --check /tmp/pr435.patch
           git apply /tmp/pr435.patch
 
