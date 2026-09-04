@@ -137,10 +137,13 @@ The roadmap is dependency-led, not date-led. Current status lives in [`meta/todo
 No roadmap item is treated as shipped until it passes its named tests and benchmark gates.
 
 The memory-intelligence evaluation gate is now in place and reports a first
-baseline. It is not flattering: entity extraction scores 7.4% F1, clustering
-finds none of the labelled duplicate groups, and one query that should return
-nothing returns ten results. See
-[the method and results](docs/benchmarks/memory-intelligence.md).
+baseline: `bge-small-en-v1.5-int8` on 2026-09-04 against dataset `v1` at sha
+`3260e0a00beb`. It is not flattering: entity extraction scores 7.4% micro F1,
+clustering finds none of the labelled duplicate groups, and one query that
+should return nothing returns ten results. See
+[the results](docs/benchmarks/MEMORY-INTELLIGENCE.md) for that run row and its
+history, and [the method](docs/benchmarks/memory-intelligence.md) for the metric
+definitions.
 
 ## Install options
 

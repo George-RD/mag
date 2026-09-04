@@ -21,8 +21,8 @@ architecture gate today; `cairn scan --strict` would.
 The marker is undocumented in
 `.claude/skills/cairn-dev/references/finding-codes.md`, which lists no
 size-related code. The binary's own remediation text gives the syntax: a
-`cairn:allow-large-module reason: ...` comment as the file's **first non-blank
-line**, in either comment form:
+`cairn:allow-large-module reason: ...` comment as the file's first non-blank
+line, in either comment form:
 
 ```rust
 // cairn:allow-large-module reason: <durable reason>
@@ -34,9 +34,10 @@ The reason must be durable — something that stays true as the file changes, no
 Raise the missing documentation with `cairn feedback`.
 
 Markers are now in place on every file classified below as cohesive,
-generated-or-data-heavy, or test-or-bench-support, which takes the warning count
-from 30 to 7. The six mixed-responsibility files keep their warning on purpose:
-the warning is correct until they are split.
+generated-or-data-heavy, or test-or-bench-support. `cairn scan` at HEAD reports
+8, down from 30: the six mixed-responsibility files, which keep their warning on
+purpose because it is correct until they are split, and the two cohesive files
+left unmarked below.
 
 Two cohesive files are deliberately left unmarked:
 `src/memory_core/scoring.rs` and `src/memory_core/storage/sqlite/search.rs`.
@@ -49,7 +50,9 @@ anyway. Their cohesion reasons are recorded below.
 ## Classification
 
 Thresholds: `src/` and `benches/` over 450 lines, `tests/` over 800 lines.
-"prod" is the line count before the file's own `mod tests` block.
+That is 39 files at HEAD, all listed below. "prod" is the line count before the
+file's own `mod tests` block. Counts predate the `cairn:allow-large-module`
+markers, so the 22 marked files read one line higher with `wc -l` now.
 
 | File | Lines | Classification | Owning node |
 |---|---|---|---|
@@ -62,6 +65,7 @@ Thresholds: `src/` and `benches/` over 450 lines, `tests/` over 800 lines.
 | `src/uninstall.rs` | 1402 (894) | cohesive | `mag.runtime.setup` |
 | `src/memory_core/storage/sqlite/helpers.rs` | 1322 (1057) | **mixed-responsibility** | `mag.runtime.memory.storage.sqlite` |
 | `src/cli.rs` | 1289 (417) | cohesive | `mag.runtime.entrypoints` |
+| `benches/memory_intelligence/families.rs` | 1237 | test-or-bench-support | `mag.quality.benchmarks` |
 | `src/memory_core/scoring.rs` | 1223 (599) | cohesive | `mag.runtime.memory.retrieval` |
 | `src/memory_core/storage/memory/mod.rs` | 1179 (681) | cohesive | `mag.runtime.memory.storage.memory` |
 | `benches/locomo/main.rs` | 1021 | test-or-bench-support | `mag.quality.benchmarks` |
@@ -71,6 +75,7 @@ Thresholds: `src/` and `benches/` over 450 lines, `tests/` over 800 lines.
 | `benches/longmemeval/local.rs` | 935 | test-or-bench-support | `mag.quality.benchmarks` |
 | `tests/mcp_smoke.rs` | 843 | test-or-bench-support | `mag.quality.tests` |
 | `src/mcp/mod.rs` | 752 (641) | **mixed-responsibility** | `mag.runtime.mcp` |
+| `benches/memory_intelligence/main.rs` | 731 (670) | test-or-bench-support | `mag.quality.benchmarks` |
 | `src/memory_core/storage/sqlite/session.rs` | 711 | cohesive | `mag.runtime.memory.storage.sqlite` |
 | `src/memory_core/storage/sqlite/admin/maintenance.rs` | 660 (643) | cohesive | `mag.runtime.memory.storage.sqlite` |
 | `benches/scale_bench.rs` | 627 | test-or-bench-support | `mag.quality.benchmarks` |
@@ -82,7 +87,10 @@ Thresholds: `src/` and `benches/` over 450 lines, `tests/` over 800 lines.
 | `src/memory_core/llm.rs` | 505 (487) | cohesive | `mag.runtime.memory.models` |
 | `src/memory_core/storage/sqlite/admin/welcome.rs` | 504 | cohesive | `mag.runtime.memory.storage.sqlite` |
 | `src/memory_core/storage/sqlite/advanced.rs` | 491 (249) | cohesive | `mag.runtime.memory.storage.sqlite` |
+| `src/memory_core/retrieval_strategy.rs` | 489 (231) | cohesive | `mag.runtime.memory.retrieval` |
 | `src/memory_core/storage/sqlite/entities.rs` | 482 (373) | generated-or-data-heavy | `mag.runtime.memory.storage.sqlite` |
+| `benches/memory_intelligence/dataset.rs` | 479 (418) | test-or-bench-support | `mag.quality.benchmarks` |
+| `src/memory_core/storage/sqlite/query_classifier.rs` | 467 (232) | cohesive | `mag.runtime.memory.storage.sqlite` |
 | `src/substrate/extraction.rs` | 461 | cohesive | `mag.runtime.substrate` |
 | `src/local_memory_runtime.rs` | 460 | cohesive | `mag.runtime.entrypoints` |
 | `benches/onnx_profile.rs` | 454 | test-or-bench-support | `mag.quality.benchmarks` |

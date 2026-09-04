@@ -208,4 +208,4 @@ the figure is a sampled maximum instead.
 - Six families have no production implementation and are listed under
   "Families with no production implementation" with the target output shape
   rather than scored: fact extraction, contradiction detection, summarisation,
-  relationship typing, entity normalization, and `referenced_date` inference.
+  relationship typing, entity normalisation, and `referenced_date` inference.

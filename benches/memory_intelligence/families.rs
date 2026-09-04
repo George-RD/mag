@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: one scorer per evaluation family; each reads the same SeededGroup and returns the same FamilyOutcome, so splitting scatters one contract across files
 //! One scorer per task family.
 //!
 //! Every scorer observes MAG through `LocalMemoryRuntime` only. Nothing here

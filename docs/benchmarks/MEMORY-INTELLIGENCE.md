@@ -11,7 +11,7 @@ empty family cell means the family measured nothing and left the denominator.
 
 Six families have no production implementation and are excluded from
 `Overall%`: fact extraction, contradiction detection, summarisation,
-relationship typing, entity normalization, and `referenced_date` inference.
+relationship typing, entity normalisation, and `referenced_date` inference.
 
 The corpus is 36 seeds, so single cases move a family score by tens of points:
 `relationships` has three annotated edges, and one missed edge is 33 points.

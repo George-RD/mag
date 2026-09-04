@@ -173,7 +173,8 @@ footer{padding:32px 0;background:#061226;color:#b9c7da}
 <div class="split">
 <div class="plain" style="border-top-color:var(--blue)">
 <h3>What the gate buys</h3>
-<p>On the local benchmark, the abstention category scores 20 out of 20 questions, against 16 out of 20 for omega-memory on the same set. Those are questions where the correct answer is that the store does not know. Without a gate, a retrieval system answers all of them wrongly and confidently.</p>
+<p>On the 100-question local benchmark (<code>data/local_benchmark.json</code>, 80 seeded memories), MAG scores 20 out of 20 in the abstention category against 16 out of 20 for omega-memory on the same 20 questions. Those are questions where the correct answer is that the store does not know. Without a gate, a retrieval system answers all of them wrongly and confidently.</p>
+<p class="note">The questions and the seed corpus are held constant; the storage and retrieval code is not. MAG's row comes from <code>cargo run --release --bin longmemeval_bench -- --json</code>, omega-memory's from <code>benches/python_comparison.py</code> against its own SQLite store. Both are recorded at commit <code>83abccf</code>, 2026-03-28, macOS aarch64, in the <a href="https://github.com/George-RD/mag/blob/main/docs/benchmarks/methodology.md">benchmark report</a>.</p>
 </div>
 <div class="plain" style="border-top-color:var(--blue)">
 <h3>What would change it</h3>
@@ -200,7 +201,7 @@ footer{padding:32px 0;background:#061226;color:#b9c7da}
 <tr><td class="n">0.82</td><td>Constant</td><td><code>SEMANTIC_RESCUE_MIN_SIM</code>.</td></tr>
 <tr><td class="n">0.035</td><td>Constant</td><td><code>SEMANTIC_RESCUE_MIN_MARGIN</code>.</td></tr>
 <tr><td class="n">3 / 5</td><td>Measured</td><td><code>mag stats</code>: three memories, five relationships.</td></tr>
-<tr><td class="n">20 / 20 and 16 / 20</td><td>Measured</td><td>Abstention category of the local benchmark: MAG 20 correct, omega-memory 16, out of 20 questions.</td></tr>
+<tr><td class="n">20 / 20 and 16 / 20</td><td>Measured</td><td>Abstention category of the 100-question local benchmark (<code>data/local_benchmark.json</code>): MAG 20 correct from <code>longmemeval_bench</code>, omega-memory 16 from <code>benches/python_comparison.py</code>, out of 20 questions. Commit <code>83abccf</code>, 2026-03-28.</td></tr>
 <tr><td class="n">Token lists</td><td>Computed</td><td>Produced by applying MAG's stopword list and stemmer rules by hand. The same procedure reproduces all three measured <code>_text_overlap</code> values of the first query exactly, which is the check that it matches the code.</td></tr>
 </tbody>
 </table>

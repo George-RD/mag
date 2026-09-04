@@ -2398,48 +2398,48 @@
           "kind": "function",
           "signature": "pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 159,
-          "end_line": 250
+          "line": 160,
+          "end_line": 251
         },
         {
           "name": "grouping",
           "kind": "function",
           "signature": "pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 743,
-          "end_line": 913
+          "line": 744,
+          "end_line": 914
         },
         {
           "name": "lifecycle",
           "kind": "function",
           "signature": "pub async fn lifecycle(group: &SeededGroup, cases: &[LifecycleCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 460,
-          "end_line": 577
+          "line": 461,
+          "end_line": 578
         },
         {
           "name": "provenance",
           "kind": "function",
           "signature": "pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 953,
-          "end_line": 1108
+          "line": 954,
+          "end_line": 1109
         },
         {
           "name": "questions",
           "kind": "function",
           "signature": "pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 1113,
-          "end_line": 1229
+          "line": 1114,
+          "end_line": 1230
         },
         {
           "name": "relationships",
           "kind": "function",
           "signature": "pub async fn relationships( group: &SeededGroup, cases: &[RelationshipCase], ) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 344,
-          "end_line": 451
+          "line": 345,
+          "end_line": 452
         },
         {
           "name": "resolve_dataset",
@@ -2454,48 +2454,48 @@
           "kind": "function",
           "signature": "pub async fn stored_ids(runtime: &LocalMemoryRuntime) -> Result<BTreeSet<String>>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 146,
-          "end_line": 153
+          "line": 147,
+          "end_line": 154
         },
         {
           "name": "supersession",
           "kind": "function",
           "signature": "pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 589,
-          "end_line": 726
+          "line": 590,
+          "end_line": 727
         },
         {
           "name": "temporal",
           "kind": "function",
           "signature": "pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 256,
-          "end_line": 334
+          "line": 257,
+          "end_line": 335
         },
         {
           "name": "AUTO_COMPACT_COUNT_THRESHOLD",
           "kind": "const",
           "signature": "pub const AUTO_COMPACT_COUNT_THRESHOLD usize",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 27,
-          "end_line": 27
+          "line": 28,
+          "end_line": 28
         },
         {
           "name": "COMPACT_MIN_CLUSTER_SIZE",
           "kind": "const",
           "signature": "pub const COMPACT_MIN_CLUSTER_SIZE usize",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 24,
-          "end_line": 24
+          "line": 25,
+          "end_line": 25
         },
         {
           "name": "COMPACT_SIMILARITY_THRESHOLD",
           "kind": "const",
           "signature": "pub const COMPACT_SIMILARITY_THRESHOLD f64",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 22,
-          "end_line": 22
+          "line": 23,
+          "end_line": 23
         },
         {
           "name": "MIN_LATENCY_SAMPLES",
@@ -2510,8 +2510,8 @@
           "kind": "const",
           "signature": "pub const SEARCH_LIMIT usize",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 29,
-          "end_line": 29
+          "line": 30,
+          "end_line": 30
         },
         {
           "name": "STRATEGIES",
@@ -2534,8 +2534,8 @@
           "kind": "enum",
           "signature": "pub enum Status",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 34,
-          "end_line": 39
+          "line": 35,
+          "end_line": 40
         },
         {
           "name": "add",
@@ -2630,8 +2630,8 @@
           "kind": "function",
           "signature": "pub fn content_index(seeds: &[&Seed]) -> BTreeMap<String, String>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 1232,
-          "end_line": 1237
+          "line": 1233,
+          "end_line": 1238
         },
         {
           "name": "count",
@@ -2678,8 +2678,8 @@
           "kind": "function",
           "signature": "pub fn key(&self, id: &str) -> Option<&str>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 132,
-          "end_line": 134
+          "line": 133,
+          "end_line": 135
         },
         {
           "name": "list_strategies",
@@ -2750,16 +2750,16 @@
           "kind": "function",
           "signature": "pub fn p50_ms(&self) -> f64",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 103,
-          "end_line": 105
+          "line": 104,
+          "end_line": 106
         },
         {
           "name": "p95_ms",
           "kind": "function",
           "signature": "pub fn p95_ms(&self) -> f64",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 107,
-          "end_line": 109
+          "line": 108,
+          "end_line": 110
         },
         {
           "name": "pct",
@@ -2990,8 +2990,8 @@
           "kind": "struct",
           "signature": "pub struct FamilyOutcome",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 43,
-          "end_line": 58
+          "line": 44,
+          "end_line": 59
         },
         {
           "name": "FamilySummary",
@@ -3142,8 +3142,8 @@
           "kind": "struct",
           "signature": "pub struct SeededGroup",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 113,
-          "end_line": 129
+          "line": 114,
+          "end_line": 130
         },
         {
           "name": "StrategyConfig",
@@ -3166,8 +3166,8 @@
           "kind": "struct",
           "signature": "pub struct SupersessionPair<'a>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 582,
-          "end_line": 585
+          "line": 583,
+          "end_line": 586
         },
         {
           "name": "TemporalCase",
@@ -3390,48 +3390,48 @@
           "kind": "function",
           "signature": "pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 159,
-          "end_line": 250
+          "line": 160,
+          "end_line": 251
         },
         {
           "name": "grouping",
           "kind": "function",
           "signature": "pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 743,
-          "end_line": 913
+          "line": 744,
+          "end_line": 914
         },
         {
           "name": "lifecycle",
           "kind": "function",
           "signature": "pub async fn lifecycle(group: &SeededGroup, cases: &[LifecycleCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 460,
-          "end_line": 577
+          "line": 461,
+          "end_line": 578
         },
         {
           "name": "provenance",
           "kind": "function",
           "signature": "pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 953,
-          "end_line": 1108
+          "line": 954,
+          "end_line": 1109
         },
         {
           "name": "questions",
           "kind": "function",
           "signature": "pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 1113,
-          "end_line": 1229
+          "line": 1114,
+          "end_line": 1230
         },
         {
           "name": "relationships",
           "kind": "function",
           "signature": "pub async fn relationships( group: &SeededGroup, cases: &[RelationshipCase], ) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 344,
-          "end_line": 451
+          "line": 345,
+          "end_line": 452
         },
         {
           "name": "resolve_dataset",
@@ -3446,48 +3446,48 @@
           "kind": "function",
           "signature": "pub async fn stored_ids(runtime: &LocalMemoryRuntime) -> Result<BTreeSet<String>>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 146,
-          "end_line": 153
+          "line": 147,
+          "end_line": 154
         },
         {
           "name": "supersession",
           "kind": "function",
           "signature": "pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 589,
-          "end_line": 726
+          "line": 590,
+          "end_line": 727
         },
         {
           "name": "temporal",
           "kind": "function",
           "signature": "pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<FamilyOutcome>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 256,
-          "end_line": 334
+          "line": 257,
+          "end_line": 335
         },
         {
           "name": "AUTO_COMPACT_COUNT_THRESHOLD",
           "kind": "const",
           "signature": "pub const AUTO_COMPACT_COUNT_THRESHOLD usize",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 27,
-          "end_line": 27
+          "line": 28,
+          "end_line": 28
         },
         {
           "name": "COMPACT_MIN_CLUSTER_SIZE",
           "kind": "const",
           "signature": "pub const COMPACT_MIN_CLUSTER_SIZE usize",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 24,
-          "end_line": 24
+          "line": 25,
+          "end_line": 25
         },
         {
           "name": "COMPACT_SIMILARITY_THRESHOLD",
           "kind": "const",
           "signature": "pub const COMPACT_SIMILARITY_THRESHOLD f64",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 22,
-          "end_line": 22
+          "line": 23,
+          "end_line": 23
         },
         {
           "name": "MIN_LATENCY_SAMPLES",
@@ -3502,8 +3502,8 @@
           "kind": "const",
           "signature": "pub const SEARCH_LIMIT usize",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 29,
-          "end_line": 29
+          "line": 30,
+          "end_line": 30
         },
         {
           "name": "STRATEGIES",
@@ -3526,8 +3526,8 @@
           "kind": "enum",
           "signature": "pub enum Status",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 34,
-          "end_line": 39
+          "line": 35,
+          "end_line": 40
         },
         {
           "name": "add",
@@ -3622,8 +3622,8 @@
           "kind": "function",
           "signature": "pub fn content_index(seeds: &[&Seed]) -> BTreeMap<String, String>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 1232,
-          "end_line": 1237
+          "line": 1233,
+          "end_line": 1238
         },
         {
           "name": "count",
@@ -3670,8 +3670,8 @@
           "kind": "function",
           "signature": "pub fn key(&self, id: &str) -> Option<&str>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 132,
-          "end_line": 134
+          "line": 133,
+          "end_line": 135
         },
         {
           "name": "list_strategies",
@@ -3742,16 +3742,16 @@
           "kind": "function",
           "signature": "pub fn p50_ms(&self) -> f64",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 103,
-          "end_line": 105
+          "line": 104,
+          "end_line": 106
         },
         {
           "name": "p95_ms",
           "kind": "function",
           "signature": "pub fn p95_ms(&self) -> f64",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 107,
-          "end_line": 109
+          "line": 108,
+          "end_line": 110
         },
         {
           "name": "pct",
@@ -3982,8 +3982,8 @@
           "kind": "struct",
           "signature": "pub struct FamilyOutcome",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 43,
-          "end_line": 58
+          "line": 44,
+          "end_line": 59
         },
         {
           "name": "FamilySummary",
@@ -4134,8 +4134,8 @@
           "kind": "struct",
           "signature": "pub struct SeededGroup",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 113,
-          "end_line": 129
+          "line": 114,
+          "end_line": 130
         },
         {
           "name": "StrategyConfig",
@@ -4158,8 +4158,8 @@
           "kind": "struct",
           "signature": "pub struct SupersessionPair<'a>",
           "file": "benches/memory_intelligence/families.rs",
-          "line": 582,
-          "end_line": 585
+          "line": 583,
+          "end_line": 586
         },
         {
           "name": "TemporalCase",
@@ -16221,6 +16221,13 @@
       "path": "././meta/decisions/dec.retain-mcp-full-compatibility-mode.md"
     },
     {
+      "code": "CAIRN_SOURCE_SHA256_MISMATCH",
+      "severity": "error",
+      "message": "verified source `src.mag-agents-guide` sha256 mismatch",
+      "node": null,
+      "path": "././meta/sources/src.mag-agents-guide.md"
+    },
+    {
       "code": "CAIRN_RECONCILE_ORPHANED_FILE",
       "severity": "info",
       "message": "Rust file `src/bin/fetch_benchmark_data.rs` is not owned by any eligible node",
@@ -16233,20 +16240,6 @@
       "message": "Rust file `src/doctor_checks.rs` is not owned by any eligible node",
       "node": null,
       "path": "src/doctor_checks.rs"
-    },
-    {
-      "code": "CAIRN_MODULE_OVERSIZED",
-      "severity": "warning",
-      "message": "module `mag.quality.benchmarks` claims `benches/memory_intelligence/families.rs` at 1237 lines, over the 500-line guideline with no allow-list marker",
-      "node": "mag.quality.benchmarks",
-      "path": "benches/memory_intelligence/families.rs"
-    },
-    {
-      "code": "CAIRN_MODULE_OVERSIZED",
-      "severity": "warning",
-      "message": "module `mag.quality.benchmarks` claims `benches/memory_intelligence/main.rs` at 731 lines, over the 500-line guideline with no allow-list marker",
-      "node": "mag.quality.benchmarks",
-      "path": "benches/memory_intelligence/main.rs"
     },
     {
       "code": "CAIRN_MODULE_OVERSIZED",

@@ -41,9 +41,8 @@ None
 None in Phase 1.
 
 ## Findings
+- error: CAIRN_SOURCE_SHA256_MISMATCH verified source `src.mag-agents-guide` sha256 mismatch
 - warning: CAIRN_DECISION_UNKNOWN_PROVENANCE decision `dec.retain-mcp-full-compatibility-mode` references unknown provenance `dec.select-local-runtime-composition-root`
-- warning: CAIRN_MODULE_OVERSIZED module `mag.quality.benchmarks` claims `benches/memory_intelligence/families.rs` at 1237 lines, over the 500-line guideline with no allow-list marker
-- warning: CAIRN_MODULE_OVERSIZED module `mag.quality.benchmarks` claims `benches/memory_intelligence/main.rs` at 731 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.entrypoints` claims `src/main.rs` at 1799 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.mcp` claims `src/mcp/mod.rs` at 752 lines, over the 500-line guideline with no allow-list marker
 - warning: CAIRN_MODULE_OVERSIZED module `mag.runtime.memory.models` claims `src/memory_core/embedder.rs` at 971 lines, over the 500-line guideline with no allow-list marker

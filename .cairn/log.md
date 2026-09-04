@@ -29,3 +29,12 @@
 - scan: nodes=23, findings=13, errors=0
 - scan: nodes=23, findings=14, errors=0
 - scan: nodes=23, findings=14, errors=0
+- scan: nodes=23, findings=14, errors=0
+- scan: nodes=23, findings=15, errors=1
+- scan: nodes=23, findings=15, errors=1
+- scan: nodes=23, findings=15, errors=1
+- scan: nodes=23, findings=15, errors=1
+- scan: nodes=23, findings=15, errors=1
+- scan: nodes=23, findings=15, errors=1
+- scan: nodes=23, findings=13, errors=1
+- scan: nodes=23, findings=13, errors=1

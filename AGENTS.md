@@ -9,6 +9,8 @@ layer: load only the context required for the current task.
 - Accepted Cairn decisions and contracts bind the architecture nodes they name.
 - This file and any nearer scoped `AGENTS.md` define working conventions.
 - Surface conflicts rather than silently choosing one source.
+- Prose in `README.md`, `docs/`, `meta/todos/`, commit messages, and code
+  comments follows `docs/writing-style.md`.
 - Do not preload `map.md`, `map.json`, full roadmaps, `docs/strongholds/`, or
   `conductor/`. Query the smallest connected Cairn slice instead.
 
@@ -103,6 +105,11 @@ cairn scan
 cairn hook all
 ```
 
+Cairn 0.9.0 emits `CAIRN_MODULE_OVERSIZED` at Warning for every claimed file over
+500 lines; suppress it with a `cairn:allow-large-module reason: ...` comment as
+the file's first non-blank line. `.claude/skills/cairn-dev/references/finding-codes.md`
+does not list the code.
+
 Record Cairn friction rather than working around it silently:
 
 ```bash
@@ -125,6 +132,10 @@ Additionally:
   `python3 scripts/retrieval_benchmark_gate.py --base main --head HEAD --explain`;
   when it prints `true`, run `./scripts/bench.sh --gate`;
 - classifier changes: `python3 -m unittest tests/test_retrieval_benchmark_gate.py`;
+- changes to entity extraction, supersession, deduplication, consolidation,
+  relationship creation, TTL handling, or abstention:
+  `./scripts/memory-intelligence-eval.sh --embedder bge-small`, documented in
+  `docs/benchmarks/memory-intelligence.md`;
 - CLI, MCP, installation, or model-startup changes: `bash scripts/smoke-test.sh`;
 - clean-environment or local-model work: follow `skills/mag-development/SKILL.md`.
 

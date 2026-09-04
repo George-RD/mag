@@ -84,7 +84,7 @@ footer{padding:32px 0;background:#061226;color:#b9c7da}
 <h2 style="margin-top:64px">The seven stages at a glance.</h2>
 <p class="note" style="margin-top:18px">Demo 01 steps through twelve states. This diagram covers the seven that change the candidate set, from the FTS5 lookup to the abstention gate, with values from the same measured query.</p>
 <div class="diagram"><img src="../assets/pipeline.svg" width="1400" height="460" alt="The seven retrieval stages of a MAG advanced search, left to right: FTS5 text search reporting fts_rank 0, a 384-dimension vector scan reporting vec_sim 0.637, weighted reciprocal rank fusion at rrf_k 60.0, a dual-match boost with a floor of 1.5, multiplicative refinement in which time decay is off by default, one hop of graph enrichment at factor 0.1, and an abstention gate at a text overlap of 0.15. The gate either passes, returning results whose top score is 1.0, or fails and returns an empty array."></div>
-<p class="note">Capture environment: mag 0.1.10-dev built with the default feature set, the one the release workflow ships; embedding model bge-small-en-v1.5 int8 at 384 dimensions; three memories ingested through the CLI on 4 September 2026. Scores depend on the corpus; a different database gives different numbers.</p>
+<p class="note">Capture environment: mag 0.1.10-dev built with the default feature set, <code>real-embeddings</code>, which the released binaries extend with <code>mimalloc</code> and nothing else; embedding model bge-small-en-v1.5 int8 at 384 dimensions; three memories ingested through the CLI on 4 September 2026. Scores depend on the corpus; a different database gives different numbers.</p>
 </div>
 </section>
 </main>

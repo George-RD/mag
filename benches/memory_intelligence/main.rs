@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: evaluation harness driver: argument parsing, backend selection, per-group seeding, and family dispatch for one run
 //! Memory-intelligence evaluation harness.
 //!
 //! Seeds a small annotated corpus through `LocalMemoryRuntime::store_raw` and

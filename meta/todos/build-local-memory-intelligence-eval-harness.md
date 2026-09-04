@@ -61,7 +61,7 @@ first production-shaped use of that contract outside its own unit tests.
 Unweighted mean of the eight scored families: 61.1%. Six further families have no
 production implementation and are recorded with their target output shape rather
 than scored as zero: fact extraction, contradiction detection, summarisation,
-relationship typing, entity normalization, and referenced-date inference.
+relationship typing, entity normalisation, and referenced-date inference.
 
 ## Defects the first run surfaced
 

@@ -96,7 +96,7 @@ Second person for instructions ("run `mag setup`"). Present tense. Active voice
 unless the actor genuinely does not matter. Do not use "we" to mean the
 software.
 
-## Before you commit prose
+## Check the draft before you commit
 
 Read it back and ask:
 
