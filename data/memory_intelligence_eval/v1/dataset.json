@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "dataset_version": "v1",
+  "description": "Local memory-intelligence evaluation set for MAG. Annotations are ground truth authored from the seed text, not from MAG output, so the harness measures the gap between what MAG does and what a correct memory system would do.",
+  "seed": [
+    {
+      "key": "retry-backoff",
+      "group": "corpus",
+      "content": "Retries in the payments service use exponential backoff with jitter, capped at 30 seconds.",
+      "event_type": "decision",
+      "tags": ["project:payments"],
+      "importance": 0.85,
+      "session_id": "s-api",
+      "day_offset": -3,
+      "ttl_seconds": null
+    },
+    {
+      "key": "socket-leak",
+      "group": "corpus",
+      "content": "The payments worker leaked a socket whenever a task was cancelled mid-flight. Closing the handle in the cancellation branch fixed it.",
+      "event_type": "error_pattern",
+      "tags": ["project:payments"],
+      "importance": 0.7,
+      "session_id": "s-api",
+      "day_offset": -3,
+      "ttl_seconds": null
+    },
+    {
+      "key": "kubernetes-probes",
+      "group": "corpus",
+      "content": "Kubernetes liveness probes must not check downstream dependencies. Readiness probes are the right place for that.",
+      "event_type": "lesson_learned",
+      "tags": ["project:platform"],
+      "importance": 0.6,
+      "session_id": "s-platform",
+      "day_offset": -12,
+      "ttl_seconds": null
+    },
+    {
+      "key": "sqlite-wal",
+      "group": "corpus",
+      "content": "SQLite runs in WAL mode so readers do not block the writer. PRAGMA journal_mode=WAL is set on every connection.",
+      "event_type": "decision",
+      "tags": ["project:storage"],
+      "importance": 0.75,
+      "session_id": "s-storage",
+      "day_offset": -20,
+      "ttl_seconds": null
+    },
+    {
+      "key": "priya-review",
+      "group": "corpus",
+      "content": "Reviewed the ingest path with Priya Nandakumar. She flagged that spawn_blocking is missing around two synchronous rusqlite calls.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.55,
+      "session_id": "s-storage",
+      "day_offset": -6,
+      "ttl_seconds": null
+    },
+    {
+      "key": "redis-scan",
+      "group": "corpus",
+      "content": "Use SCAN rather than KEYS against Redis in production. KEYS blocks the single-threaded event loop for the whole scan.",
+      "event_type": "error_pattern",
+      "tags": ["project:platform"],
+      "importance": 0.65,
+      "session_id": "s-platform",
+      "day_offset": -30,
+      "ttl_seconds": null
+    },
+    {
+      "key": "fixture-gate",
+      "group": "corpus",
+      "content": "Schema changes are verified against the fixture set before merge. Nothing lands without a green fixture run.",
+      "event_type": "decision",
+      "tags": ["project:storage"],
+      "importance": 0.6,
+      "session_id": "s-storage",
+      "day_offset": -2,
+      "ttl_seconds": null
+    },
+    {
+      "key": "tailwind-preference",
+      "group": "corpus",
+      "content": "I prefer Tailwind over styled-components for the dashboard work.",
+      "event_type": "user_preference",
+      "tags": ["project:dashboard"],
+      "importance": 0.5,
+      "session_id": "s-dashboard",
+      "day_offset": -40,
+      "ttl_seconds": null
+    },
+    {
+      "key": "postgres-vacuum",
+      "group": "corpus",
+      "content": "Ran VACUUM ANALYZE on the ledger tables in Postgres after the bulk delete. Query planning recovered immediately.",
+      "event_type": "task_completion",
+      "tags": ["project:ledger"],
+      "importance": 0.45,
+      "session_id": "s-ledger",
+      "day_offset": -9,
+      "ttl_seconds": null
+    },
+    {
+      "key": "onnx-coreml",
+      "group": "corpus",
+      "content": "CoreML leaked memory on Apple Silicon when the model was reloaded repeatedly, so the embedder pins the ONNX CPU backend.",
+      "event_type": "error_pattern",
+      "tags": ["project:embedding"],
+      "importance": 0.7,
+      "session_id": "s-embedding",
+      "day_offset": -15,
+      "ttl_seconds": null
+    },
+    {
+      "key": "marcus-handoff",
+      "group": "corpus",
+      "content": "Handed the migration branch to Marcus. Remaining work is the down-migration and the rollback rehearsal.",
+      "event_type": "session_summary",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-storage",
+      "day_offset": -1,
+      "ttl_seconds": null
+    },
+    {
+      "key": "rust-arc-mutex",
+      "group": "corpus",
+      "content": "Shared mutable state across threads goes behind Arc and a Mutex. The borrow checker catches the races we used to ship.",
+      "event_type": "lesson_learned",
+      "tags": ["project:runtime"],
+      "importance": 0.55,
+      "session_id": "s-runtime",
+      "day_offset": -25,
+      "ttl_seconds": null
+    },
+    {
+      "key": "nginx-proxy-pass",
+      "group": "corpus",
+      "content": "A trailing slash on proxy_pass in Nginx strips the location prefix from the upstream URL. That is what broke the callback route.",
+      "event_type": "error_pattern",
+      "tags": ["project:platform"],
+      "importance": 0.6,
+      "session_id": "s-platform",
+      "day_offset": -18,
+      "ttl_seconds": null
+    },
+    {
+      "key": "timezone-fact",
+      "group": "corpus",
+      "content": "My working timezone is Europe/London.",
+      "event_type": "user_fact",
+      "tags": ["profile"],
+      "importance": 0.5,
+      "session_id": "s-profile",
+      "day_offset": -60,
+      "ttl_seconds": null
+    },
+    {
+      "key": "docker-layer-order",
+      "group": "corpus",
+      "content": "Put apt-get before COPY in the Dockerfile so the dependency layer stays cached across source changes.",
+      "event_type": "lesson_learned",
+      "tags": ["project:platform"],
+      "importance": 0.5,
+      "session_id": "s-platform",
+      "day_offset": -35,
+      "ttl_seconds": null
+    },
+
+    {
+      "key": "token-expiry-old",
+      "group": "supersession-lexical",
+      "content": "Authentication tokens expire after 24 hours.",
+      "event_type": "decision",
+      "tags": ["project:auth"],
+      "importance": 0.6,
+      "session_id": "s-auth",
+      "day_offset": -14,
+      "ttl_seconds": null
+    },
+    {
+      "key": "token-expiry-new",
+      "group": "supersession-lexical",
+      "content": "Authentication tokens expire after 15 minutes.",
+      "event_type": "decision",
+      "tags": ["project:auth"],
+      "importance": 0.8,
+      "session_id": "s-auth",
+      "day_offset": 0,
+      "ttl_seconds": null
+    },
+    {
+      "key": "backup-cadence-old",
+      "group": "supersession-paraphrase",
+      "content": "Database backups run once a day at 02:00 UTC.",
+      "event_type": "decision",
+      "tags": ["project:storage"],
+      "importance": 0.6,
+      "session_id": "s-storage",
+      "day_offset": -21,
+      "ttl_seconds": null
+    },
+    {
+      "key": "backup-cadence-new",
+      "group": "supersession-paraphrase",
+      "content": "We now snapshot the store every six hours instead of nightly, after the incident in March.",
+      "event_type": "decision",
+      "tags": ["project:storage"],
+      "importance": 0.8,
+      "session_id": "s-storage",
+      "day_offset": 0,
+      "ttl_seconds": null
+    },
+    {
+      "key": "editor-preference-old",
+      "group": "supersession-preference",
+      "content": "I prefer tabs over spaces for indentation.",
+      "event_type": "user_preference",
+      "tags": ["profile"],
+      "importance": 0.5,
+      "session_id": "s-profile",
+      "day_offset": -50,
+      "ttl_seconds": null
+    },
+    {
+      "key": "editor-preference-new",
+      "group": "supersession-preference",
+      "content": "I prefer spaces over tabs for indentation.",
+      "event_type": "user_preference",
+      "tags": ["profile"],
+      "importance": 0.5,
+      "session_id": "s-profile",
+      "day_offset": 0,
+      "ttl_seconds": null
+    },
+    {
+      "key": "unrelated-decision-a",
+      "group": "supersession-unrelated",
+      "content": "The dashboard is built with Vite rather than Create React App.",
+      "event_type": "decision",
+      "tags": ["project:dashboard"],
+      "importance": 0.6,
+      "session_id": "s-dashboard",
+      "day_offset": -7,
+      "ttl_seconds": null
+    },
+    {
+      "key": "unrelated-decision-b",
+      "group": "supersession-unrelated",
+      "content": "Rate limiting is enforced at 100 requests per minute per IP address.",
+      "event_type": "decision",
+      "tags": ["project:api"],
+      "importance": 0.6,
+      "session_id": "s-api",
+      "day_offset": 0,
+      "ttl_seconds": null
+    },
+
+    {
+      "key": "cluster-backup-1",
+      "group": "grouping",
+      "content": "Nightly backups of the memory database are written to the backups directory.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-grouping",
+      "day_offset": -5,
+      "ttl_seconds": null
+    },
+    {
+      "key": "cluster-backup-2",
+      "group": "grouping",
+      "content": "Nightly backups of the memory database are written to the backups folder.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-grouping",
+      "day_offset": -4,
+      "ttl_seconds": null
+    },
+    {
+      "key": "cluster-backup-3",
+      "group": "grouping",
+      "content": "Nightly backups of the memory database get written into the backups directory.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-grouping",
+      "day_offset": -3,
+      "ttl_seconds": null
+    },
+    {
+      "key": "cluster-index-1",
+      "group": "grouping",
+      "content": "The full-text index was rebuilt after the schema change.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-grouping",
+      "day_offset": -5,
+      "ttl_seconds": null
+    },
+    {
+      "key": "cluster-index-2",
+      "group": "grouping",
+      "content": "The full-text index was rebuilt following the schema change.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-grouping",
+      "day_offset": -4,
+      "ttl_seconds": null
+    },
+    {
+      "key": "cluster-singleton",
+      "group": "grouping",
+      "content": "Cross-device synchronisation is deliberately out of scope for the local runtime.",
+      "event_type": "task_completion",
+      "tags": ["project:runtime"],
+      "importance": 0.5,
+      "session_id": "s-grouping",
+      "day_offset": -2,
+      "ttl_seconds": null
+    },
+
+    {
+      "key": "ttl-short",
+      "group": "lifecycle",
+      "content": "Temporary note: the staging deploy is paused while the certificate is reissued.",
+      "event_type": "context_warning",
+      "tags": ["project:platform"],
+      "importance": 0.4,
+      "session_id": "s-lifecycle",
+      "day_offset": null,
+      "ttl_seconds": 1
+    },
+    {
+      "key": "ttl-long",
+      "group": "lifecycle",
+      "content": "The certificate rotation runbook lives in the platform handbook.",
+      "event_type": "lesson_learned",
+      "tags": ["project:platform"],
+      "importance": 0.6,
+      "session_id": "s-lifecycle",
+      "day_offset": null,
+      "ttl_seconds": 86400
+    },
+    {
+      "key": "ttl-none",
+      "group": "lifecycle",
+      "content": "Production database credentials are rotated every 90 days.",
+      "event_type": "decision",
+      "tags": ["project:platform"],
+      "importance": 0.7,
+      "session_id": "s-lifecycle",
+      "day_offset": null,
+      "ttl_seconds": null
+    }
+  ],
+
+  "entities": [
+    { "seed": "retry-backoff", "expected": [], "note": "No person, tool or project name appears. 'Retries' and 'payments service' are common nouns." },
+    { "seed": "socket-leak", "expected": [], "note": "Describes a defect with no named entity." },
+    { "seed": "kubernetes-probes", "expected": ["tools:kubernetes"], "note": "Kubernetes is a tool. Classifying it as a person is a precision error." },
+    { "seed": "sqlite-wal", "expected": ["tools:sqlite"], "note": null },
+    { "seed": "priya-review", "expected": ["people:priya-nandakumar", "tools:rusqlite"], "note": "Two-token person name introduced by 'with'." },
+    { "seed": "redis-scan", "expected": ["tools:redis"], "note": "SCAN and KEYS are commands, not entities." },
+    { "seed": "fixture-gate", "expected": [], "note": null },
+    { "seed": "tailwind-preference", "expected": ["tools:tailwind", "tools:styled-components"], "note": null },
+    { "seed": "postgres-vacuum", "expected": ["tools:postgres"], "note": null },
+    { "seed": "onnx-coreml", "expected": ["tools:coreml", "tools:onnx"], "note": "Apple Silicon is a platform, not a tool entity in MAG's taxonomy." },
+    { "seed": "marcus-handoff", "expected": ["people:marcus"], "note": "Single-token given name." },
+    { "seed": "rust-arc-mutex", "expected": ["tools:rust"], "note": "Arc and Mutex are language items, not entities." },
+    { "seed": "nginx-proxy-pass", "expected": ["tools:nginx"], "note": null },
+    { "seed": "timezone-fact", "expected": [], "note": "Europe/London is a location, which MAG's taxonomy does not cover." },
+    { "seed": "docker-layer-order", "expected": ["tools:docker"], "note": null }
+  ],
+
+  "temporal": [
+    { "id": "tmp-recent-week", "query": "what did we decide this week", "expect_keys": ["fixture-gate", "retry-backoff"], "expect_absent_keys": ["docker-layer-order", "tailwind-preference"] },
+    { "id": "tmp-last-month", "query": "what happened last month", "expect_keys": ["redis-scan", "docker-layer-order"], "expect_absent_keys": [] },
+    { "id": "tmp-yesterday", "query": "yesterday's handoff", "expect_keys": ["marcus-handoff"], "expect_absent_keys": ["tailwind-preference"] },
+    { "id": "tmp-two-weeks", "query": "kubernetes notes from the last two weeks", "expect_keys": ["kubernetes-probes"], "expect_absent_keys": [] }
+  ],
+
+  "relationships": [
+    { "from": "retry-backoff", "to": "socket-leak", "rel_type": "any", "min_weight": 0.3, "note": "Same session, same project, stored together." },
+    { "from": "kubernetes-probes", "to": "redis-scan", "rel_type": "any", "min_weight": 0.3, "note": "Both platform lessons." },
+    { "from": "sqlite-wal", "to": "fixture-gate", "rel_type": "any", "min_weight": 0.3, "note": "Both storage decisions." }
+  ],
+
+  "lifecycle": [
+    { "seed": "ttl-short", "expect_expired_after_sweep": true },
+    { "seed": "ttl-long", "expect_expired_after_sweep": false },
+    { "seed": "ttl-none", "expect_expired_after_sweep": false }
+  ],
+
+  "supersession": [
+    { "old": "token-expiry-old", "new": "token-expiry-new", "expect_supersession": true, "kind": "lexical_overlap", "note": "Same subject, high word overlap, same event_type. Within MAG's cosine and Jaccard gates." },
+    { "old": "backup-cadence-old", "new": "backup-cadence-new", "expect_supersession": true, "kind": "paraphrase", "note": "A genuine update stated in different words. Trigram Jaccard is well below 0.30, so MAG is expected to miss it. The annotation records what a correct system should do, not what MAG does." },
+    { "old": "editor-preference-old", "new": "editor-preference-new", "expect_supersession": true, "kind": "lexical_overlap", "note": "Preference reversal with near-identical wording." },
+    { "old": "unrelated-decision-a", "new": "unrelated-decision-b", "expect_supersession": false, "kind": "unrelated", "note": "Two unrelated decisions. Superseding here would be a precision failure." }
+  ],
+
+  "grouping": [
+    { "cluster_id": "backup-note", "members": ["cluster-backup-1", "cluster-backup-2", "cluster-backup-3"] },
+    { "cluster_id": "index-rebuild", "members": ["cluster-index-1", "cluster-index-2"] },
+    { "cluster_id": "sync-scope", "members": ["cluster-singleton"] }
+  ],
+
+  "provenance": [
+    { "operation": "auto_compact", "expect_source_link_field": "superseded_by_id", "note": "Derived rows must remain traceable to the memories they were built from." }
+  ],
+
+  "questions": [
+    { "id": "q-retry", "query": "how should retries work", "relevant_keys": ["retry-backoff"], "expect_abstain": false },
+    { "id": "q-retry-paraphrase", "query": "what is our policy when a request fails and we try again", "relevant_keys": ["retry-backoff"], "expect_abstain": false, "note": "Pure paraphrase with no shared content words. Measured as an abstention failure when MAG returns nothing." },
+    { "id": "q-socket", "query": "why did the worker leak a socket", "relevant_keys": ["socket-leak"], "expect_abstain": false },
+    { "id": "q-probes", "query": "should liveness probes check dependencies", "relevant_keys": ["kubernetes-probes"], "expect_abstain": false },
+    { "id": "q-wal", "query": "which journal mode does sqlite use here", "relevant_keys": ["sqlite-wal"], "expect_abstain": false },
+    { "id": "q-redis", "query": "is KEYS safe to run against redis in production", "relevant_keys": ["redis-scan"], "expect_abstain": false },
+    { "id": "q-multi-platform", "query": "what platform lessons have we recorded", "relevant_keys": ["kubernetes-probes", "redis-scan", "nginx-proxy-pass", "docker-layer-order"], "expect_abstain": false },
+    { "id": "q-styling", "query": "which css approach do I prefer", "relevant_keys": ["tailwind-preference"], "expect_abstain": false },
+    { "id": "q-timezone", "query": "what timezone do I work in", "relevant_keys": ["timezone-fact"], "expect_abstain": false },
+    { "id": "q-embedding-backend", "query": "why is the embedder pinned to the CPU backend", "relevant_keys": ["onnx-coreml"], "expect_abstain": false },
+    { "id": "q-absent-kafka", "query": "how is the Kafka consumer group configured", "relevant_keys": [], "expect_abstain": true, "note": "Nothing in the corpus concerns Kafka. Returning any result is a false-answer." },
+    { "id": "q-absent-salary", "query": "what is the on-call compensation policy", "relevant_keys": [], "expect_abstain": true },
+    { "id": "q-absent-ios", "query": "which iOS minimum deployment target did we agree", "relevant_keys": [], "expect_abstain": true }
+  ],
+
+  "unimplemented": [
+    {
+      "family": "fact_extraction",
+      "reason": "No production implementation. Structured fact extraction exists only behind --features llm,substrate and its output is never persisted as memories.",
+      "target_shape": "{ facts: [ { subject, predicate, object, confidence, source_memory_id } ] }"
+    },
+    {
+      "family": "contradiction_detection",
+      "reason": "MAG has near-duplicate detection, not contradiction detection. The supersession gate requires trigram Jaccard >= 0.30 and cosine >= 0.70, so it fires on rewording and misses contradictions stated in different words.",
+      "target_shape": "{ contradictions: [ { memory_id, contradicts_memory_id, basis, confidence } ] }"
+    },
+    {
+      "family": "summarisation",
+      "reason": "Consolidation concatenates source content rather than compressing it. There is no summariser to score, so compression ratio is reported instead and is expected to exceed 1.0.",
+      "target_shape": "{ summary, source_memory_ids, compression_ratio }"
+    },
+    {
+      "family": "relationship_typing",
+      "reason": "Edges carry four hardcoded types with no predicate vocabulary. There is no typed relationship proposal to score.",
+      "target_shape": "{ relationships: [ { source_id, target_id, predicate, confidence } ] }"
+    },
+    {
+      "family": "entity_normalization",
+      "reason": "Entity slugs are produced by string munging. There is no cross-document entity resolution, so a linking benchmark would score exactly what exact-slug-match yields.",
+      "target_shape": "{ entities: [ { surface_form, canonical_id, category, aliases } ] }"
+    },
+    {
+      "family": "referenced_date_inference",
+      "reason": "MAG validates a caller-supplied referenced_date but never infers one from text. Write-side coverage is zero by construction.",
+      "target_shape": "{ referenced_date, basis_span, confidence }"
+    }
+  ]
+}

@@ -25,6 +25,9 @@ mag-research.md
 data/*
 # But track the local benchmark definition
 !data/local_benchmark.json
+# ...and the versioned memory-intelligence evaluation set (small, repo-local)
+!data/memory_intelligence_eval/
+!data/memory_intelligence_eval/**
 
 # Oh My Pi harness working artifacts
 .omp/
