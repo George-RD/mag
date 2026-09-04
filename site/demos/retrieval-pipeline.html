@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MAG retrieval pipeline, one state at a time</title>
+<meta name="description" content="A stepped walkthrough of one mag advanced-search call through MAG's twelve retrieval stages, using measured _explain values from a three-memory database.">
+<meta name="theme-color" content="#0b1b35">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<style>
+:root{--ink:#0b1b35;--paper:#eef3f7;--white:#fff;--blue:#165dff;--navy:#0b41bd;--amber:#ffb703;--orange:#aa3508;--line:#b8c7d8;--muted:#50637b;--max:1160px;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--sans:Aptos,"Segoe UI",Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--sans)}
+a{color:inherit;text-underline-offset:.2em}
+img{display:block;max-width:100%}
+.wrap{width:min(var(--max),calc(100% - 40px));margin:auto}
+.skip{position:fixed;left:12px;top:12px;z-index:99;padding:9px 12px;background:var(--ink);color:#fff;transform:translateY(-160%)}
+.skip:focus{transform:none}
+.top{position:sticky;top:0;z-index:20;background:rgba(238,243,247,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+.bar{min-height:68px;display:flex;align-items:center;gap:24px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:900;font-size:21px;letter-spacing:.05em}
+.mark{width:34px;height:34px;display:grid;place-items:center;background:var(--blue);color:#fff;transform:skewX(-7deg)}
+nav{margin-left:auto;display:flex;gap:23px;font-size:14px;font-weight:750}
+nav a{text-decoration:none}
+.pill{font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;border:1px solid currentColor;padding:8px 9px;color:var(--orange)}
+h1,h2,h3{margin:0;font-weight:900;line-height:1.04;letter-spacing:-.035em}
+h1{font-size:clamp(2.5rem,5.2vw,4.2rem)}
+h2{font-size:clamp(1.8rem,3vw,2.5rem)}
+h3{font-size:1.42rem}
+.eyebrow{font:800 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--navy);margin:0 0 14px}
+.lead{font-size:clamp(1.1rem,1.8vw,1.34rem);max-width:660px;color:#213654;margin:26px 0 0}
+section{padding:64px 0;border-bottom:1px solid var(--line)}
+.cmd{display:flex;align-items:center;border:2px solid var(--ink);background:#fff;box-shadow:7px 7px 0 var(--ink);max-width:100%;overflow:auto;margin:34px 0 8px}
+.cmd code{padding:14px 15px;white-space:nowrap;font:13px/1.4 var(--mono)}
+.cmd b{color:var(--blue)}
+.note{font-size:14px;color:var(--muted);max-width:680px}
+.corpus{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);background:#fff;margin-top:30px}
+.mem{padding:18px;border-right:1px solid var(--line)}
+.mem:last-child{border-right:0}
+.mem b{display:block;font:800 11px var(--mono);color:var(--navy);text-transform:uppercase;letter-spacing:.06em}
+.mem p{margin:8px 0 10px;font-size:15px}
+.mem small{display:block;font:11px/1.7 var(--mono);color:var(--muted)}
+.controls{border:2px solid var(--ink);background:#fff;box-shadow:7px 7px 0 var(--ink);padding:16px;margin-bottom:34px}
+.transport{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:700 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;padding:11px 13px;border:2px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer}
+button:hover:not(:disabled){background:var(--ink);color:#fff}
+button:disabled{color:var(--muted);border-color:var(--line);cursor:default}
+.play[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#fff}
+.scrub{display:flex;align-items:center;gap:14px;margin-top:16px}
+.scrub label{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy);white-space:nowrap}
+input[type=range]{flex:1;accent-color:var(--blue);min-width:120px}
+.steps{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.step{font:700 10px/1 var(--mono);padding:8px 8px;border:1px solid var(--line);background:#fff;color:var(--muted)}
+.step:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.step[aria-current="step"]{background:var(--ink);border-color:var(--ink);color:#fff}
+.stage{background:#fff;border:1px solid var(--line);border-top:8px solid var(--ink);padding:28px}
+.stage-head{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:start}
+.ref{font:700 11px/1.6 var(--mono);color:var(--muted);margin:10px 0 0;word-break:break-word}
+.stage p.say{margin:18px 0 0;max-width:70ch;color:#213654}
+.tag{display:inline-block;font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;border:1px solid currentColor;padding:7px 8px}
+.t-on{color:var(--navy)}
+.t-hit{background:var(--amber);border-color:var(--amber);color:var(--ink)}
+.t-off{color:var(--orange)}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-top:0;margin-top:26px}
+.facts div{padding:16px;border-right:1px solid var(--line);border-top:1px solid var(--line)}
+.facts div:last-child{border-right:0}
+.facts b{display:block;font:800 11px var(--mono);color:var(--navy);text-transform:uppercase;letter-spacing:.06em}
+.facts span{display:block;margin-top:6px;font:12px/1.5 var(--mono);word-break:break-all}
+.setlabel{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:30px 0 10px;font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy)}
+.cands{display:grid;gap:10px}
+.cand{display:grid;grid-template-columns:52px 1.35fr 1fr;gap:16px;border:1px solid var(--line);background:#fff;padding:14px;align-items:start}
+.cand.hit{border-left:8px solid var(--amber)}
+.rank{font:900 22px/1 var(--mono);color:var(--blue)}
+.rank small{display:block;font:700 9px var(--mono);color:var(--muted);letter-spacing:.06em;margin-top:5px}
+.ct{margin:0;font-size:15px;font-weight:750}
+.cm{margin:8px 0 0;font:11px/1.7 var(--mono);color:var(--muted);word-break:break-all}
+.sig{margin:10px 0 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 14px}
+.sig div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted var(--line);padding-bottom:3px}
+.sig dt{font:700 11px var(--mono);color:var(--navy)}
+.sig dd{margin:0;font:11px var(--mono);text-align:right;word-break:break-all}
+.meter{display:block}
+.meter .axis{display:flex;justify-content:space-between;font:700 10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.track{display:block;position:relative;height:16px;background:#dbe7ff;margin:7px 0}
+.fill{display:block;height:16px;background:var(--blue);width:0;transition:width .5s ease}
+.fill.amber{background:var(--amber)}
+.cut{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--orange)}
+.val{display:block;font:700 11px var(--mono);word-break:break-all}
+.empty{border:1px dashed var(--line);padding:22px;font:12px/1.6 var(--mono);color:var(--muted)}
+.live{margin-top:22px;font:700 12px var(--mono);color:var(--navy);text-transform:uppercase;letter-spacing:.06em}
+.delta{margin-top:22px;border-left:8px solid var(--blue);background:var(--paper);padding:14px 16px;font-size:15px}
+.delta b{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy);display:block;margin-bottom:5px}
+table{width:100%;border-collapse:collapse;margin-top:26px;font-size:14px}
+th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+th{background:var(--ink);color:#fff;font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.06em}
+td.n{font:12px var(--mono);white-space:nowrap}
+tr.on td:first-child{border-left:6px solid var(--amber)}
+.skips{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-top:30px}
+.skipcard{border:1px solid var(--line);border-top:8px solid var(--orange);background:#fff;padding:22px}
+.skipcard b{font:800 11px var(--mono);color:var(--orange);text-transform:uppercase;letter-spacing:.06em}
+.skipcard p{margin:10px 0 0;color:var(--muted);font-size:15px}
+.scrollx{overflow-x:auto}
+footer{padding:32px 0;background:#061226;color:#b9c7da}
+.foot{display:flex;align-items:center;gap:24px}
+.foot p{margin:0}
+.foot div:last-child{margin-left:auto;display:flex;gap:18px}
+.foot a{color:#fff}
+:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+@media(max-width:900px){nav{display:none}.corpus,.skips{grid-template-columns:1fr}.mem{border-right:0;border-bottom:1px solid var(--line)}.facts{grid-template-columns:1fr 1fr}.cand{grid-template-columns:44px 1fr}.cand .meter{grid-column:2}}
+@media(max-width:540px){body{font-size:16px}.wrap{width:calc(100% - 28px)}.pill{display:none}section{padding:52px 0}.cmd code{font-size:11px}.facts{grid-template-columns:1fr}.sig{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+</style>
+</head>
+<body id="top">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><div class="wrap bar"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><nav aria-label="Primary"><a href="index.html">All demos</a><a href="../index.html">Main page</a><a href="https://github.com/George-RD/mag">Source</a></nav><span class="pill">Early alpha</span></div></header>
+<main id="main">
+
+<section>
+<div class="wrap">
+<p class="eyebrow">Demo 01 · Retrieval</p>
+<h1>One search through<br>the real pipeline.</h1>
+<p class="lead">This walks a single <code>mag advanced-search</code> call through twelve states. The values shown at each state are the ones MAG wrote into <code>_explain</code> when this exact query ran against this exact database.</p>
+<div class="cmd"><code><b>$</b> mag advanced-search "how should retries work?" --explain</code></div>
+<p class="note">Captured 4 September 2026 against a three-memory database. mag 0.1.10-dev, embedding model bge-small-en-v1.5 int8, 384 dimensions. <code>--limit</code> is left at its default of 10, so all three memories fit inside the result set. The binary is built with the default feature set, the same one the release workflow ships: <code>sqlite-vec</code> is opt-in and is not compiled in, so there is no <code>vec_memories</code> table and vector search reads the <code>embedding</code> column of <code>memories</code> directly.</p>
+
+<div class="corpus">
+  <div class="mem"><b>decision · importance 0.85</b><p>processed: Retries use exponential backoff with jitter, capped at 30 seconds</p><small>id 12619cc2-2872-418f-b4f6-a33afef57f2e<br>priority 3 · type_weight 2.0<br>tags project:api, decision, entity:people:retries</small></div>
+  <div class="mem"><b>error_pattern · importance 0.7</b><p>processed: The payments worker leaked a socket when a task was cancelled mid-flight</p><small>id 4c42d47c-8ac7-48ee-9472-b00ef07b8696<br>priority 4 · type_weight 2.0<br>tags project:worker, bugfix</small></div>
+  <div class="mem"><b>lesson_learned · importance 0.6</b><p>processed: Schema changes must be verified against the fixture set before merge</p><small>id 532237e2-57d5-4c0c-966d-3269e6930f60<br>priority 4 · type_weight 2.0<br>tags project:migration, handoff, entity:people:schema</small></div>
+</div>
+<p class="note" style="margin-top:14px">The <code>processed: </code> prefix on every <code>content</code> value is a defect, not a label. The CLI ingest path routes through a compatibility pipeline that prepends it. The tag <code>entity:people:retries</code> is a second defect from the same cause: the entity extractor skips the sentence-initial word, so the prefix pushes a real content word into a position where it is read as a person name.</p>
+</div>
+</section>
+
+<section>
+<div class="wrap">
+
+<div class="controls">
+  <div class="transport" role="group" aria-label="Playback controls">
+    <button type="button" id="first">&#124;&#9664; First</button>
+    <button type="button" id="prev">&#9664; Step back</button>
+    <button type="button" id="play" class="play" aria-pressed="false">&#9654; Play</button>
+    <button type="button" id="next">Step forward &#9654;</button>
+    <button type="button" id="last">Last &#9654;&#124;</button>
+  </div>
+  <div class="scrub">
+    <label for="scrubber">Jump to state</label>
+    <input type="range" id="scrubber" min="1" max="12" step="1" value="1" aria-describedby="live">
+    <span class="val" id="scrubval">01 / 12</span>
+  </div>
+  <nav class="steps" id="steps" aria-label="Jump to a state"></nav>
+</div>
+
+<article class="stage">
+  <div class="stage-head">
+    <div>
+      <p class="eyebrow" id="stateno">State 01 of 12</p>
+      <h2 id="stagename">Temporal expansion</h2>
+      <p class="ref" id="stageref"></p>
+    </div>
+    <span class="tag t-on" id="stagestatus">Runs</span>
+  </div>
+  <noscript><p class="empty">This walkthrough steps through twelve states with JavaScript. With it off, every measured value is in the table at the foot of this page.</p></noscript>
+  <p class="say" id="stagesay"></p>
+  <div class="facts" id="facts"></div>
+  <div class="setlabel"><span id="setlabel">Candidate set</span><span id="setorder"></span></div>
+  <div class="cands" id="cands"></div>
+  <div class="delta"><b>What changed</b><span id="delta"></span></div>
+  <p class="live" id="live" aria-live="polite" role="status"></p>
+</article>
+
+</div>
+</section>
+
+<section>
+<div class="wrap">
+<h2>Stages that did not run.</h2>
+<p class="note" style="margin-top:18px">A stage is listed here when the captured <code>_explain</code> object contains none of its keys, when a default value switches it off, or when it ran and contributed nothing.</p>
+<div class="skips">
+  <div class="skipcard"><b>Time decay</b><p><code>time_decay_days</code> defaults to <code>0.0</code>. <code>time_decay()</code> returns <code>1.0</code> whenever that value is at or below zero, so nothing decays with age unless you set it. Every candidate in this capture reports <code>time_decay 1.0</code>.</p></div>
+  <div class="skipcard"><b>Cross-encoder rerank</b><p>The <code>ms-marco-MiniLM-L-6-v2</code> model is downloaded by a separate command and was not present. No <code>cross_encoder_score</code> or <code>rerank_blend_alpha</code> key appears in the captured output, so the blend at <code>rerank_blend_alpha 0.5</code> never happened.</p></div>
+  <div class="skipcard"><b>Entity expansion</b><p>No <code>entity_expansion</code>, <code>expanded_from_tag</code> or <code>entity_boost</code> key appears in the capture. With three memories, graph enrichment already reached everything an entity tag could have reached.</p></div>
+  <div class="skipcard"><b>Hot tier cache</b><p>This one is not optional and it is not skipped: every <code>advanced_search</code> queries it first. It holds up to 50 rows with <code>access_count</code> above zero, ordered by access count and refreshed every 300 seconds. <code>mag stats</code> reports <code>total_access_count</code> 0 on this database, so the cache was empty, no <code>_hot_cache</code> key appears in the capture, and there was nothing to merge. When it does return a row, the merge happens after normalisation, which is the one path on which a returned top score is not 1.0.</p></div>
+  <div class="skipcard"><b>Keyword-only fast path</b><p>Taken only when the intent is <code>Keyword</code> or the query is blank. This query classifies as <code>Conceptual</code>, so the full pipeline ran. The fast path would have skipped embedding, vector search, RRF, cross-encoder, graph enrichment and entity expansion.</p></div>
+</div>
+</div>
+</section>
+
+<section>
+<div class="wrap">
+<h2>Every number on this page.</h2>
+<p class="note" style="margin-top:18px">Measured means the value was printed by the binary. Constant means it is a default in <code>ScoringParams</code> or a module constant. Computed means it follows from a documented formula applied to values in the two other rows.</p>
+<div class="scrollx">
+<table>
+<caption class="note" style="text-align:left;padding:10px 0">Sources for the values used in the twelve states. Where three values are separated by slashes, they are in the memory order given in the first column heading, which is the order the results come back in.</caption>
+<thead><tr><th scope="col">Value &mdash; 12619cc2 decision / 4c42d47c error_pattern / 532237e2 lesson_learned</th><th scope="col">Kind</th><th scope="col">Where it comes from</th></tr></thead>
+<tbody>
+<tr><td class="n">0.6371260285377502 / 0.42443808913230896 / 0.5341115593910217</td><td>Measured</td><td><code>vec_sim</code> for the three candidates in the captured <code>_explain</code>.</td></tr>
+<tr><td class="n">0 / null / null</td><td>Measured</td><td><code>fts_rank</code>. Only the decision memory came back from FTS5.</td></tr>
+<tr><td class="n">-0.5344627991587616</td><td>Measured</td><td><code>fts_bm25</code> for the decision memory.</td></tr>
+<tr><td class="n">0.038524590163934426 / 0.023809523809523808 / 0.024193548387096774</td><td>Measured</td><td><code>rrf_score</code>. Each equals the weighted RRF formula at that candidate's ranks.</td></tr>
+<tr><td class="n">2.0</td><td>Measured</td><td><code>adaptive_dual_boost</code> on the decision memory. Equals <code>max(1.5, 1.0) + 1.0 &times; 0.5</code>.</td></tr>
+<tr><td class="n">1.038888888888889 / 1.038888888888889 / 1.0</td><td>Measured</td><td><code>query_coverage_boost</code>. Equals <code>1 + overlap&sup2; &times; 0.35</code>.</td></tr>
+<tr><td class="n">0.3333333333333333 / 0.3333333333333333 / 0.0</td><td>Measured</td><td><code>word_overlap</code> and <code>text_overlap</code>, which carry the same value.</td></tr>
+<tr><td class="n">0.725 / 0.6499999999999999 / 0.6</td><td>Measured</td><td><code>importance_factor</code>. Equals <code>0.3 + importance &times; 0.5</code>.</td></tr>
+<tr><td class="n">0.94 / 1.02 / 1.02</td><td>Measured</td><td><code>priority_factor</code>. Equals <code>0.7 + priority &times; 0.08</code>.</td></tr>
+<tr><td class="n">2.0 (all three)</td><td>Measured</td><td><code>type_weight</code>. <code>decision</code>, <code>error_pattern</code> and <code>lesson_learned</code> all weigh 2.0.</td></tr>
+<tr><td class="n">1.0 (all three)</td><td>Measured</td><td><code>time_decay</code> and <code>feedback_factor</code>.</td></tr>
+<tr><td class="n">1.0 / 0.30344998836517334 / 0.22783465683460236</td><td>Measured</td><td>The <code>score</code> field of the three returned results.</td></tr>
+<tr><td class="n">1.0 / 0.30345000000000005 / 0.22783465151007512</td><td>Measured</td><td><code>final_score</code> inside <code>_explain</code>.</td></tr>
+<tr><td class="n">true / false / false</td><td>Measured</td><td><code>dual_match</code>.</td></tr>
+<tr><td class="n">1.0</td><td>Measured</td><td><code>fts_text_rel</code> and <code>graph_edge_weight</code>.</td></tr>
+<tr><td class="n">60.0</td><td>Constant</td><td><code>rrf_k</code> in <code>ScoringParams</code>.</td></tr>
+<tr><td class="n">1.0 / 1.0</td><td>Constant</td><td><code>rrf_weight_vec</code> and <code>rrf_weight_fts</code> before the intent multipliers.</td></tr>
+<tr><td class="n">0.15</td><td>Constant</td><td><code>abstention_min_text</code>.</td></tr>
+<tr><td class="n">1.5</td><td>Constant</td><td><code>dual_match_boost</code>, and separately <code>preceded_by_boost</code>.</td></tr>
+<tr><td class="n">0.1 / 0.3</td><td>Constant</td><td><code>graph_neighbor_factor</code> and <code>graph_min_edge_weight</code>.</td></tr>
+<tr><td class="n">0.5511474609375</td><td>Measured</td><td><code>weight</code> on the <code>related</code> edge between the decision and the lesson_learned memory, from <code>mag relations</code>. It clears <code>graph_min_edge_weight</code>, so the one-hop walk crossed it.</td></tr>
+<tr><td class="n">0</td><td>Measured</td><td><code>total_access_count</code> from <code>mag stats</code>. The hot tier only holds rows above zero, so it was empty.</td></tr>
+<tr><td class="n">50 / 300 / 0.45</td><td>Constant</td><td><code>HOT_CACHE_CAPACITY</code>, <code>HOT_CACHE_REFRESH_SECS</code> and the minimum score a hot-tier row must reach to be returned.</td></tr>
+<tr><td class="n">5 / 8</td><td>Constant</td><td><code>graph_seed_min</code> and <code>graph_seed_max</code>.</td></tr>
+<tr><td class="n">0.75 / 0.35 / 0.25</td><td>Constant</td><td><code>word_overlap_weight</code>, <code>query_coverage_weight</code>, <code>jaccard_weight</code>.</td></tr>
+<tr><td class="n">0.3 / 0.5</td><td>Constant</td><td><code>importance_floor</code> and <code>importance_scale</code>.</td></tr>
+<tr><td class="n">0.7 / 0.08</td><td>Constant</td><td><code>priority_base</code> and <code>priority_scale</code>.</td></tr>
+<tr><td class="n">0.0</td><td>Constant</td><td><code>time_decay_days</code>. Zero disables decay.</td></tr>
+<tr><td class="n">30 / 0.5</td><td>Constant</td><td><code>rerank_top_n</code> and <code>rerank_blend_alpha</code>, neither of which was reached.</td></tr>
+<tr><td class="n">60</td><td>Constant</td><td><code>QUERY_CACHE_TTL_SECS</code>.</td></tr>
+<tr><td class="n">1.5 / 0.85 / 0.7 / 1.3</td><td>Constant</td><td>The <code>Conceptual</code> intent profile multipliers for vector weight, FTS weight, word overlap and top-k.</td></tr>
+<tr><td class="n">20 / 100 / 5000</td><td>Constant</td><td><code>ADVANCED_FTS_CANDIDATE_MULTIPLIER</code>, <code>_MIN</code> and <code>_MAX</code>.</td></tr>
+<tr><td class="n">384 / 32 MB / 7 ms</td><td>Constant</td><td>Dimensions, on-disk size and per-embedding CPU time for bge-small-en-v1.5 int8, from the model documentation.</td></tr>
+<tr><td class="n">2048 / 600 s</td><td>Constant</td><td><code>EMBEDDING_CACHE_CAPACITY</code> and the embedder idle-unload timeout.</td></tr>
+<tr><td class="n">13</td><td>Computed</td><td><code>candidate_limit = ceil(10 &times; 1.3 &times; 1.0)</code>.</td></tr>
+<tr><td class="n">260</td><td>Computed</td><td>FTS candidate limit: <code>(13 &times; 20).clamp(100, 5000)</code>.</td></tr>
+<tr><td class="n">100</td><td>Computed</td><td>Vector scan limit in a default build: <code>(13 &times; 5).clamp(100, 10000)</code>. A build with the optional <code>sqlite-vec</code> feature uses <code>(13 &times; 10).clamp(200, 10000)</code> instead.</td></tr>
+<tr><td class="n">0.04</td><td>Display</td><td>The upper bound of the rrf_score bar. It is a chart axis, named in the axis label, not a value MAG emits.</td></tr>
+<tr><td class="n">1.88 / 2.04 / 2.04</td><td>Computed</td><td>Seed score before fusion: <code>type_weight &times; priority_factor</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<p class="note" style="margin-top:22px">MAG does not emit a running score per stage, only the signals above. The bars in the walkthrough are scaled to the signal named in their axis label, and no intermediate score is shown that MAG did not print.</p>
+</div>
+</section>
+
+</main>
+<footer><div class="wrap foot"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><p>Local-first memory for MCP clients.</p><div><a href="index.html">All demos</a><a href="https://github.com/George-RD/mag">Source</a></div></div></footer>
+
+<script>
+(function(){
+"use strict";
+
+var C = {
+  m1:{short:"12619cc2", id:"12619cc2-2872-418f-b4f6-a33afef57f2e",
+      content:"processed: Retries use exponential backoff with jitter, capped at 30 seconds",
+      meta:"decision · importance 0.85 · priority 3 · type_weight 2.0"},
+  m2:{short:"4c42d47c", id:"4c42d47c-8ac7-48ee-9472-b00ef07b8696",
+      content:"processed: The payments worker leaked a socket when a task was cancelled mid-flight",
+      meta:"error_pattern · importance 0.7 · priority 4 · type_weight 2.0"},
+  m3:{short:"532237e2", id:"532237e2-57d5-4c0c-966d-3269e6930f60",
+      content:"processed: Schema changes must be verified against the fixture set before merge",
+      meta:"lesson_learned · importance 0.6 · priority 4 · type_weight 2.0"}
+};
+
+var STATES = [
+{
+  id:"temporal", name:"Temporal expansion", status:"Runs", statusClass:"t-on",
+  ref:"expand_temporal_query(query, today) · advanced.rs:53-66",
+  say:"Before anything is scored, the query is scanned for date language and any date it finds is stripped out and turned into a range filter. “how should retries work?” contains no date language, so the query text is untouched and both range fields stay unset.",
+  facts:[["Query in","how should retries work?"],["Query out","how should retries work?"],["event_after","unset"],["event_before","unset"]],
+  setLabel:"Candidate set", order:[], sig:{}, bar:null,
+  empty:"No candidates yet. Collection starts at state 05.",
+  delta:"Nothing. This query carries no date language, so no filter is added."
+},
+{
+  id:"intent", name:"Intent classification", status:"Conceptual", statusClass:"t-hit",
+  ref:"classify_query_intent(query) · query_classifier.rs:128-185",
+  say:"Classification is lexical, not inferred: the first word decides. “how” is in the Conceptual trigger list. The narrower “how many / much / old / long / often” test is checked first and does not match here, so the query lands on Conceptual and its four multipliers are applied to the scoring parameters.",
+  facts:[["Matched rule","first word in why / how / explain / describe / elaborate"],["vec_weight_mult","1.5"],["fts_weight_mult","0.85"],["top_k_mult","1.3"]],
+  setLabel:"Candidate set", order:[], sig:{}, bar:null,
+  empty:"No candidates yet. Collection starts at state 05.",
+  delta:"rrf_weight_vec 1.0 → 1.5 and rrf_weight_fts 1.0 → 0.85. Both changes are visible later in the measured rrf_score arithmetic. word_overlap_mult 0.7 and top_k_mult 1.3 are also applied, but only top_k_mult shows up separately in the output."
+},
+{
+  id:"limits", name:"Candidate limit", status:"Runs", statusClass:"t-on",
+  ref:"detect_dynamic_limit_mult(query) · advanced.rs:107-119",
+  say:"The requested limit is 10. It is multiplied by the intent's top_k_mult and by a dynamic multiplier that looks for two specific query shapes: a relationship question (“ and ” together with a word like related or between), which gives 2.0, and a multi-month time phrase, which gives 1.5. Neither matches, so the dynamic multiplier stays at 1.0.",
+  facts:[["candidate_limit","ceil(10 × 1.3 × 1.0) = 13"],["FTS candidates","(13 × 20).clamp(100, 5000) = 260"],["Vector scan","(13 × 5).clamp(100, 10000) = 100"],["Query cache","60 s TTL, cold on this call"]],
+  setLabel:"Candidate set", order:[], sig:{}, bar:null,
+  empty:"No candidates yet. Collection starts at state 05.",
+  delta:"The pipeline will over-collect: up to 260 rows from FTS5 and 100 from the vector scan, to return at most 10."
+},
+{
+  id:"embed", name:"Query embedding", status:"Runs", statusClass:"t-on",
+  ref:"embedder.embed_for(EmbeddingInputKind::Query, &query) · advanced.rs:136-153",
+  say:"The query is embedded on the CPU with the local ONNX model, on a blocking thread. This is the step the keyword-only fast path exists to avoid; that path is taken only for a Keyword intent or a blank query, so it is not taken here.",
+  facts:[["Model","bge-small-en-v1.5 int8"],["Dimensions","384"],["Inference","about 7 ms per embedding"],["Cache","LRU, 2048 entries, unloads after 600 s idle"]],
+  setLabel:"Candidate set", order:[], sig:{}, bar:null,
+  empty:"No candidates yet. Collection starts at the next state.",
+  delta:"One 384-dimension query vector now exists. Vector search can run."
+},
+{
+  id:"fts", name:"FTS5 candidates", status:"1 of 3 matched", statusClass:"t-on",
+  ref:"collect_fts_candidates() · pipeline/retrieval.rs",
+  say:"SQLite's FTS5 index is queried with the stopword-filtered query terms and ordered by bm25. FTS5 matches literal tokens, so “retries” finds the decision memory and “work” does not find “worker”. The other two candidates carry fts_rank null in the captured output, which is how you can tell they never came back from this list.",
+  facts:[["Rows returned","1"],["Ordering","bm25(memories_fts) ascending"],["Note","bm25 is negative; more negative is a better match"],["Filter","superseded_by_id IS NULL"]],
+  setLabel:"FTS5 list", order:["m1"], orderNote:"Ordered by fts_rank",
+  sig:{m1:[["fts_rank","0"],["fts_bm25","-0.5344627991587616"],["fts_text_rel","1.0"],["seed score","2.0 × 0.94 = 1.88"]]},
+  bar:null, hit:["m1"],
+  delta:"One candidate enters the set. The decision memory is the only row FTS5 returned."
+},
+{
+  id:"vector", name:"Vector candidates", status:"3 of 3 matched", statusClass:"t-on",
+  ref:"collect_vector_candidates() · pipeline/retrieval.rs:27-142",
+  say:"A default build carries no vector index. It reads the embedding BLOB column of the 100 most recent rows of memories, computes cosine against each one, and sorts what survives. Candidates below cosine 0.1 are dropped; all three clear that floor. This is the list that gives the two memories FTS5 missed a way into the result set.",
+  facts:[["Rows returned","3"],["Similarity floor","0.1"],["Scan","memories.embedding, ORDER BY created_at DESC LIMIT 100"],["Seed score","type_weight × priority_factor"]],
+  setLabel:"Vector list", order:["m1","m3","m2"], orderNote:"Ordered by vec_sim",
+  sig:{
+    m1:[["vec_sim","0.6371260285377502"],["vector rank","0"],["seed score","1.88"]],
+    m3:[["vec_sim","0.5341115593910217"],["vector rank","1"],["seed score","2.04"]],
+    m2:[["vec_sim","0.42443808913230896"],["vector rank","2"],["seed score","2.04"]]
+  },
+  bar:{key:"vec_sim", max:1, axis:"vec_sim · 0 to 1",
+       vals:{m1:0.6371260285377502, m3:0.5341115593910217, m2:0.42443808913230896},
+       text:{m1:"0.6371260285377502", m3:"0.5341115593910217", m2:"0.42443808913230896"}},
+  delta:"Two candidates enter the set. The decision memory is now in both lists, which is what makes it a dual match."
+},
+{
+  id:"rrf", name:"Weighted RRF fusion", status:"Runs", statusClass:"t-on",
+  ref:"fuse_and_score() · fusion.rs:34-158",
+  say:"Each list contributes weight / (rrf_k + rank + 1) with rrf_k at 60.0. The base weights are both 1.0, and the Conceptual intent has already scaled them to 1.5 for vectors and 0.85 for FTS. A candidate present in both lists sums the two contributions, which is why the decision memory's rrf_score is larger than the sum of the other two.",
+  facts:[["rrf_k","60.0"],["Vector weight","1.0 × 1.5 = 1.5"],["FTS weight","1.0 × 0.85 = 0.85"],["Formula","weight / (60.0 + rank + 1)"]],
+  setLabel:"Fused set", order:["m1","m3","m2"], orderNote:"Ordered by rrf_score",
+  sig:{
+    m1:[["rrf_score","0.038524590163934426"],["arithmetic","1.5 / 61 + 0.85 / 61"],["dual_match","true"]],
+    m3:[["rrf_score","0.024193548387096774"],["arithmetic","1.5 / 62"],["dual_match","false"]],
+    m2:[["rrf_score","0.023809523809523808"],["arithmetic","1.5 / 63"],["dual_match","false"]]
+  },
+  bar:{key:"rrf_score", max:0.04, axis:"rrf_score · 0 to 0.04",
+       vals:{m1:0.038524590163934426, m3:0.024193548387096774, m2:0.023809523809523808},
+       text:{m1:"0.038524590163934426", m3:"0.024193548387096774", m2:"0.023809523809523808"}},
+  delta:"The two lists become one. The lesson_learned memory is ahead of the error_pattern memory by 0.000384024577572966 because its vector rank was one place better."
+},
+{
+  id:"dual", name:"Adaptive dual-match boost", status:"1 candidate boosted", statusClass:"t-hit",
+  ref:"fusion.rs:126-142",
+  say:"A candidate that appeared in both lists is boosted, and the size of the boost depends on how well it did in the text list. text_rel is 1 / (1 + fts_rank), so a top FTS hit gets the full extra half-step above the 1.5 floor. Candidates that were not dual matches are multiplied by nothing.",
+  facts:[["dual_match_boost floor","1.5"],["text_rel","1 / (1 + 0) = 1.0"],["Boost formula","max(1.5, 1.0) + text_rel × 0.5"],["Applied to","1 of 3 candidates"]],
+  setLabel:"Fused set", order:["m1","m3","m2"], orderNote:"Order carried from RRF fusion",
+  sig:{
+    m1:[["dual_match","true"],["fts_text_rel","1.0"],["adaptive_dual_boost","2.0"]],
+    m3:[["dual_match","false"],["fts_text_rel","not emitted"],["adaptive_dual_boost","not applied"]],
+    m2:[["dual_match","false"],["fts_text_rel","not emitted"],["adaptive_dual_boost","not applied"]]
+  },
+  bar:null, hit:["m1"],
+  delta:"The decision memory's score doubles. The other two are unchanged, and the gap at the top of the set widens."
+},
+{
+  id:"refine", name:"Score refinement", status:"Runs", statusClass:"t-on",
+  ref:"refine_scores() · pipeline/scoring.rs:36-129",
+  say:"Seven multipliers are applied in a fixed order: query coverage, word overlap, Jaccard, feedback, time decay, importance, and an optional context-tag bonus. Two of them do nothing here. time_decay is 1.0 for every candidate because time_decay_days defaults to 0.0, and feedback_factor is 1.0 because no memory has been rated.",
+  facts:[["Order","coverage → overlap → jaccard → feedback → decay → importance"],["query_coverage_weight","0.35"],["word_overlap_weight","0.75"],["importance","0.3 + importance × 0.5"]],
+  setLabel:"Fused set", order:["m1","m3","m2"], orderNote:"Order carried from RRF fusion",
+  sig:{
+    m1:[["word_overlap","0.3333333333333333"],["query_coverage_boost","1.038888888888889"],["importance_factor","0.725"],["feedback_factor","1.0"],["time_decay","1.0"],["decay status","off by default"]],
+    m3:[["word_overlap","0.0"],["query_coverage_boost","1.0"],["importance_factor","0.6"],["feedback_factor","1.0"],["time_decay","1.0"],["decay status","off by default"]],
+    m2:[["word_overlap","0.3333333333333333"],["query_coverage_boost","1.038888888888889"],["importance_factor","0.6499999999999999"],["feedback_factor","1.0"],["time_decay","1.0"],["decay status","off by default"]]
+  },
+  bar:{key:"word_overlap", max:1, axis:"word_overlap · 0 to 1",
+       vals:{m1:0.3333333333333333, m3:0.0, m2:0.3333333333333333},
+       text:{m1:"0.3333333333333333", m3:"0.0", m2:"0.3333333333333333"}},
+  delta:"The lesson_learned memory shares no query term at all, so it takes neither the coverage boost nor the overlap multiplier. The error_pattern memory takes both, on the token work from worker."
+},
+{
+  id:"graph", name:"Graph enrichment", status:"1 candidate injected", statusClass:"t-hit",
+  ref:"enrich_graph_neighbors() · enrichment.rs:24-250",
+  say:"The highest-scoring candidates become seeds, and one hop of the relationship graph is walked from each. Edges below weight 0.3 are ignored. A neighbour's score is the seed's score scaled by graph_neighbor_factor, then by the edge weight, then by an edge-type boost. Where a neighbour is already a candidate, the higher of the two scores is kept.",
+  facts:[["Seeds requested","10 clamped to 5..8 = 8; only 3 exist"],["graph_neighbor_factor","0.1"],["graph_min_edge_weight","0.3"],["PRECEDED_BY boost","1.5"]],
+  setLabel:"Enriched set", order:["m1","m3","m2"], orderNote:"Order carried from RRF fusion",
+  sig:{
+    m1:[["role","seed"],["graph_injected","not emitted"]],
+    m3:[["role","reached, related edge, weight 0.5511474609375"],["graph_injected","not emitted; its neighbour score lost to its own"]],
+    m2:[["graph_injected","true"],["graph_seed_id","12619cc2-2872-418f-b4f6-a33afef57f2e"],["graph_edge_weight","1.0"],["edge type","PRECEDED_BY"]]
+  },
+  bar:null, hit:["m2"],
+  delta:"The error_pattern memory picks up a second route into the set, through the PRECEDED_BY edge written when it was stored immediately after the decision. The one-hop walk reached the lesson_learned memory too, over a related edge of weight 0.5511474609375, but the score that walk produced was lower than the score it already held, so no graph key was written onto it."
+},
+{
+  id:"abstain", name:"Abstention gate", status:"Passed", statusClass:"t-on",
+  ref:"abstain_and_dedup() · abstention.rs:56-141",
+  say:"Duplicates are collapsed by a normalised content fingerprint, then the gate runs. It takes the largest text_overlap across the surviving candidates and compares it with abstention_min_text. Two candidates are at 0.3333333333333333, comfortably above 0.15, so the gate passes and the semantic rescue path is never consulted.",
+  facts:[["abstention_min_text","0.15"],["max text_overlap","0.3333333333333333"],["lexical_match","true"],["Semantic rescue","not needed"]],
+  setLabel:"Surviving set", order:["m1","m2","m3"], orderNote:"Ordered by text_overlap",
+  sig:{
+    m1:[["text_overlap","0.3333333333333333"],["shared token","retry, from retries"],["vs 0.15","above"]],
+    m2:[["text_overlap","0.3333333333333333"],["shared token","work, from worker"],["vs 0.15","above"]],
+    m3:[["text_overlap","0.0"],["shared token","none"],["vs 0.15","below"]]
+  },
+  bar:{key:"text_overlap", max:1, cut:0.15, axis:"text_overlap · 0 to 1 · cutoff at 0.15",
+       vals:{m1:0.3333333333333333, m2:0.3333333333333333, m3:0.0},
+       text:{m1:"0.3333333333333333", m2:"0.3333333333333333", m3:"0.0"}},
+  delta:"Nothing is dropped. The gate is all-or-nothing: it either returns the whole set or an empty array, so a single candidate above the cutoff keeps the weak ones in too."
+},
+{
+  id:"final", name:"Normalise and truncate", status:"3 results returned", statusClass:"t-hit",
+  ref:"abstention.rs:113-141",
+  say:"Candidates are sorted by score, cut to the requested limit of 10, then divided by the top score and clamped to the range 0 to 1. The top result of a search answered by this fusion pipeline is therefore always exactly 1.0; it is a relative rank, not a confidence. The hot-tier cache is the exception, because a confident hot hit is merged in after this step. _text_overlap is attached to every result, and _explain is attached because --explain was passed.",
+  facts:[["Sort","score descending"],["Truncate","limit 10, 3 available"],["Normalise","score / max_score, clamped 0..1"],["Injected","_text_overlap always, _explain on demand"]],
+  setLabel:"Returned results", order:["m1","m2","m3"], orderNote:"Ordered by final score",
+  sig:{
+    m1:[["score","1.0"],["final_score","1.0"],["rank","1"]],
+    m2:[["score","0.30344998836517334"],["final_score","0.30345000000000005"],["rank","2"]],
+    m3:[["score","0.22783465683460236"],["final_score","0.22783465151007512"],["rank","3"]]
+  },
+  bar:{key:"score", max:1, axis:"score · 0 to 1", amber:true,
+       vals:{m1:1.0, m2:0.30344998836517334, m3:0.22783465683460236},
+       text:{m1:"1.0", m2:"0.30344998836517334", m3:"0.22783465683460236"}},
+  hit:["m1"],
+  delta:"The error_pattern memory finishes second, ahead of the lesson_learned memory it trailed after fusion. Word overlap, importance and the graph edge each moved it; RRF rank alone did not decide the order."
+}
+];
+
+var cur = 0, playing = false, timer = null;
+var lastBar = {};
+var el = {
+  stateno:document.getElementById("stateno"),
+  name:document.getElementById("stagename"),
+  ref:document.getElementById("stageref"),
+  status:document.getElementById("stagestatus"),
+  say:document.getElementById("stagesay"),
+  facts:document.getElementById("facts"),
+  setlabel:document.getElementById("setlabel"),
+  setorder:document.getElementById("setorder"),
+  cands:document.getElementById("cands"),
+  delta:document.getElementById("delta"),
+  live:document.getElementById("live"),
+  steps:document.getElementById("steps"),
+  scrub:document.getElementById("scrubber"),
+  scrubval:document.getElementById("scrubval"),
+  play:document.getElementById("play"),
+  prev:document.getElementById("prev"),
+  next:document.getElementById("next"),
+  first:document.getElementById("first"),
+  last:document.getElementById("last")
+};
+
+function reduced(){
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+function pad(n){ return (n < 10 ? "0" : "") + n; }
+function esc(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+STATES.forEach(function(st, i){
+  var b = document.createElement("button");
+  b.type = "button";
+  b.className = "step";
+  b.textContent = pad(i + 1) + " " + st.name;
+  b.addEventListener("click", function(){ stop(); go(i); });
+  el.steps.appendChild(b);
+});
+var stepBtns = el.steps.querySelectorAll(".step");
+
+function buildRow(key, st){
+  var c = C[key];
+  var row = document.createElement("article");
+  row.className = "cand";
+  if (st.hit && st.hit.indexOf(key) > -1) { row.className += " hit"; }
+  row.setAttribute("data-id", key);
+
+  var rank = document.createElement("div");
+  rank.className = "rank";
+  rank.innerHTML = pad(st.order.indexOf(key) + 1) + "<small>" + esc(c.short) + "</small>";
+  row.appendChild(rank);
+
+  var body = document.createElement("div");
+  var html = '<p class="ct">' + esc(c.content) + '</p><p class="cm">' + esc(c.meta) + "</p>";
+  var sig = st.sig[key] || [];
+  if (sig.length) {
+    html += '<dl class="sig">';
+    sig.forEach(function(pair){
+      html += "<div><dt>" + esc(pair[0]) + "</dt><dd>" + esc(pair[1]) + "</dd></div>";
+    });
+    html += "</dl>";
+  }
+  body.innerHTML = html;
+  row.appendChild(body);
+
+  var meter = document.createElement("div");
+  meter.className = "meter";
+  if (st.bar) {
+    var v = st.bar.vals[key];
+    var pct = Math.max(0, Math.min(100, (v / st.bar.max) * 100));
+    var cut = st.bar.cut != null ? '<span class="cut" style="left:' + ((st.bar.cut / st.bar.max) * 100) + '%"></span>' : "";
+    var start = lastBar[key] != null ? lastBar[key] : 0;
+    meter.innerHTML = '<span class="axis"><span>' + esc(st.bar.axis) + "</span></span>" +
+      '<span class="track">' + cut + '<span class="fill' + (st.bar.amber ? " amber" : "") + '" style="width:' + start + '%"></span></span>' +
+      '<span class="val">' + esc(st.bar.key) + " " + esc(st.bar.text[key]) + "</span>";
+    meter.setAttribute("data-pct", pct);
+  } else {
+    meter.innerHTML = '<span class="axis"><span>no bar at this stage</span></span>' +
+      '<p class="cm" style="margin-top:7px">This stage writes named signals, not a comparable magnitude.</p>';
+  }
+  row.appendChild(meter);
+  return row;
+}
+
+function render(){
+  var st = STATES[cur];
+  el.stateno.textContent = "State " + pad(cur + 1) + " of " + STATES.length;
+  el.name.textContent = st.name;
+  el.ref.textContent = st.ref;
+  el.status.textContent = st.status;
+  el.status.className = "tag " + st.statusClass;
+  el.say.textContent = st.say;
+
+  el.facts.innerHTML = st.facts.map(function(f){
+    return "<div><b>" + esc(f[0]) + "</b><span>" + esc(f[1]) + "</span></div>";
+  }).join("");
+
+  el.setlabel.textContent = st.setLabel + " — " + st.order.length + (st.order.length === 1 ? " candidate" : " candidates");
+  el.setorder.textContent = st.orderNote || "";
+
+  var firstTop = {};
+  Array.prototype.forEach.call(el.cands.children, function(node){
+    firstTop[node.getAttribute("data-id")] = node.getBoundingClientRect().top;
+  });
+
+  el.cands.innerHTML = "";
+  if (!st.order.length) {
+    var e = document.createElement("p");
+    e.className = "empty";
+    e.textContent = st.empty;
+    el.cands.appendChild(e);
+  } else {
+    st.order.forEach(function(key){ el.cands.appendChild(buildRow(key, st)); });
+  }
+
+  if (!reduced()) {
+    Array.prototype.forEach.call(el.cands.children, function(node){
+      var id = node.getAttribute("data-id");
+      if (!id || firstTop[id] == null) { return; }
+      var dy = firstTop[id] - node.getBoundingClientRect().top;
+      if (!dy) { return; }
+      node.style.transition = "none";
+      node.style.transform = "translateY(" + dy + "px)";
+      requestAnimationFrame(function(){
+        node.style.transition = "transform .45s ease";
+        node.style.transform = "";
+      });
+    });
+  }
+
+  var apply = function(){
+    Array.prototype.forEach.call(el.cands.querySelectorAll(".meter"), function(m){
+      var pct = m.getAttribute("data-pct");
+      if (pct == null) { return; }
+      var fill = m.querySelector(".fill");
+      if (fill) { fill.style.width = pct + "%"; }
+    });
+  };
+  if (reduced()) { apply(); } else { requestAnimationFrame(apply); }
+
+  lastBar = {};
+  if (st.bar) {
+    st.order.forEach(function(key){
+      lastBar[key] = Math.max(0, Math.min(100, (st.bar.vals[key] / st.bar.max) * 100));
+    });
+  }
+
+  el.delta.textContent = st.delta;
+  el.live.textContent = "State " + pad(cur + 1) + " of " + STATES.length + ": " + st.name + ". " + st.status + ". " + st.delta;
+
+  Array.prototype.forEach.call(stepBtns, function(b, i){
+    if (i === cur) { b.setAttribute("aria-current", "step"); } else { b.removeAttribute("aria-current"); }
+  });
+  el.scrub.value = String(cur + 1);
+  el.scrubval.textContent = pad(cur + 1) + " / " + STATES.length;
+  el.prev.disabled = cur === 0;
+  el.first.disabled = cur === 0;
+  el.next.disabled = cur === STATES.length - 1;
+  el.last.disabled = cur === STATES.length - 1;
+}
+
+function go(i, skipHash){
+  cur = Math.max(0, Math.min(STATES.length - 1, i));
+  render();
+  if (!skipHash) {
+    try { history.replaceState(null, "", "#" + STATES[cur].id); }
+    catch (err) { location.hash = STATES[cur].id; }
+  }
+}
+
+var PLAYKEY = "mag-demo-play:" + location.pathname.split("/").pop();
+function save(v){
+  try { localStorage.setItem(PLAYKEY, v ? "1" : "0"); } catch (err) { /* storage unavailable */ }
+}
+function load(){
+  try { return localStorage.getItem(PLAYKEY) === "1"; } catch (err) { return false; }
+}
+
+function start(){
+  if (playing) { return; }
+  playing = true;
+  el.play.setAttribute("aria-pressed", "true");
+  el.play.innerHTML = "&#9646;&#9646; Pause";
+  save(true);
+  timer = setInterval(function(){
+    if (cur >= STATES.length - 1) { stop(); return; }
+    go(cur + 1);
+  }, 3200);
+}
+function stop(){
+  playing = false;
+  el.play.setAttribute("aria-pressed", "false");
+  el.play.innerHTML = "&#9654; Play";
+  save(false);
+  if (timer) { clearInterval(timer); timer = null; }
+}
+
+el.play.addEventListener("click", function(){ if (playing) { stop(); } else { start(); } });
+el.next.addEventListener("click", function(){ stop(); go(cur + 1); });
+el.prev.addEventListener("click", function(){ stop(); go(cur - 1); });
+el.first.addEventListener("click", function(){ stop(); go(0); });
+el.last.addEventListener("click", function(){ stop(); go(STATES.length - 1); });
+el.scrub.addEventListener("input", function(){ stop(); go(parseInt(el.scrub.value, 10) - 1); });
+window.addEventListener("hashchange", function(){
+  var i = indexOfHash();
+  if (i > -1 && i !== cur) { stop(); go(i, true); }
+});
+
+function indexOfHash(){
+  var h = location.hash.replace(/^#/, "");
+  for (var i = 0; i < STATES.length; i++) { if (STATES[i].id === h) { return i; } }
+  return -1;
+}
+
+var startAt = indexOfHash();
+go(startAt > -1 ? startAt : 0, startAt > -1);
+if (!reduced() && load() && cur < STATES.length - 1) { start(); }
+
+})();
+</script>
+</body>
+</html>

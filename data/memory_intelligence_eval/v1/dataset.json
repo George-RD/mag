@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_version": "v1",
-  "description": "Local memory-intelligence evaluation set for MAG. Annotations are ground truth authored from the seed text, not from MAG output, so the harness measures the gap between what MAG does and what a correct memory system would do.",
+  "description": "Local memory-intelligence evaluation set for MAG. Annotations are ground truth authored from the seed text, not from MAG output, so the harness measures the gap between what MAG does and what a correct memory system would do. Rule for changing an annotation: a case may be rewritten to remove non-determinism, never to make it easier for MAG. Any rewrite that raises a score must leave behind a case that still exercises the original failure.",
   "seed": [
     {
       "key": "retry-backoff",
@@ -261,7 +261,7 @@
     {
       "key": "cluster-backup-1",
       "group": "grouping",
-      "content": "Nightly backups of the memory database are written to the backups directory.",
+      "content": "Nightly backups of the memory database are written to the backups directory on the build host.",
       "event_type": "task_completion",
       "tags": ["project:storage"],
       "importance": 0.5,
@@ -272,7 +272,7 @@
     {
       "key": "cluster-backup-2",
       "group": "grouping",
-      "content": "Nightly backups of the memory database are written to the backups folder.",
+      "content": "Nightly backups of the memory database land in the backups folder, rotated after fourteen days.",
       "event_type": "task_completion",
       "tags": ["project:storage"],
       "importance": 0.5,
@@ -283,7 +283,7 @@
     {
       "key": "cluster-backup-3",
       "group": "grouping",
-      "content": "Nightly backups of the memory database get written into the backups directory.",
+      "content": "Nightly backups of the memory database get copied into the backups directory before the schema migration runs.",
       "event_type": "task_completion",
       "tags": ["project:storage"],
       "importance": 0.5,
@@ -294,7 +294,7 @@
     {
       "key": "cluster-index-1",
       "group": "grouping",
-      "content": "The full-text index was rebuilt after the schema change.",
+      "content": "The full-text index was rebuilt after the schema change, taking about ninety seconds.",
       "event_type": "task_completion",
       "tags": ["project:storage"],
       "importance": 0.5,
@@ -305,7 +305,7 @@
     {
       "key": "cluster-index-2",
       "group": "grouping",
-      "content": "The full-text index was rebuilt following the schema change.",
+      "content": "The full-text index was rebuilt following the schema change, with no downtime for readers.",
       "event_type": "task_completion",
       "tags": ["project:storage"],
       "importance": 0.5,
@@ -325,6 +325,50 @@
       "ttl_seconds": null
     },
 
+    {
+      "key": "prov-dupe-1",
+      "group": "provenance",
+      "content": "The nightly export job finished and wrote its manifest.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-prov",
+      "day_offset": -5,
+      "ttl_seconds": null
+    },
+    {
+      "key": "prov-dupe-2",
+      "group": "provenance",
+      "content": "The nightly export job finished and wrote its manifest.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-prov",
+      "day_offset": -4,
+      "ttl_seconds": null
+    },
+    {
+      "key": "prov-dupe-3",
+      "group": "provenance",
+      "content": "The nightly export job completed and wrote out its manifest file.",
+      "event_type": "task_completion",
+      "tags": ["project:storage"],
+      "importance": 0.5,
+      "session_id": "s-prov",
+      "day_offset": -3,
+      "ttl_seconds": null
+    },
+    {
+      "key": "prov-keep",
+      "group": "provenance",
+      "content": "Rollback rehearsal for the ledger migration is scheduled for the next maintenance window.",
+      "event_type": "task_completion",
+      "tags": ["project:ledger"],
+      "importance": 0.5,
+      "session_id": "s-prov",
+      "day_offset": -2,
+      "ttl_seconds": null
+    },
     {
       "key": "ttl-short",
       "group": "lifecycle",
@@ -379,10 +423,10 @@
   ],
 
   "temporal": [
-    { "id": "tmp-recent-week", "query": "what did we decide this week", "expect_keys": ["fixture-gate", "retry-backoff"], "expect_absent_keys": ["docker-layer-order", "tailwind-preference"] },
-    { "id": "tmp-last-month", "query": "what happened last month", "expect_keys": ["redis-scan", "docker-layer-order"], "expect_absent_keys": [] },
-    { "id": "tmp-yesterday", "query": "yesterday's handoff", "expect_keys": ["marcus-handoff"], "expect_absent_keys": ["tailwind-preference"] },
-    { "id": "tmp-two-weeks", "query": "kubernetes notes from the last two weeks", "expect_keys": ["kubernetes-probes"], "expect_absent_keys": [] }
+    { "id": "tmp-retry-recent", "query": "retry backoff decision from the last 5 days", "expect_keys": ["retry-backoff"], "expect_absent_keys": ["docker-layer-order", "tailwind-preference"], "note": "Deterministic window plus enough content words to clear the abstention gate, so this case isolates date filtering." },
+    { "id": "tmp-redis-older", "query": "redis production lesson from the last 45 days", "expect_keys": ["redis-scan"], "expect_absent_keys": [], "note": null },
+    { "id": "tmp-kubernetes-window", "query": "kubernetes liveness probe notes from the last 14 days", "expect_keys": ["kubernetes-probes"], "expect_absent_keys": [], "note": "14 rather than 'two' because try_prefix_n_unit parses digits only. The spelled-out form matches no pattern and applies no date filter at all, so the earlier wording passed without testing anything." },
+    { "id": "tmp-bare-phrase", "query": "what did we decide in the last 5 days", "expect_keys": ["retry-backoff", "fixture-gate"], "expect_absent_keys": ["docker-layer-order", "tailwind-preference"], "note": "Deliberately thin on content words, and kept so the rewrite of the other three cases cannot hide the failure they used to show. Removing the date phrase leaves a stub whose text overlap falls under abstention_min_text, so MAG abstains before the event_at bounds are consulted. Expected to score zero." }
   ],
 
   "relationships": [
@@ -400,7 +444,7 @@
   "supersession": [
     { "old": "token-expiry-old", "new": "token-expiry-new", "expect_supersession": true, "kind": "lexical_overlap", "note": "Same subject, high word overlap, same event_type. Within MAG's cosine and Jaccard gates." },
     { "old": "backup-cadence-old", "new": "backup-cadence-new", "expect_supersession": true, "kind": "paraphrase", "note": "A genuine update stated in different words. Trigram Jaccard is well below 0.30, so MAG is expected to miss it. The annotation records what a correct system should do, not what MAG does." },
-    { "old": "editor-preference-old", "new": "editor-preference-new", "expect_supersession": true, "kind": "lexical_overlap", "note": "Preference reversal with near-identical wording." },
+    { "old": "editor-preference-old", "new": "editor-preference-new", "expect_supersession": true, "kind": "dedup_shadowed", "note": "A reversal of meaning with an identical token set after stopwording and stemming. Content dedup for user_preference fires at 0.75 and discards the new memory, so supersession never runs. The failure is upstream of the supersession gate." },
     { "old": "unrelated-decision-a", "new": "unrelated-decision-b", "expect_supersession": false, "kind": "unrelated", "note": "Two unrelated decisions. Superseding here would be a precision failure." }
   ],
 
@@ -411,7 +455,7 @@
   ],
 
   "provenance": [
-    { "operation": "auto_compact", "expect_source_link_field": "superseded_by_id", "note": "Derived rows must remain traceable to the memories they were built from." }
+    { "operation": "auto_compact", "expect_source_link_field": "superseded_by_id", "note": "Derived rows must remain traceable to the memories they were built from. This family seeds its own near-duplicates: the grouping seeds are deliberately distinct enough to survive content dedup, so auto_compact would retire nothing and the family would measure nothing." }
   ],
 
   "questions": [

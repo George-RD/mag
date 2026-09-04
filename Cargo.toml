@@ -104,6 +104,12 @@ path = "benches/locomo/main.rs"
 required-features = ["real-embeddings"]
 
 [[bin]]
+# No required-features: --embedder placeholder must build and run offline with
+# --no-default-features.
+name = "memory_intelligence_eval"
+path = "benches/memory_intelligence/main.rs"
+
+[[bin]]
 name = "substrate_bench"
 path = "benches/substrate_bench.rs"
 required-features = ["substrate"]

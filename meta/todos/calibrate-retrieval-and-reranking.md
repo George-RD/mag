@@ -1,13 +1,22 @@
 ---
 node: mag.runtime.memory.retrieval
-status: blocked
+status: open
 created: 2026-07-28
+unblocked: 2026-09-04
 ---
 # Calibrate Retrieval And Reranking
 
-Blocked by `todo.build-local-memory-intelligence-eval-harness`,
-`todo.define-role-aware-retriever-profiles`, and
-`todo.implement-embedding-space-migration`.
+Unblocked by `todo.build-local-memory-intelligence-eval-harness` (done),
+`todo.define-role-aware-retriever-profiles` (done), and the recoverable
+migration slice of `todo.implement-embedding-space-migration`, which remains
+`in_progress` only for the profile-selection work this todo does not depend on.
+
+The evaluation gate reports a first baseline and six concrete failures. Start
+there rather than with a fresh sweep: abstention returns a false answer on a
+query with nothing relevant in the store, a thin query abstains before its date
+filter is consulted, and clustering recovers none of the labelled duplicate
+groups. See `docs/benchmarks/memory-intelligence.md` and the defect list in
+`todo.build-local-memory-intelligence-eval-harness`.
 
 Replace provisional global cutoffs with calibrated confidence from semantic
 score, score margin, lexical agreement, reranker score, query intent, and

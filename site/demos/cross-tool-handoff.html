@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cross-tool handoff, one row at a time</title>
+<meta name="description" content="A stepped demo of MAG's core claim: one tool stores a decision, another asks in different words and gets it back, with the real SQLite row, tags and relationships shown.">
+<meta name="theme-color" content="#0b1b35">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<style>
+:root{--ink:#0b1b35;--paper:#eef3f7;--white:#fff;--blue:#165dff;--navy:#0b41bd;--amber:#ffb703;--orange:#aa3508;--line:#b8c7d8;--muted:#50637b;--max:1160px;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--sans:Aptos,"Segoe UI",Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--sans)}
+a{color:inherit;text-underline-offset:.2em}
+img{display:block;max-width:100%}
+.wrap{width:min(var(--max),calc(100% - 40px));margin:auto}
+.skip{position:fixed;left:12px;top:12px;z-index:99;padding:9px 12px;background:var(--ink);color:#fff;transform:translateY(-160%)}
+.skip:focus{transform:none}
+.top{position:sticky;top:0;z-index:20;background:rgba(238,243,247,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+.bar{min-height:68px;display:flex;align-items:center;gap:24px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:900;font-size:21px;letter-spacing:.05em}
+.mark{width:34px;height:34px;display:grid;place-items:center;background:var(--blue);color:#fff;transform:skewX(-7deg)}
+nav{margin-left:auto;display:flex;gap:23px;font-size:14px;font-weight:750}
+nav a{text-decoration:none}
+.pill{font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;border:1px solid currentColor;padding:8px 9px;color:var(--orange)}
+h1,h2,h3{margin:0;font-weight:900;line-height:1.04;letter-spacing:-.035em}
+h1{font-size:clamp(2.5rem,5.2vw,4.2rem)}
+h2{font-size:clamp(1.8rem,3vw,2.5rem)}
+.eyebrow{font:800 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--navy);margin:0 0 14px}
+.lead{font-size:clamp(1.1rem,1.8vw,1.34rem);max-width:660px;color:#213654;margin:26px 0 0}
+section{padding:64px 0;border-bottom:1px solid var(--line)}
+.note{font-size:14px;color:var(--muted);max-width:700px}
+.controls{border:2px solid var(--ink);background:#fff;box-shadow:7px 7px 0 var(--ink);padding:16px;margin-bottom:34px}
+.transport{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:700 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;padding:11px 13px;border:2px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer}
+button:hover:not(:disabled){background:var(--ink);color:#fff}
+button:disabled{color:var(--muted);border-color:var(--line);cursor:default}
+.play[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#fff}
+.scrub{display:flex;align-items:center;gap:14px;margin-top:16px}
+.scrub label{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy);white-space:nowrap}
+input[type=range]{flex:1;accent-color:var(--blue);min-width:120px}
+.steps{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.step{font:700 10px/1 var(--mono);padding:8px;border:1px solid var(--line);background:#fff;color:var(--muted)}
+.step:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.step[aria-current="step"]{background:var(--ink);border-color:var(--ink);color:#fff}
+.stage{background:#fff;border:1px solid var(--line);border-top:8px solid var(--ink);padding:28px}
+.stage-head{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:start}
+.who{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:12px 0 0}
+.stage p.say{margin:18px 0 0;max-width:70ch;color:#213654}
+.tag{display:inline-block;font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;border:1px solid currentColor;padding:7px 8px}
+.t-write{background:var(--blue);border-color:var(--blue);color:#fff}
+.t-read{background:var(--amber);border-color:var(--amber);color:var(--ink)}
+.t-on{color:var(--navy)}
+.term{margin-top:26px;background:var(--ink);color:#fff;padding:18px;font:12px/1.8 var(--mono);overflow-x:auto}
+.term .p{color:var(--amber)}
+.term .o{color:#dbe7ff;white-space:pre-wrap;word-break:break-all}
+.rows{display:grid;gap:10px;margin-top:12px}
+.rowc{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;border:1px solid var(--line);background:#fff;padding:14px;align-items:start}
+.rowc.hit{border-left:8px solid var(--amber)}
+.rt{margin:0;font-size:15px;font-weight:750}
+.rm{margin:8px 0 0;font:11px/1.7 var(--mono);color:var(--muted);word-break:break-all}
+.sig{margin:10px 0 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 14px}
+.sig div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted var(--line);padding-bottom:3px}
+.sig dt{font:700 11px var(--mono);color:var(--navy)}
+.sig dd{margin:0;font:11px var(--mono);text-align:right;word-break:break-all}
+.meter .axis{display:block;font:700 10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.track{display:block;position:relative;height:16px;background:#dbe7ff;margin:7px 0}
+.fill{display:block;height:16px;background:var(--blue);width:0;transition:width .5s ease}
+.fill.amber{background:var(--amber)}
+.val{display:block;font:700 11px var(--mono);word-break:break-all}
+.setlabel{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:30px 0 0;font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy)}
+.delta{margin-top:22px;border-left:8px solid var(--blue);background:var(--paper);padding:14px 16px;font-size:15px}
+.delta b{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy);display:block;margin-bottom:5px}
+.live{margin-top:22px;font:700 12px var(--mono);color:var(--navy);text-transform:uppercase;letter-spacing:.06em}
+table{width:100%;border-collapse:collapse;margin-top:26px;font-size:14px}
+th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+th{background:var(--ink);color:#fff;font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.06em}
+td.n{font:12px var(--mono);word-break:break-all}
+.scrollx{overflow-x:auto}
+.caveat{border:1px solid var(--line);border-top:8px solid var(--orange);background:#fff;padding:24px;margin-top:30px}
+.caveat b{font:800 11px var(--mono);color:var(--orange);text-transform:uppercase;letter-spacing:.06em}
+.caveat p{margin:12px 0 0;color:#213654}
+footer{padding:32px 0;background:#061226;color:#b9c7da}
+.foot{display:flex;align-items:center;gap:24px}
+.foot p{margin:0}
+.foot div:last-child{margin-left:auto;display:flex;gap:18px}
+.foot a{color:#fff}
+:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+@media(max-width:900px){nav{display:none}.rowc{grid-template-columns:1fr}}
+@media(max-width:540px){body{font-size:16px}.wrap{width:calc(100% - 28px)}.pill{display:none}section{padding:52px 0}.sig{grid-template-columns:1fr}.term{font-size:11px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+</style>
+</head>
+<body id="top">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><div class="wrap bar"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><nav aria-label="Primary"><a href="index.html">All demos</a><a href="../index.html">Main page</a><a href="https://github.com/George-RD/mag">Source</a></nav><span class="pill">Early alpha</span></div></header>
+<main id="main">
+
+<section>
+<div class="wrap">
+<p class="eyebrow">Demo 02 · Handoff</p>
+<h1>One tool writes.<br>Another tool asks.</h1>
+<p class="lead">The claim on the front page is that a decision saved by one MCP client can be retrieved by a different one, later, in different words. This is that path, in seven steps, with the row, the tags, the edges and the query output as MAG actually produced them.</p>
+<p class="note" style="margin-top:26px">Captured 4 September 2026 with mag 0.1.10-dev on its default feature set, against an empty database. Both halves run against the same file, <code>~/.mag/memory.db</code>. Nothing here goes over a network and no account is involved; the second tool reads the row because it is on the same machine.</p>
+</div>
+</section>
+
+<section>
+<div class="wrap">
+
+<div class="controls">
+  <div class="transport" role="group" aria-label="Playback controls">
+    <button type="button" id="first">&#124;&#9664; First</button>
+    <button type="button" id="prev">&#9664; Step back</button>
+    <button type="button" id="play" class="play" aria-pressed="false">&#9654; Play</button>
+    <button type="button" id="next">Step forward &#9654;</button>
+    <button type="button" id="last">Last &#9654;&#124;</button>
+  </div>
+  <div class="scrub">
+    <label for="scrubber">Jump to step</label>
+    <input type="range" id="scrubber" min="1" max="7" step="1" value="1" aria-describedby="live">
+    <span class="val" id="scrubval">01 / 07</span>
+  </div>
+  <nav class="steps" id="steps" aria-label="Jump to a step"></nav>
+</div>
+
+<article class="stage">
+  <div class="stage-head">
+    <div>
+      <p class="eyebrow" id="stateno">Step 01 of 07</p>
+      <h2 id="stagename">Claude Code stores the decision</h2>
+      <p class="who" id="stagewho"></p>
+    </div>
+    <span class="tag t-write" id="stagestatus">Write</span>
+  </div>
+  <noscript><p class="note" style="border:1px dashed var(--line);padding:22px;max-width:none">This walkthrough steps through seven states with JavaScript. With it off, every measured value is in the table at the foot of this page.</p></noscript>
+  <p class="say" id="stagesay"></p>
+  <div id="term"></div>
+  <div class="setlabel"><span id="setlabel"></span><span id="setorder"></span></div>
+  <div class="rows" id="rows"></div>
+  <div class="delta"><b>What changed</b><span id="delta"></span></div>
+  <p class="live" id="live" aria-live="polite" role="status"></p>
+</article>
+
+</div>
+</section>
+
+<section>
+<div class="wrap">
+<h2>Every number and string on this page.</h2>
+<div class="scrollx">
+<table>
+<caption class="note" style="text-align:left;padding:10px 0">Sources for the values used in the seven steps.</caption>
+<thead><tr><th scope="col">Value</th><th scope="col">Kind</th><th scope="col">Where it comes from</th></tr></thead>
+<tbody>
+<tr><td class="n">12619cc2-2872-418f-b4f6-a33afef57f2e</td><td>Measured</td><td>The id printed by <code>mag ingest</code>, and the primary key of the stored row.</td></tr>
+<tr><td class="n">4c42d47c-8ac7-48ee-9472-b00ef07b8696<br>532237e2-57d5-4c0c-966d-3269e6930f60</td><td>Measured</td><td>Ids of the two memories stored after it in the same session.</td></tr>
+<tr><td class="n">d18dcca9efa656c7b52fdf99ff7c8b72e818dba7599f5a684f97d08a7bfa40e7</td><td>Measured</td><td><code>content_hash</code> column of the stored row.</td></tr>
+<tr><td class="n">033c5ca24fb91c137e6b54103491001520d6ac2188de5d73d0dab5c9ffb7d978</td><td>Measured</td><td><code>canonical_hash</code> column, the whitespace-normalised lowercased digest used for dedup.</td></tr>
+<tr><td class="n">2026-09-04T02:53:43.334Z</td><td>Measured</td><td><code>created_at</code>, <code>event_at</code> and <code>last_accessed_at</code> of the stored row.</td></tr>
+<tr><td class="n">1209600</td><td>Measured</td><td><code>ttl_seconds</code> written for this row. Fourteen days.</td></tr>
+<tr><td class="n">0.85 / 3 / 0</td><td>Measured</td><td><code>importance</code>, <code>priority</code> and <code>access_count</code> columns.</td></tr>
+<tr><td class="n">cli_input</td><td>Measured</td><td><code>source_type</code> column.</td></tr>
+<tr><td class="n">1.0</td><td>Measured</td><td><code>weight</code> on both <code>PRECEDED_BY</code> edges.</td></tr>
+<tr><td class="n">0.4950143098831177</td><td>Measured</td><td><code>weight</code> on the <code>related</code> edge from the error_pattern memory to the decision.</td></tr>
+<tr><td class="n">0.5511474609375</td><td>Measured</td><td><code>weight</code> on the <code>related</code> edge from the lesson_learned memory to the decision.</td></tr>
+<tr><td class="n">0.5199921727180481</td><td>Measured</td><td><code>weight</code> on the <code>related</code> edge between the two later memories.</td></tr>
+<tr><td class="n">3 / 5</td><td>Measured</td><td><code>mag stats</code>: <code>total_memories</code> 3 and <code>total_relationships</code> 5.</td></tr>
+<tr><td class="n">1.0 / 0.30344998836517334 / 0.22783465683460236</td><td>Measured</td><td>The <code>score</code> field on the three results of the retrieval query.</td></tr>
+<tr><td class="n">0.6371260285377502</td><td>Measured</td><td><code>vec_sim</code> for the decision memory in the same query's <code>_explain</code>.</td></tr>
+<tr><td class="n">0.3333333333333333</td><td>Measured</td><td><code>_text_overlap</code> for the decision memory: one shared token out of three query tokens.</td></tr>
+<tr><td class="n">0.70 / 0.30</td><td>Constant</td><td><code>SUPERSESSION_COSINE_THRESHOLD</code> and <code>SUPERSESSION_JACCARD_THRESHOLD</code>. Both must be cleared before one memory supersedes another.</td></tr>
+<tr><td class="n">5 / 5</td><td>Constant</td><td>The dedup check compares against the 5 most recent memories of the same type; <code>decision</code> is one of the 5 event types that can supersede.</td></tr>
+<tr><td class="n">384 / 7 ms</td><td>Constant</td><td>Embedding dimensions and per-embedding CPU time for bge-small-en-v1.5 int8, from the model documentation.</td></tr>
+<tr><td class="n">2 / 1</td><td>Measured</td><td>Hop-1 neighbours of the decision, and the <code>--max-hops</code> value the traverse call was given.</td></tr>
+<tr><td class="n">entity:people:retries</td><td>Measured</td><td>A tag written by the entity extractor. It is wrong; see the note at the end.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="caveat">
+<b>Two defects visible in this demo</b>
+<p>Every <code>content</code> value starts with <code>processed: </code>. The CLI store path routes through a compatibility pipeline that prepends that string before the row is written, so the stored text is not the text you typed.</p>
+<p>The tag <code>entity:people:retries</code> follows from the same bug. The extractor skips the sentence-initial word before looking for capitalised name-like tokens, so the injected prefix shifts the real first word into the position it examines, and <code>Retries</code> is filed as a person. The same run produced <code>entity:people:schema</code> on the third memory.</p>
+<p>Neither defect stops retrieval working, and both are shown here rather than cleaned up, because the row on this page is the row in the database.</p>
+</div>
+</div>
+</section>
+
+</main>
+<footer><div class="wrap foot"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><p>Local-first memory for MCP clients.</p><div><a href="index.html">All demos</a><a href="https://github.com/George-RD/mag">Source</a></div></div></footer>
+
+<script>
+(function(){
+"use strict";
+
+var STATES = [
+{
+  id:"store", name:"Claude Code stores the decision", who:"Tool A · session claude-code-01",
+  status:"Write", statusClass:"t-write",
+  say:"The agent decides this is worth keeping and calls the CLI. content is positional; everything else is a flag. --tags is comma delimited. The command prints one line: the id of the new row, and nothing else.",
+  term:[["mag ingest \"Retries use exponential backoff with jitter, capped at 30 seconds\" \\\n    --tags \"project:api,decision\" --event-type decision --importance 0.85 \\\n    --session-id claude-code-01 --priority 3",
+         "{\"id\":\"12619cc2-2872-418f-b4f6-a33afef57f2e\"}"]],
+  setLabel:"Behind that one line", rows:[
+    {key:"p1", title:"1 · Deduplicate", meta:"canonical SHA-256 plus 3-gram Jaccard against the 5 most recent memories of the same type", sig:[["On a hit","bump access_count, skip embedding"]]},
+    {key:"p2", title:"2 · Embed", meta:"bge-small-en-v1.5 int8, 384 dimensions, about 7 ms on CPU", sig:[["Stored in","memories.embedding, a BLOB column"]]},
+    {key:"p3", title:"3 · Check supersession", meta:"decision is one of the 5 supersession types; needs cosine at or above 0.70 and Jaccard at or above 0.30", sig:[["Result here","no earlier decision to supersede"]]},
+    {key:"p4", title:"4 · Insert and index", meta:"one row in memories, one row in the memories_fts FTS5 index", sig:[["source_type","cli_input"]]},
+    {key:"p5", title:"5 · Extract entities", meta:"rule-based, writes entity:people:*, entity:tools:* and entity:projects:* tags", sig:[["Wrote","entity:people:retries"]]},
+    {key:"p6", title:"6 · Write edges", meta:"PRECEDED_BY to the previous memory in the session, RELATES_TO on a shared entity tag", sig:[["Result here","nothing earlier in the session yet"]]}
+  ],
+  delta:"One row exists. The agent gets back an id and moves on."
+},
+{
+  id:"row", name:"What SQLite now holds", who:"~/.mag/memory.db · table memories",
+  status:"Stored", statusClass:"t-on",
+  say:"The row is plain SQLite with no encryption layer. Every column below is readable with the sqlite3 shell or any client. This is the whole record; there is no second store holding the interesting half.",
+  setLabel:"Columns of the stored row", rows:[
+    {key:"c1", title:"id", meta:"12619cc2-2872-418f-b4f6-a33afef57f2e", sig:[["Type","UUID v4, TEXT primary key"]]},
+    {key:"c2", title:"content", meta:"processed: Retries use exponential backoff with jitter, capped at 30 seconds", sig:[["Note","the processed: prefix is a defect, see below"]]},
+    {key:"c3", title:"event_type · importance · priority", meta:"decision · 0.85 · 3", sig:[["type_weight","2.0"],["priority_factor","0.7 + 3 × 0.08 = 0.94"]]},
+    {key:"c4", title:"session_id · source_type", meta:"claude-code-01 · cli_input", sig:[["Used for","PRECEDED_BY edges and provenance"]]},
+    {key:"c5", title:"created_at · event_at · last_accessed_at", meta:"2026-09-04T02:53:43.334Z", sig:[["access_count","0"]]},
+    {key:"c6", title:"content_hash", meta:"d18dcca9efa656c7b52fdf99ff7c8b72e818dba7599f5a684f97d08a7bfa40e7", sig:[["Purpose","exact-duplicate detection"]]},
+    {key:"c7", title:"canonical_hash", meta:"033c5ca24fb91c137e6b54103491001520d6ac2188de5d73d0dab5c9ffb7d978", sig:[["Purpose","near-duplicate detection after normalising"]]},
+    {key:"c8", title:"ttl_seconds", meta:"1209600", sig:[["Meaning","14 days, the default for this event type"]]},
+    {key:"c9", title:"superseded_by_id · superseded_at · version_chain_id", meta:"null · null · null", sig:[["Meaning","nothing has replaced this decision yet"]]}
+  ],
+  delta:"Nine of the row's columns carry the record. The embedding is a tenth column on the same row: a BLOB of 384 floats, not a separate table. The optional sqlite-vec feature adds an index over it, and is not in the default build."
+},
+{
+  id:"tags", name:"Tags: two given, one generated", who:"column tags · JSON array",
+  status:"Stored", statusClass:"t-on",
+  say:"Two tags came from the --tags flag. The third was written by the rule-based entity extractor during the store pipeline. Tags matter later: they are concatenated with the content before token overlap is measured, so a tag can pull a memory up in the ranking.",
+  term:[["sqlite3 ~/.mag/memory.db \"select tags from memories where id='12619cc2-2872-418f-b4f6-a33afef57f2e'\"",
+         "[\"project:api\",\"decision\",\"entity:people:retries\"]"]],
+  setLabel:"Tags on the row", rows:[
+    {key:"t1", title:"project:api", meta:"supplied by the agent through --tags", sig:[["Source","caller"]]},
+    {key:"t2", title:"decision", meta:"supplied by the agent through --tags", sig:[["Source","caller"]]},
+    {key:"t3", title:"entity:people:retries", meta:"written by extract_people during the store pipeline", sig:[["Source","MAG"],["Correct","no, see the note below"]], hit:true}
+  ],
+  delta:"MAG added one tag of its own. It is a misclassification, and it is still in the row."
+},
+{
+  id:"edges", name:"Two more memories, five edges", who:"table relationships",
+  status:"Write", statusClass:"t-write",
+  say:"The same session stores a bug and a lesson. Each store writes a PRECEDED_BY edge to the previous memory in the session, at weight 1.0 with metadata recording why, and a lowercase related edge to each earlier memory whose embedding is close enough, carrying the cosine similarity as the weight. Three memories produced five edges. The command below is scoped to one id, so it returns the three edges that touch the decision; the list under it is the whole table.",
+  term:[["mag relations 12619cc2-2872-418f-b4f6-a33afef57f2e",
+         "{\"relationships\":[{\"created_at\":\"2026-09-04T02:53:52.660Z\",\"id\":\"2b808a83-b3e2-4648-89fe-7bd8ae40a257\",\"metadata\":{\"source\":\"temporal_adjacency\"},\"rel_type\":\"PRECEDED_BY\",\"source_id\":\"12619cc2-2872-418f-b4f6-a33afef57f2e\",\"target_id\":\"4c42d47c-8ac7-48ee-9472-b00ef07b8696\",\"weight\":1.0},{\"created_at\":\"2026-09-04T02:53:52.659Z\",\"id\":\"0c5f95cf-2cee-4ef6-bf8b-83e420928ec2\",\"metadata\":{},\"rel_type\":\"related\",\"source_id\":\"4c42d47c-8ac7-48ee-9472-b00ef07b8696\",\"target_id\":\"12619cc2-2872-418f-b4f6-a33afef57f2e\",\"weight\":0.4950143098831177},{\"created_at\":\"2026-09-04T02:53:52.998Z\",\"id\":\"14002066-2c50-436f-b401-089b9380a9b4\",\"metadata\":{},\"rel_type\":\"related\",\"source_id\":\"532237e2-57d5-4c0c-966d-3269e6930f60\",\"target_id\":\"12619cc2-2872-418f-b4f6-a33afef57f2e\",\"weight\":0.5511474609375}]}"]],
+  setLabel:"All five edges", order:"weight",
+  rows:[
+    {key:"e1", title:"PRECEDED_BY", meta:"12619cc2 (decision) → 4c42d47c (error_pattern)",
+     sig:[["weight","1.0"],["metadata","{\"source\":\"temporal_adjacency\"}"]],
+     bar:{v:1.0, text:"1.0", amber:true}, hit:true},
+    {key:"e2", title:"PRECEDED_BY", meta:"4c42d47c (error_pattern) → 532237e2 (lesson_learned)",
+     sig:[["weight","1.0"],["metadata","{\"source\":\"temporal_adjacency\"}"]],
+     bar:{v:1.0, text:"1.0", amber:true}, hit:true},
+    {key:"e3", title:"related", meta:"532237e2 (lesson_learned) → 12619cc2 (decision)",
+     sig:[["weight","0.5511474609375"],["metadata","{}"]],
+     bar:{v:0.5511474609375, text:"0.5511474609375"}},
+    {key:"e4", title:"related", meta:"532237e2 (lesson_learned) → 4c42d47c (error_pattern)",
+     sig:[["weight","0.5199921727180481"],["metadata","{}"]],
+     bar:{v:0.5199921727180481, text:"0.5199921727180481"}},
+    {key:"e5", title:"related", meta:"4c42d47c (error_pattern) → 12619cc2 (decision)",
+     sig:[["weight","0.4950143098831177"],["metadata","{}"]],
+     bar:{v:0.4950143098831177, text:"0.4950143098831177"}}
+  ],
+  barAxis:"edge weight · 0 to 1",
+  delta:"The graph now has five edges. Only the two PRECEDED_BY edges carry a fixed weight; the three related edges carry the measured cosine similarity between the embeddings."
+},
+{
+  id:"ask", name:"Cursor asks, in different words", who:"Tool B · a different client, a later session",
+  status:"Read", statusClass:"t-read",
+  say:"The second tool has no memory of the first session. It asks a question that shares almost nothing with the stored sentence. After stopwords are removed and the remaining words are stemmed, the query has three tokens and the stored decision matches exactly one of them.",
+  term:[["mag advanced-search \"how should retries work?\" --explain", ""]],
+  setLabel:"Query tokens after stopword removal and stemming", rows:[
+    {key:"q1", title:"retry", meta:"from retries in the query; matches Retries in the stored content", sig:[["In the row","yes"]], hit:true},
+    {key:"q2", title:"should", meta:"no match in any of the three memories", sig:[["In the row","no"]]},
+    {key:"q3", title:"work", meta:"no match in the decision; matches worker in the error_pattern memory", sig:[["In the row","no"]]}
+  ],
+  delta:"how is a stopword and is dropped before matching. One of three tokens survives against the decision, which is a text_overlap of 0.3333333333333333."
+},
+{
+  id:"answer", name:"The decision comes back first", who:"stdout · single-line JSON",
+  status:"Read", statusClass:"t-read",
+  say:"Three results come back, ranked. The decision written by the first tool is on top at score 1.0. That 1.0 is a normalised rank, not a confidence: a search answered by the fusion pipeline divides by its own maximum, so its top result is always exactly 1.0. The hot-tier cache is merged in after that division and is the one path that can return something else. The provenance is in the row, not in a separate log.",
+  setLabel:"Results, ordered by score", order:"score",
+  rows:[
+    {key:"r1", title:"processed: Retries use exponential backoff with jitter, capped at 30 seconds",
+     meta:"decision · session_id claude-code-01 · written by tool A",
+     sig:[["score","1.0"],["vec_sim","0.6371260285377502"],["_text_overlap","0.3333333333333333"],["dual_match","true"]],
+     bar:{v:1.0, text:"1.0", amber:true}, hit:true},
+    {key:"r2", title:"processed: The payments worker leaked a socket when a task was cancelled mid-flight",
+     meta:"error_pattern · reached by vector search and by the PRECEDED_BY edge",
+     sig:[["score","0.30344998836517334"],["vec_sim","0.42443808913230896"],["graph_injected","true"],["dual_match","false"]],
+     bar:{v:0.30344998836517334, text:"0.30344998836517334"}},
+    {key:"r3", title:"processed: Schema changes must be verified against the fixture set before merge",
+     meta:"lesson_learned · reached by vector search, and by a related edge whose graph score did not win",
+     sig:[["score","0.22783465683460236"],["vec_sim","0.5341115593910217"],["_text_overlap","0.0"],["dual_match","false"]],
+     bar:{v:0.22783465683460236, text:"0.22783465683460236"}}
+  ],
+  barAxis:"score · 0 to 1",
+  delta:"The handoff worked. The second tool asked a question with one word in common with the stored sentence and got the decision back at the top of the list, along with the session it came from."
+},
+{
+  id:"neighbours", name:"And what sits next to it", who:"one hop of the relationship graph",
+  status:"Read", statusClass:"t-read",
+  say:"Retrieval is not the only way in. From the decision id, one hop of the graph returns the two memories linked to it, grouped by hop depth. The output is a JSON object whose keys are the hop numbers as strings, so a client can walk outward ring by ring.",
+  term:[["mag traverse 12619cc2-2872-418f-b4f6-a33afef57f2e --max-hops 1",
+         "{\"1\":[{\"content\":\"processed: The payments worker leaked a socket when a task was cancelled mid-flight\",\"created_at\":\"2026-09-04T02:53:52.534Z\",\"edge_type\":\"PRECEDED_BY\",\"event_type\":\"error_pattern\",\"hop\":1,\"id\":\"4c42d47c-8ac7-48ee-9472-b00ef07b8696\",\"metadata\":{},\"weight\":1.0},{\"content\":\"processed: Schema changes must be verified against the fixture set before merge\",\"created_at\":\"2026-09-04T02:53:52.923Z\",\"edge_type\":\"related\",\"event_type\":\"lesson_learned\",\"hop\":1,\"id\":\"532237e2-57d5-4c0c-966d-3269e6930f60\",\"metadata\":{},\"weight\":0.5511474609375}]}"]],
+  setLabel:"Hop 1 from the decision", order:"weight",
+  rows:[
+    {key:"n1", title:"processed: The payments worker leaked a socket when a task was cancelled mid-flight",
+     meta:"error_pattern · 4c42d47c", sig:[["edge_type","PRECEDED_BY"],["weight","1.0"],["hop","1"]],
+     bar:{v:1.0, text:"1.0", amber:true}, hit:true},
+    {key:"n2", title:"processed: Schema changes must be verified against the fixture set before merge",
+     meta:"lesson_learned · 532237e2", sig:[["edge_type","related"],["weight","0.5511474609375"],["hop","1"]],
+     bar:{v:0.5511474609375, text:"0.5511474609375"}}
+  ],
+  barAxis:"edge weight · 0 to 1",
+  delta:"Two neighbours at hop 1. --max-hops defaults to 2 and --min-weight to 0.0, so this call was narrowed deliberately."
+}
+];
+
+var cur = 0, playing = false, timer = null, lastBar = {};
+var el = {};
+["stateno","stagename","stagewho","stagestatus","stagesay","term","setlabel","setorder","rows","delta","live","steps","scrubval","play","prev","next","first","last"].forEach(function(k){
+  el[k] = document.getElementById(k === "stateno" ? "stateno" : k);
+});
+el.scrub = document.getElementById("scrubber");
+
+function reduced(){
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+function pad(n){ return (n < 10 ? "0" : "") + n; }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+STATES.forEach(function(st, i){
+  var b = document.createElement("button");
+  b.type = "button";
+  b.className = "step";
+  b.textContent = pad(i + 1) + " " + st.name;
+  b.addEventListener("click", function(){ stop(); go(i); });
+  el.steps.appendChild(b);
+});
+var stepBtns = el.steps.querySelectorAll(".step");
+
+function buildRow(r, st){
+  var node = document.createElement("article");
+  node.className = "rowc" + (r.hit ? " hit" : "");
+  node.setAttribute("data-id", r.key);
+
+  var body = document.createElement("div");
+  var html = '<p class="rt">' + esc(r.title) + '</p><p class="rm">' + esc(r.meta) + "</p>";
+  if (r.sig && r.sig.length) {
+    html += '<dl class="sig">';
+    r.sig.forEach(function(p){ html += "<div><dt>" + esc(p[0]) + "</dt><dd>" + esc(p[1]) + "</dd></div>"; });
+    html += "</dl>";
+  }
+  body.innerHTML = html;
+  node.appendChild(body);
+
+  var meter = document.createElement("div");
+  meter.className = "meter";
+  if (r.bar) {
+    var pct = Math.max(0, Math.min(100, r.bar.v * 100));
+    var start = lastBar[r.key] != null ? lastBar[r.key] : 0;
+    meter.innerHTML = '<span class="axis">' + esc(st.barAxis || "") + "</span>" +
+      '<span class="track"><span class="fill' + (r.bar.amber ? " amber" : "") + '" style="width:' + start + '%"></span></span>' +
+      '<span class="val">' + esc(r.bar.text) + "</span>";
+    meter.setAttribute("data-pct", pct);
+  } else {
+    meter.innerHTML = '<span class="axis">no magnitude at this step</span>';
+  }
+  node.appendChild(meter);
+  return node;
+}
+
+function render(){
+  var st = STATES[cur];
+  el.stateno.textContent = "Step " + pad(cur + 1) + " of " + pad(STATES.length);
+  el.stagename.textContent = st.name;
+  el.stagewho.textContent = st.who;
+  el.stagestatus.textContent = st.status;
+  el.stagestatus.className = "tag " + st.statusClass;
+  el.stagesay.textContent = st.say;
+
+  el.term.innerHTML = (st.term || []).map(function(t){
+    var out = t[1] ? '<div class="o">' + esc(t[1]) + "</div>" : "";
+    return '<div class="term"><div class="p">$ ' + esc(t[0]) + "</div>" + out + "</div>";
+  }).join("");
+
+  el.setlabel.textContent = st.setLabel;
+  el.setorder.textContent = st.order ? "Ordered by " + st.order : "";
+
+  var firstTop = {};
+  Array.prototype.forEach.call(el.rows.children, function(n){
+    firstTop[n.getAttribute("data-id")] = n.getBoundingClientRect().top;
+  });
+
+  el.rows.innerHTML = "";
+  st.rows.forEach(function(r){ el.rows.appendChild(buildRow(r, st)); });
+
+  if (!reduced()) {
+    Array.prototype.forEach.call(el.rows.children, function(n){
+      var id = n.getAttribute("data-id");
+      if (firstTop[id] == null) { return; }
+      var dy = firstTop[id] - n.getBoundingClientRect().top;
+      if (!dy) { return; }
+      n.style.transition = "none";
+      n.style.transform = "translateY(" + dy + "px)";
+      requestAnimationFrame(function(){
+        n.style.transition = "transform .45s ease";
+        n.style.transform = "";
+      });
+    });
+  }
+
+  var apply = function(){
+    Array.prototype.forEach.call(el.rows.querySelectorAll(".meter"), function(m){
+      var pct = m.getAttribute("data-pct");
+      if (pct == null) { return; }
+      var fill = m.querySelector(".fill");
+      if (fill) { fill.style.width = pct + "%"; }
+    });
+  };
+  if (reduced()) { apply(); } else { requestAnimationFrame(apply); }
+
+  lastBar = {};
+  st.rows.forEach(function(r){ if (r.bar) { lastBar[r.key] = Math.max(0, Math.min(100, r.bar.v * 100)); } });
+
+  el.delta.textContent = st.delta;
+  el.live.textContent = "Step " + pad(cur + 1) + " of " + pad(STATES.length) + ": " + st.name + ". " + st.status + ". " + st.delta;
+
+  Array.prototype.forEach.call(stepBtns, function(b, i){
+    if (i === cur) { b.setAttribute("aria-current", "step"); } else { b.removeAttribute("aria-current"); }
+  });
+  el.scrub.value = String(cur + 1);
+  el.scrubval.textContent = pad(cur + 1) + " / " + pad(STATES.length);
+  el.prev.disabled = cur === 0;
+  el.first.disabled = cur === 0;
+  el.next.disabled = cur === STATES.length - 1;
+  el.last.disabled = cur === STATES.length - 1;
+}
+
+function go(i, skipHash){
+  cur = Math.max(0, Math.min(STATES.length - 1, i));
+  render();
+  if (!skipHash) {
+    try { history.replaceState(null, "", "#" + STATES[cur].id); }
+    catch (err) { location.hash = STATES[cur].id; }
+  }
+}
+
+var PLAYKEY = "mag-demo-play:" + location.pathname.split("/").pop();
+function save(v){ try { localStorage.setItem(PLAYKEY, v ? "1" : "0"); } catch (err) { /* storage unavailable */ } }
+function load(){ try { return localStorage.getItem(PLAYKEY) === "1"; } catch (err) { return false; } }
+
+function start(){
+  if (playing) { return; }
+  playing = true;
+  el.play.setAttribute("aria-pressed", "true");
+  el.play.innerHTML = "&#9646;&#9646; Pause";
+  save(true);
+  timer = setInterval(function(){
+    if (cur >= STATES.length - 1) { stop(); return; }
+    go(cur + 1);
+  }, 3600);
+}
+function stop(){
+  playing = false;
+  el.play.setAttribute("aria-pressed", "false");
+  el.play.innerHTML = "&#9654; Play";
+  save(false);
+  if (timer) { clearInterval(timer); timer = null; }
+}
+
+el.play.addEventListener("click", function(){ if (playing) { stop(); } else { start(); } });
+el.next.addEventListener("click", function(){ stop(); go(cur + 1); });
+el.prev.addEventListener("click", function(){ stop(); go(cur - 1); });
+el.first.addEventListener("click", function(){ stop(); go(0); });
+el.last.addEventListener("click", function(){ stop(); go(STATES.length - 1); });
+el.scrub.addEventListener("input", function(){ stop(); go(parseInt(el.scrub.value, 10) - 1); });
+window.addEventListener("hashchange", function(){
+  var i = indexOfHash();
+  if (i > -1 && i !== cur) { stop(); go(i, true); }
+});
+
+function indexOfHash(){
+  var h = location.hash.replace(/^#/, "");
+  for (var i = 0; i < STATES.length; i++) { if (STATES[i].id === h) { return i; } }
+  return -1;
+}
+
+var startAt = indexOfHash();
+go(startAt > -1 ? startAt : 0, startAt > -1);
+if (!reduced() && load() && cur < STATES.length - 1) { start(); }
+
+})();
+</script>
+</body>
+</html>

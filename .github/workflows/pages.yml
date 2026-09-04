@@ -36,12 +36,18 @@ jobs:
           import xml.etree.ElementTree as ET
 
           site = Path("site")
-          html = site / "index.html"
-          required = [
-              html,
+          pages = [
+              site / "index.html",
+              site / "demos" / "index.html",
+              site / "demos" / "retrieval-pipeline.html",
+              site / "demos" / "cross-tool-handoff.html",
+              site / "demos" / "abstention.html",
+          ]
+          required = pages + [
               site / "assets" / "benchmark.svg",
               site / "assets" / "context-flow.svg",
               site / "assets" / "favicon.svg",
+              site / "assets" / "pipeline.svg",
               site / "assets" / "readme-header.svg",
               site / "assets" / "og-card.png",
           ]
@@ -74,13 +80,23 @@ jobs:
                   if self._in_title and data.strip():
                       self.title = True
 
-          parser = Parser()
-          parser.feed(html.read_text(encoding="utf-8"))
-          if not all((parser.lang, parser.title, parser.description)):
-              raise SystemExit("index.html is missing lang, title, or description metadata")
+          for page in pages:
+              parser = Parser()
+              parser.feed(page.read_text(encoding="utf-8"))
+              if not all((parser.lang, parser.title, parser.description)):
+                  raise SystemExit(f"{page} is missing lang, title, or description metadata")
 
-          for svg in (site / "assets").glob("*.svg"):
+          for svg in sorted((site / "assets").glob("*.svg")):
               ET.parse(svg)
+
+          animated = site / "assets" / "pipeline.svg"
+          markup = animated.read_text(encoding="utf-8")
+          for needed in ("<title", "<desc", "prefers-reduced-motion"):
+              if needed not in markup:
+                  raise SystemExit(f"pipeline.svg is missing {needed}")
+          for banned in ("<animate", "xlink:href", "<image"):
+              if banned in markup:
+                  raise SystemExit(f"pipeline.svg must not contain {banned}")
 
           png = (site / "assets" / "og-card.png").read_bytes()
           if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 2_000:

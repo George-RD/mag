@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="460" viewBox="0 0 1400 460" role="img" aria-labelledby="title desc">
+  <title id="title">The seven retrieval stages of a MAG advanced search</title>
+  <desc id="desc">One query passes through FTS5 keyword search, vector search, weighted reciprocal rank fusion at rrf_k 60.0, an adaptive dual-match boost with a floor of 1.5, multiplicative score refinement in which time decay is off by default, one hop of graph enrichment at factor 0.1, and an abstention gate at a text overlap of 0.15. The gate either returns results, whose top score this path normalises to 1.0, or returns an empty array.</desc>
+  <style>
+    .pulse { opacity: 0; animation: mag-pulse 9.8s linear infinite; }
+    .s1 { animation-delay: 0s; }
+    .s2 { animation-delay: 1.4s; }
+    .s3 { animation-delay: 2.8s; }
+    .s4 { animation-delay: 4.2s; }
+    .s5 { animation-delay: 5.6s; }
+    .s6 { animation-delay: 7s; }
+    .s7 { animation-delay: 8.4s; }
+    .dot { animation: mag-travel 9.8s linear infinite; }
+    @keyframes mag-pulse {
+      0% { opacity: 0; }
+      4% { opacity: 1; }
+      13% { opacity: 1; }
+      17% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes mag-travel {
+      from { transform: translateX(0); }
+      to { transform: translateX(1104px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pulse { animation: none; opacity: 1; }
+      .dot { animation: none; visibility: hidden; }
+    }
+  </style>
+
+  <rect width="1400" height="460" fill="#F8FAFC"/>
+  <rect width="1400" height="62" fill="#0B1B35"/>
+  <text x="38" y="40" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800">ONE QUERY. SEVEN STAGES. SOMETIMES NOTHING.</text>
+  <text x="1116" y="40" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">mag advanced-search</text>
+
+  <g font-family="Arial, Helvetica, sans-serif">
+
+    <text x="73" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">QUERY</text>
+    <text x="152" y="112" fill="#0B1B35" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13">how should retries work?</text>
+    <text x="1004" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">INTENT CONCEPTUAL · LIMIT 10</text>
+
+    <g transform="translate(73 158)">
+      <rect width="150" height="120" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="150" height="30" fill="#0B1B35"/>
+      <text x="12" y="20" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">01 · TEXT</text>
+      <text x="12" y="60" fill="#0B1B35" font-size="15" font-weight="800">FTS5</text>
+      <text x="12" y="80" fill="#44566F" font-size="12">SQLite full text</text>
+      <text x="12" y="106" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">fts_rank 0</text>
+      <rect class="pulse s1" x="0" y="128" width="150" height="6" fill="#FFB703"/>
+    </g>
+
+    <g transform="translate(257 158)">
+      <rect width="150" height="120" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="150" height="30" fill="#0B1B35"/>
+      <text x="12" y="20" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">02 · VECTOR</text>
+      <text x="12" y="60" fill="#0B1B35" font-size="15" font-weight="800">SEMANTIC</text>
+      <text x="12" y="80" fill="#44566F" font-size="12">384-dim scan</text>
+      <text x="12" y="106" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">vec_sim 0.637</text>
+      <rect class="pulse s2" x="0" y="128" width="150" height="6" fill="#FFB703"/>
+    </g>
+
+    <g transform="translate(441 158)">
+      <rect width="150" height="120" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="150" height="30" fill="#0B1B35"/>
+      <text x="12" y="20" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">03 · FUSION</text>
+      <text x="12" y="60" fill="#0B1B35" font-size="15" font-weight="800">RRF</text>
+      <text x="12" y="80" fill="#44566F" font-size="12">weighted merge</text>
+      <text x="12" y="106" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">rrf_k 60.0</text>
+      <rect class="pulse s3" x="0" y="128" width="150" height="6" fill="#FFB703"/>
+    </g>
+
+    <g transform="translate(625 158)">
+      <rect width="150" height="120" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="150" height="30" fill="#0B1B35"/>
+      <text x="12" y="20" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">04 · BOOST</text>
+      <text x="12" y="60" fill="#0B1B35" font-size="15" font-weight="800">DUAL MATCH</text>
+      <text x="12" y="80" fill="#44566F" font-size="12">in both lists</text>
+      <text x="12" y="106" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">floor 1.5</text>
+      <rect class="pulse s4" x="0" y="128" width="150" height="6" fill="#FFB703"/>
+    </g>
+
+    <g transform="translate(809 158)">
+      <rect width="150" height="120" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="150" height="30" fill="#0B1B35"/>
+      <text x="12" y="20" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">05 · REFINE</text>
+      <text x="12" y="60" fill="#0B1B35" font-size="15" font-weight="800">MULTIPLY</text>
+      <text x="12" y="80" fill="#44566F" font-size="12">overlap, weight</text>
+      <text x="12" y="106" fill="#8B3E16" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">time_decay off</text>
+      <rect class="pulse s5" x="0" y="128" width="150" height="6" fill="#FFB703"/>
+    </g>
+
+    <g transform="translate(993 158)">
+      <rect width="150" height="120" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="150" height="30" fill="#0B1B35"/>
+      <text x="12" y="20" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">06 · GRAPH</text>
+      <text x="12" y="60" fill="#0B1B35" font-size="15" font-weight="800">ONE HOP</text>
+      <text x="12" y="80" fill="#44566F" font-size="12">linked memories</text>
+      <text x="12" y="106" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">factor 0.1</text>
+      <rect class="pulse s6" x="0" y="128" width="150" height="6" fill="#FFB703"/>
+    </g>
+
+    <g transform="translate(1177 158)">
+      <rect width="150" height="120" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="150" height="30" fill="#0B1B35"/>
+      <text x="12" y="20" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">07 · GATE</text>
+      <text x="12" y="60" fill="#0B1B35" font-size="15" font-weight="800">ABSTAIN</text>
+      <text x="12" y="80" fill="#44566F" font-size="12">or return</text>
+      <text x="12" y="106" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">min_text 0.15</text>
+      <rect class="pulse s7" x="0" y="128" width="150" height="6" fill="#FFB703"/>
+    </g>
+
+    <path d="M223 218H247" stroke="#FFB703" stroke-width="4"/>
+    <path d="M245 209L256 218L245 227" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <path d="M407 218H431" stroke="#FFB703" stroke-width="4"/>
+    <path d="M429 209L440 218L429 227" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <path d="M591 218H615" stroke="#FFB703" stroke-width="4"/>
+    <path d="M613 209L624 218L613 227" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <path d="M775 218H799" stroke="#FFB703" stroke-width="4"/>
+    <path d="M797 209L808 218L797 227" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <path d="M959 218H983" stroke="#FFB703" stroke-width="4"/>
+    <path d="M981 209L992 218L981 227" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <path d="M1143 218H1167" stroke="#FFB703" stroke-width="4"/>
+    <path d="M1165 209L1176 218L1165 227" fill="none" stroke="#FFB703" stroke-width="4"/>
+
+    <line x1="148" y1="300" x2="1252" y2="300" stroke="#C9D7EB" stroke-width="2"/>
+    <circle class="dot" cx="148" cy="300" r="7" fill="#165DFF"/>
+
+    <rect x="73" y="336" width="620" height="46" fill="#0B1B35"/>
+    <text x="93" y="365" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">GATE PASSES</text>
+    <text x="233" y="365" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13">results sorted, cut to limit, top score 1.0</text>
+
+    <rect x="713" y="336" width="614" height="46" fill="none" stroke="#ED5B2A" stroke-width="2"/>
+    <text x="733" y="365" fill="#ED5B2A" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">GATE FAILS</text>
+    <text x="861" y="365" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13">{"results":[]} · no semantic rescue at 0.82</text>
+
+    <line x1="73" y1="410" x2="1327" y2="410" stroke="#BAC8D8"/>
+    <text x="73" y="438" fill="#44566F" font-size="15">Values shown are from one measured query against a three-memory database. The cross-encoder and entity expansion did not run.</text>
+  </g>
+</svg>

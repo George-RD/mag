@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MAG demos — retrieval, handoff, abstention</title>
+<meta name="description" content="Three stepped walkthroughs of MAG built from measured CLI output: the retrieval pipeline, a cross-tool handoff, and the abstention gate.">
+<meta name="theme-color" content="#0b1b35">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<style>
+:root{--ink:#0b1b35;--paper:#eef3f7;--white:#fff;--blue:#165dff;--navy:#0b41bd;--amber:#ffb703;--orange:#aa3508;--line:#b8c7d8;--muted:#50637b;--max:1160px;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--sans:Aptos,"Segoe UI",Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--sans)}
+a{color:inherit;text-underline-offset:.2em}
+img{display:block;max-width:100%}
+.wrap{width:min(var(--max),calc(100% - 40px));margin:auto}
+.skip{position:fixed;left:12px;top:12px;z-index:99;padding:9px 12px;background:var(--ink);color:#fff;transform:translateY(-160%)}
+.skip:focus{transform:none}
+.top{position:sticky;top:0;z-index:20;background:rgba(238,243,247,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+.bar{min-height:68px;display:flex;align-items:center;gap:24px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:900;font-size:21px;letter-spacing:.05em}
+.mark{width:34px;height:34px;display:grid;place-items:center;background:var(--blue);color:#fff;transform:skewX(-7deg)}
+nav{margin-left:auto;display:flex;gap:23px;font-size:14px;font-weight:750}
+nav a{text-decoration:none}
+.pill{font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;border:1px solid currentColor;padding:8px 9px;color:var(--orange)}
+h1,h2,h3{margin:0;font-weight:900;line-height:1.04;letter-spacing:-.035em}
+h1{font-size:clamp(2.6rem,5.4vw,4.4rem)}
+h2{font-size:clamp(1.8rem,3vw,2.5rem)}
+h3{font-size:1.42rem}
+.diagram{background:#fff;padding:18px;border:1px solid var(--line);overflow:auto;margin-top:26px}
+.diagram img{min-width:830px}
+.eyebrow{font:800 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--navy);margin:0 0 14px}
+.lead{font-size:clamp(1.1rem,1.8vw,1.34rem);max-width:640px;color:#213654;margin:26px 0 0}
+section{padding:72px 0;border-bottom:1px solid var(--line)}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+.card{border:1px solid var(--line);border-top:8px solid var(--ink);background:#fff;padding:26px;display:flex;flex-direction:column;gap:12px}
+.card b{font:800 12px var(--mono);color:var(--navy);text-transform:uppercase;letter-spacing:.06em}
+.card p{color:var(--muted);margin:0}
+.card ul{margin:0;padding-left:20px;color:var(--muted);font:12px/1.7 var(--mono)}
+.card a{margin-top:auto;font-weight:850;color:var(--navy);padding-top:12px}
+.note{font-size:14px;color:var(--muted);margin-top:26px;max-width:640px}
+footer{padding:32px 0;background:#061226;color:#b9c7da}
+.foot{display:flex;align-items:center;gap:24px}
+.foot p{margin:0}
+.foot div:last-child{margin-left:auto;display:flex;gap:18px}
+.foot a{color:#fff}
+:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+@media(max-width:900px){nav{display:none}.grid3{grid-template-columns:1fr}.foot{align-items:flex-start;flex-direction:column}.foot div:last-child{margin:0}}
+@media(max-width:540px){body{font-size:16px}.wrap{width:calc(100% - 28px)}.pill{display:none}section{padding:56px 0}}
+</style>
+</head>
+<body id="top">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><div class="wrap bar"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><nav aria-label="Primary"><a href="../index.html">Main page</a><a href="../index.html#mechanism">How it works</a><a href="https://github.com/George-RD/mag">Source</a></nav><span class="pill">Early alpha</span></div></header>
+<main id="main">
+<section>
+<div class="wrap">
+<p class="eyebrow">Demos</p>
+<h1>Step through what<br>MAG actually does.</h1>
+<p class="lead">Three walkthroughs, each driven by a state machine you control. Every number on these pages was measured by running the MAG binary against a three-memory database, not written to look good.</p>
+<div class="grid3">
+  <article class="card">
+    <b>01 · Retrieval</b>
+    <h3>One search through the real pipeline.</h3>
+    <p>Twelve states, from temporal expansion to the normalised result set. Each state shows the candidates and the signals that stage writes into <code>_explain</code>.</p>
+    <ul><li>rrf_k 60.0</li><li>dual_match_boost 1.5</li><li>graph_neighbor_factor 0.1</li></ul>
+    <a href="retrieval-pipeline.html">Open the pipeline demo &rarr;</a>
+  </article>
+  <article class="card">
+    <b>02 · Handoff</b>
+    <h3>One tool writes, another tool asks.</h3>
+    <p>The stored SQLite row, the tags MAG generated, the edges it created, and the query in different words that finds the row again.</p>
+    <ul><li>PRECEDED_BY weight 1.0</li><li>related weight = cosine</li><li>score 1.0</li></ul>
+    <a href="cross-tool-handoff.html">Open the handoff demo &rarr;</a>
+  </article>
+  <article class="card">
+    <b>03 · Abstention</b>
+    <h3>The query that returns nothing.</h3>
+    <p>Two queries over the same three memories. One retrieves. One clears no threshold and returns an empty array. The arithmetic for both is on screen.</p>
+    <ul><li>abstention_min_text 0.15</li><li>rescue sim 0.82</li><li>rescue margin 0.035</li></ul>
+    <a href="abstention.html">Open the abstention demo &rarr;</a>
+  </article>
+</div>
+<h2 style="margin-top:64px">The seven stages at a glance.</h2>
+<p class="note" style="margin-top:18px">Demo 01 steps through twelve states. This diagram covers the seven that change the candidate set, from the FTS5 lookup to the abstention gate, with values from the same measured query.</p>
+<div class="diagram"><img src="../assets/pipeline.svg" width="1400" height="460" alt="The seven retrieval stages of a MAG advanced search, left to right: FTS5 text search reporting fts_rank 0, a 384-dimension vector scan reporting vec_sim 0.637, weighted reciprocal rank fusion at rrf_k 60.0, a dual-match boost with a floor of 1.5, multiplicative refinement in which time decay is off by default, one hop of graph enrichment at factor 0.1, and an abstention gate at a text overlap of 0.15. The gate either passes, returning results whose top score is 1.0, or fails and returns an empty array."></div>
+<p class="note">Capture environment: mag 0.1.10-dev built with the default feature set, the one the release workflow ships; embedding model bge-small-en-v1.5 int8 at 384 dimensions; three memories ingested through the CLI on 4 September 2026. Scores depend on the corpus; a different database gives different numbers.</p>
+</div>
+</section>
+</main>
+<footer><div class="wrap foot"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><p>Local-first memory for MCP clients.</p><div><a href="https://github.com/George-RD/mag/blob/main/LICENSE">MIT</a><a href="https://github.com/George-RD/mag">Source</a></div></div></footer>
+</body>
+</html>

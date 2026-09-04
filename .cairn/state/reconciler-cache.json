@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "key": "80d4ccd752baf555",
+  "key": "cd8cf173ef31aa9b",
   "reports": {
     "python": {
       "claimed_files": {
@@ -5813,6 +5813,11 @@
           "benches/longmemeval/main.rs",
           "benches/longmemeval/official.rs",
           "benches/longmemeval/types.rs",
+          "benches/memory_intelligence/dataset.rs",
+          "benches/memory_intelligence/families.rs",
+          "benches/memory_intelligence/main.rs",
+          "benches/memory_intelligence/metrics.rs",
+          "benches/memory_intelligence/report.rs",
           "benches/onnx_profile.rs",
           "benches/phase2_bench.rs",
           "benches/scale_bench.rs",
@@ -5835,6 +5840,7 @@
           "tests/cli_traverse_runtime_migration.rs",
           "tests/cli_user_context_runtime_migration.rs",
           "tests/embedding_input_roles.rs",
+          "tests/embedding_space_identity.rs",
           "tests/local_memory_runtime.rs",
           "tests/longmemeval_regression.rs",
           "tests/mcp_admin_runtime_migration.rs",
@@ -5844,9 +5850,13 @@
           "tests/mcp_memory_runtime_migration.rs",
           "tests/mcp_search_runtime_migration.rs",
           "tests/mcp_session_runtime_migration.rs",
+          "tests/mcp_setup_contract.rs",
           "tests/mcp_smoke.rs",
+          "tests/mcp_support/mod.rs",
           "tests/memory_storage_gaps.rs",
           "tests/parity_harness.rs",
+          "tests/reembed_cli.rs",
+          "tests/reembed_migration.rs",
           "tests/schema_migration.rs",
           "tests/setup_model_download.rs",
           "tests/storage_conformance.rs",
@@ -5922,6 +5932,7 @@
           "src/memory_core/storage/sqlite/hot_cache_mgmt.rs",
           "src/memory_core/storage/sqlite/io.rs",
           "src/memory_core/storage/sqlite/lifecycle.rs",
+          "src/memory_core/storage/sqlite/migration.rs",
           "src/memory_core/storage/sqlite/mod.rs",
           "src/memory_core/storage/sqlite/nlp.rs",
           "src/memory_core/storage/sqlite/pipeline/abstention.rs",
@@ -5981,6 +5992,7 @@
         "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
         "pub async fn download_bge_small_model() -> Result<PathBuf>",
         "pub async fn download_cross_encoder_model() -> Result<PathBuf>",
+        "pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<FamilyOutcome>",
         "pub async fn export_all(&self) -> Result<String>",
         "pub async fn export_all(&self) -> Result<String>",
         "pub async fn export_all(&self) -> Result<String>",
@@ -5991,12 +6003,14 @@
         "pub async fn get_profile(&self) -> Result<serde_json::Value>",
         "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
         "pub async fn graph_edge_stats(&self) -> Result<Vec<(String, i64)>>",
+        "pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<FamilyOutcome>",
         "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
         "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
         "pub async fn import_all(&self, data: &str) -> Result<usize>",
         "pub async fn ingest(&self, input: MemoryInput) -> Result<String>",
         "pub async fn is_empty(&self) -> bool",
         "pub async fn len(&self) -> usize",
+        "pub async fn lifecycle(group: &SeededGroup, cases: &[LifecycleCase]) -> Result<FamilyOutcome>",
         "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
         "pub async fn list_backups(&self) -> Result<Vec<BackupInfo>>",
         "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
@@ -6006,11 +6020,17 @@
         "pub async fn optimize(&self) -> Result<()>",
         "pub async fn optimize(&self) -> Result<()>",
         "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
+        "pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result<FamilyOutcome>",
         "pub async fn query_lessons( &self, task: Option<&str>, project: Option<&str>, exclude_session: Option<&str>, agent_type: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
+        "pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<FamilyOutcome>",
         "pub async fn rebuild_fts(&self) -> Result<serde_json::Value>",
         "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn recent(&self, limit: usize, opts: &SearchOptions) -> Result<Vec<SearchResult>>",
         "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
+        "pub async fn reembed_path( path: PathBuf, embedder: Arc<dyn Embedder>, options: ReembedOptions, ) -> Result<ReembedReport>",
+        "pub async fn reembed_path_with_embedding_model( path: PathBuf, embedding_model: Arc<dyn EmbeddingModel>, options: ReembedOptions, ) -> Result<ReembedReport>",
+        "pub async fn reembed_path_with_embedding_model( path: PathBuf, embedding_model: Arc<dyn EmbeddingModel>, options: ReembedOptions, ) -> Result<ReembedReport>",
+        "pub async fn relationships( group: &SeededGroup, cases: &[RelationshipCase], ) -> Result<FamilyOutcome>",
         "pub async fn resolve_dataset( kind: DatasetKind, dataset_path: Option<PathBuf>, force_refresh: bool, temporary: bool, ) -> Result<DatasetArtifact>",
         "pub async fn restore_backup(&self, backup_path: &Path) -> Result<()>",
         "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
@@ -6039,7 +6059,10 @@
         "pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
         "pub async fn store_batch_raw(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
         "pub async fn store_raw(&self, id: &str, content: &str, input: &MemoryInput) -> Result<()>",
+        "pub async fn stored_ids(runtime: &LocalMemoryRuntime) -> Result<BTreeSet<String>>",
+        "pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcome>",
         "pub async fn sweep_expired(&self) -> Result<usize>",
+        "pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<FamilyOutcome>",
         "pub async fn traverse( &self, start_id: &str, max_hops: usize, min_weight: f64, edge_types: Option<&[String]>, ) -> Result<Vec<GraphNode>>",
         "pub async fn type_stats(&self) -> Result<serde_json::Value>",
         "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
@@ -6050,12 +6073,16 @@
         "pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>",
         "pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value>",
         "pub const ABSTENTION_MIN_TEXT f64",
+        "pub const AUTO_COMPACT_COUNT_THRESHOLD usize",
+        "pub const COMPACT_MIN_CLUSTER_SIZE usize",
+        "pub const COMPACT_SIMILARITY_THRESHOLD f64",
         "pub const DEFAULT_LOCAL_LLM_BASE_URL",
         "pub const DEFAULT_LOCAL_LLM_MODEL",
         "pub const ENTITY_EXPANSION_BOOST f64",
         "pub const EXPERIMENTAL_SMALL_ONNX_LLM_MODEL",
         "pub const GRAPH_MIN_EDGE_WEIGHT f64",
         "pub const GRAPH_NEIGHBOR_FACTOR f64",
+        "pub const MIN_LATENCY_SAMPLES usize",
         "pub const REL_PARALLEL_CONTEXT",
         "pub const REL_PRECEDED_BY",
         "pub const REL_RELATED",
@@ -6064,12 +6091,14 @@
         "pub const REL_SIMILAR_TO",
         "pub const RRF_WEIGHT_FTS f64",
         "pub const RRF_WEIGHT_VEC f64",
+        "pub const SEARCH_LIMIT usize",
         "pub const STRATEGIES",
         "pub const TARGET_ONNX_LOCAL_LLM_MODEL",
         "pub const TOOL_REGISTRY",
         "pub const TTL_EPHEMERAL i64",
         "pub const TTL_LONG_TERM i64",
         "pub const TTL_SHORT_TERM i64",
+        "pub const fn metadata(&self) -> RetrieverModelProfileSpec",
         "pub enum AiTool",
         "pub enum Commands",
         "pub enum ConfigFormat",
@@ -6089,8 +6118,10 @@
         "pub enum MemoryKind",
         "pub enum RemoveResult",
         "pub enum SandboxPatchResult",
+        "pub enum Status",
         "pub enum TransportMode",
         "pub fn action_tags(&self) -> Vec<String>",
+        "pub fn add(&mut self, other: Self)",
         "pub fn all() -> &'static [AiTool]",
         "pub fn analyze(&self) -> Result<()>",
         "pub fn any_configured(&self) -> bool",
@@ -6107,8 +6138,13 @@
         "pub fn build_storage( cfg: &StrategyConfig, embedder: Arc<dyn Embedder>, graph_factor_override: Option<f64>, ) -> Result<SqliteStorage>",
         "pub fn category_key(&self) -> &'static str",
         "pub fn cleanup(&mut self) -> Result<()>",
+        "pub fn cluster_coverage(predicted: &[BTreeSet<String>], gold: &[BTreeSet<String>]) -> f64",
+        "pub fn cluster_purity(predicted: &[BTreeSet<String>], gold: &[BTreeSet<String>]) -> f64",
+        "pub fn compare_sets(predicted: &BTreeSet<String>, expected: &BTreeSet<String>) -> Counts",
         "pub fn config_format(&self) -> ConfigFormat",
+        "pub fn content_index(seeds: &[&Seed]) -> BTreeMap<String, String>",
         "pub fn content_tier(&self) -> ContentTier",
+        "pub fn count(value: usize) -> f64",
         "pub fn cross_encoder_model_dir() -> Result<PathBuf>",
         "pub fn decision_tags(&self) -> Vec<String>",
         "pub fn dedup_threshold(&self) -> Option<f64>",
@@ -6120,6 +6156,7 @@
         "pub fn display_name(&self) -> &'static str",
         "pub fn embedding_slice(&self) -> &[f32]",
         "pub fn embedding_slice(&self) -> &[f32]",
+        "pub fn embedding_space_identity(&self) -> String",
         "pub fn entity_tags(&self) -> Vec<String>",
         "pub fn expected_answer(&self) -> &str",
         "pub fn fact_tags(&self) -> Vec<String>",
@@ -6145,12 +6182,16 @@
         "pub fn is_valid_event_type(event_type: &str) -> bool",
         "pub fn jaccard_pre(a: &HashSet<String>, b: &HashSet<String>) -> f64",
         "pub fn jaccard_similarity(text_a: &str, text_b: &str, min_word_len: usize) -> f64",
+        "pub fn key(&self, id: &str) -> Option<&str>",
         "pub fn list_strategies()",
         "pub fn llm_backend_from_env() -> Option<Arc<dyn LlmBackend>>",
         "pub fn llm_backend_from_env_or_local_default() -> Result<Arc<dyn LlmBackend>>",
+        "pub fn load(dir: &std::path::Path) -> Result<(Dataset, Manifest, String)>",
         "pub fn local_default() -> Self",
         "pub fn location_tags(&self) -> Vec<String>",
+        "pub fn mean(values: &[f64]) -> f64",
         "pub fn memory_kind(&self) -> MemoryKind",
+        "pub fn micros_to_ms(micros: u128) -> f64",
         "pub fn model_dir() -> Result<PathBuf>",
         "pub fn new( ingestor: Box<dyn Ingestor>, processor: Box<dyn Processor>, storage: Box<dyn Storage>, retriever: Box<dyn Retriever>, searcher: Box<dyn Searcher>, recents: Box<dyn Recents>, semantic_searcher: Box<dyn SemanticSearcher>, ) -> Self",
         "pub fn new() -> Result<Self>",
@@ -6169,6 +6210,7 @@
         "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
         "pub fn new(mode: InitMode, embedder: Arc<dyn Embedder>) -> Result<Self>",
         "pub fn new(searcher: Arc<dyn AdvancedSearcher>) -> Self",
+        "pub fn new(spec: RetrieverModelProfileSpec) -> Result<Self>",
         "pub fn new(timeout: Duration) -> Self",
         "pub fn new(timer: IdleTimer) -> Self",
         "pub fn new(token: String) -> Self",
@@ -6183,17 +6225,27 @@
         "pub fn new_with_path_and_embedding_model( path: PathBuf, embedder: Arc<dyn EmbeddingModel>, ) -> Result<Self>",
         "pub fn ollama(model: impl Into<String>, base_url: impl Into<String>) -> Self",
         "pub fn openai(model: impl Into<String>, api_key: impl Into<String>) -> Self",
+        "pub fn overall(outcomes: &[FamilyOutcome], selected: usize, unimplemented: usize) -> Overall",
+        "pub fn p50_ms(&self) -> f64",
+        "pub fn p95_ms(&self) -> f64",
         "pub fn parse_duration(text: &str) -> Result<chrono::Duration>",
         "pub fn parse_transport(s: &str) -> Result<TransportMode>",
         "pub fn patch_sandbox_allowlist() -> Result<SandboxPatchResult>",
         "pub fn path() -> Result<PathBuf>",
         "pub fn pct(correct: usize, total: usize) -> f64",
         "pub fn percentile_ms(samples: &[u128], percentile: f64) -> f64",
+        "pub fn percentile_of_micros(samples: &[u128], percentile: f64) -> f64",
+        "pub fn prf(self) -> Prf",
+        "pub fn print_report(summary: &EvalSummary, outcomes: &[FamilyOutcome], quiet: bool)",
+        "pub fn print_validation( dataset_version: &str, dataset_sha256: &str, checks: &[ValidationCheck], validity: f64, )",
         "pub fn priority_factor(priority: u8, scoring_params: &ScoringParams) -> f64",
         "pub fn query_coverage_boost(overlap: f64, scoring_params: &ScoringParams) -> f64",
         "pub fn question_tags(&self) -> Vec<String>",
+        "pub fn ratio(numerator: usize, denominator: usize) -> f64",
         "pub fn read() -> Result<Option<DaemonInfo>>",
         "pub fn read_or_create_auth_token() -> Result<String>",
+        "pub fn recall_at_k(ranked: &[String], relevant: &BTreeSet<String>, k: usize) -> f64",
+        "pub fn reciprocal_rank(ranked: &[String], relevant: &BTreeSet<String>) -> f64",
         "pub fn relationship_tags(&self) -> Vec<String>",
         "pub fn remove()",
         "pub fn remove_claude_plugin() -> Result<RemoveResult>",
@@ -6205,7 +6257,9 @@
         "pub fn score_batch(&self, query: &str, passages: &[&str]) -> Result<Vec<f32>>",
         "pub fn scoring_params(&self) -> &ScoringParams",
         "pub fn sentiment_tags(&self) -> Vec<String>",
+        "pub fn set_of<I, S>(items: I) -> BTreeSet<String> where I: IntoIterator<Item = S>, S: Into<String>,",
         "pub fn set_scoring_params(&mut self, mut params: ScoringParams)",
+        "pub fn sha256_hex(bytes: &[u8]) -> String",
         "pub fn slugify(value: &str) -> String",
         "pub fn spawn_watchdog(&self, shutdown: CancellationToken)",
         "pub fn status_tags(&self) -> Vec<String>",
@@ -6227,6 +6281,8 @@
         "pub fn type_weight_et(et: &EventType) -> f64",
         "pub fn types_with_dedup_threshold() -> Vec<EventType>",
         "pub fn unconfigured(&self) -> Vec<&DetectedTool>",
+        "pub fn validate( dataset: &Dataset, manifest: &Manifest, dataset_sha256: &str, ) -> Vec<ValidationCheck>",
+        "pub fn validity_percentage(checks: &[ValidationCheck]) -> f64",
         "pub fn verify_claude_plugin() -> Result<bool>",
         "pub fn verify_config(tool: &DetectedTool, mode: TransportMode) -> Result<ConfigStatus>",
         "pub fn warning(&self) -> Option<String>",
@@ -6291,37 +6347,48 @@
         "pub struct CompactConsolidation",
         "pub struct ConsolidationReport",
         "pub struct ConsolidationRunner",
+        "pub struct Counts",
         "pub struct CrossEncoderReranker",
         "pub struct CrossEncoderScorer",
         "pub struct DaemonInfo",
+        "pub struct Dataset",
         "pub struct DatasetArtifact",
         "pub struct DedupConsolidation",
         "pub struct DefaultScoringStrategy",
         "pub struct DetectedTool",
         "pub struct DetectionResult",
         "pub struct EmbedAndExtractPipeline",
+        "pub struct EntityCase",
         "pub struct EntityExpansionScorer",
+        "pub struct EvalSummary",
         "pub struct ExtractedEntity",
         "pub struct ExtractedRelationship",
         "pub struct ExtractedTemporal",
         "pub struct ExtractionResult",
+        "pub struct FamilyOutcome",
+        "pub struct FamilySummary",
         "pub struct FullPipelineStrategy",
         "pub struct FullTextSearch",
         "pub struct GraphNeighborScorer",
         "pub struct GraphNode",
+        "pub struct GroupingCase",
         "pub struct IdleTimer",
         "pub struct IdleTimerLayer",
         "pub struct IdleTimerService<S>",
         "pub struct KeywordOnlyStrategy",
+        "pub struct LifecycleCase",
         "pub struct ListResult",
         "pub struct LlmClient",
         "pub struct LlmConfig",
         "pub struct LlmExtractor",
         "pub struct LocalMemoryRuntime",
+        "pub struct LocalResourceExpectations",
+        "pub struct Manifest",
         "pub struct McpMemoryServer",
         "pub struct MemoryInput",
         "pub struct MemoryStorage",
         "pub struct MemoryUpdate",
+        "pub struct ModelProfileSummary",
         "pub struct MultiFactorScorer",
         "pub struct NoOpExtractor",
         "pub struct NoOpReranker",
@@ -6333,27 +6400,45 @@
         "pub struct OpenAiProvider",
         "pub struct OpenAiResponseMessage",
         "pub struct OpenAiUsage",
+        "pub struct Overall",
         "pub struct PeakRss",
         "pub struct Pipeline",
         "pub struct PlaceholderEmbedder",
         "pub struct PlaceholderPipeline",
+        "pub struct Prf",
+        "pub struct ProvenanceCase",
         "pub struct QueryContext",
         "pub struct QueryContext",
+        "pub struct QuestionCase",
         "pub struct RankedSemanticCandidate",
+        "pub struct ReembedOptions",
+        "pub struct ReembedReport",
         "pub struct Relationship",
+        "pub struct RelationshipCase",
+        "pub struct RetrieverArtifactChecksum",
+        "pub struct RetrieverModelProfile",
+        "pub struct RetrieverModelProfileSpec",
         "pub struct RrfFusion",
         "pub struct ScoringParams",
         "pub struct SearchFilterArgs",
         "pub struct SearchOptions",
         "pub struct SearchPipeline",
         "pub struct SearchResult",
+        "pub struct Seed",
+        "pub struct SeededGroup",
         "pub struct SemanticResult",
         "pub struct SetupArgs",
         "pub struct SqliteStorage",
         "pub struct StrategyConfig",
+        "pub struct SupersessionCase",
+        "pub struct SupersessionPair<'a>",
+        "pub struct TemporalCase",
         "pub struct TimingEmbedder",
         "pub struct ToolMeta",
         "pub struct TtlExpirationPolicy",
+        "pub struct UnimplementedFamily",
+        "pub struct ValidationCheck",
+        "pub struct ValidationSummary",
         "pub struct VectorSearch",
         "pub struct WelcomeOptions",
         "pub struct WriteContext",
@@ -6502,7 +6587,7 @@
         "pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)>",
         "pub(super) fn hydrate_memories_by_ids( conn: &rusqlite::Connection, ids: &[String], include_superseded: bool, opts: Option<&SearchOptions>, include_context_tags: bool, ) -> Result<HashMap<String, HydratedMemoryRow>>",
         "pub(super) fn initialize_parent_dir(path: &Path) -> Result<()>",
-        "pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Result<()>",
+        "pub(super) fn initialize_schema( conn: &Connection, embedding_dim: usize, embedding_space: &str, ) -> Result<()>",
         "pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> Result<()>",
         "pub(super) fn is_keyword_query(query: &str) -> bool",
         "pub(super) fn matches_search_options( candidate: &RankedSemanticCandidate, opts: &SearchOptions, ) -> bool",
@@ -6529,9 +6614,25 @@
       ],
       "node_symbols": {
         "mag.quality.benchmarks": [
+          "pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<FamilyOutcome>",
+          "pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<FamilyOutcome>",
+          "pub async fn lifecycle(group: &SeededGroup, cases: &[LifecycleCase]) -> Result<FamilyOutcome>",
+          "pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result<FamilyOutcome>",
+          "pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<FamilyOutcome>",
+          "pub async fn relationships( group: &SeededGroup, cases: &[RelationshipCase], ) -> Result<FamilyOutcome>",
           "pub async fn resolve_dataset( kind: DatasetKind, dataset_path: Option<PathBuf>, force_refresh: bool, temporary: bool, ) -> Result<DatasetArtifact>",
+          "pub async fn stored_ids(runtime: &LocalMemoryRuntime) -> Result<BTreeSet<String>>",
+          "pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcome>",
+          "pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<FamilyOutcome>",
+          "pub const AUTO_COMPACT_COUNT_THRESHOLD usize",
+          "pub const COMPACT_MIN_CLUSTER_SIZE usize",
+          "pub const COMPACT_SIMILARITY_THRESHOLD f64",
+          "pub const MIN_LATENCY_SAMPLES usize",
+          "pub const SEARCH_LIMIT usize",
           "pub const STRATEGIES",
           "pub enum DatasetKind",
+          "pub enum Status",
+          "pub fn add(&mut self, other: Self)",
           "pub fn avg_embed_ms(&self) -> f64",
           "pub fn benchmark_cache_path(kind: DatasetKind) -> Result<PathBuf>",
           "pub fn benchmark_metadata(benchmark: &str, dataset: &DatasetArtifact) -> BenchmarkMetadata",
@@ -6539,36 +6640,82 @@
           "pub fn build_storage( cfg: &StrategyConfig, embedder: Arc<dyn Embedder>, graph_factor_override: Option<f64>, ) -> Result<SqliteStorage>",
           "pub fn category_key(&self) -> &'static str",
           "pub fn cleanup(&mut self) -> Result<()>",
+          "pub fn cluster_coverage(predicted: &[BTreeSet<String>], gold: &[BTreeSet<String>]) -> f64",
+          "pub fn cluster_purity(predicted: &[BTreeSet<String>], gold: &[BTreeSet<String>]) -> f64",
+          "pub fn compare_sets(predicted: &BTreeSet<String>, expected: &BTreeSet<String>) -> Counts",
+          "pub fn content_index(seeds: &[&Seed]) -> BTreeMap<String, String>",
+          "pub fn count(value: usize) -> f64",
           "pub fn dia_id(&self) -> Option<&str>",
           "pub fn expected_answer(&self) -> &str",
           "pub fn find_strategy(id: &str) -> Option<&'static StrategyConfig>",
           "pub fn grade(percentage: f64) -> &'static str",
+          "pub fn key(&self, id: &str) -> Option<&str>",
           "pub fn list_strategies()",
+          "pub fn load(dir: &std::path::Path) -> Result<(Dataset, Manifest, String)>",
+          "pub fn mean(values: &[f64]) -> f64",
+          "pub fn micros_to_ms(micros: u128) -> f64",
           "pub fn new(api_key: String) -> Result<Self>",
           "pub fn new(api_key: String, model: String, dimension: usize) -> Result<Self>",
           "pub fn new(inner: Arc<dyn Embedder>) -> Self",
+          "pub fn overall(outcomes: &[FamilyOutcome], selected: usize, unimplemented: usize) -> Overall",
+          "pub fn p50_ms(&self) -> f64",
+          "pub fn p95_ms(&self) -> f64",
           "pub fn pct(correct: usize, total: usize) -> f64",
           "pub fn percentile_ms(samples: &[u128], percentile: f64) -> f64",
+          "pub fn percentile_of_micros(samples: &[u128], percentile: f64) -> f64",
+          "pub fn prf(self) -> Prf",
+          "pub fn print_report(summary: &EvalSummary, outcomes: &[FamilyOutcome], quiet: bool)",
+          "pub fn print_validation( dataset_version: &str, dataset_sha256: &str, checks: &[ValidationCheck], validity: f64, )",
+          "pub fn ratio(numerator: usize, denominator: usize) -> f64",
+          "pub fn recall_at_k(ranked: &[String], relevant: &BTreeSet<String>, k: usize) -> f64",
+          "pub fn reciprocal_rank(ranked: &[String], relevant: &BTreeSet<String>) -> f64",
           "pub fn sample(&mut self)",
+          "pub fn set_of<I, S>(items: I) -> BTreeSet<String> where I: IntoIterator<Item = S>, S: Into<String>,",
+          "pub fn sha256_hex(bytes: &[u8]) -> String",
           "pub fn total_calls(&self) -> u64",
           "pub fn total_embed_ms(&self) -> u64",
           "pub fn truncate(value: &str, max_chars: usize) -> String",
+          "pub fn validate( dataset: &Dataset, manifest: &Manifest, dataset_sha256: &str, ) -> Vec<ValidationCheck>",
+          "pub fn validity_percentage(checks: &[ValidationCheck]) -> f64",
           "pub mod formatting",
           "pub mod metrics",
           "pub mod openai_types",
           "pub mod stats",
           "pub mod timing_embedder",
           "pub struct BenchmarkMetadata",
+          "pub struct Counts",
+          "pub struct Dataset",
           "pub struct DatasetArtifact",
+          "pub struct EntityCase",
+          "pub struct EvalSummary",
+          "pub struct FamilyOutcome",
+          "pub struct FamilySummary",
+          "pub struct GroupingCase",
+          "pub struct LifecycleCase",
+          "pub struct Manifest",
+          "pub struct ModelProfileSummary",
           "pub struct OpenAiChatRequest",
           "pub struct OpenAiChatResponse",
           "pub struct OpenAiChoice",
           "pub struct OpenAiMessage",
           "pub struct OpenAiResponseMessage",
           "pub struct OpenAiUsage",
+          "pub struct Overall",
           "pub struct PeakRss",
+          "pub struct Prf",
+          "pub struct ProvenanceCase",
+          "pub struct QuestionCase",
+          "pub struct RelationshipCase",
+          "pub struct Seed",
+          "pub struct SeededGroup",
           "pub struct StrategyConfig",
+          "pub struct SupersessionCase",
+          "pub struct SupersessionPair<'a>",
+          "pub struct TemporalCase",
           "pub struct TimingEmbedder",
+          "pub struct UnimplementedFamily",
+          "pub struct ValidationCheck",
+          "pub struct ValidationSummary",
           "pub type StrategyId",
           "pub(crate) struct CategoryResult",
           "pub(crate) struct CategoryResult",
@@ -6646,6 +6793,8 @@
           "pub async fn rebuild_fts(&self) -> Result<serde_json::Value>",
           "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
           "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
+          "pub async fn reembed_path( path: PathBuf, embedder: Arc<dyn Embedder>, options: ReembedOptions, ) -> Result<ReembedReport>",
+          "pub async fn reembed_path_with_embedding_model( path: PathBuf, embedding_model: Arc<dyn EmbeddingModel>, options: ReembedOptions, ) -> Result<ReembedReport>",
           "pub async fn restore_backup(&self, backup_path: &Path) -> Result<()>",
           "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
           "pub async fn retrieve(&self, id: &str) -> Result<String>",
@@ -6807,10 +6956,12 @@
           "pub const DEFAULT_LOCAL_LLM_MODEL",
           "pub const EXPERIMENTAL_SMALL_ONNX_LLM_MODEL",
           "pub const TARGET_ONNX_LOCAL_LLM_MODEL",
+          "pub const fn metadata(&self) -> RetrieverModelProfileSpec",
           "pub enum EmbeddingInputKind",
           "pub enum LlmProvider",
           "pub fn base_url(&self) -> &str",
           "pub fn build_llm_backend(config: LlmConfig) -> Result<Arc<dyn LlmBackend>>",
+          "pub fn embedding_space_identity(&self) -> String",
           "pub fn from_env() -> Option<Self>",
           "pub fn from_env_or_local_default() -> Self",
           "pub fn llm_backend_from_env() -> Option<Arc<dyn LlmBackend>>",
@@ -6821,6 +6972,7 @@
           "pub fn new(config: LlmConfig) -> Result<Self>",
           "pub fn new(config: LlmConfig) -> Result<Self>",
           "pub fn new(config: LlmConfig) -> Result<Self>",
+          "pub fn new(spec: RetrieverModelProfileSpec) -> Result<Self>",
           "pub fn ollama(model: impl Into<String>, base_url: impl Into<String>) -> Self",
           "pub fn openai(model: impl Into<String>, api_key: impl Into<String>) -> Self",
           "pub fn try_unload_if_idle(&self) -> bool",
@@ -6829,9 +6981,13 @@
           "pub struct AnthropicProvider",
           "pub struct LlmClient",
           "pub struct LlmConfig",
+          "pub struct LocalResourceExpectations",
           "pub struct OnnxEmbedder",
           "pub struct OpenAiProvider",
           "pub struct PlaceholderEmbedder",
+          "pub struct RetrieverArtifactChecksum",
+          "pub struct RetrieverModelProfile",
+          "pub struct RetrieverModelProfileSpec",
           "pub trait Embedder: Send + Sync",
           "pub trait EmbeddingModel: Send + Sync",
           "pub trait LlmBackend: Send + Sync",
@@ -6904,6 +7060,7 @@
           "pub async fn graph_edge_stats(&self) -> Result<Vec<(String, i64)>>",
           "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
           "pub async fn optimize(&self) -> Result<()>",
+          "pub async fn reembed_path_with_embedding_model( path: PathBuf, embedding_model: Arc<dyn EmbeddingModel>, options: ReembedOptions, ) -> Result<ReembedReport>",
           "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
           "pub async fn stats(&self) -> Result<serde_json::Value>",
           "pub async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()>",
@@ -6932,6 +7089,8 @@
           "pub fn with_scoring_params(mut self, params: ScoringParams) -> Self",
           "pub fn with_scoring_strategy(mut self, strategy: Arc<dyn ScoringStrategy>) -> Self",
           "pub struct RankedSemanticCandidate",
+          "pub struct ReembedOptions",
+          "pub struct ReembedReport",
           "pub struct SqliteStorage",
           "pub(crate) async fn store_internal( &self, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<()>",
           "pub(crate) fn expand_date_tokens(text: &str) -> String",
@@ -6975,7 +7134,7 @@
           "pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)>",
           "pub(super) fn hydrate_memories_by_ids( conn: &rusqlite::Connection, ids: &[String], include_superseded: bool, opts: Option<&SearchOptions>, include_context_tags: bool, ) -> Result<HashMap<String, HydratedMemoryRow>>",
           "pub(super) fn initialize_parent_dir(path: &Path) -> Result<()>",
-          "pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Result<()>",
+          "pub(super) fn initialize_schema( conn: &Connection, embedding_dim: usize, embedding_space: &str, ) -> Result<()>",
           "pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> Result<()>",
           "pub(super) fn is_keyword_query(query: &str) -> bool",
           "pub(super) fn matches_search_options( candidate: &RankedSemanticCandidate, opts: &SearchOptions, ) -> bool",
@@ -7118,12 +7277,124 @@
       "node_symbol_records": {
         "mag.quality.benchmarks": [
           {
+            "name": "entities",
+            "kind": "function",
+            "signature": "pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 159,
+            "end_line": 250
+          },
+          {
+            "name": "grouping",
+            "kind": "function",
+            "signature": "pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 743,
+            "end_line": 913
+          },
+          {
+            "name": "lifecycle",
+            "kind": "function",
+            "signature": "pub async fn lifecycle(group: &SeededGroup, cases: &[LifecycleCase]) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 460,
+            "end_line": 577
+          },
+          {
+            "name": "provenance",
+            "kind": "function",
+            "signature": "pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 953,
+            "end_line": 1108
+          },
+          {
+            "name": "questions",
+            "kind": "function",
+            "signature": "pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 1113,
+            "end_line": 1229
+          },
+          {
+            "name": "relationships",
+            "kind": "function",
+            "signature": "pub async fn relationships( group: &SeededGroup, cases: &[RelationshipCase], ) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 344,
+            "end_line": 451
+          },
+          {
             "name": "resolve_dataset",
             "kind": "function",
             "signature": "pub async fn resolve_dataset( kind: DatasetKind, dataset_path: Option<PathBuf>, force_refresh: bool, temporary: bool, ) -> Result<DatasetArtifact>",
             "file": "src/benchmarking.rs",
             "line": 66,
             "end_line": 109
+          },
+          {
+            "name": "stored_ids",
+            "kind": "function",
+            "signature": "pub async fn stored_ids(runtime: &LocalMemoryRuntime) -> Result<BTreeSet<String>>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 146,
+            "end_line": 153
+          },
+          {
+            "name": "supersession",
+            "kind": "function",
+            "signature": "pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 589,
+            "end_line": 726
+          },
+          {
+            "name": "temporal",
+            "kind": "function",
+            "signature": "pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<FamilyOutcome>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 256,
+            "end_line": 334
+          },
+          {
+            "name": "AUTO_COMPACT_COUNT_THRESHOLD",
+            "kind": "const",
+            "signature": "pub const AUTO_COMPACT_COUNT_THRESHOLD usize",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 27,
+            "end_line": 27
+          },
+          {
+            "name": "COMPACT_MIN_CLUSTER_SIZE",
+            "kind": "const",
+            "signature": "pub const COMPACT_MIN_CLUSTER_SIZE usize",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 24,
+            "end_line": 24
+          },
+          {
+            "name": "COMPACT_SIMILARITY_THRESHOLD",
+            "kind": "const",
+            "signature": "pub const COMPACT_SIMILARITY_THRESHOLD f64",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 22,
+            "end_line": 22
+          },
+          {
+            "name": "MIN_LATENCY_SAMPLES",
+            "kind": "const",
+            "signature": "pub const MIN_LATENCY_SAMPLES usize",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 18,
+            "end_line": 18
+          },
+          {
+            "name": "SEARCH_LIMIT",
+            "kind": "const",
+            "signature": "pub const SEARCH_LIMIT usize",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 29,
+            "end_line": 29
           },
           {
             "name": "STRATEGIES",
@@ -7140,6 +7411,22 @@
             "file": "src/benchmarking.rs",
             "line": 38,
             "end_line": 41
+          },
+          {
+            "name": "Status",
+            "kind": "enum",
+            "signature": "pub enum Status",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 34,
+            "end_line": 39
+          },
+          {
+            "name": "add",
+            "kind": "function",
+            "signature": "pub fn add(&mut self, other: Self)",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 47,
+            "end_line": 51
           },
           {
             "name": "avg_embed_ms",
@@ -7198,6 +7485,46 @@
             "end_line": 269
           },
           {
+            "name": "cluster_coverage",
+            "kind": "function",
+            "signature": "pub fn cluster_coverage(predicted: &[BTreeSet<String>], gold: &[BTreeSet<String>]) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 143,
+            "end_line": 156
+          },
+          {
+            "name": "cluster_purity",
+            "kind": "function",
+            "signature": "pub fn cluster_purity(predicted: &[BTreeSet<String>], gold: &[BTreeSet<String>]) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 124,
+            "end_line": 139
+          },
+          {
+            "name": "compare_sets",
+            "kind": "function",
+            "signature": "pub fn compare_sets(predicted: &BTreeSet<String>, expected: &BTreeSet<String>) -> Counts",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 84,
+            "end_line": 90
+          },
+          {
+            "name": "content_index",
+            "kind": "function",
+            "signature": "pub fn content_index(seeds: &[&Seed]) -> BTreeMap<String, String>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 1232,
+            "end_line": 1237
+          },
+          {
+            "name": "count",
+            "kind": "function",
+            "signature": "pub fn count(value: usize) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 15,
+            "end_line": 20
+          },
+          {
             "name": "dia_id",
             "kind": "function",
             "signature": "pub fn dia_id(&self) -> Option<&str>",
@@ -7230,12 +7557,44 @@
             "end_line": 31
           },
           {
+            "name": "key",
+            "kind": "function",
+            "signature": "pub fn key(&self, id: &str) -> Option<&str>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 132,
+            "end_line": 134
+          },
+          {
             "name": "list_strategies",
             "kind": "function",
             "signature": "pub fn list_strategies()",
             "file": "benches/locomo/strategies.rs",
             "line": 76,
             "end_line": 82
+          },
+          {
+            "name": "load",
+            "kind": "function",
+            "signature": "pub fn load(dir: &std::path::Path) -> Result<(Dataset, Manifest, String)>",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 182,
+            "end_line": 198
+          },
+          {
+            "name": "mean",
+            "kind": "function",
+            "signature": "pub fn mean(values: &[f64]) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 114,
+            "end_line": 119
+          },
+          {
+            "name": "micros_to_ms",
+            "kind": "function",
+            "signature": "pub fn micros_to_ms(micros: u128) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 165,
+            "end_line": 170
           },
           {
             "name": "new",
@@ -7262,6 +7621,30 @@
             "end_line": 33
           },
           {
+            "name": "overall",
+            "kind": "function",
+            "signature": "pub fn overall(outcomes: &[FamilyOutcome], selected: usize, unimplemented: usize) -> Overall",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 147,
+            "end_line": 200
+          },
+          {
+            "name": "p50_ms",
+            "kind": "function",
+            "signature": "pub fn p50_ms(&self) -> f64",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 103,
+            "end_line": 105
+          },
+          {
+            "name": "p95_ms",
+            "kind": "function",
+            "signature": "pub fn p95_ms(&self) -> f64",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 107,
+            "end_line": 109
+          },
+          {
             "name": "pct",
             "kind": "function",
             "signature": "pub fn pct(correct: usize, total: usize) -> f64",
@@ -7278,12 +7661,84 @@
             "end_line": 22
           },
           {
+            "name": "percentile_of_micros",
+            "kind": "function",
+            "signature": "pub fn percentile_of_micros(samples: &[u128], percentile: f64) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 159,
+            "end_line": 161
+          },
+          {
+            "name": "prf",
+            "kind": "function",
+            "signature": "pub fn prf(self) -> Prf",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 53,
+            "end_line": 80
+          },
+          {
+            "name": "print_report",
+            "kind": "function",
+            "signature": "pub fn print_report(summary: &EvalSummary, outcomes: &[FamilyOutcome], quiet: bool)",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 235,
+            "end_line": 360
+          },
+          {
+            "name": "print_validation",
+            "kind": "function",
+            "signature": "pub fn print_validation( dataset_version: &str, dataset_sha256: &str, checks: &[ValidationCheck], validity: f64, )",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 203,
+            "end_line": 232
+          },
+          {
+            "name": "ratio",
+            "kind": "function",
+            "signature": "pub fn ratio(numerator: usize, denominator: usize) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 23,
+            "end_line": 28
+          },
+          {
+            "name": "recall_at_k",
+            "kind": "function",
+            "signature": "pub fn recall_at_k(ranked: &[String], relevant: &BTreeSet<String>, k: usize) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 94,
+            "end_line": 101
+          },
+          {
+            "name": "reciprocal_rank",
+            "kind": "function",
+            "signature": "pub fn reciprocal_rank(ranked: &[String], relevant: &BTreeSet<String>) -> f64",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 104,
+            "end_line": 111
+          },
+          {
             "name": "sample",
             "kind": "function",
             "signature": "pub fn sample(&mut self)",
             "file": "benches/bench_utils/metrics.rs",
-            "line": 11,
-            "end_line": 17
+            "line": 16,
+            "end_line": 22
+          },
+          {
+            "name": "set_of",
+            "kind": "function",
+            "signature": "pub fn set_of<I, S>(items: I) -> BTreeSet<String> where I: IntoIterator<Item = S>, S: Into<String>,",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 173,
+            "end_line": 179
+          },
+          {
+            "name": "sha256_hex",
+            "kind": "function",
+            "signature": "pub fn sha256_hex(bytes: &[u8]) -> String",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 170,
+            "end_line": 178
           },
           {
             "name": "total_calls",
@@ -7308,6 +7763,22 @@
             "file": "benches/bench_utils/formatting.rs",
             "line": 2,
             "end_line": 4
+          },
+          {
+            "name": "validate",
+            "kind": "function",
+            "signature": "pub fn validate( dataset: &Dataset, manifest: &Manifest, dataset_sha256: &str, ) -> Vec<ValidationCheck>",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 203,
+            "end_line": 411
+          },
+          {
+            "name": "validity_percentage",
+            "kind": "function",
+            "signature": "pub fn validity_percentage(checks: &[ValidationCheck]) -> f64",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 414,
+            "end_line": 417
           },
           {
             "name": "formatting",
@@ -7358,12 +7829,92 @@
             "end_line": 28
           },
           {
+            "name": "Counts",
+            "kind": "struct",
+            "signature": "pub struct Counts",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 40,
+            "end_line": 44
+          },
+          {
+            "name": "Dataset",
+            "kind": "struct",
+            "signature": "pub struct Dataset",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 107,
+            "end_line": 122
+          },
+          {
             "name": "DatasetArtifact",
             "kind": "struct",
             "signature": "pub struct DatasetArtifact",
             "file": "src/benchmarking.rs",
             "line": 31,
             "end_line": 35
+          },
+          {
+            "name": "EntityCase",
+            "kind": "struct",
+            "signature": "pub struct EntityCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 32,
+            "end_line": 38
+          },
+          {
+            "name": "EvalSummary",
+            "kind": "struct",
+            "signature": "pub struct EvalSummary",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 76,
+            "end_line": 117
+          },
+          {
+            "name": "FamilyOutcome",
+            "kind": "struct",
+            "signature": "pub struct FamilyOutcome",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 43,
+            "end_line": 58
+          },
+          {
+            "name": "FamilySummary",
+            "kind": "struct",
+            "signature": "pub struct FamilySummary",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 42,
+            "end_line": 55
+          },
+          {
+            "name": "GroupingCase",
+            "kind": "struct",
+            "signature": "pub struct GroupingCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 76,
+            "end_line": 79
+          },
+          {
+            "name": "LifecycleCase",
+            "kind": "struct",
+            "signature": "pub struct LifecycleCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 60,
+            "end_line": 63
+          },
+          {
+            "name": "Manifest",
+            "kind": "struct",
+            "signature": "pub struct Manifest",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 125,
+            "end_line": 132
+          },
+          {
+            "name": "ModelProfileSummary",
+            "kind": "struct",
+            "signature": "pub struct ModelProfileSummary",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 23,
+            "end_line": 38
           },
           {
             "name": "OpenAiChatRequest",
@@ -7414,12 +7965,68 @@
             "end_line": 33
           },
           {
+            "name": "Overall",
+            "kind": "struct",
+            "signature": "pub struct Overall",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 135,
+            "end_line": 144
+          },
+          {
             "name": "PeakRss",
             "kind": "struct",
             "signature": "pub struct PeakRss",
             "file": "benches/bench_utils/metrics.rs",
-            "line": 6,
-            "end_line": 8
+            "line": 11,
+            "end_line": 13
+          },
+          {
+            "name": "Prf",
+            "kind": "struct",
+            "signature": "pub struct Prf",
+            "file": "benches/memory_intelligence/metrics.rs",
+            "line": 32,
+            "end_line": 36
+          },
+          {
+            "name": "ProvenanceCase",
+            "kind": "struct",
+            "signature": "pub struct ProvenanceCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 82,
+            "end_line": 87
+          },
+          {
+            "name": "QuestionCase",
+            "kind": "struct",
+            "signature": "pub struct QuestionCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 90,
+            "end_line": 97
+          },
+          {
+            "name": "RelationshipCase",
+            "kind": "struct",
+            "signature": "pub struct RelationshipCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 49,
+            "end_line": 57
+          },
+          {
+            "name": "Seed",
+            "kind": "struct",
+            "signature": "pub struct Seed",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 15,
+            "end_line": 29
+          },
+          {
+            "name": "SeededGroup",
+            "kind": "struct",
+            "signature": "pub struct SeededGroup",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 113,
+            "end_line": 129
           },
           {
             "name": "StrategyConfig",
@@ -7430,12 +8037,60 @@
             "end_line": 28
           },
           {
+            "name": "SupersessionCase",
+            "kind": "struct",
+            "signature": "pub struct SupersessionCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 66,
+            "end_line": 73
+          },
+          {
+            "name": "SupersessionPair",
+            "kind": "struct",
+            "signature": "pub struct SupersessionPair<'a>",
+            "file": "benches/memory_intelligence/families.rs",
+            "line": 582,
+            "end_line": 585
+          },
+          {
+            "name": "TemporalCase",
+            "kind": "struct",
+            "signature": "pub struct TemporalCase",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 41,
+            "end_line": 46
+          },
+          {
             "name": "TimingEmbedder",
             "kind": "struct",
             "signature": "pub struct TimingEmbedder",
             "file": "benches/bench_utils/timing_embedder.rs",
             "line": 10,
             "end_line": 14
+          },
+          {
+            "name": "UnimplementedFamily",
+            "kind": "struct",
+            "signature": "pub struct UnimplementedFamily",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 100,
+            "end_line": 104
+          },
+          {
+            "name": "ValidationCheck",
+            "kind": "struct",
+            "signature": "pub struct ValidationCheck",
+            "file": "benches/memory_intelligence/dataset.rs",
+            "line": 136,
+            "end_line": 141
+          },
+          {
+            "name": "ValidationSummary",
+            "kind": "struct",
+            "signature": "pub struct ValidationSummary",
+            "file": "benches/memory_intelligence/report.rs",
+            "line": 121,
+            "end_line": 127
           },
           {
             "name": "StrategyId",
@@ -7792,424 +8447,440 @@
             "kind": "function",
             "signature": "pub async fn access_rate_stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 257,
-            "end_line": 259
+            "line": 289,
+            "end_line": 291
           },
           {
             "name": "add_relationship",
             "kind": "function",
             "signature": "pub async fn add_relationship( &self, source_id: &str, target_id: &str, rel_type: &str, weight: f64, metadata: &serde_json::Value, ) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 107,
-            "end_line": 118
+            "line": 139,
+            "end_line": 150
           },
           {
             "name": "advanced_search",
             "kind": "function",
             "signature": "pub async fn advanced_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 394,
-            "end_line": 401
+            "line": 426,
+            "end_line": 433
           },
           {
             "name": "auto_compact",
             "kind": "function",
             "signature": "pub async fn auto_compact( &self, count_threshold: usize, dry_run: bool, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 296,
-            "end_line": 302
+            "line": 328,
+            "end_line": 334
           },
           {
             "name": "check_health",
             "kind": "function",
             "signature": "pub async fn check_health( &self, warn_mb: f64, critical_mb: f64, max_nodes: i64, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 262,
-            "end_line": 271
+            "line": 294,
+            "end_line": 303
           },
           {
             "name": "clear_session",
             "kind": "function",
             "signature": "pub async fn clear_session(&self, session_id: &str) -> Result<usize>",
             "file": "src/local_memory_runtime.rs",
-            "line": 305,
-            "end_line": 307
+            "line": 337,
+            "end_line": 339
           },
           {
             "name": "compact",
             "kind": "function",
             "signature": "pub async fn compact( &self, event_type: &str, similarity_threshold: f64, min_cluster_size: usize, dry_run: bool, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 283,
-            "end_line": 293
+            "line": 315,
+            "end_line": 325
           },
           {
             "name": "consolidate",
             "kind": "function",
             "signature": "pub async fn consolidate( &self, prune_days: i64, max_summaries: i64, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 274,
-            "end_line": 280
+            "line": 306,
+            "end_line": 312
           },
           {
             "name": "create_backup",
             "kind": "function",
             "signature": "pub async fn create_backup(&self) -> Result<BackupInfo>",
             "file": "src/local_memory_runtime.rs",
-            "line": 315,
-            "end_line": 317
+            "line": 347,
+            "end_line": 349
           },
           {
             "name": "create_reminder",
             "kind": "function",
             "signature": "pub async fn create_reminder( &self, text: &str, duration: &str, context: Option<&str>, session_id: Option<&str>, project: Option<&str>, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 157,
-            "end_line": 168
+            "line": 189,
+            "end_line": 200
           },
           {
             "name": "delete",
             "kind": "function",
             "signature": "pub async fn delete(&self, id: &str) -> Result<bool>",
             "file": "src/local_memory_runtime.rs",
-            "line": 82,
-            "end_line": 84
+            "line": 114,
+            "end_line": 116
           },
           {
             "name": "dismiss_reminder",
             "kind": "function",
             "signature": "pub async fn dismiss_reminder(&self, reminder_id: &str) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 176,
-            "end_line": 178
+            "line": 208,
+            "end_line": 210
           },
           {
             "name": "export_all",
             "kind": "function",
             "signature": "pub async fn export_all(&self) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 215,
-            "end_line": 217
+            "line": 247,
+            "end_line": 249
           },
           {
             "name": "find_similar",
             "kind": "function",
             "signature": "pub async fn find_similar(&self, memory_id: &str, limit: usize) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 409,
-            "end_line": 411
+            "line": 441,
+            "end_line": 443
           },
           {
             "name": "get_by_tags",
             "kind": "function",
             "signature": "pub async fn get_by_tags( &self, tags: &[String], limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 362,
-            "end_line": 369
+            "line": 394,
+            "end_line": 401
           },
           {
             "name": "get_profile",
             "kind": "function",
             "signature": "pub async fn get_profile(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 195,
-            "end_line": 197
+            "line": 227,
+            "end_line": 229
           },
           {
             "name": "get_relationships",
             "kind": "function",
             "signature": "pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<Relationship>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 102,
-            "end_line": 104
+            "line": 134,
+            "end_line": 136
           },
           {
             "name": "import_all",
             "kind": "function",
             "signature": "pub async fn import_all(&self, data: &str) -> Result<(usize, usize)>",
             "file": "src/local_memory_runtime.rs",
-            "line": 220,
-            "end_line": 222
+            "line": 252,
+            "end_line": 254
           },
           {
             "name": "list",
             "kind": "function",
             "signature": "pub async fn list( &self, offset: usize, limit: usize, options: &SearchOptions, ) -> Result<ListResult>",
             "file": "src/local_memory_runtime.rs",
-            "line": 92,
-            "end_line": 99
+            "line": 124,
+            "end_line": 131
           },
           {
             "name": "list_backups",
             "kind": "function",
             "signature": "pub async fn list_backups(&self) -> Result<Vec<BackupInfo>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 325,
-            "end_line": 327
+            "line": 357,
+            "end_line": 359
           },
           {
             "name": "list_reminders",
             "kind": "function",
             "signature": "pub async fn list_reminders(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 171,
-            "end_line": 173
+            "line": 203,
+            "end_line": 205
           },
           {
             "name": "maybe_startup_backup",
             "kind": "function",
             "signature": "pub async fn maybe_startup_backup(&self) -> Result<Option<BackupInfo>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 335,
-            "end_line": 337
+            "line": 367,
+            "end_line": 369
           },
           {
             "name": "optimize",
             "kind": "function",
             "signature": "pub async fn optimize(&self) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 340,
-            "end_line": 342
+            "line": 372,
+            "end_line": 374
           },
           {
             "name": "phrase_search",
             "kind": "function",
             "signature": "pub async fn phrase_search( &self, phrase: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 372,
-            "end_line": 379
+            "line": 404,
+            "end_line": 411
           },
           {
             "name": "query_lessons",
             "kind": "function",
             "signature": "pub async fn query_lessons( &self, task: Option<&str>, project: Option<&str>, exclude_session: Option<&str>, agent_type: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 181,
-            "end_line": 192
+            "line": 213,
+            "end_line": 224
           },
           {
             "name": "rebuild_fts",
             "kind": "function",
             "signature": "pub async fn rebuild_fts(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 310,
-            "end_line": 312
+            "line": 342,
+            "end_line": 344
           },
           {
             "name": "recent",
             "kind": "function",
             "signature": "pub async fn recent(&self, limit: usize, options: &SearchOptions) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 357,
-            "end_line": 359
+            "line": 389,
+            "end_line": 391
           },
           {
             "name": "record_feedback",
             "kind": "function",
             "signature": "pub async fn record_feedback( &self, memory_id: &str, rating: &str, reason: Option<&str>, ) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 225,
-            "end_line": 234
+            "line": 257,
+            "end_line": 266
+          },
+          {
+            "name": "reembed_path",
+            "kind": "function",
+            "signature": "pub async fn reembed_path( path: PathBuf, embedder: Arc<dyn Embedder>, options: ReembedOptions, ) -> Result<ReembedReport>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 65,
+            "end_line": 76
+          },
+          {
+            "name": "reembed_path_with_embedding_model",
+            "kind": "function",
+            "signature": "pub async fn reembed_path_with_embedding_model( path: PathBuf, embedding_model: Arc<dyn EmbeddingModel>, options: ReembedOptions, ) -> Result<ReembedReport>",
+            "file": "src/local_memory_runtime.rs",
+            "line": 85,
+            "end_line": 91
           },
           {
             "name": "restore_backup",
             "kind": "function",
             "signature": "pub async fn restore_backup(&self, backup_path: &Path) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 330,
-            "end_line": 332
+            "line": 362,
+            "end_line": 364
           },
           {
             "name": "resume_task",
             "kind": "function",
             "signature": "pub async fn resume_task( &self, query: &str, project: Option<&str>, limit: usize, ) -> Result<Vec<serde_json::Value>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 147,
-            "end_line": 154
+            "line": 179,
+            "end_line": 186
           },
           {
             "name": "retrieve",
             "kind": "function",
             "signature": "pub async fn retrieve(&self, id: &str) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 77,
-            "end_line": 79
+            "line": 109,
+            "end_line": 111
           },
           {
             "name": "rotate_backups",
             "kind": "function",
             "signature": "pub async fn rotate_backups(&self, max_count: usize) -> Result<usize>",
             "file": "src/local_memory_runtime.rs",
-            "line": 320,
-            "end_line": 322
+            "line": 352,
+            "end_line": 354
           },
           {
             "name": "save_checkpoint",
             "kind": "function",
             "signature": "pub async fn save_checkpoint(&self, input: CheckpointInput) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 142,
-            "end_line": 144
+            "line": 174,
+            "end_line": 176
           },
           {
             "name": "save_checkpoint_outcome",
             "kind": "function",
             "signature": "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
             "file": "src/local_memory_runtime.rs",
-            "line": 134,
-            "end_line": 139
+            "line": 166,
+            "end_line": 171
           },
           {
             "name": "search",
             "kind": "function",
             "signature": "pub async fn search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 345,
-            "end_line": 354
+            "line": 377,
+            "end_line": 386
           },
           {
             "name": "semantic_search",
             "kind": "function",
             "signature": "pub async fn semantic_search( &self, query: &str, limit: usize, options: &SearchOptions, ) -> Result<Vec<SemanticResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 382,
-            "end_line": 391
+            "line": 414,
+            "end_line": 423
           },
           {
             "name": "session_stats",
             "kind": "function",
             "signature": "pub async fn session_stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 247,
-            "end_line": 249
+            "line": 279,
+            "end_line": 281
           },
           {
             "name": "set_profile",
             "kind": "function",
             "signature": "pub async fn set_profile(&self, updates: &serde_json::Value) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 200,
-            "end_line": 202
+            "line": 232,
+            "end_line": 234
           },
           {
             "name": "stats",
             "kind": "function",
             "signature": "pub async fn stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 210,
-            "end_line": 212
+            "line": 242,
+            "end_line": 244
           },
           {
             "name": "store",
             "kind": "function",
             "signature": "pub async fn store(&self, content: &str, input: &MemoryInput) -> Result<String>",
             "file": "src/local_memory_runtime.rs",
-            "line": 62,
-            "end_line": 64
+            "line": 94,
+            "end_line": 96
           },
           {
             "name": "store_batch_raw",
             "kind": "function",
             "signature": "pub async fn store_batch_raw(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 72,
-            "end_line": 74
+            "line": 104,
+            "end_line": 106
           },
           {
             "name": "store_raw",
             "kind": "function",
             "signature": "pub async fn store_raw(&self, id: &str, content: &str, input: &MemoryInput) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 67,
-            "end_line": 69
+            "line": 99,
+            "end_line": 101
           },
           {
             "name": "sweep_expired",
             "kind": "function",
             "signature": "pub async fn sweep_expired(&self) -> Result<usize>",
             "file": "src/local_memory_runtime.rs",
-            "line": 237,
-            "end_line": 239
+            "line": 269,
+            "end_line": 271
           },
           {
             "name": "traverse",
             "kind": "function",
             "signature": "pub async fn traverse( &self, start_id: &str, max_hops: usize, min_weight: f64, edge_types: Option<&[String]>, ) -> Result<Vec<GraphNode>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 121,
-            "end_line": 131
+            "line": 153,
+            "end_line": 163
           },
           {
             "name": "type_stats",
             "kind": "function",
             "signature": "pub async fn type_stats(&self) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 242,
-            "end_line": 244
+            "line": 274,
+            "end_line": 276
           },
           {
             "name": "update",
             "kind": "function",
             "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
             "file": "src/local_memory_runtime.rs",
-            "line": 87,
-            "end_line": 89
+            "line": 119,
+            "end_line": 121
           },
           {
             "name": "version_chain",
             "kind": "function",
             "signature": "pub async fn version_chain(&self, memory_id: &str) -> Result<Vec<SearchResult>>",
             "file": "src/local_memory_runtime.rs",
-            "line": 404,
-            "end_line": 406
+            "line": 436,
+            "end_line": 438
           },
           {
             "name": "weekly_digest",
             "kind": "function",
             "signature": "pub async fn weekly_digest(&self, days: i64) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 252,
-            "end_line": 254
+            "line": 284,
+            "end_line": 286
           },
           {
             "name": "welcome_scoped",
             "kind": "function",
             "signature": "pub async fn welcome_scoped(&self, options: &WelcomeOptions) -> Result<serde_json::Value>",
             "file": "src/local_memory_runtime.rs",
-            "line": 205,
-            "end_line": 207
+            "line": 237,
+            "end_line": 239
           },
           {
             "name": "Commands",
             "kind": "enum",
             "signature": "pub enum Commands",
             "file": "src/cli.rs",
-            "line": 73,
-            "end_line": 397
+            "line": 85,
+            "end_line": 416
           },
           {
             "name": "FeedbackRating",
             "kind": "enum",
             "signature": "pub enum FeedbackRating",
             "file": "src/cli.rs",
-            "line": 12,
-            "end_line": 16
+            "line": 13,
+            "end_line": 17
           },
           {
             "name": "InitModeArg",
             "kind": "enum",
             "signature": "pub enum InitModeArg",
             "file": "src/cli.rs",
-            "line": 5,
-            "end_line": 8
+            "line": 6,
+            "end_line": 9
           },
           {
             "name": "as_str",
             "kind": "function",
             "signature": "pub fn as_str(&self) -> &'static str",
             "file": "src/cli.rs",
-            "line": 20,
-            "end_line": 26
+            "line": 21,
+            "end_line": 27
           },
           {
             "name": "from_storage",
@@ -8304,8 +8975,8 @@
             "kind": "struct",
             "signature": "pub struct Cli",
             "file": "src/cli.rs",
-            "line": 62,
-            "end_line": 69
+            "line": 74,
+            "end_line": 81
           },
           {
             "name": "LocalMemoryRuntime",
@@ -8320,8 +8991,8 @@
             "kind": "struct",
             "signature": "pub struct SearchFilterArgs",
             "file": "src/cli.rs",
-            "line": 31,
-            "end_line": 56
+            "line": 32,
+            "end_line": 57
           },
           {
             "name": "config_writer",
@@ -8346,72 +9017,72 @@
             "kind": "function",
             "signature": "pub async fn serve_stdio(self) -> Result<()>",
             "file": "src/mcp/mod.rs",
-            "line": 354,
-            "end_line": 358
+            "line": 377,
+            "end_line": 381
           },
           {
             "name": "TOOL_REGISTRY",
             "kind": "const",
             "signature": "pub const TOOL_REGISTRY",
             "file": "src/mcp/mod.rs",
-            "line": 124,
-            "end_line": 227
+            "line": 65,
+            "end_line": 187
           },
           {
             "name": "McpToolMode",
             "kind": "enum",
             "signature": "pub enum McpToolMode",
             "file": "src/mcp/mod.rs",
-            "line": 42,
-            "end_line": 46
+            "line": 40,
+            "end_line": 44
           },
           {
             "name": "from_runtime",
             "kind": "function",
             "signature": "pub fn from_runtime(runtime: Arc<LocalMemoryRuntime>) -> Self",
             "file": "src/mcp/mod.rs",
-            "line": 336,
-            "end_line": 342
+            "line": 359,
+            "end_line": 365
           },
           {
             "name": "generate_protocol_markdown",
             "kind": "function",
             "signature": "pub fn generate_protocol_markdown() -> String",
             "file": "src/mcp/mod.rs",
-            "line": 240,
-            "end_line": 260
+            "line": 249,
+            "end_line": 280
           },
           {
             "name": "tool_registry_json",
             "kind": "function",
             "signature": "pub fn tool_registry_json() -> serde_json::Value",
             "file": "src/mcp/mod.rs",
-            "line": 264,
-            "end_line": 271
+            "line": 284,
+            "end_line": 294
           },
           {
             "name": "with_tool_mode",
             "kind": "function",
             "signature": "pub fn with_tool_mode(mut self, mode: McpToolMode) -> Self",
             "file": "src/mcp/mod.rs",
-            "line": 349,
-            "end_line": 352
+            "line": 372,
+            "end_line": 375
           },
           {
             "name": "McpMemoryServer",
             "kind": "struct",
             "signature": "pub struct McpMemoryServer",
             "file": "src/mcp/mod.rs",
-            "line": 328,
-            "end_line": 332
+            "line": 351,
+            "end_line": 355
           },
           {
             "name": "ToolMeta",
             "kind": "struct",
             "signature": "pub struct ToolMeta",
             "file": "src/mcp/mod.rs",
-            "line": 116,
-            "end_line": 120
+            "line": 55,
+            "end_line": 60
           },
           {
             "name": "validation",
@@ -8474,16 +9145,16 @@
             "kind": "struct",
             "signature": "pub(crate) struct MemoryAdminFacadeRequest",
             "file": "src/mcp/request_types.rs",
-            "line": 315,
-            "end_line": 343
+            "line": 359,
+            "end_line": 387
           },
           {
             "name": "MemoryManageRequest",
             "kind": "struct",
             "signature": "pub(crate) struct MemoryManageRequest",
             "file": "src/mcp/request_types.rs",
-            "line": 232,
-            "end_line": 270
+            "line": 276,
+            "end_line": 314
           },
           {
             "name": "MemoryRequest",
@@ -8491,15 +9162,15 @@
             "signature": "pub(crate) struct MemoryRequest",
             "file": "src/mcp/request_types.rs",
             "line": 206,
-            "end_line": 227
+            "end_line": 247
           },
           {
             "name": "MemorySessionRequest",
             "kind": "struct",
             "signature": "pub(crate) struct MemorySessionRequest",
             "file": "src/mcp/request_types.rs",
-            "line": 275,
-            "end_line": 310
+            "line": 319,
+            "end_line": 354
           },
           {
             "name": "ProfileRequest",
@@ -8620,160 +9291,160 @@
             "kind": "const",
             "signature": "pub const REL_PARALLEL_CONTEXT",
             "file": "src/memory_core/domain.rs",
-            "line": 22,
-            "end_line": 22
+            "line": 23,
+            "end_line": 23
           },
           {
             "name": "REL_PRECEDED_BY",
             "kind": "const",
             "signature": "pub const REL_PRECEDED_BY",
             "file": "src/memory_core/domain.rs",
-            "line": 14,
-            "end_line": 14
+            "line": 15,
+            "end_line": 15
           },
           {
             "name": "REL_RELATED",
             "kind": "const",
             "signature": "pub const REL_RELATED",
             "file": "src/memory_core/domain.rs",
-            "line": 18,
-            "end_line": 18
+            "line": 19,
+            "end_line": 19
           },
           {
             "name": "REL_RELATES_TO",
             "kind": "const",
             "signature": "pub const REL_RELATES_TO",
             "file": "src/memory_core/domain.rs",
-            "line": 16,
-            "end_line": 16
+            "line": 17,
+            "end_line": 17
           },
           {
             "name": "REL_SHARES_THEME",
             "kind": "const",
             "signature": "pub const REL_SHARES_THEME",
             "file": "src/memory_core/domain.rs",
-            "line": 21,
-            "end_line": 21
+            "line": 22,
+            "end_line": 22
           },
           {
             "name": "REL_SIMILAR_TO",
             "kind": "const",
             "signature": "pub const REL_SIMILAR_TO",
             "file": "src/memory_core/domain.rs",
-            "line": 20,
-            "end_line": 20
+            "line": 21,
+            "end_line": 21
           },
           {
             "name": "TTL_EPHEMERAL",
             "kind": "const",
             "signature": "pub const TTL_EPHEMERAL i64",
             "file": "src/memory_core/domain.rs",
-            "line": 7,
-            "end_line": 7
+            "line": 8,
+            "end_line": 8
           },
           {
             "name": "TTL_LONG_TERM",
             "kind": "const",
             "signature": "pub const TTL_LONG_TERM i64",
             "file": "src/memory_core/domain.rs",
-            "line": 9,
-            "end_line": 9
+            "line": 10,
+            "end_line": 10
           },
           {
             "name": "TTL_SHORT_TERM",
             "kind": "const",
             "signature": "pub const TTL_SHORT_TERM i64",
             "file": "src/memory_core/domain.rs",
-            "line": 8,
-            "end_line": 8
+            "line": 9,
+            "end_line": 9
           },
           {
             "name": "EventType",
             "kind": "enum",
             "signature": "pub enum EventType",
             "file": "src/memory_core/domain.rs",
-            "line": 37,
-            "end_line": 62
+            "line": 38,
+            "end_line": 63
           },
           {
             "name": "MemoryKind",
             "kind": "enum",
             "signature": "pub enum MemoryKind",
             "file": "src/memory_core/domain.rs",
-            "line": 25,
-            "end_line": 28
+            "line": 26,
+            "end_line": 29
           },
           {
             "name": "apply_event_type_defaults",
             "kind": "function",
             "signature": "pub fn apply_event_type_defaults(&mut self, event_type_str: Option<&str>)",
             "file": "src/memory_core/domain.rs",
-            "line": 357,
-            "end_line": 371
+            "line": 358,
+            "end_line": 372
           },
           {
             "name": "dedup_threshold",
             "kind": "function",
             "signature": "pub fn dedup_threshold(&self) -> Option<f64>",
             "file": "src/memory_core/domain.rs",
-            "line": 162,
-            "end_line": 173
+            "line": 163,
+            "end_line": 174
           },
           {
             "name": "default_priority",
             "kind": "function",
             "signature": "pub fn default_priority(&self) -> i32",
             "file": "src/memory_core/domain.rs",
-            "line": 85,
-            "end_line": 109
+            "line": 86,
+            "end_line": 110
           },
           {
             "name": "default_ttl",
             "kind": "function",
             "signature": "pub fn default_ttl(&self) -> Option<i64>",
             "file": "src/memory_core/domain.rs",
-            "line": 112,
-            "end_line": 138
+            "line": 113,
+            "end_line": 139
           },
           {
             "name": "from_optional",
             "kind": "function",
             "signature": "pub fn from_optional(s: Option<&str>) -> Option<EventType>",
             "file": "src/memory_core/domain.rs",
-            "line": 188,
-            "end_line": 190
+            "line": 189,
+            "end_line": 191
           },
           {
             "name": "is_supersession_type",
             "kind": "function",
             "signature": "pub fn is_supersession_type(&self) -> bool",
             "file": "src/memory_core/domain.rs",
-            "line": 176,
-            "end_line": 185
+            "line": 177,
+            "end_line": 186
           },
           {
             "name": "is_valid",
             "kind": "function",
             "signature": "pub fn is_valid(&self) -> bool",
             "file": "src/memory_core/domain.rs",
-            "line": 66,
-            "end_line": 68
+            "line": 67,
+            "end_line": 69
           },
           {
             "name": "is_valid_event_type",
             "kind": "function",
             "signature": "pub fn is_valid_event_type(event_type: &str) -> bool",
             "file": "src/memory_core/domain.rs",
-            "line": 435,
-            "end_line": 439
+            "line": 436,
+            "end_line": 440
           },
           {
             "name": "memory_kind",
             "kind": "function",
             "signature": "pub fn memory_kind(&self) -> MemoryKind",
             "file": "src/memory_core/domain.rs",
-            "line": 71,
-            "end_line": 82
+            "line": 72,
+            "end_line": 83
           },
           {
             "name": "new",
@@ -8788,24 +9459,24 @@
             "kind": "function",
             "signature": "pub fn parse_duration(text: &str) -> Result<chrono::Duration>",
             "file": "src/memory_core/domain.rs",
-            "line": 441,
-            "end_line": 508
+            "line": 442,
+            "end_line": 509
           },
           {
             "name": "type_weight",
             "kind": "function",
             "signature": "pub fn type_weight(&self) -> f64",
             "file": "src/memory_core/domain.rs",
-            "line": 141,
-            "end_line": 159
+            "line": 142,
+            "end_line": 160
           },
           {
             "name": "types_with_dedup_threshold",
             "kind": "function",
             "signature": "pub fn types_with_dedup_threshold() -> Vec<EventType>",
             "file": "src/memory_core/domain.rs",
-            "line": 193,
-            "end_line": 204
+            "line": 194,
+            "end_line": 205
           },
           {
             "name": "embedder",
@@ -8876,56 +9547,56 @@
             "kind": "struct",
             "signature": "pub struct BackupInfo",
             "file": "src/memory_core/domain.rs",
-            "line": 592,
-            "end_line": 596
+            "line": 593,
+            "end_line": 597
           },
           {
             "name": "CheckpointInput",
             "kind": "struct",
             "signature": "pub struct CheckpointInput",
             "file": "src/memory_core/domain.rs",
-            "line": 414,
-            "end_line": 424
+            "line": 415,
+            "end_line": 425
           },
           {
             "name": "CheckpointSaveOutcome",
             "kind": "struct",
             "signature": "pub struct CheckpointSaveOutcome",
             "file": "src/memory_core/domain.rs",
-            "line": 428,
-            "end_line": 431
+            "line": 429,
+            "end_line": 432
           },
           {
             "name": "GraphNode",
             "kind": "struct",
             "signature": "pub struct GraphNode",
             "file": "src/memory_core/domain.rs",
-            "line": 553,
-            "end_line": 562
+            "line": 554,
+            "end_line": 563
           },
           {
             "name": "ListResult",
             "kind": "struct",
             "signature": "pub struct ListResult",
             "file": "src/memory_core/domain.rs",
-            "line": 583,
-            "end_line": 588
+            "line": 584,
+            "end_line": 589
           },
           {
             "name": "MemoryInput",
             "kind": "struct",
             "signature": "pub struct MemoryInput",
             "file": "src/memory_core/domain.rs",
-            "line": 312,
-            "end_line": 330
+            "line": 313,
+            "end_line": 331
           },
           {
             "name": "MemoryUpdate",
             "kind": "struct",
             "signature": "pub struct MemoryUpdate",
             "file": "src/memory_core/domain.rs",
-            "line": 375,
-            "end_line": 382
+            "line": 376,
+            "end_line": 383
           },
           {
             "name": "Pipeline",
@@ -8948,40 +9619,40 @@
             "kind": "struct",
             "signature": "pub struct Relationship",
             "file": "src/memory_core/domain.rs",
-            "line": 566,
-            "end_line": 579
+            "line": 567,
+            "end_line": 580
           },
           {
             "name": "SearchOptions",
             "kind": "struct",
             "signature": "pub struct SearchOptions",
             "file": "src/memory_core/domain.rs",
-            "line": 385,
-            "end_line": 402
+            "line": 386,
+            "end_line": 403
           },
           {
             "name": "SearchResult",
             "kind": "struct",
             "signature": "pub struct SearchResult",
             "file": "src/memory_core/domain.rs",
-            "line": 512,
-            "end_line": 528
+            "line": 513,
+            "end_line": 529
           },
           {
             "name": "SemanticResult",
             "kind": "struct",
             "signature": "pub struct SemanticResult",
             "file": "src/memory_core/domain.rs",
-            "line": 532,
-            "end_line": 550
+            "line": 533,
+            "end_line": 551
           },
           {
             "name": "WelcomeOptions",
             "kind": "struct",
             "signature": "pub struct WelcomeOptions",
             "file": "src/memory_core/domain.rs",
-            "line": 405,
-            "end_line": 411
+            "line": 406,
+            "end_line": 412
           },
           {
             "name": "AdvancedSearcher",
@@ -9206,56 +9877,64 @@
             "kind": "function",
             "signature": "pub async fn download_bge_small_model() -> Result<PathBuf>",
             "file": "src/memory_core/embedder.rs",
-            "line": 687,
-            "end_line": 691
+            "line": 691,
+            "end_line": 695
           },
           {
             "name": "maintenance_tick",
             "kind": "function",
             "signature": "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
             "file": "src/memory_core/embedder.rs",
-            "line": 221,
-            "end_line": 227
+            "line": 225,
+            "end_line": 231
           },
           {
             "name": "warmup",
             "kind": "function",
             "signature": "pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()>",
             "file": "src/memory_core/embedder.rs",
-            "line": 172,
-            "end_line": 197
+            "line": 176,
+            "end_line": 201
           },
           {
             "name": "DEFAULT_LOCAL_LLM_BASE_URL",
             "kind": "const",
             "signature": "pub const DEFAULT_LOCAL_LLM_BASE_URL",
             "file": "src/memory_core/llm.rs",
-            "line": 26,
-            "end_line": 26
+            "line": 27,
+            "end_line": 27
           },
           {
             "name": "DEFAULT_LOCAL_LLM_MODEL",
             "kind": "const",
             "signature": "pub const DEFAULT_LOCAL_LLM_MODEL",
             "file": "src/memory_core/llm.rs",
-            "line": 24,
-            "end_line": 24
+            "line": 25,
+            "end_line": 25
           },
           {
             "name": "EXPERIMENTAL_SMALL_ONNX_LLM_MODEL",
             "kind": "const",
             "signature": "pub const EXPERIMENTAL_SMALL_ONNX_LLM_MODEL",
             "file": "src/memory_core/llm.rs",
-            "line": 30,
-            "end_line": 30
+            "line": 31,
+            "end_line": 31
           },
           {
             "name": "TARGET_ONNX_LOCAL_LLM_MODEL",
             "kind": "const",
             "signature": "pub const TARGET_ONNX_LOCAL_LLM_MODEL",
             "file": "src/memory_core/llm.rs",
-            "line": 28,
-            "end_line": 28
+            "line": 29,
+            "end_line": 29
+          },
+          {
+            "name": "metadata",
+            "kind": "function",
+            "signature": "pub const fn metadata(&self) -> RetrieverModelProfileSpec",
+            "file": "src/memory_core/embedding_model.rs",
+            "line": 105,
+            "end_line": 107
           },
           {
             "name": "EmbeddingInputKind",
@@ -9270,200 +9949,248 @@
             "kind": "enum",
             "signature": "pub enum LlmProvider",
             "file": "src/memory_core/llm.rs",
-            "line": 38,
-            "end_line": 42
+            "line": 39,
+            "end_line": 43
           },
           {
             "name": "base_url",
             "kind": "function",
             "signature": "pub fn base_url(&self) -> &str",
             "file": "src/memory_core/llm.rs",
-            "line": 246,
-            "end_line": 255
+            "line": 247,
+            "end_line": 256
           },
           {
             "name": "build_llm_backend",
             "kind": "function",
             "signature": "pub fn build_llm_backend(config: LlmConfig) -> Result<Arc<dyn LlmBackend>>",
             "file": "src/memory_core/llm.rs",
-            "line": 468,
-            "end_line": 473
+            "line": 469,
+            "end_line": 474
+          },
+          {
+            "name": "embedding_space_identity",
+            "kind": "function",
+            "signature": "pub fn embedding_space_identity(&self) -> String",
+            "file": "src/memory_core/embedding_model.rs",
+            "line": 114,
+            "end_line": 147
           },
           {
             "name": "from_env",
             "kind": "function",
             "signature": "pub fn from_env() -> Option<Self>",
             "file": "src/memory_core/llm.rs",
-            "line": 88,
-            "end_line": 128
+            "line": 89,
+            "end_line": 129
           },
           {
             "name": "from_env_or_local_default",
             "kind": "function",
             "signature": "pub fn from_env_or_local_default() -> Self",
             "file": "src/memory_core/llm.rs",
-            "line": 131,
-            "end_line": 133
+            "line": 132,
+            "end_line": 134
           },
           {
             "name": "llm_backend_from_env",
             "kind": "function",
             "signature": "pub fn llm_backend_from_env() -> Option<Arc<dyn LlmBackend>>",
             "file": "src/memory_core/llm.rs",
-            "line": 477,
-            "end_line": 480
+            "line": 478,
+            "end_line": 481
           },
           {
             "name": "llm_backend_from_env_or_local_default",
             "kind": "function",
             "signature": "pub fn llm_backend_from_env_or_local_default() -> Result<Arc<dyn LlmBackend>>",
             "file": "src/memory_core/llm.rs",
-            "line": 483,
-            "end_line": 485
+            "line": 484,
+            "end_line": 486
           },
           {
             "name": "local_default",
             "kind": "function",
             "signature": "pub fn local_default() -> Self",
             "file": "src/memory_core/llm.rs",
-            "line": 166,
-            "end_line": 170
+            "line": 167,
+            "end_line": 171
           },
           {
             "name": "model_dir",
             "kind": "function",
             "signature": "pub fn model_dir() -> Result<PathBuf>",
             "file": "src/memory_core/embedder.rs",
-            "line": 694,
-            "end_line": 696
+            "line": 698,
+            "end_line": 700
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub fn new() -> Result<Self>",
             "file": "src/memory_core/embedder.rs",
-            "line": 105,
-            "end_line": 113
+            "line": 109,
+            "end_line": 117
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub fn new(config: LlmConfig) -> Result<Self>",
             "file": "src/memory_core/llm.rs",
-            "line": 229,
-            "end_line": 244
+            "line": 230,
+            "end_line": 245
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub fn new(config: LlmConfig) -> Result<Self>",
             "file": "src/memory_core/llm.rs",
-            "line": 268,
-            "end_line": 271
+            "line": 269,
+            "end_line": 272
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub fn new(config: LlmConfig) -> Result<Self>",
             "file": "src/memory_core/llm.rs",
-            "line": 404,
-            "end_line": 407
+            "line": 405,
+            "end_line": 408
+          },
+          {
+            "name": "new",
+            "kind": "function",
+            "signature": "pub fn new(spec: RetrieverModelProfileSpec) -> Result<Self>",
+            "file": "src/memory_core/embedding_model.rs",
+            "line": 99,
+            "end_line": 103
           },
           {
             "name": "ollama",
             "kind": "function",
             "signature": "pub fn ollama(model: impl Into<String>, base_url: impl Into<String>) -> Self",
             "file": "src/memory_core/llm.rs",
-            "line": 150,
-            "end_line": 161
+            "line": 151,
+            "end_line": 162
           },
           {
             "name": "openai",
             "kind": "function",
             "signature": "pub fn openai(model: impl Into<String>, api_key: impl Into<String>) -> Self",
             "file": "src/memory_core/llm.rs",
-            "line": 136,
-            "end_line": 147
+            "line": 137,
+            "end_line": 148
           },
           {
             "name": "try_unload_if_idle",
             "kind": "function",
             "signature": "pub fn try_unload_if_idle(&self) -> bool",
             "file": "src/memory_core/embedder.rs",
-            "line": 202,
-            "end_line": 218
+            "line": 206,
+            "end_line": 222
           },
           {
             "name": "with_model",
             "kind": "function",
             "signature": "pub fn with_model( name: &str, model_url: &str, tokenizer_url: &str, dimension: usize, output_tensor_name: &str, ) -> Result<Self>",
             "file": "src/memory_core/embedder.rs",
-            "line": 115,
-            "end_line": 131
+            "line": 119,
+            "end_line": 135
           },
           {
             "name": "with_model_and_data",
             "kind": "function",
             "signature": "pub fn with_model_and_data( name: &str, model_url: &str, model_data_url: Option<&str>, tokenizer_url: &str, dimension: usize, output_tensor_name: &str, use_token_type_ids: bool, ) -> Result<Self>",
             "file": "src/memory_core/embedder.rs",
-            "line": 133,
-            "end_line": 155
+            "line": 137,
+            "end_line": 159
           },
           {
             "name": "AnthropicProvider",
             "kind": "struct",
             "signature": "pub struct AnthropicProvider",
             "file": "src/memory_core/llm.rs",
-            "line": 399,
-            "end_line": 401
+            "line": 400,
+            "end_line": 402
           },
           {
             "name": "LlmClient",
             "kind": "struct",
             "signature": "pub struct LlmClient",
             "file": "src/memory_core/llm.rs",
-            "line": 221,
-            "end_line": 226
+            "line": 222,
+            "end_line": 227
           },
           {
             "name": "LlmConfig",
             "kind": "struct",
             "signature": "pub struct LlmConfig",
             "file": "src/memory_core/llm.rs",
-            "line": 46,
-            "end_line": 59
+            "line": 47,
+            "end_line": 60
+          },
+          {
+            "name": "LocalResourceExpectations",
+            "kind": "struct",
+            "signature": "pub struct LocalResourceExpectations",
+            "file": "src/memory_core/embedding_model.rs",
+            "line": 69,
+            "end_line": 72
           },
           {
             "name": "OnnxEmbedder",
             "kind": "struct",
             "signature": "pub struct OnnxEmbedder",
             "file": "src/memory_core/embedder.rs",
-            "line": 74,
-            "end_line": 85
+            "line": 78,
+            "end_line": 89
           },
           {
             "name": "OpenAiProvider",
             "kind": "struct",
             "signature": "pub struct OpenAiProvider",
             "file": "src/memory_core/llm.rs",
-            "line": 263,
-            "end_line": 265
+            "line": 264,
+            "end_line": 266
           },
           {
             "name": "PlaceholderEmbedder",
             "kind": "struct",
             "signature": "pub struct PlaceholderEmbedder",
             "file": "src/memory_core/embedder.rs",
-            "line": 26,
-            "end_line": 26
+            "line": 30,
+            "end_line": 30
+          },
+          {
+            "name": "RetrieverArtifactChecksum",
+            "kind": "struct",
+            "signature": "pub struct RetrieverArtifactChecksum",
+            "file": "src/memory_core/embedding_model.rs",
+            "line": 62,
+            "end_line": 65
+          },
+          {
+            "name": "RetrieverModelProfile",
+            "kind": "struct",
+            "signature": "pub struct RetrieverModelProfile",
+            "file": "src/memory_core/embedding_model.rs",
+            "line": 94,
+            "end_line": 96
+          },
+          {
+            "name": "RetrieverModelProfileSpec",
+            "kind": "struct",
+            "signature": "pub struct RetrieverModelProfileSpec",
+            "file": "src/memory_core/embedding_model.rs",
+            "line": 76,
+            "end_line": 90
           },
           {
             "name": "Embedder",
             "kind": "trait",
             "signature": "pub trait Embedder: Send + Sync",
             "file": "src/memory_core/embedder.rs",
-            "line": 9,
-            "end_line": 22
+            "line": 13,
+            "end_line": 26
           },
           {
             "name": "EmbeddingModel",
@@ -9471,55 +10198,55 @@
             "signature": "pub trait EmbeddingModel: Send + Sync",
             "file": "src/memory_core/embedding_model.rs",
             "line": 24,
-            "end_line": 42
+            "end_line": 58
           },
           {
             "name": "LlmBackend",
             "kind": "trait",
             "signature": "pub trait LlmBackend: Send + Sync",
             "file": "src/memory_core/llm.rs",
-            "line": 185,
-            "end_line": 214
+            "line": 186,
+            "end_line": 215
           },
           {
             "name": "download_file",
             "kind": "function",
             "signature": "pub(crate) async fn download_file(url: &str, path: &Path) -> Result<()>",
             "file": "src/memory_core/embedder.rs",
-            "line": 805,
-            "end_line": 838
+            "line": 809,
+            "end_line": 842
           },
           {
             "name": "embedding_for_text",
             "kind": "function",
             "signature": "pub(crate) fn embedding_for_text(input: &str) -> Vec<f32>",
             "file": "src/memory_core/embedder.rs",
-            "line": 39,
-            "end_line": 46
+            "line": 43,
+            "end_line": 50
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub(crate) fn new(inner: Arc<dyn Embedder>) -> Self",
             "file": "src/memory_core/embedding_model.rs",
-            "line": 53,
-            "end_line": 55
+            "line": 220,
+            "end_line": 226
           },
           {
             "name": "normalize_embedding",
             "kind": "function",
             "signature": "pub(crate) fn normalize_embedding(vec: &mut [f32])",
             "file": "src/memory_core/embedder.rs",
-            "line": 48,
-            "end_line": 55
+            "line": 52,
+            "end_line": 59
           },
           {
             "name": "LegacyEmbedderAdapter",
             "kind": "struct",
             "signature": "pub(crate) struct LegacyEmbedderAdapter",
             "file": "src/memory_core/embedding_model.rs",
-            "line": 48,
-            "end_line": 50
+            "line": 214,
+            "end_line": 217
           }
         ],
         "mag.runtime.memory.retrieval": [
@@ -9528,24 +10255,24 @@
             "kind": "function",
             "signature": "pub async fn download_cross_encoder_model() -> Result<PathBuf>",
             "file": "src/memory_core/reranker.rs",
-            "line": 334,
-            "end_line": 338
+            "line": 350,
+            "end_line": 354
           },
           {
             "name": "maintenance_tick",
             "kind": "function",
             "signature": "pub async fn maintenance_tick(self: &std::sync::Arc<Self>)",
             "file": "src/memory_core/reranker.rs",
-            "line": 147,
-            "end_line": 153
+            "line": 162,
+            "end_line": 168
           },
           {
             "name": "warmup",
             "kind": "function",
             "signature": "pub async fn warmup(self: &std::sync::Arc<Self>) -> Result<()>",
             "file": "src/memory_core/reranker.rs",
-            "line": 93,
-            "end_line": 118
+            "line": 108,
+            "end_line": 133
           },
           {
             "name": "ABSTENTION_MIN_TEXT",
@@ -9600,8 +10327,8 @@
             "kind": "function",
             "signature": "pub fn cross_encoder_model_dir() -> Result<PathBuf>",
             "file": "src/memory_core/reranker.rs",
-            "line": 309,
-            "end_line": 313
+            "line": 325,
+            "end_line": 329
           },
           {
             "name": "embedding_slice",
@@ -9640,8 +10367,8 @@
             "kind": "function",
             "signature": "pub fn new() -> Result<Self>",
             "file": "src/memory_core/reranker.rs",
-            "line": 72,
-            "end_line": 78
+            "line": 87,
+            "end_line": 93
           },
           {
             "name": "new",
@@ -9688,8 +10415,8 @@
             "kind": "function",
             "signature": "pub fn score_batch(&self, query: &str, passages: &[&str]) -> Result<Vec<f32>>",
             "file": "src/memory_core/reranker.rs",
-            "line": 181,
-            "end_line": 285
+            "line": 196,
+            "end_line": 300
           },
           {
             "name": "time_decay",
@@ -9720,8 +10447,8 @@
             "kind": "function",
             "signature": "pub fn try_unload_if_idle(&self) -> bool",
             "file": "src/memory_core/reranker.rs",
-            "line": 121,
-            "end_line": 144
+            "line": 136,
+            "end_line": 159
           },
           {
             "name": "type_weight",
@@ -9752,8 +10479,8 @@
             "kind": "struct",
             "signature": "pub struct CrossEncoderReranker",
             "file": "src/memory_core/reranker.rs",
-            "line": 49,
-            "end_line": 53
+            "line": 64,
+            "end_line": 68
           },
           {
             "name": "DefaultScoringStrategy",
@@ -9784,8 +10511,8 @@
             "kind": "struct",
             "signature": "pub struct NoOpReranker",
             "file": "src/memory_core/reranker.rs",
-            "line": 27,
-            "end_line": 27
+            "line": 42,
+            "end_line": 42
           },
           {
             "name": "QueryContext",
@@ -9816,8 +10543,8 @@
             "kind": "trait",
             "signature": "pub trait Reranker: Send + Sync",
             "file": "src/memory_core/reranker.rs",
-            "line": 18,
-            "end_line": 22
+            "line": 24,
+            "end_line": 37
           },
           {
             "name": "RetrievalStrategy",
@@ -9892,48 +10619,48 @@
             "kind": "function",
             "signature": "pub async fn export_all(&self) -> Result<String>",
             "file": "src/memory_core/storage/memory/mod.rs",
-            "line": 182,
-            "end_line": 209
+            "line": 183,
+            "end_line": 210
           },
           {
             "name": "import_all",
             "kind": "function",
             "signature": "pub async fn import_all(&self, data: &str) -> Result<usize>",
             "file": "src/memory_core/storage/memory/mod.rs",
-            "line": 213,
-            "end_line": 232
+            "line": 214,
+            "end_line": 233
           },
           {
             "name": "is_empty",
             "kind": "function",
             "signature": "pub async fn is_empty(&self) -> bool",
             "file": "src/memory_core/storage/memory/mod.rs",
-            "line": 176,
-            "end_line": 178
+            "line": 177,
+            "end_line": 179
           },
           {
             "name": "len",
             "kind": "function",
             "signature": "pub async fn len(&self) -> usize",
             "file": "src/memory_core/storage/memory/mod.rs",
-            "line": 170,
-            "end_line": 172
+            "line": 171,
+            "end_line": 173
           },
           {
             "name": "new",
             "kind": "function",
             "signature": "pub fn new(embedder: Arc<dyn Embedder>, scoring_strategy: Arc<dyn ScoringStrategy>) -> Self",
             "file": "src/memory_core/storage/memory/mod.rs",
-            "line": 159,
-            "end_line": 166
+            "line": 160,
+            "end_line": 167
           },
           {
             "name": "MemoryStorage",
             "kind": "struct",
             "signature": "pub struct MemoryStorage",
             "file": "src/memory_core/storage/memory/mod.rs",
-            "line": 147,
-            "end_line": 153
+            "line": 148,
+            "end_line": 154
           }
         ],
         "mag.runtime.memory.storage.sqlite": [
@@ -9974,16 +10701,24 @@
             "kind": "function",
             "signature": "pub async fn optimize(&self) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 185,
-            "end_line": 195
+            "line": 187,
+            "end_line": 197
+          },
+          {
+            "name": "reembed_path_with_embedding_model",
+            "kind": "function",
+            "signature": "pub async fn reembed_path_with_embedding_model( path: PathBuf, embedding_model: Arc<dyn EmbeddingModel>, options: ReembedOptions, ) -> Result<ReembedReport>",
+            "file": "src/memory_core/storage/sqlite/migration.rs",
+            "line": 43,
+            "end_line": 53
           },
           {
             "name": "save_checkpoint_outcome",
             "kind": "function",
             "signature": "pub async fn save_checkpoint_outcome( &self, input: CheckpointInput, ) -> Result<CheckpointSaveOutcome>",
             "file": "src/memory_core/storage/sqlite/session.rs",
-            "line": 107,
-            "end_line": 283
+            "line": 108,
+            "end_line": 284
           },
           {
             "name": "stats",
@@ -9998,24 +10733,24 @@
             "kind": "function",
             "signature": "pub async fn store(&self, id: &str, data: &str, input: &MemoryInput) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 227,
-            "end_line": 229
+            "line": 229,
+            "end_line": 231
           },
           {
             "name": "store_batch",
             "kind": "function",
             "signature": "pub async fn store_batch(&self, items: &[(String, String, MemoryInput)]) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/crud.rs",
-            "line": 858,
-            "end_line": 1008
+            "line": 859,
+            "end_line": 1009
           },
           {
             "name": "update",
             "kind": "function",
             "signature": "pub async fn update(&self, id: &str, input: &MemoryUpdate) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 232,
-            "end_line": 234
+            "line": 234,
+            "end_line": 236
           },
           {
             "name": "InitMode",
@@ -10030,8 +10765,8 @@
             "kind": "function",
             "signature": "pub fn analyze(&self) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 157,
-            "end_line": 162
+            "line": 159,
+            "end_line": 164
           },
           {
             "name": "for_intent",
@@ -10046,8 +10781,8 @@
             "kind": "function",
             "signature": "pub fn in_sync(&self) -> bool",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 475,
-            "end_line": 477
+            "line": 466,
+            "end_line": 468
           },
           {
             "name": "is_valid_entity",
@@ -10086,24 +10821,24 @@
             "kind": "function",
             "signature": "pub fn new_in_memory() -> Result<Self>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 239,
-            "end_line": 241
+            "line": 240,
+            "end_line": 242
           },
           {
             "name": "new_in_memory_with_embedder",
             "kind": "function",
             "signature": "pub fn new_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 244,
-            "end_line": 246
+            "line": 245,
+            "end_line": 247
           },
           {
             "name": "new_in_memory_with_embedding_model",
             "kind": "function",
             "signature": "pub fn new_in_memory_with_embedding_model(embedder: Arc<dyn EmbeddingModel>) -> Result<Self>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 250,
-            "end_line": 252
+            "line": 251,
+            "end_line": 253
           },
           {
             "name": "new_with_embedding_model",
@@ -10127,31 +10862,31 @@
             "signature": "pub fn new_with_path_and_embedding_model( path: PathBuf, embedder: Arc<dyn EmbeddingModel>, ) -> Result<Self>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
             "line": 127,
-            "end_line": 152
+            "end_line": 154
           },
           {
             "name": "reranker",
             "kind": "function",
             "signature": "pub fn reranker(&self) -> Option<&Arc<dyn Reranker>>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 172,
-            "end_line": 174
+            "line": 174,
+            "end_line": 176
           },
           {
             "name": "scoring_params",
             "kind": "function",
             "signature": "pub fn scoring_params(&self) -> &ScoringParams",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 199,
-            "end_line": 201
+            "line": 201,
+            "end_line": 203
           },
           {
             "name": "set_scoring_params",
             "kind": "function",
             "signature": "pub fn set_scoring_params(&mut self, mut params: ScoringParams)",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 215,
-            "end_line": 224
+            "line": 217,
+            "end_line": 226
           },
           {
             "name": "slugify",
@@ -10166,40 +10901,56 @@
             "kind": "function",
             "signature": "pub fn warning(&self) -> Option<String>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 479,
-            "end_line": 495
+            "line": 470,
+            "end_line": 486
           },
           {
             "name": "with_reranker",
             "kind": "function",
             "signature": "pub fn with_reranker(mut self, reranker: Arc<dyn Reranker>) -> Self",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 165,
-            "end_line": 168
+            "line": 167,
+            "end_line": 170
           },
           {
             "name": "with_scoring_params",
             "kind": "function",
             "signature": "pub fn with_scoring_params(mut self, params: ScoringParams) -> Self",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 204,
-            "end_line": 207
+            "line": 206,
+            "end_line": 209
           },
           {
             "name": "with_scoring_strategy",
             "kind": "function",
             "signature": "pub fn with_scoring_strategy(mut self, strategy: Arc<dyn ScoringStrategy>) -> Self",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 178,
-            "end_line": 181
+            "line": 180,
+            "end_line": 183
           },
           {
             "name": "RankedSemanticCandidate",
             "kind": "struct",
             "signature": "pub struct RankedSemanticCandidate",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 343,
-            "end_line": 360
+            "line": 344,
+            "end_line": 361
+          },
+          {
+            "name": "ReembedOptions",
+            "kind": "struct",
+            "signature": "pub struct ReembedOptions",
+            "file": "src/memory_core/storage/sqlite/migration.rs",
+            "line": 7,
+            "end_line": 12
+          },
+          {
+            "name": "ReembedReport",
+            "kind": "struct",
+            "signature": "pub struct ReembedReport",
+            "file": "src/memory_core/storage/sqlite/migration.rs",
+            "line": 25,
+            "end_line": 32
           },
           {
             "name": "SqliteStorage",
@@ -10214,8 +10965,8 @@
             "kind": "function",
             "signature": "pub(crate) async fn store_internal( &self, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/crud.rs",
-            "line": 337,
-            "end_line": 385
+            "line": 338,
+            "end_line": 386
           },
           {
             "name": "expand_date_tokens",
@@ -10238,16 +10989,16 @@
             "kind": "module",
             "signature": "pub(crate) mod pipeline",
             "file": "src/memory_core/storage/sqlite/mod.rs",
-            "line": 52,
-            "end_line": 52
+            "line": 53,
+            "end_line": 53
           },
           {
             "name": "finish_store",
             "kind": "function",
             "signature": "pub(super) async fn finish_store( &self, post_id: &str, post_input: &MemoryInput, outcome: &StoreOutcome, superseded_ids: &[String], final_tags: &[String], )",
             "file": "src/memory_core/storage/sqlite/crud.rs",
-            "line": 387,
-            "end_line": 430
+            "line": 388,
+            "end_line": 431
           },
           {
             "name": "relationship_exists",
@@ -10382,40 +11133,40 @@
             "kind": "function",
             "signature": "pub(super) fn debug_force_access_count(&self, id: &str, access_count: i64) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 309,
-            "end_line": 320
+            "line": 310,
+            "end_line": 321
           },
           {
             "name": "debug_force_last_accessed_at",
             "kind": "function",
             "signature": "pub(super) fn debug_force_last_accessed_at(&self, id: &str, timestamp: &str) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 280,
-            "end_line": 290
+            "line": 281,
+            "end_line": 291
           },
           {
             "name": "debug_get_access_count",
             "kind": "function",
             "signature": "pub(super) fn debug_get_access_count(&self, id: &str) -> Result<i64>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 293,
-            "end_line": 306
+            "line": 294,
+            "end_line": 307
           },
           {
             "name": "debug_get_last_accessed_at",
             "kind": "function",
             "signature": "pub(super) fn debug_get_last_accessed_at(&self, id: &str) -> Result<String>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 264,
-            "end_line": 277
+            "line": 265,
+            "end_line": 278
           },
           {
             "name": "debug_get_versioning_fields",
             "kind": "function",
             "signature": "pub(super) fn debug_get_versioning_fields( &self, id: &str, ) -> Result<(Option<String>, Option<String>)>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 323,
-            "end_line": 339
+            "line": 324,
+            "end_line": 340
           },
           {
             "name": "debug_has_relationship",
@@ -10430,8 +11181,8 @@
             "kind": "function",
             "signature": "pub(super) fn default_db_path() -> Result<PathBuf>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 607,
-            "end_line": 609
+            "line": 562,
+            "end_line": 564
           },
           {
             "name": "detect_dynamic_limit_mult",
@@ -10446,8 +11197,8 @@
             "kind": "function",
             "signature": "pub(super) fn ensure_fts_sync(conn: &Connection) -> Result<usize>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 539,
-            "end_line": 581
+            "line": 506,
+            "end_line": 544
           },
           {
             "name": "ensure_vec_extension_registered",
@@ -10518,16 +11269,16 @@
             "kind": "function",
             "signature": "pub(super) fn fts_diagnostic(conn: &Connection) -> FtsDiagnostic",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 500,
-            "end_line": 515
+            "line": 489,
+            "end_line": 504
           },
           {
             "name": "fts_divergence",
             "kind": "function",
             "signature": "pub(super) fn fts_divergence(conn: &Connection) -> Result<(i64, i64)>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 444,
-            "end_line": 460
+            "line": 441,
+            "end_line": 457
           },
           {
             "name": "hydrate_memories_by_ids",
@@ -10542,24 +11293,24 @@
             "kind": "function",
             "signature": "pub(super) fn initialize_parent_dir(path: &Path) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 5,
-            "end_line": 12
+            "line": 6,
+            "end_line": 13
           },
           {
             "name": "initialize_schema",
             "kind": "function",
-            "signature": "pub(super) fn initialize_schema(conn: &Connection, embedding_dim: usize) -> Result<()>",
+            "signature": "pub(super) fn initialize_schema( conn: &Connection, embedding_dim: usize, embedding_space: &str, ) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 48,
-            "end_line": 254
+            "line": 82,
+            "end_line": 280
           },
           {
             "name": "initialize_vec_table",
             "kind": "function",
             "signature": "pub(super) fn initialize_vec_table(conn: &Connection, embedding_dim: usize) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 257,
-            "end_line": 370
+            "line": 283,
+            "end_line": 389
           },
           {
             "name": "is_keyword_query",
@@ -10614,16 +11365,16 @@
             "kind": "function",
             "signature": "pub(super) fn rebuild_fts_from_source(conn: &Connection) -> Result<usize>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 588,
-            "end_line": 604
+            "line": 546,
+            "end_line": 560
           },
           {
             "name": "rebuild_fts_index",
             "kind": "function",
             "signature": "pub(super) fn rebuild_fts_index(conn: &Connection) -> Result<()>",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 417,
-            "end_line": 433
+            "line": 423,
+            "end_line": 439
           },
           {
             "name": "resolve_priority",
@@ -10646,16 +11397,16 @@
             "kind": "function",
             "signature": "pub(super) fn store_one_in_tx( tx: &rusqlite::Transaction<'_>, embedder: &dyn EmbeddingModel, id: &str, data: &str, input: &MemoryInput, precomputed_embedding: Option<Vec<f32>>, ) -> Result<(StoreOutcome, Vec<String>, Vec<String>)>",
             "file": "src/memory_core/storage/sqlite/crud.rs",
-            "line": 432,
-            "end_line": 845
+            "line": 433,
+            "end_line": 846
           },
           {
             "name": "test_conn",
             "kind": "function",
             "signature": "pub(super) fn test_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>>",
             "file": "src/memory_core/storage/sqlite/storage.rs",
-            "line": 259,
-            "end_line": 261
+            "line": 260,
+            "end_line": 262
           },
           {
             "name": "to_param_refs",
@@ -10710,8 +11461,8 @@
             "kind": "struct",
             "signature": "pub(super) struct FtsDiagnostic",
             "file": "src/memory_core/storage/sqlite/schema.rs",
-            "line": 466,
-            "end_line": 472
+            "line": 459,
+            "end_line": 463
           },
           {
             "name": "HydratedMemoryRow",
@@ -10752,32 +11503,32 @@
             "kind": "function",
             "signature": "pub async fn run_uninstall(all: bool, configs_only: bool) -> Result<()>",
             "file": "src/uninstall.rs",
-            "line": 24,
-            "end_line": 173
+            "line": 25,
+            "end_line": 174
           },
           {
             "name": "AiTool",
             "kind": "enum",
             "signature": "pub enum AiTool",
             "file": "src/tool_detection.rs",
-            "line": 22,
-            "end_line": 33
+            "line": 23,
+            "end_line": 34
           },
           {
             "name": "ConfigFormat",
             "kind": "enum",
             "signature": "pub enum ConfigFormat",
             "file": "src/tool_detection.rs",
-            "line": 100,
-            "end_line": 103
+            "line": 101,
+            "end_line": 104
           },
           {
             "name": "ConfigScope",
             "kind": "enum",
             "signature": "pub enum ConfigScope",
             "file": "src/tool_detection.rs",
-            "line": 122,
-            "end_line": 127
+            "line": 123,
+            "end_line": 128
           },
           {
             "name": "ConfigStatus",
@@ -10800,16 +11551,16 @@
             "kind": "enum",
             "signature": "pub enum ContentTier",
             "file": "src/tool_detection.rs",
-            "line": 107,
-            "end_line": 118
+            "line": 108,
+            "end_line": 119
           },
           {
             "name": "MagConfigStatus",
             "kind": "enum",
             "signature": "pub enum MagConfigStatus",
             "file": "src/tool_detection.rs",
-            "line": 131,
-            "end_line": 143
+            "line": 132,
+            "end_line": 144
           },
           {
             "name": "RemoveResult",
@@ -10824,8 +11575,8 @@
             "kind": "enum",
             "signature": "pub enum SandboxPatchResult",
             "file": "src/config_writer.rs",
-            "line": 803,
-            "end_line": 810
+            "line": 805,
+            "end_line": 812
           },
           {
             "name": "TransportMode",
@@ -10840,16 +11591,16 @@
             "kind": "function",
             "signature": "pub fn all() -> &'static [AiTool]",
             "file": "src/tool_detection.rs",
-            "line": 53,
-            "end_line": 67
+            "line": 54,
+            "end_line": 68
           },
           {
             "name": "any_configured",
             "kind": "function",
             "signature": "pub fn any_configured(&self) -> bool",
             "file": "src/tool_detection.rs",
-            "line": 179,
-            "end_line": 183
+            "line": 180,
+            "end_line": 184
           },
           {
             "name": "build_mag_entry",
@@ -10864,40 +11615,40 @@
             "kind": "function",
             "signature": "pub fn config_format(&self) -> ConfigFormat",
             "file": "src/tool_detection.rs",
-            "line": 70,
-            "end_line": 75
+            "line": 71,
+            "end_line": 76
           },
           {
             "name": "content_tier",
             "kind": "function",
             "signature": "pub fn content_tier(&self) -> ContentTier",
             "file": "src/tool_detection.rs",
-            "line": 79,
-            "end_line": 89
+            "line": 80,
+            "end_line": 90
           },
           {
             "name": "detect_all_tools",
             "kind": "function",
             "signature": "pub fn detect_all_tools(project_root: Option<&Path>) -> DetectionResult",
             "file": "src/tool_detection.rs",
-            "line": 199,
-            "end_line": 227
+            "line": 200,
+            "end_line": 228
           },
           {
             "name": "detect_tool",
             "kind": "function",
             "signature": "pub fn detect_tool(tool: AiTool, project_root: Option<&Path>) -> Vec<DetectedTool>",
             "file": "src/tool_detection.rs",
-            "line": 235,
-            "end_line": 244
+            "line": 236,
+            "end_line": 245
           },
           {
             "name": "display_name",
             "kind": "function",
             "signature": "pub fn display_name(&self) -> &'static str",
             "file": "src/tool_detection.rs",
-            "line": 37,
-            "end_line": 50
+            "line": 38,
+            "end_line": 51
           },
           {
             "name": "home_dir",
@@ -10928,8 +11679,8 @@
             "kind": "function",
             "signature": "pub fn patch_sandbox_allowlist() -> Result<SandboxPatchResult>",
             "file": "src/config_writer.rs",
-            "line": 819,
-            "end_line": 897
+            "line": 821,
+            "end_line": 899
           },
           {
             "name": "remove_claude_plugin",
@@ -10968,8 +11719,8 @@
             "kind": "function",
             "signature": "pub fn unconfigured(&self) -> Vec<&DetectedTool>",
             "file": "src/tool_detection.rs",
-            "line": 171,
-            "end_line": 176
+            "line": 172,
+            "end_line": 177
           },
           {
             "name": "verify_claude_plugin",
@@ -11016,16 +11767,16 @@
             "kind": "struct",
             "signature": "pub struct DetectedTool",
             "file": "src/tool_detection.rs",
-            "line": 147,
-            "end_line": 156
+            "line": 148,
+            "end_line": 157
           },
           {
             "name": "DetectionResult",
             "kind": "struct",
             "signature": "pub struct DetectionResult",
             "file": "src/tool_detection.rs",
-            "line": 160,
-            "end_line": 166
+            "line": 161,
+            "end_line": 167
           },
           {
             "name": "SetupArgs",
@@ -11072,8 +11823,8 @@
             "kind": "function",
             "signature": "pub(crate) fn mcp_key_for_tool(tool: AiTool) -> &'static str",
             "file": "src/tool_detection.rs",
-            "line": 255,
-            "end_line": 271
+            "line": 256,
+            "end_line": 272
           },
           {
             "name": "remove_agents_md_section",
@@ -11624,7 +12375,7 @@
         ]
       },
       "fingerprint": {
-        "hash": "90da47784e1bdf6d"
+        "hash": "2090a8c1cb951b9c"
       },
       "findings": [
         {

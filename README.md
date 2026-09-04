@@ -128,13 +128,19 @@ The roadmap is dependency-led, not date-led. Current status lives in [`meta/todo
 
 | Sequence | Focus | Status |
 |---|---|---|
-| **Now** | Audit the live architecture, dead code and duplicate composition paths. | In progress |
-| **Then** | Select one production composition root and build a versioned local test set and runner. | Blocked by the audit |
-| **Next** | Calibrate retrieval, wire the LFM2.5 1.2B local baseline, and keep rule-based fallback. | Blocked by the test gate |
+| **Done** | Audit the live architecture, select one production composition root, and build a versioned local evaluation set and runner. | Complete |
+| **Now** | Calibrate retrieval and reranking against the evaluation gate, starting with the failures it already reports. | Unblocked |
+| **Next** | Wire the LFM2.5 1.2B local baseline through the chosen write path, keeping the rule-based fallback. | Blocked by calibration |
 | **After evidence** | Test direct ONNX generation, derived memory with provenance, and selective 350M task routing. | Planned behind measured baselines |
 | **Later** | Add authenticated service and cross-device modes without making them a dependency of local use. | Planned after local interfaces stabilise |
 
 No roadmap item is treated as shipped until it passes its named tests and benchmark gates.
+
+The memory-intelligence evaluation gate is now in place and reports a first
+baseline. It is not flattering: entity extraction scores 7.4% F1, clustering
+finds none of the labelled duplicate groups, and one query that should return
+nothing returns ten results. See
+[the method and results](docs/benchmarks/memory-intelligence.md).
 
 ## Install options
 

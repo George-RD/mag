@@ -11,6 +11,12 @@ This document records the benchmark methodology and the latest measured outputs 
 - OS: `macOS 26.3 (25D125)`
 - Embedder: `bge-small-en-v1.5` (ONNX, 384-dim)
 
+The `Peak RSS` figures recorded below were sampled maxima of current RSS taken
+at run boundaries. `benches/bench_utils/metrics.rs` now reads `VmHWM` on Linux,
+the kernel's high-water mark, so a Linux run after 2026-09-04 reports the
+process peak and is not comparable with the numbers on this page. The macOS runs
+recorded here still read current RSS through `ps`.
+
 ## Dataset Policy
 
 - Benchmark datasets are fetched externally and cached under the active MAG root.

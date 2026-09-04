@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abstention, and the query it gets wrong</title>
+<meta name="description" content="Two queries over the same three MAG memories: one retrieves, one returns an empty array. The abstention arithmetic and the semantic rescue condition, with measured values.">
+<meta name="theme-color" content="#0b1b35">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<style>
+:root{--ink:#0b1b35;--paper:#eef3f7;--white:#fff;--blue:#165dff;--navy:#0b41bd;--amber:#ffb703;--orange:#aa3508;--line:#b8c7d8;--muted:#50637b;--max:1160px;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--sans:Aptos,"Segoe UI",Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--sans)}
+a{color:inherit;text-underline-offset:.2em}
+img{display:block;max-width:100%}
+.wrap{width:min(var(--max),calc(100% - 40px));margin:auto}
+.skip{position:fixed;left:12px;top:12px;z-index:99;padding:9px 12px;background:var(--ink);color:#fff;transform:translateY(-160%)}
+.skip:focus{transform:none}
+.top{position:sticky;top:0;z-index:20;background:rgba(238,243,247,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+.bar{min-height:68px;display:flex;align-items:center;gap:24px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:900;font-size:21px;letter-spacing:.05em}
+.mark{width:34px;height:34px;display:grid;place-items:center;background:var(--blue);color:#fff;transform:skewX(-7deg)}
+nav{margin-left:auto;display:flex;gap:23px;font-size:14px;font-weight:750}
+nav a{text-decoration:none}
+.pill{font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;border:1px solid currentColor;padding:8px 9px;color:var(--orange)}
+h1,h2,h3{margin:0;font-weight:900;line-height:1.04;letter-spacing:-.035em}
+h1{font-size:clamp(2.5rem,5.2vw,4.2rem)}
+h2{font-size:clamp(1.8rem,3vw,2.5rem)}
+h3{font-size:1.42rem}
+.eyebrow{font:800 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--navy);margin:0 0 14px}
+.lead{font-size:clamp(1.1rem,1.8vw,1.34rem);max-width:660px;color:#213654;margin:26px 0 0}
+section{padding:64px 0;border-bottom:1px solid var(--line)}
+.note{font-size:14px;color:var(--muted);max-width:700px}
+.controls{border:2px solid var(--ink);background:#fff;box-shadow:7px 7px 0 var(--ink);padding:16px;margin-bottom:34px}
+.transport{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:700 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;padding:11px 13px;border:2px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer}
+button:hover:not(:disabled){background:var(--ink);color:#fff}
+button:disabled{color:var(--muted);border-color:var(--line);cursor:default}
+.play[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#fff}
+.scrub{display:flex;align-items:center;gap:14px;margin-top:16px}
+.scrub label{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy);white-space:nowrap}
+input[type=range]{flex:1;accent-color:var(--blue);min-width:120px}
+.steps{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.step{font:700 10px/1 var(--mono);padding:8px;border:1px solid var(--line);background:#fff;color:var(--muted)}
+.step:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.step[aria-current="step"]{background:var(--ink);border-color:var(--ink);color:#fff}
+.stage{background:#fff;border:1px solid var(--line);border-top:8px solid var(--ink);padding:28px}
+.stage.miss{border-top-color:var(--orange)}
+.stage-head{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:start}
+.who{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:12px 0 0}
+.stage p.say{margin:18px 0 0;max-width:70ch;color:#213654}
+.tag{display:inline-block;font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;border:1px solid currentColor;padding:7px 8px}
+.t-pass{background:var(--amber);border-color:var(--amber);color:var(--ink)}
+.t-fail{background:var(--orange);border-color:var(--orange);color:#fff}
+.t-on{color:var(--navy)}
+.term{margin-top:26px;background:var(--ink);color:#fff;padding:18px;font:12px/1.8 var(--mono);overflow-x:auto}
+.term .p{color:var(--amber)}
+.term .o{color:#dbe7ff;white-space:pre-wrap;word-break:break-all}
+.gate{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-top:0;margin-top:26px}
+.gate div{padding:16px;border-right:1px solid var(--line);border-top:1px solid var(--line)}
+.gate div:last-child{border-right:0}
+.gate b{display:block;font:800 11px var(--mono);color:var(--navy);text-transform:uppercase;letter-spacing:.06em}
+.gate span{display:block;margin-top:6px;font:12px/1.5 var(--mono);word-break:break-all}
+.gate div.no b{color:var(--orange)}
+.gate[hidden]{display:none}
+.rows{display:grid;gap:10px;margin-top:12px}
+.rowc{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;border:1px solid var(--line);background:#fff;padding:14px;align-items:start}
+.rowc.pass{border-left:8px solid var(--amber)}
+.rowc.fail{border-left:8px solid var(--orange)}
+.rt{margin:0;font-size:15px;font-weight:750}
+.rm{margin:8px 0 0;font:11px/1.7 var(--mono);color:var(--muted);word-break:break-all}
+.verdict{display:inline-block;margin-top:10px;font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em}
+.verdict.yes{color:var(--navy)}
+.verdict.no{color:var(--orange)}
+.meter .axis{display:block;font:700 10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.track{display:block;position:relative;height:16px;background:#dbe7ff;margin:7px 0}
+.fill{display:block;height:16px;background:var(--blue);width:0;transition:width .5s ease}
+.fill.amber{background:var(--amber)}
+.fill.grey{background:var(--muted)}
+.cut{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--orange)}
+.cutlabel{font:700 10px var(--mono);color:var(--orange);text-transform:uppercase;letter-spacing:.06em}
+.val{display:block;font:700 11px var(--mono);word-break:break-all}
+.setlabel{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:30px 0 0;font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy)}
+.delta{margin-top:22px;border-left:8px solid var(--blue);background:var(--paper);padding:14px 16px;font-size:15px}
+.delta.bad{border-left-color:var(--orange)}
+.delta b{font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--navy);display:block;margin-bottom:5px}
+.live{margin-top:22px;font:700 12px var(--mono);color:var(--navy);text-transform:uppercase;letter-spacing:.06em}
+table{width:100%;border-collapse:collapse;margin-top:26px;font-size:14px}
+th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+th{background:var(--ink);color:#fff;font:800 11px var(--mono);text-transform:uppercase;letter-spacing:.06em}
+td.n{font:12px var(--mono);word-break:break-all}
+.scrollx{overflow-x:auto}
+.plain{border:1px solid var(--line);border-top:8px solid var(--orange);background:#fff;padding:26px;margin-top:30px}
+.plain h3{margin-bottom:12px}
+.plain p{color:#213654}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:26px}
+footer{padding:32px 0;background:#061226;color:#b9c7da}
+.foot{display:flex;align-items:center;gap:24px}
+.foot p{margin:0}
+.foot div:last-child{margin-left:auto;display:flex;gap:18px}
+.foot a{color:#fff}
+:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+@media(max-width:900px){nav{display:none}.rowc,.split{grid-template-columns:1fr}.gate{grid-template-columns:1fr}}
+@media(max-width:540px){body{font-size:16px}.wrap{width:calc(100% - 28px)}.pill{display:none}section{padding:52px 0}.term{font-size:11px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+</style>
+</head>
+<body id="top">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><div class="wrap bar"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><nav aria-label="Primary"><a href="index.html">All demos</a><a href="../index.html">Main page</a><a href="https://github.com/George-RD/mag">Source</a></nav><span class="pill">Early alpha</span></div></header>
+<main id="main">
+
+<section>
+<div class="wrap">
+<p class="eyebrow">Demo 03 · Abstention</p>
+<h1>The query that<br>returns nothing.</h1>
+<p class="lead">MAG would rather give an agent an empty array than a plausible wrong memory. That decision has a cost, and this page is the cost. Two queries run against the same three memories. The first works. The second is a reasonable paraphrase of the first, and it comes back empty.</p>
+<p class="note" style="margin-top:26px">Captured 4 September 2026, mag 0.1.10-dev on its default feature set, bge-small-en-v1.5 int8. Both queries were run with <code>mag advanced-search</code> against the same database, seconds apart.</p>
+</div>
+</section>
+
+<section>
+<div class="wrap">
+
+<div class="controls">
+  <div class="transport" role="group" aria-label="Playback controls">
+    <button type="button" id="first">&#124;&#9664; First</button>
+    <button type="button" id="prev">&#9664; Step back</button>
+    <button type="button" id="play" class="play" aria-pressed="false">&#9654; Play</button>
+    <button type="button" id="next">Step forward &#9654;</button>
+    <button type="button" id="last">Last &#9654;&#124;</button>
+  </div>
+  <div class="scrub">
+    <label for="scrubber">Jump to step</label>
+    <input type="range" id="scrubber" min="1" max="6" step="1" value="1" aria-describedby="live">
+    <span class="val" id="scrubval">01 / 06</span>
+  </div>
+  <nav class="steps" id="steps" aria-label="Jump to a step"></nav>
+</div>
+
+<article class="stage" id="stage">
+  <div class="stage-head">
+    <div>
+      <p class="eyebrow" id="stateno">Step 01 of 06</p>
+      <h2 id="stagename">The corpus</h2>
+      <p class="who" id="stagewho"></p>
+    </div>
+    <span class="tag t-on" id="stagestatus">Setup</span>
+  </div>
+  <noscript><p class="note" style="border:1px dashed var(--line);padding:22px;max-width:none">This walkthrough steps through six states with JavaScript. With it off, every measured value is in the table at the foot of this page.</p></noscript>
+  <p class="say" id="stagesay"></p>
+  <div id="term"></div>
+  <div class="gate" id="gate"></div>
+  <div class="setlabel"><span id="setlabel"></span><span id="setorder"></span></div>
+  <div class="rows" id="rows"></div>
+  <div class="delta" id="deltabox"><b>What changed</b><span id="delta"></span></div>
+  <p class="live" id="live" aria-live="polite" role="status"></p>
+</article>
+
+</div>
+</section>
+
+<section>
+<div class="wrap">
+<h2>Say it plainly.</h2>
+<div class="plain">
+<h3>This is a limitation, not a feature.</h3>
+<p>The second query is a fair question. A person reading the three memories would answer it from the first one. MAG returns an empty array, and the agent that asked has no way to tell an empty database from a query the gate rejected, because the CLI prints <code>{"results":[]}</code> in both cases.</p>
+<p>The reason is that the gate is lexical first. It looks at how many query tokens appear in a candidate, and the paraphrase shares none: <code>policy</code>, <code>request</code>, <code>fails</code>, <code>try</code> and <code>again</code> do not appear in "Retries use exponential backoff with jitter, capped at 30 seconds". The semantic rescue exists for exactly this case, but it is deliberately narrow, and here it does not fire.</p>
+<p>Two smaller failures sit behind the visible one. The embedding ranked the schema memory above the retries memory for this paraphrase, so even a purely semantic pipeline would have led with the wrong row. And the stemmer turns <code>request</code> into <code>requ</code>: the word ends in <code>-est</code>, so the <code>-est</code> rule at <code>scoring.rs:461</code> takes the last three characters off, leaving a fragment that appears nowhere in the corpus.</p>
+</div>
+
+<div class="split">
+<div class="plain" style="border-top-color:var(--blue)">
+<h3>What the gate buys</h3>
+<p>On the local benchmark, the abstention category scores 20 out of 20 questions, against 16 out of 20 for omega-memory on the same set. Those are questions where the correct answer is that the store does not know. Without a gate, a retrieval system answers all of them wrongly and confidently.</p>
+</div>
+<div class="plain" style="border-top-color:var(--blue)">
+<h3>What would change it</h3>
+<p>Raising recall here means either loosening <code>abstention_min_text</code> below 0.15, which trades abstention accuracy for it, or widening the semantic rescue, which currently requires a single dominant candidate above cosine 0.82. Neither has been measured as a change, so neither is claimed as a fix.</p>
+</div>
+</div>
+</div>
+</section>
+
+<section>
+<div class="wrap">
+<h2>Every number on this page.</h2>
+<div class="scrollx">
+<table>
+<caption class="note" style="text-align:left;padding:10px 0">Sources for the values used in the six steps.</caption>
+<thead><tr><th scope="col">Value</th><th scope="col">Kind</th><th scope="col">Where it comes from</th></tr></thead>
+<tbody>
+<tr><td class="n">0.3333333333333333 / 0.3333333333333333 / 0.0</td><td>Measured</td><td><code>_text_overlap</code> on the three results of the first query.</td></tr>
+<tr><td class="n">1.0 / 0.30344998836517334 / 0.22783465683460236</td><td>Measured</td><td><code>score</code> on the three results of the first query.</td></tr>
+<tr><td class="n">{"results":[]}</td><td>Measured</td><td>Complete stdout of the second query.</td></tr>
+<tr><td class="n">0.5364020466804504 / 0.5222207903862 / 0.52154940366745</td><td>Measured</td><td>Cosine similarity of the second query against the three memories, from <code>mag semantic-search</code>, which bypasses the abstention gate.</td></tr>
+<tr><td class="n">0.014181256294250488</td><td>Computed</td><td>The margin between the top two cosines above.</td></tr>
+<tr><td class="n">0.15</td><td>Constant</td><td><code>abstention_min_text</code>, also printed in the MCP reason string.</td></tr>
+<tr><td class="n">0.82</td><td>Constant</td><td><code>SEMANTIC_RESCUE_MIN_SIM</code>.</td></tr>
+<tr><td class="n">0.035</td><td>Constant</td><td><code>SEMANTIC_RESCUE_MIN_MARGIN</code>.</td></tr>
+<tr><td class="n">3 / 5</td><td>Measured</td><td><code>mag stats</code>: three memories, five relationships.</td></tr>
+<tr><td class="n">20 / 20 and 16 / 20</td><td>Measured</td><td>Abstention category of the local benchmark: MAG 20 correct, omega-memory 16, out of 20 questions.</td></tr>
+<tr><td class="n">Token lists</td><td>Computed</td><td>Produced by applying MAG's stopword list and stemmer rules by hand. The same procedure reproduces all three measured <code>_text_overlap</code> values of the first query exactly, which is the check that it matches the code.</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+</main>
+<footer><div class="wrap foot"><a class="brand" href="../index.html"><span class="mark">M</span>MAG</a><p>Local-first memory for MCP clients.</p><div><a href="index.html">All demos</a><a href="https://github.com/George-RD/mag">Source</a></div></div></footer>
+
+<script>
+(function(){
+"use strict";
+
+var STATES = [
+{
+  id:"corpus", name:"The corpus", who:"three memories, five relationships",
+  status:"Setup", statusClass:"t-on", miss:false,
+  say:"Both queries below run against exactly these three memories and nothing else. Two of them are close to the subject of the questions; the third is about database migrations and is here to give the ranking something to reject.",
+  setLabel:"Stored memories",
+  rows:[
+    {key:"m1", title:"processed: Retries use exponential backoff with jitter, capped at 30 seconds",
+     meta:"decision · importance 0.85 · priority 3 · 12619cc2"},
+    {key:"m2", title:"processed: The payments worker leaked a socket when a task was cancelled mid-flight",
+     meta:"error_pattern · importance 0.7 · priority 4 · 4c42d47c"},
+    {key:"m3", title:"processed: Schema changes must be verified against the fixture set before merge",
+     meta:"lesson_learned · importance 0.6 · priority 4 · 532237e2"}
+  ],
+  delta:"Nothing yet. This is the state both queries start from."
+},
+{
+  id:"query-hit", name:"Query one: tokens", who:"how should retries work?",
+  status:"3 tokens", statusClass:"t-on", miss:false,
+  say:"Before anything is compared, the query is lowercased, split on non-alphanumeric characters, stripped of stopwords and stemmed. Three tokens survive. text_overlap is then the fraction of these tokens that appear in a candidate's content and tags.",
+  term:[["mag advanced-search \"how should retries work?\" --explain", ""]],
+  setLabel:"Query tokens",
+  rows:[
+    {key:"q1", title:"retry", meta:"from retries; the -ies rule rewrites the ending to -y", verdict:["Found in the decision memory","yes"], state:"pass"},
+    {key:"q2", title:"should", meta:"kept; not in the stopword list", verdict:["Found in any memory","no"], state:"fail"},
+    {key:"q3", title:"work", meta:"kept as written", verdict:["Found in the error_pattern memory, from worker","yes"], state:"pass"}
+  ],
+  gate:[["Dropped as stopwords","how"],["Tokens compared","3"],["Formula","matched tokens / 3"]],
+  delta:"Three tokens to match against. One of them appears in the memory that answers the question."
+},
+{
+  id:"gate-hit", name:"Query one: the gate passes", who:"abstain_and_dedup · abstention.rs:88-101",
+  status:"Passes", statusClass:"t-pass", miss:false,
+  say:"The gate takes the largest text_overlap across every surviving candidate and compares it with abstention_min_text. Two candidates sit at 0.3333333333333333, more than double the cutoff, so lexical_match is true and the semantic rescue is never consulted.",
+  gate:[["max text_overlap","0.3333333333333333"],["abstention_min_text","0.15"],["lexical_match","true"]],
+  setLabel:"text_overlap per candidate", barAxis:"text_overlap · 0 to 1 · cutoff at 0.15", cut:0.15,
+  rows:[
+    {key:"m1", title:"processed: Retries use exponential backoff with jitter, capped at 30 seconds",
+     meta:"shares the token retry", bar:{v:0.3333333333333333, text:"0.3333333333333333", amber:true},
+     verdict:["Above the cutoff","yes"], state:"pass"},
+    {key:"m2", title:"processed: The payments worker leaked a socket when a task was cancelled mid-flight",
+     meta:"shares the token work", bar:{v:0.3333333333333333, text:"0.3333333333333333", amber:true},
+     verdict:["Above the cutoff","yes"], state:"pass"},
+    {key:"m3", title:"processed: Schema changes must be verified against the fixture set before merge",
+     meta:"shares no token", bar:{v:0.0, text:"0.0"},
+     verdict:["Above the cutoff","no"], state:"fail"}
+  ],
+  delta:"All three memories are returned, at scores 1.0, 0.30344998836517334 and 0.22783465683460236. The gate is all-or-nothing, so the memory that matched no token still comes back, ranked last."
+},
+{
+  id:"query-miss", name:"Query two: tokens", who:"what is our policy when a request fails and we try again",
+  status:"5 tokens", statusClass:"t-on", miss:true,
+  say:"This is the same question in different words, the shape of question an agent actually asks when it has forgotten the vocabulary of the original decision. Five tokens survive the stopword filter. None of them appears in any of the three memories.",
+  term:[["mag advanced-search \"what is our policy when a request fails and we try again\" --limit 3", ""]],
+  setLabel:"Query tokens",
+  rows:[
+    {key:"t1", title:"policy", meta:"kept as written", verdict:["Found in any memory","no"], state:"fail"},
+    {key:"t2", title:"requ", meta:"from request; it ends in -est, so the -est rule takes the last three characters", verdict:["Found in any memory","no"], state:"fail"},
+    {key:"t3", title:"fail", meta:"from fails", verdict:["Found in any memory","no"], state:"fail"},
+    {key:"t4", title:"try", meta:"three letters, kept; it does not match the stem retry", verdict:["Found in any memory","no"], state:"fail"},
+    {key:"t5", title:"again", meta:"kept as written", verdict:["Found in any memory","no"], state:"fail"}
+  ],
+  gate:[["Dropped as stopwords","what, is, our, when, a, and, we"],["Tokens compared","5"],["Formula","matched tokens / 5"]],
+  delta:"Five tokens, zero matches. The word retries never appears in this question, and try does not stem to retry."
+},
+{
+  id:"gate-miss", name:"Query two: the gate fails", who:"abstain_and_dedup · abstention.rs:88-101",
+  status:"Fails", statusClass:"t-fail", miss:true,
+  say:"Every candidate reports a text_overlap of 0.0, so the maximum is 0.0 and lexical_match is false. That does not abstain on its own: the gate now asks whether one candidate is semantically strong enough to rescue the query.",
+  gate:[["max text_overlap","0.0",true],["abstention_min_text","0.15"],["lexical_match","false",true]],
+  setLabel:"text_overlap per candidate", barAxis:"text_overlap · 0 to 1 · cutoff at 0.15", cut:0.15,
+  rows:[
+    {key:"m1", title:"processed: Retries use exponential backoff with jitter, capped at 30 seconds",
+     meta:"shares no token with the paraphrase", bar:{v:0.0, text:"0.0"},
+     verdict:["Above the cutoff","no"], state:"fail"},
+    {key:"m2", title:"processed: The payments worker leaked a socket when a task was cancelled mid-flight",
+     meta:"shares no token with the paraphrase", bar:{v:0.0, text:"0.0"},
+     verdict:["Above the cutoff","no"], state:"fail"},
+    {key:"m3", title:"processed: Schema changes must be verified against the fixture set before merge",
+     meta:"shares no token with the paraphrase", bar:{v:0.0, text:"0.0"},
+     verdict:["Above the cutoff","no"], state:"fail"}
+  ],
+  delta:"The lexical arm of the gate is now closed. One arm is left."
+},
+{
+  id:"rescue", name:"The semantic rescue does not fire", who:"has_confident_semantic_match · abstention.rs:25-51",
+  status:"Abstains", statusClass:"t-fail", miss:true,
+  say:"The rescue needs all three conditions at once: exactly one candidate at or above cosine 0.82, that candidate must be the top one, and it must lead the runner-up by at least 0.035. The cosines here are clustered in the low fifties, so the first condition fails and the third would have failed too. The gate returns an empty vector.",
+  gate:[["Candidates at or above 0.82","0, needs exactly 1",true],["Top cosine","0.5364020466804504"],["Margin over runner-up","0.014181256294250488, needs 0.035",true]],
+  setLabel:"Cosine similarity for the paraphrase", barAxis:"cosine · 0 to 1 · rescue threshold at 0.82", cut:0.82,
+  order:"cosine",
+  rows:[
+    {key:"m3", title:"processed: Schema changes must be verified against the fixture set before merge",
+     meta:"ranked first by the embedding, and it is the wrong memory",
+     bar:{v:0.5364020466804504, text:"0.5364020466804504"},
+     verdict:["At or above 0.82","no"], state:"fail"},
+    {key:"m2", title:"processed: The payments worker leaked a socket when a task was cancelled mid-flight",
+     meta:"ranked second", bar:{v:0.5222207903862, text:"0.5222207903862"},
+     verdict:["At or above 0.82","no"], state:"fail"},
+    {key:"m1", title:"processed: Retries use exponential backoff with jitter, capped at 30 seconds",
+     meta:"the memory that answers the question, ranked third",
+     bar:{v:0.52154940366745, text:"0.52154940366745"},
+     verdict:["At or above 0.82","no"], state:"fail"}
+  ],
+  term:[["mag advanced-search \"what is our policy when a request fails and we try again\" --limit 3",
+         "{\"results\":[]}"]],
+  delta:"Nothing is returned. Over MCP the same call is explicit about it, adding abstained true, confidence 0.0 and the reason string No results met the relevance threshold (text_overlap < 0.15). The CLI just prints the empty array."
+}
+];
+
+var cur = 0, playing = false, timer = null, lastBar = {};
+var el = {};
+["stage","stateno","stagename","stagewho","stagestatus","stagesay","term","gate","setlabel","setorder","rows","delta","deltabox","live","steps","scrubval","play","prev","next","first","last"].forEach(function(k){
+  el[k] = document.getElementById(k);
+});
+el.scrub = document.getElementById("scrubber");
+
+function reduced(){
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+function pad(n){ return (n < 10 ? "0" : "") + n; }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+STATES.forEach(function(st, i){
+  var b = document.createElement("button");
+  b.type = "button";
+  b.className = "step";
+  b.textContent = pad(i + 1) + " " + st.name;
+  b.addEventListener("click", function(){ stop(); go(i); });
+  el.steps.appendChild(b);
+});
+var stepBtns = el.steps.querySelectorAll(".step");
+
+function buildRow(r, st){
+  var node = document.createElement("article");
+  node.className = "rowc" + (r.state ? " " + r.state : "");
+  node.setAttribute("data-id", r.key);
+
+  var body = document.createElement("div");
+  var html = '<p class="rt">' + esc(r.title) + '</p><p class="rm">' + esc(r.meta || "") + "</p>";
+  if (r.verdict) {
+    html += '<span class="verdict ' + (r.verdict[1] === "yes" ? "yes" : "no") + '">' +
+            esc(r.verdict[0]) + ": " + esc(r.verdict[1]) + "</span>";
+  }
+  body.innerHTML = html;
+  node.appendChild(body);
+
+  var meter = document.createElement("div");
+  meter.className = "meter";
+  if (r.bar) {
+    var pct = Math.max(0, Math.min(100, r.bar.v * 100));
+    var start = lastBar[r.key] != null ? lastBar[r.key] : 0;
+    var cut = st.cut != null ? '<span class="cut" style="left:' + (st.cut * 100) + '%"></span>' : "";
+    meter.innerHTML = '<span class="axis">' + esc(st.barAxis || "") + "</span>" +
+      '<span class="track">' + cut + '<span class="fill' + (r.bar.amber ? " amber" : " grey") + '" style="width:' + start + '%"></span></span>' +
+      '<span class="val">' + esc(r.bar.text) + "</span>";
+    meter.setAttribute("data-pct", pct);
+  } else {
+    meter.innerHTML = '<span class="axis">no magnitude at this step</span>';
+  }
+  node.appendChild(meter);
+  return node;
+}
+
+function render(){
+  var st = STATES[cur];
+  el.stage.className = "stage" + (st.miss ? " miss" : "");
+  el.stateno.textContent = "Step " + pad(cur + 1) + " of " + pad(STATES.length);
+  el.stagename.textContent = st.name;
+  el.stagewho.textContent = st.who;
+  el.stagestatus.textContent = st.status;
+  el.stagestatus.className = "tag " + st.statusClass;
+  el.stagesay.textContent = st.say;
+  el.deltabox.className = "delta" + (st.miss ? " bad" : "");
+
+  el.term.innerHTML = (st.term || []).map(function(t){
+    var out = t[1] ? '<div class="o">' + esc(t[1]) + "</div>" : "";
+    return '<div class="term"><div class="p">$ ' + esc(t[0]) + "</div>" + out + "</div>";
+  }).join("");
+
+  el.gate.innerHTML = (st.gate || []).map(function(g){
+    var no = g[2] ? ' class="no"' : "";
+    return "<div" + no + "><b>" + esc(g[0]) + "</b><span>" + esc(g[1]) + "</span></div>";
+  }).join("");
+  el.gate.hidden = !(st.gate && st.gate.length);
+
+  el.setlabel.textContent = st.setLabel;
+  el.setorder.textContent = st.order ? "Ordered by " + st.order : "";
+
+  var firstTop = {};
+  Array.prototype.forEach.call(el.rows.children, function(n){
+    firstTop[n.getAttribute("data-id")] = n.getBoundingClientRect().top;
+  });
+
+  el.rows.innerHTML = "";
+  st.rows.forEach(function(r){ el.rows.appendChild(buildRow(r, st)); });
+
+  if (!reduced()) {
+    Array.prototype.forEach.call(el.rows.children, function(n){
+      var id = n.getAttribute("data-id");
+      if (firstTop[id] == null) { return; }
+      var dy = firstTop[id] - n.getBoundingClientRect().top;
+      if (!dy) { return; }
+      n.style.transition = "none";
+      n.style.transform = "translateY(" + dy + "px)";
+      requestAnimationFrame(function(){
+        n.style.transition = "transform .45s ease";
+        n.style.transform = "";
+      });
+    });
+  }
+
+  var apply = function(){
+    Array.prototype.forEach.call(el.rows.querySelectorAll(".meter"), function(m){
+      var pct = m.getAttribute("data-pct");
+      if (pct == null) { return; }
+      var fill = m.querySelector(".fill");
+      if (fill) { fill.style.width = pct + "%"; }
+    });
+  };
+  if (reduced()) { apply(); } else { requestAnimationFrame(apply); }
+
+  lastBar = {};
+  st.rows.forEach(function(r){ if (r.bar) { lastBar[r.key] = Math.max(0, Math.min(100, r.bar.v * 100)); } });
+
+  el.delta.textContent = st.delta;
+  el.live.textContent = "Step " + pad(cur + 1) + " of " + pad(STATES.length) + ": " + st.name + ". " + st.status + ". " + st.delta;
+
+  Array.prototype.forEach.call(stepBtns, function(b, i){
+    if (i === cur) { b.setAttribute("aria-current", "step"); } else { b.removeAttribute("aria-current"); }
+  });
+  el.scrub.value = String(cur + 1);
+  el.scrubval.textContent = pad(cur + 1) + " / " + pad(STATES.length);
+  el.prev.disabled = cur === 0;
+  el.first.disabled = cur === 0;
+  el.next.disabled = cur === STATES.length - 1;
+  el.last.disabled = cur === STATES.length - 1;
+}
+
+function go(i, skipHash){
+  cur = Math.max(0, Math.min(STATES.length - 1, i));
+  render();
+  if (!skipHash) {
+    try { history.replaceState(null, "", "#" + STATES[cur].id); }
+    catch (err) { location.hash = STATES[cur].id; }
+  }
+}
+
+var PLAYKEY = "mag-demo-play:" + location.pathname.split("/").pop();
+function save(v){ try { localStorage.setItem(PLAYKEY, v ? "1" : "0"); } catch (err) { /* storage unavailable */ } }
+function load(){ try { return localStorage.getItem(PLAYKEY) === "1"; } catch (err) { return false; } }
+
+function start(){
+  if (playing) { return; }
+  playing = true;
+  el.play.setAttribute("aria-pressed", "true");
+  el.play.innerHTML = "&#9646;&#9646; Pause";
+  save(true);
+  timer = setInterval(function(){
+    if (cur >= STATES.length - 1) { stop(); return; }
+    go(cur + 1);
+  }, 3600);
+}
+function stop(){
+  playing = false;
+  el.play.setAttribute("aria-pressed", "false");
+  el.play.innerHTML = "&#9654; Play";
+  save(false);
+  if (timer) { clearInterval(timer); timer = null; }
+}
+
+el.play.addEventListener("click", function(){ if (playing) { stop(); } else { start(); } });
+el.next.addEventListener("click", function(){ stop(); go(cur + 1); });
+el.prev.addEventListener("click", function(){ stop(); go(cur - 1); });
+el.first.addEventListener("click", function(){ stop(); go(0); });
+el.last.addEventListener("click", function(){ stop(); go(STATES.length - 1); });
+el.scrub.addEventListener("input", function(){ stop(); go(parseInt(el.scrub.value, 10) - 1); });
+window.addEventListener("hashchange", function(){
+  var i = indexOfHash();
+  if (i > -1 && i !== cur) { stop(); go(i, true); }
+});
+
+function indexOfHash(){
+  var h = location.hash.replace(/^#/, "");
+  for (var i = 0; i < STATES.length; i++) { if (STATES[i].id === h) { return i; } }
+  return -1;
+}
+
+var startAt = indexOfHash();
+go(startAt > -1 ? startAt : 0, startAt > -1);
+if (!reduced() && load() && cur < STATES.length - 1) { start(); }
+
+})();
+</script>
+</body>
+</html>

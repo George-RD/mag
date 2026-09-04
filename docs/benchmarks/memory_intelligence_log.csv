@@ -1,0 +1,2 @@
+date,commit,branch,embedder,dataset_version,dataset_sha256_12,schema_validity,overall_score,families_scored,families_selected,entities,temporal,relationships,lifecycle,supersession,grouping,provenance,questions,peak_rss_kb,notes
+2026-09-04,f977ee0,claude/mag-workflows-demos-dprysm,bge-small,v1,3260e0a00beb,100.0,61.1,8,8,7.4,75.0,66.7,100.0,50.0,0.0,100.0,90.0,91112,baseline after dataset determinism fix dataset=data/memory_intelligence_eval/v1

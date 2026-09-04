@@ -1,7 +1,7 @@
 {
   "mag.integrations.python:python": "0f67bdcbdbff1627",
-  "mag.quality.benchmarks:benches": "0467f3453b2d1d7e",
-  "mag.quality.benchmarks:src/benchmarking.rs": "0467f3453b2d1d7e",
+  "mag.quality.benchmarks:benches": "6b9e49816398b362",
+  "mag.quality.benchmarks:src/benchmarking.rs": "6b9e49816398b362",
   "mag.quality.scripts:scripts": "d5f1806f76c8654c",
   "mag.quality.tests:src/test_helpers.rs": "6ea51debc5c18391",
   "mag.quality.tests:tests": "6ea51debc5c18391",
