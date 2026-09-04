@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: welcome and welcome_scoped must stay in sync; separating them lets the token-budgeted variant drift
 //! Welcome and session-start context for the SQLite storage backend.
 //!
 //! Implements the `WelcomeProvider` trait, which assembles the greeting payload

@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: the six phases of store_internal share one rusqlite transaction and cannot be split across files without splitting the transaction
 use super::*;
 use crate::memory_core::storage::sqlite::pipeline::scoring::bump_token_cache_gen;
 use crate::memory_core::{EmbeddingInputKind, EmbeddingModel, REL_PRECEDED_BY};

@@ -12,23 +12,39 @@ this todo asked for is complete and recorded below. What remains is the
 node-level refactoring changes, which are deliberately not bundled with the
 classification.
 
-## Correction: there is no allow marker
+## The allow marker
 
-The original text said to "add an allow marker only with a durable cohesion
-reason". No such marker exists. Cairn 0.9.0 has no size finding and no
-size suppression:
+Cairn 0.9.0 emits `CAIRN_MODULE_OVERSIZED` at severity Warning for every claimed
+file over 500 lines. `cairn hook all` still exits 0, so this does not fail the
+architecture gate today; `cairn scan --strict` would.
 
-- `cairn.blueprint`'s grammar has no size field. Tags are inert
-  (`.claude/skills/cairn-dev/references/blueprint-syntax.md`).
-- No finding code in `.claude/skills/cairn-dev/references/finding-codes.md`
-  concerns file size.
-- `cairn.config.yaml` supports only `multi_target.intentional_asymmetry`
-  (suppresses CT001) and `exclude_paths` (suppresses orphaned-file findings).
-- `prek.toml` checks added-file byte size, not per-module line count.
+The marker is undocumented in
+`.claude/skills/cairn-dev/references/finding-codes.md`, which lists no
+size-related code. The binary's own remediation text gives the syntax: a
+`cairn:allow-large-module reason: ...` comment as the file's **first non-blank
+line**, in either comment form:
 
-Record "intentionally large, do not split" as an accepted decision artefact in
-`meta/decisions/` naming the file and the cohesion reason, reinforced by a
-sentence in the owning node's contract. Do not invent a tag.
+```rust
+// cairn:allow-large-module reason: <durable reason>
+```
+
+The reason must be durable — something that stays true as the file changes, not
+"this is fine for now". The reasons recorded below are written to that standard.
+
+Raise the missing documentation with `cairn feedback`.
+
+Markers are now in place on every file classified below as cohesive,
+generated-or-data-heavy, or test-or-bench-support, which takes the warning count
+from 30 to 7. The six mixed-responsibility files keep their warning on purpose:
+the warning is correct until they are split.
+
+Two cohesive files are deliberately left unmarked:
+`src/memory_core/scoring.rs` and `src/memory_core/storage/sqlite/search.rs`.
+Both match `BENCHMARK_RELEVANT_STEMS` in `scripts/retrieval_benchmark_gate.py`,
+so adding a one-line comment to either would make the change
+benchmark-governed and pull a full `./scripts/bench.sh --gate` run. Add their
+markers in the next change that legitimately touches them and runs the gate
+anyway. Their cohesion reasons are recorded below.
 
 ## Classification
 

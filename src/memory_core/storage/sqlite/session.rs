@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: four session-lifetime trait impls over the same session-scoped tables; one agent-session concern
 use super::*;
 use crate::memory_core::{CheckpointSaveOutcome, EmbeddingInputKind};
 

@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: the steps are one reversal transaction reporting a single UninstallSummary; splitting separates a transaction from its rollback report
 //! Comprehensive uninstall command for MAG.
 //!
 //! Removes tool configurations, downloaded models, the database, and

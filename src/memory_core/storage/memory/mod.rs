@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: one MemoryStorage type implementing thirteen storage traits as the reference parity backend; per-trait splitting is cosmetic
 //! In-memory HashMap-backed storage backend.
 //!
 //! A minimal, testing-oriented storage implementation that stores memories

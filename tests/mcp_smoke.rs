@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: integration test file
 mod mcp_support;
 
 use std::{fs, time::Duration};

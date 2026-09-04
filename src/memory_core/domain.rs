@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: EventType's hand-written Display, FromStr, Serialize and JsonSchema must agree; splitting fragments one serialization contract
 use std::fmt;
 use std::str::FromStr;
 

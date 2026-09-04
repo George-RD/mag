@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: mostly literal stopword and word-set tables; the executable surface is a handful of set lookups
 use std::collections::HashSet;
 use std::sync::LazyLock;
 

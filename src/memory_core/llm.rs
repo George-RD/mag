@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: one LlmBackend trait with its config, client and provider adapters; splitting per provider is premature until a third arrives
 //! Optional LLM backend for extraction, reflection, and E2E answer generation.
 //!
 //! Gated by the `llm` feature. When disabled, MAG falls back to rule-based

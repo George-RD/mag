@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: the declared canonical home of AiTool, DetectedTool, DetectionResult and MagConfigStatus; the bulk is per-tool path tables
 //! AI tool detection module.
 //!
 //! Discovers which AI coding tools are installed on the user's system by probing

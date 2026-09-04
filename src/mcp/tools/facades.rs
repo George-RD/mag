@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: the three unified facade tool bodies, which is the single responsibility docs/specs/module-decomposition.md assigns to this file
 use rmcp::{
     ErrorData as McpError,
     model::{CallToolResult, ContentBlock},

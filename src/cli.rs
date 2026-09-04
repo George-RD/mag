@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: one clap Subcommand enum the derive macro requires in a single place; the rest is parse_from assertions over that same enum
 use clap::{Args, Parser, Subcommand};
 
 /// CLI representation of the storage initialization mode.

@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: DDL and the migrations that repair it stay together so the additive-schema invariant is auditable in one place
 use super::*;
 use crate::app_paths;
 

@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: one MaintenanceManager impl whose size is its union-find dedup passes; already the product of an earlier decomposition
 //! Maintenance operations for the SQLite storage backend.
 //!
 //! Implements the `MaintenanceManager` trait, covering database health checks,

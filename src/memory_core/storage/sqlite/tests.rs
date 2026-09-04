@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: test module for the sqlite storage node
 use super::*;
 use crate::memory_core::{
     AdvancedSearcher, CheckpointInput, CheckpointManager, EventType, ExpirationSweeper,

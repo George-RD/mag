@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: integration test file
 //! Shared conformance test suite for storage backends.
 //!
 //! Runs identical assertions against both `SqliteStorage` (in-memory mode)

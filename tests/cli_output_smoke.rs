@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: integration test file
 use chrono::{Duration, Utc};
 use std::process::Command;
 
