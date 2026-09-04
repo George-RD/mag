@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: benchmark harness: synthetic corpus generators, recall probes and the latency table printer
 //! Scale degradation benchmark for MAG.
 //!
 //! Measures store throughput, search latency, and recall quality at increasing

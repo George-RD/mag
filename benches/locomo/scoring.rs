@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: benchmark-local answer matching: stopword set, stemmer and date-token tables
 use std::collections::HashSet;
 use std::sync::LazyLock;
 

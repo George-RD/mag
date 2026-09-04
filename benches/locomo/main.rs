@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: benchmark harness driver: dataset load, seed, query, score, report for one LoCoMo run
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

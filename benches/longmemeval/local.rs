@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: benchmark harness: dataset-shape deserialization structs and the local-run driver over them
 use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::sync::Arc;

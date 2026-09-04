@@ -1,3 +1,4 @@
+// cairn:allow-large-module reason: roughly 3100 lines of inline fixture data; the harness itself is under 200 lines
 //! Phase 2 benchmark: measure retrieval quality from LLM-extracted metadata.
 //!
 //! Fast, deterministic benchmark for autoresearch iteration.
