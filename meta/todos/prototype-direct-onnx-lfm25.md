@@ -1,11 +1,11 @@
 ---
-        node: mag.runtime.memory.models
-        status: blocked
-        created: 2026-07-28
-        ---
-        # Prototype Direct Onnx Lfm25
+node: mag.runtime.memory.models
+status: blocked
+created: 2026-07-28
+---
+# Prototype Direct Onnx Lfm25
 
-        Blocked until the 1.2B HTTP-local production baseline is measurable.
+Blocked until the 1.2B HTTP-local production baseline is measurable.
 
 Prototype direct ONNX generation behind the same model-role boundary with a
 manifest, checksums, tokenizer/chat template, quantization, provider
