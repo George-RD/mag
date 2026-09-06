@@ -3,9 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::{ReembedOptions, SqliteStorage};
-use mag::memory_core::{
-    EmbeddingInputKind, EmbeddingModel, MemoryInput, MemoryUpdate,
-};
+use mag::memory_core::{EmbeddingInputKind, EmbeddingModel, MemoryInput, MemoryUpdate};
 use rusqlite::Connection;
 use tempfile::tempdir;
 
@@ -36,7 +34,7 @@ impl EmbeddingModel for FixedEmbeddingModel {
     fn embed_for(&self, _input: EmbeddingInputKind, text: &str) -> Result<Vec<f32>> {
         let mut embedding = vec![0.0; self.dimension];
         if let Some(first) = embedding.first_mut() {
-            *first = text.len() as f32;
+            *first = text.as_bytes().first().map_or(0.0, |byte| f32::from(*byte));
         }
         Ok(embedding)
     }
@@ -58,10 +56,8 @@ async fn runtime_opened_before_reembed_cannot_write_after_same_dimension_migrati
     let source: Arc<dyn EmbeddingModel> = Arc::new(FixedEmbeddingModel::new("space-a", 4));
     let target: Arc<dyn EmbeddingModel> = Arc::new(FixedEmbeddingModel::new("space-b", 4));
 
-    let stale_storage = SqliteStorage::new_with_path_and_embedding_model(
-        path.clone(),
-        Arc::clone(&source),
-    )?;
+    let stale_storage =
+        SqliteStorage::new_with_path_and_embedding_model(path.clone(), Arc::clone(&source))?;
     let stale_runtime = LocalMemoryRuntime::from_storage(stale_storage);
     stale_runtime
         .store_raw("alpha", "alpha memory", &MemoryInput::default())
@@ -76,6 +72,16 @@ async fn runtime_opened_before_reembed_cannot_write_after_same_dimension_migrati
         },
     )
     .await?;
+
+    stale_runtime
+        .update(
+            "alpha",
+            &MemoryUpdate {
+                importance: Some(0.9),
+                ..MemoryUpdate::default()
+            },
+        )
+        .await?;
 
     let store_error = stale_runtime
         .store_raw("stale-store", "source-space store", &MemoryInput::default())

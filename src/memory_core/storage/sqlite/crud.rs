@@ -198,6 +198,9 @@ impl Updater for SqliteStorage {
 
             let tx = retry_on_lock(|| conn.unchecked_transaction())
                 .context("failed to start update transaction")?;
+            if content_fields.is_some() {
+                schema::verify_embedding_space_identity(&tx, embedder.embedding_space_identity())?;
+            }
 
             let changes = tx
                 .execute(&sql, params.as_slice())
@@ -437,6 +440,8 @@ impl SqliteStorage {
         input: &MemoryInput,
         precomputed_embedding: Option<Vec<f32>>,
     ) -> Result<(StoreOutcome, Vec<String>, Vec<String>)> {
+        schema::verify_embedding_space_identity(tx, embedder.embedding_space_identity())?;
+
         let tags_json =
             serde_json::to_string(&input.tags).context("failed to serialize tags to JSON")?;
         let metadata_json = serde_json::to_string(&input.metadata)
