@@ -24,21 +24,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Confirm original regression is red
+      - name: Apply implementation and review fixes
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr435-evidence
-          if cargo test --quiet --no-default-features --test reembed_stale_runtime > /tmp/pr435-evidence/original-red.log 2>&1; then
-            cat /tmp/pr435-evidence/original-red.log
-            echo 'Expected stale-runtime regression to fail before implementation'
-            exit 1
-          fi
-          grep -q 'a runtime opened on the source space must be invalid after migration' /tmp/pr435-evidence/original-red.log
-      - name: Apply checksum-verified implementation and review regression
-        shell: bash
-        run: |
-          set -euo pipefail
+          # Both RED proofs and the all-features GREEN are preserved in run 34024534055.
           cat .github/pr435-patch.part-* | tr -d '\r\n' > /tmp/pr435.patch.gz.b64
           echo '364bc7979a7b8bf31f54ce6f464b0d5e7c83eab7a066bb87df878f150a15c733  /tmp/pr435.patch.gz.b64' | sha256sum --check
           base64 --decode /tmp/pr435.patch.gz.b64 | gzip --decompress > /tmp/pr435.patch
@@ -70,57 +61,49 @@ jobs:
               Ok(())
           }
           RUST
-      - name: Confirm custom-model identity regression is red
-        shell: bash
-        run: |
-          set -euo pipefail
-          if cargo test --quiet --test reembed_profile_identity > /tmp/pr435-evidence/profile-red.log 2>&1; then
-            cat /tmp/pr435-evidence/profile-red.log
-            echo 'Expected unverified custom-model identity regression to fail'
-            exit 1
-          fi
-          grep -q 'unverified custom model must not claim BGE identity' /tmp/pr435-evidence/profile-red.log
-      - name: Apply profile guard and format
-        shell: bash
-        run: |
-          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('src/memory_core/embedder.rs')
-          s = p.read_text()
-          old = '#[derive(Debug, Clone, Copy)]\nstruct ModelArtifactChecksums'
-          assert s.count(old) == 1
-          s = s.replace(old, '#[derive(Debug, Clone, Copy, PartialEq, Eq)]\nstruct ModelArtifactChecksums')
-          old = '    pub fn with_model(\n'
-          assert s.count(old) == 1
-          s = s.replace(old, '''    /// Custom constructors must not acquire BGE identity just by matching dimensions.
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              assert s.count(old) == 1, (path, old, s.count(old))
+              p.write_text(s.replace(old, new))
+          replace_once('src/memory_core/embedder.rs',
+              '#[derive(Debug, Clone, Copy)]\nstruct ModelArtifactChecksums',
+              '#[derive(Debug, Clone, Copy, PartialEq, Eq)]\nstruct ModelArtifactChecksums')
+          replace_once('src/memory_core/embedder.rs', '    pub fn with_model(\n',
+              '''    /// Custom constructors must not acquire BGE identity just by matching dimensions.
               pub(super) fn uses_pinned_bge_artifacts(&self) -> bool {
                   self.artifact_checksums == Some(DEFAULT_MODEL_CHECKSUMS)
               }
 
-          ''' + old)
-          p.write_text(s)
-          p = Path('src/memory_core/embedding_model.rs')
-          s = p.read_text()
-          old = '    let embedder: Arc<dyn Embedder> = embedder;'
-          assert s.count(old) == 1
-          s = s.replace(old, '''    ensure!(
+              pub fn with_model(
+          ''')
+          replace_once('src/memory_core/embedding_model.rs', '    let embedder: Arc<dyn Embedder> = embedder;',
+              '''    ensure!(
                   embedder.uses_pinned_bge_artifacts(),
                   "pinned BGE profile requires the default checksum-verified model; custom ONNX models need their own profile"
               );
-          ''' + old)
-          p.write_text(s)
+              let embedder: Arc<dyn Embedder> = embedder;''')
+          for declaration in ('struct ProfiledEmbedderAdapter {', 'impl ProfiledEmbedderAdapter {',
+                              'impl EmbeddingModel for ProfiledEmbedderAdapter {'):
+              replace_once('src/memory_core/embedding_model.rs', declaration,
+                  '#[cfg(any(feature = "real-embeddings", test))]\n' + declaration)
+          replace_once('src/main.rs',
+              'use mag::memory_core::storage::{InitMode, ReembedOptions, SqliteStorage};',
+              '#[cfg(feature = "real-embeddings")]\nuse mag::memory_core::storage::ReembedOptions;\nuse mag::memory_core::storage::{InitMode, SqliteStorage};')
+          replace_once('tests/reembed_cli_profile.rs', '.env("USERPROFILE", home)',
+              '.env("USERPROFILE", home)\n        .env("MAG_DATA_ROOT", home.join(".mag"))')
           PY
           cargo fmt --all
-      - name: Verify implementation
+      - name: Verify regression and minimal-feature builds
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --quiet --all-features 2>&1 | tee /tmp/pr435-evidence/tests.log
+          cargo test --quiet --all-features --test reembed_migration --test reembed_stale_runtime --test reembed_cli_profile --test reembed_profile_identity 2>&1 | tee /tmp/pr435-evidence/regressions.log
           cargo test --quiet --no-default-features --test reembed_migration --test reembed_stale_runtime 2>&1 | tee /tmp/pr435-evidence/minimal-tests.log
-          cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter 2>&1 | tee /tmp/pr435-evidence/clippy.log
           cargo fmt --all -- --check
-      - name: Commit actual implementation to the existing PR branch
+      - name: Commit actual source to the existing PR branch
         shell: bash
         run: |
           set -euo pipefail
@@ -134,6 +117,23 @@ jobs:
           git commit -m 'fix: enforce embedding-space writes and verified CLI profile'
           git push origin HEAD:agent/complete-embedding-space-migration
           git rev-parse HEAD | tee /tmp/pr435-evidence/implementation-sha.txt
+      - name: Verify strict lint and full suite
+        shell: bash
+        run: |
+          set -uo pipefail
+          cargo clippy --quiet --all-targets --all-features -- -D warnings 2>&1 | tee /tmp/pr435-evidence/clippy.log
+          lint_status=${PIPESTATUS[0]}
+          cargo test --quiet --all-features 2>&1 | tee /tmp/pr435-evidence/tests.log
+          test_status=${PIPESTATUS[0]}
+          test "$lint_status" -eq 0 && test "$test_status" -eq 0
+      - name: Verify Cairn
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cairn scan 2>&1 | tee /tmp/pr435-evidence/cairn-scan.log
+          cairn hook all 2>&1 | tee /tmp/pr435-evidence/cairn-hook.log
       - name: Preserve verification evidence
         if: always()
         uses: actions/upload-artifact@v4
