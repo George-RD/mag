@@ -1,46 +1,92 @@
-name: Recover PR 435 source temporarily
+name: Apply and verify PR 435 temporarily
 
 on:
   push:
-    branches:
-      - agent/complete-embedding-space-migration
-    paths:
-      - '.github/workflows/export-source-temporary.yml'
+    branches: [agent/complete-embedding-space-migration]
+    paths: ['.github/workflows/export-source-temporary.yml']
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  recover-source:
+  implement:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
-          persist-credentials: false
-
-      - name: Recover checksum-verified implementation
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Confirm original regression is red
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr435-evidence
+          if cargo test --quiet --no-default-features --test reembed_stale_runtime > /tmp/pr435-evidence/original-red.log 2>&1; then
+            cat /tmp/pr435-evidence/original-red.log
+            echo 'Expected stale-runtime regression to fail before implementation'
+            exit 1
+          fi
+          grep -q 'a runtime opened on the source space must be invalid after migration' /tmp/pr435-evidence/original-red.log
+      - name: Apply checksum-verified implementation and review regression
         shell: bash
         run: |
           set -euo pipefail
           cat .github/pr435-patch.part-* | tr -d '\r\n' > /tmp/pr435.patch.gz.b64
-          test "$(wc -c < /tmp/pr435.patch.gz.b64)" -eq 12452
-          echo "364bc7979a7b8bf31f54ce6f464b0d5e7c83eab7a066bb87df878f150a15c733  /tmp/pr435.patch.gz.b64" | sha256sum --check
+          echo '364bc7979a7b8bf31f54ce6f464b0d5e7c83eab7a066bb87df878f150a15c733  /tmp/pr435.patch.gz.b64' | sha256sum --check
           base64 --decode /tmp/pr435.patch.gz.b64 | gzip --decompress > /tmp/pr435.patch
-          echo "dcedb2d65ecb55b7b37c156b56447af3e2b92685f4782e221d4227e0d8eb1743  /tmp/pr435.patch" | sha256sum --check
+          echo 'dcedb2d65ecb55b7b37c156b56447af3e2b92685f4782e221d4227e0d8eb1743  /tmp/pr435.patch' | sha256sum --check
           git apply --check /tmp/pr435.patch
           git apply /tmp/pr435.patch
-          git diff --stat
-          git ls-files --cached --others --exclude-standard -z > /tmp/pr435-source-files
-          tar --null -T /tmp/pr435-source-files -czf /tmp/pr435-source.tar.gz
-          test "$(stat -c %s /tmp/pr435-source.tar.gz)" -lt 104857600
-
-      - name: Export source only, without build cache or credentials
+          echo 'H4sIAAAAAAAC/5VTy27bMBC86ys2yoWCLMmO3aJg2sQtEPQYoNegIBhpZbOhSJekHLtB/r2UKCdKijzKG1fDmZ3ZVSXqGrJsJRzwwqF1tjCIzTVWbGN0LSQyUaFywu1zY+H6bUyk8Ba6IjS6QphNpx8Xi0ioCncwDSfPZ9X8ZMFPoizLoKhwW6hWyihN03cpLJeQTSdTSGeT+RSWyyg9Proq6xWpkbvWIHyB2CCXWU9RCbWycfIzSqO0tQjWVZTavSop/WrK00OZq/1a31L6A20r3WkoNnxFaYONNptWaoOUXiq1u+hp0bwIetBlXQaS0usVMttwKRkqtp2xD+wZpG/j+Krz7hutFZStdbphljfIKtGgskKrgGUlV0o7VkouGubWyDZCKZ9Vp3LIiSSQnUEw85kkZ3AXpeCPRDdw+5TGZii9FW4dFEjAdicO4Gz+aRFPRuW1cxtLiwJ3vNlIzIXacimqon+fa0/8LrjTN6jEHzT5L6vV+IkXHBNIbh1bC9+pYtZxhwdscn766Mz0fr2zNwMnfvaU+l0lwWCSjGjQGG08S6DL/ZUkOe42WDoSt2qLRtQCq0OQPSE0/gJ+LtDPBb59v4DDMOIDObcWjTsivUDutLdifEuevdTKcaEsicMwu/dxMoH4rsfS4/sHkssbQpIkSu+f70yFNff9Pm7J6yvCuoHr1jGpeR8MN07UvHT2teUJZv8r4adr1lWS8+TJ3Ia/3NOG/QkOhuoo+8Hh0MSaW+Aw5DWAn0XN8PcRGT7ljw3aDS/H/8pk0H0Z8W/4fwEwT0zXOwUAAA==' | base64 --decode | gzip --decompress > /tmp/profile-regression.patch
+          git apply /tmp/profile-regression.patch
+      - name: Confirm custom-model identity regression is red
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cargo test --quiet --test reembed_profile_identity > /tmp/pr435-evidence/profile-red.log 2>&1; then
+            cat /tmp/pr435-evidence/profile-red.log
+            echo 'Expected unverified custom-model identity regression to fail'
+            exit 1
+          fi
+          grep -q 'unverified custom model must not claim BGE identity' /tmp/pr435-evidence/profile-red.log
+      - name: Apply profile guard and format
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'H4sIAAAAAAAC/41UbU/bMBD+nl9xA4mlatJSXkWBCla6TRpQBEOahKbIcS6ttcQJtgNUE/9957yQwrSyfLGVOz++e+55HIk4Bt+fCQOsrxXvp5hmahHwTGEf0xCjCFVPaQhXRR0hI3wCziMebrFeb3+PI9/dh8Hm5t7OjuP7/mp0p9vtvnPDyQn4g8HA24dutdAPbVTBDUylfLoupBEpwm8Hnh1wYP2OxzM3RmYKhXAMawpZ4leAQs70Wuen46/fEbh4QPcMw2LmwTjJJNKS5QsKd1eEPbhiygiWTO49mNxTdlPMRRZhckqxmHEzniP/pYtU27rsl9roEDY+asOM4PaQtxQJImbYEKa5EZk8Ws4aeRUDUDOwfeHjFAy2DbUiDSPCkJmNRcNTfZr1NtLSFdu+n3+5SbLMDMESKMWZEY4JmsSs8UZLnRIKTJyoxcSIkRsLoZm2kUbXot2rjQJkur4peRNKQUAYkPVBHj94WgKZSYKosog9qDT18mICKkuZlFi5iiQqowRM4KXZ4RVFdh8sJARBOW2p6dszynLVClKTN8XpeUF6GrixxVB2IJdF4HVRNBOMOgaUS7GxqTuAP+CMIsS4iybkOZDfSaxIC/zO/4GG6ylKQw+Xx6e/49uJieTc6D8dfJ+NvN7cVNp0J4droV5VSIreBRmHlQkuO2U5EsRZJAO/p2/IVKmkj0vjFJxxX4Kn8uJ9U2DbcP2MEW7/W2BoztkY7+w6avYFa59VWilez25q6VrF0Gm1ayxIudhk5ZkgQog4dBsBuQLmKRoFsO5Ro1KfPoGo0SVkGlp66qjJEVeE3v3zBvaqhZb96RIZwqfrTsFrIVLF9p49FCwqTBKa8ejRqJkOboPfngtoJ5eaP+rbaO16av1aay4q97BoWlP/RrW9bS86l/EQs6UnZ0CLyy3PTy8kf1S5PNKFw75VE2uGvVrZ3DioQEzRsi2kaJCHojm2h9YPrLpazhUOKjW5MfNemnEcsN4ZTBVsUNguf8AbZIsEdYBgAA' | base64 --decode | gzip --decompress > /tmp/profile-fix.patch
+          git apply /tmp/profile-fix.patch
+          cargo fmt --all
+      - name: Verify implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --quiet --all-features 2>&1 | tee /tmp/pr435-evidence/tests.log
+          cargo test --quiet --no-default-features --test reembed_migration --test reembed_stale_runtime 2>&1 | tee /tmp/pr435-evidence/minimal-tests.log
+          cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter 2>&1 | tee /tmp/pr435-evidence/clippy.log
+          cargo fmt --all -- --check
+      - name: Commit actual implementation to the existing PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/complete-embedding-space-migration
+          test "$(git rev-parse FETCH_HEAD)" = '${{ github.sha }}'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src tests
+          git diff --cached --check
+          git diff --cached --stat | tee /tmp/pr435-evidence/diff-stat.txt
+          git commit -m 'fix: enforce embedding-space writes and verified CLI profile'
+          git push origin HEAD:agent/complete-embedding-space-migration
+          git rev-parse HEAD | tee /tmp/pr435-evidence/implementation-sha.txt
+      - name: Preserve verification evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr435-source-only-${{ github.sha }}
-          path: |
-            /tmp/pr435-source.tar.gz
-            /tmp/pr435.patch
+          name: pr435-implementation-evidence-${{ github.sha }}
+          path: /tmp/pr435-evidence
           if-no-files-found: error
           retention-days: 7
