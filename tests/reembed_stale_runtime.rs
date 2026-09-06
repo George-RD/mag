@@ -31,10 +31,12 @@ impl EmbeddingModel for FixedEmbeddingModel {
         self.identity
     }
 
-    fn embed_for(&self, _input: EmbeddingInputKind, text: &str) -> Result<Vec<f32>> {
+    fn embed_for(&self, _input: EmbeddingInputKind, _text: &str) -> Result<Vec<f32>> {
+        // Identical, normalized vectors make identity (not vector shape or value)
+        // the only distinction between these two model spaces.
         let mut embedding = vec![0.0; self.dimension];
         if let Some(first) = embedding.first_mut() {
-            *first = text.as_bytes().first().map_or(0.0, |byte| f32::from(*byte));
+            *first = 1.0;
         }
         Ok(embedding)
     }

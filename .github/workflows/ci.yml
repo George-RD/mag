@@ -22,8 +22,7 @@ jobs:
       - name: Rustfmt
         run: cargo fmt --all -- --check
       - name: Clippy
-        # Rust 1.97 added manual_filter; existing crud code is unrelated to this PR.
-        run: cargo clippy --quiet --all-targets --all-features -- -D warnings -A clippy::manual_filter
+        run: cargo clippy --quiet --all-targets --all-features -- -D warnings
 
   test:
     name: Test
@@ -34,8 +33,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run Tests
         run: cargo test --quiet --all-features
-      - name: Test migration without sqlite-vec
-        run: cargo test --quiet --no-default-features --test reembed_migration reembed_refuses_existing_vector_index_without_sqlite_vec_support
+      - name: Test migration and stale writes without sqlite-vec
+        run: cargo test --quiet --no-default-features --test reembed_migration --test reembed_stale_runtime
 
   version-check:
     name: Version Consistency
