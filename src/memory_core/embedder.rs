@@ -1,5 +1,8 @@
 #[cfg(feature = "real-embeddings")]
-use std::path::{Path, PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 #[cfg(feature = "real-embeddings")]
@@ -61,11 +64,19 @@ pub(crate) fn normalize_embedding(vec: &mut [f32]) {
 #[cfg(feature = "real-embeddings")]
 const MODEL_NAME: &str = "bge-small-en-v1.5-int8";
 #[cfg(feature = "real-embeddings")]
-const MODEL_URL: &str =
-    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model_int8.onnx";
+pub(super) const BGE_SMALL_EN_V1_5_MODEL_ID: &str = "Xenova/bge-small-en-v1.5";
 #[cfg(feature = "real-embeddings")]
-const TOKENIZER_URL: &str =
-    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/tokenizer.json";
+pub(super) const BGE_SMALL_EN_V1_5_REVISION: &str = "ea104dacec62c0de699686887e3f920caeb4f3e3";
+#[cfg(feature = "real-embeddings")]
+pub(super) const BGE_SMALL_EN_V1_5_MODEL_SHA256: &str =
+    "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197";
+#[cfg(feature = "real-embeddings")]
+pub(super) const BGE_SMALL_EN_V1_5_TOKENIZER_SHA256: &str =
+    "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66";
+#[cfg(feature = "real-embeddings")]
+const MODEL_URL: &str = "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/onnx/model_int8.onnx";
+#[cfg(feature = "real-embeddings")]
+const TOKENIZER_URL: &str = "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/tokenizer.json";
 
 #[cfg(feature = "real-embeddings")]
 const EMBEDDING_CACHE_CAPACITY: std::num::NonZeroUsize = std::num::NonZeroUsize::new(2048).unwrap();
@@ -83,6 +94,7 @@ pub struct OnnxEmbedder {
     dimension: usize,
     output_tensor_name: String,
     use_token_type_ids: bool,
+    artifact_checksums: Option<ModelArtifactChecksums>,
     runtime: std::sync::Mutex<Option<OnnxRuntime>>,
     last_used: std::sync::atomic::AtomicU64,
     cache: std::sync::Mutex<lru::LruCache<[u8; 32], Vec<f32>>>,
@@ -96,6 +108,21 @@ struct OnnxRuntime {
 }
 
 #[cfg(feature = "real-embeddings")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ModelArtifactChecksums {
+    model: &'static str,
+    model_data: Option<&'static str>,
+    tokenizer: &'static str,
+}
+
+#[cfg(feature = "real-embeddings")]
+const DEFAULT_MODEL_CHECKSUMS: ModelArtifactChecksums = ModelArtifactChecksums {
+    model: BGE_SMALL_EN_V1_5_MODEL_SHA256,
+    model_data: None,
+    tokenizer: BGE_SMALL_EN_V1_5_TOKENIZER_SHA256,
+};
+
+#[cfg(feature = "real-embeddings")]
 #[derive(Debug, Clone)]
 struct ModelFiles {
     directory: PathBuf,
@@ -107,13 +134,21 @@ struct ModelFiles {
 #[cfg(feature = "real-embeddings")]
 impl OnnxEmbedder {
     pub fn new() -> Result<Self> {
-        Self::with_model(
+        Self::build(
             MODEL_NAME,
             MODEL_URL,
+            None,
             TOKENIZER_URL,
             384,
             "last_hidden_state",
+            true,
+            Some(DEFAULT_MODEL_CHECKSUMS),
         )
+    }
+
+    /// Custom constructors must not acquire BGE identity just by matching dimensions.
+    pub(super) fn uses_pinned_bge_artifacts(&self) -> bool {
+        self.artifact_checksums == Some(DEFAULT_MODEL_CHECKSUMS)
     }
 
     pub fn with_model(
@@ -143,6 +178,29 @@ impl OnnxEmbedder {
         output_tensor_name: &str,
         use_token_type_ids: bool,
     ) -> Result<Self> {
+        Self::build(
+            name,
+            model_url,
+            model_data_url,
+            tokenizer_url,
+            dimension,
+            output_tensor_name,
+            use_token_type_ids,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        name: &str,
+        model_url: &str,
+        model_data_url: Option<&str>,
+        tokenizer_url: &str,
+        dimension: usize,
+        output_tensor_name: &str,
+        use_token_type_ids: bool,
+        artifact_checksums: Option<ModelArtifactChecksums>,
+    ) -> Result<Self> {
         let model_dir = app_paths::resolve_app_paths()?.model_root.join(name);
         Ok(Self {
             model_dir,
@@ -152,6 +210,7 @@ impl OnnxEmbedder {
             dimension,
             output_tensor_name: output_tensor_name.to_string(),
             use_token_type_ids,
+            artifact_checksums,
             runtime: std::sync::Mutex::new(None),
             last_used: std::sync::atomic::AtomicU64::new(0),
             cache: std::sync::Mutex::new(lru::LruCache::new(EMBEDDING_CACHE_CAPACITY)),
@@ -236,6 +295,7 @@ impl OnnxEmbedder {
             &self.model_url,
             self.model_data_url.as_deref(),
             &self.tokenizer_url,
+            self.artifact_checksums,
         )?;
         // Force CPU-only execution (skip CoreML/Metal which leak memory on
         // long-running macOS processes) and disable the CPU memory arena to
@@ -690,7 +750,14 @@ impl Embedder for OnnxEmbedder {
 #[cfg(feature = "real-embeddings")]
 pub async fn download_bge_small_model() -> Result<PathBuf> {
     let model_dir = default_model_dir()?;
-    let files = ensure_model_files_async(model_dir, MODEL_URL, None, TOKENIZER_URL).await?;
+    let files = ensure_model_files_async(
+        model_dir,
+        MODEL_URL,
+        None,
+        TOKENIZER_URL,
+        Some(DEFAULT_MODEL_CHECKSUMS),
+    )
+    .await?;
     Ok(files.directory)
 }
 
@@ -710,8 +777,9 @@ fn ensure_model_files_blocking(
     model_url: &str,
     model_data_url: Option<&str>,
     tokenizer_url: &str,
+    artifact_checksums: Option<ModelArtifactChecksums>,
 ) -> Result<ModelFiles> {
-    if model_files_exist(&model_dir, model_data_url) {
+    if artifact_checksums.is_none() && model_files_exist(&model_dir, model_data_url) {
         return Ok(model_files_for_dir(model_dir, model_data_url));
     }
 
@@ -729,6 +797,7 @@ fn ensure_model_files_blocking(
         model_url,
         model_data_url_owned.as_deref(),
         tokenizer_url,
+        artifact_checksums,
     ))
 }
 
@@ -738,12 +807,9 @@ async fn ensure_model_files_async(
     model_url: &str,
     model_data_url: Option<&str>,
     tokenizer_url: &str,
+    artifact_checksums: Option<ModelArtifactChecksums>,
 ) -> Result<ModelFiles> {
     let files = model_files_for_dir(model_dir, model_data_url);
-    if model_files_exist(&files.directory, model_data_url) {
-        return Ok(files);
-    }
-
     tokio::fs::create_dir_all(&files.directory)
         .await
         .with_context(|| {
@@ -753,27 +819,105 @@ async fn ensure_model_files_async(
             )
         })?;
 
-    if !tokio::fs::try_exists(&files.model_path)
-        .await
-        .context("failed to check model.onnx path")?
-    {
-        download_file(model_url, &files.model_path).await?;
-    }
-    if let (Some(data_url), Some(data_path)) = (model_data_url, &files.model_data_path)
-        && !tokio::fs::try_exists(data_path)
-            .await
-            .context("failed to check model data path")?
-    {
-        download_file(data_url, data_path).await?;
-    }
-    if !tokio::fs::try_exists(&files.tokenizer_path)
-        .await
-        .context("failed to check tokenizer.json path")?
-    {
-        download_file(tokenizer_url, &files.tokenizer_path).await?;
+    ensure_model_artifact(
+        model_url,
+        &files.model_path,
+        artifact_checksums.map(|checksums| checksums.model),
+    )
+    .await?;
+
+    if let (Some(data_url), Some(data_path)) = (model_data_url, &files.model_data_path) {
+        let expected_checksum = artifact_checksums
+            .map(|checksums| {
+                checksums.model_data.ok_or_else(|| {
+                    anyhow!("pinned model data artifact is missing a SHA-256 checksum")
+                })
+            })
+            .transpose()?;
+        ensure_model_artifact(data_url, data_path, expected_checksum).await?;
     }
 
+    ensure_model_artifact(
+        tokenizer_url,
+        &files.tokenizer_path,
+        artifact_checksums.map(|checksums| checksums.tokenizer),
+    )
+    .await?;
+
     Ok(files)
+}
+
+#[cfg(feature = "real-embeddings")]
+async fn ensure_model_artifact(
+    url: &str,
+    path: &Path,
+    expected_sha256: Option<&str>,
+) -> Result<()> {
+    if tokio::fs::try_exists(path)
+        .await
+        .with_context(|| format!("failed to check model artifact {}", path.display()))?
+    {
+        let Some(expected_sha256) = expected_sha256 else {
+            return Ok(());
+        };
+        let actual_sha256 = sha256_file(path).await?;
+        if actual_sha256 == expected_sha256 {
+            return Ok(());
+        }
+
+        tracing::warn!(
+            path = %path.display(),
+            expected_sha256,
+            actual_sha256,
+            "cached model artifact checksum mismatch; downloading the pinned artifact again"
+        );
+        tokio::fs::remove_file(path).await.with_context(|| {
+            format!("failed to remove invalid model artifact {}", path.display())
+        })?;
+    }
+
+    download_file(url, path).await?;
+
+    if let Some(expected_sha256) = expected_sha256 {
+        let actual_sha256 = sha256_file(path).await?;
+        if actual_sha256 != expected_sha256 {
+            let _ = tokio::fs::remove_file(path).await;
+            return Err(anyhow!(
+                "model artifact checksum mismatch for {}: expected {expected_sha256}, got {actual_sha256}",
+                path.display()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "real-embeddings")]
+async fn sha256_file(path: &Path) -> Result<String> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || sha256_file_blocking(&path))
+        .await
+        .context("spawn_blocking join error while hashing model artifact")?
+}
+
+#[cfg(feature = "real-embeddings")]
+fn sha256_file_blocking(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)
+        .with_context(|| format!("failed to open model artifact {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("failed to read model artifact {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[cfg(feature = "real-embeddings")]
@@ -953,6 +1097,21 @@ mod tests {
         let first = embedder.embed_batch(&["a", "b"]).unwrap();
         let second = embedder.embed_batch(&["a", "b"]).unwrap();
         assert_eq!(first, second);
+    }
+
+    #[cfg(feature = "real-embeddings")]
+    #[test]
+    fn sha256_file_blocking_hashes_artifact_bytes() {
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        let path = dir.path().join("artifact.bin");
+        std::fs::write(&path, b"abc").expect("test artifact should be written");
+
+        let digest = sha256_file_blocking(&path).expect("artifact should be hashed");
+
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[cfg(feature = "real-embeddings")]

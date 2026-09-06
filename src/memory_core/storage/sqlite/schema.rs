@@ -39,6 +39,51 @@ const FTS5_TABLE_DDL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts US
     tokenize='porter unicode61'
 );";
 
+const EMBEDDING_SPACE_IDENTITY_KEY: &str = "embedding_space_identity";
+
+pub(super) fn read_embedding_space_identity(conn: &Connection) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM runtime_metadata WHERE key = ?1",
+        params![EMBEDDING_SPACE_IDENTITY_KEY],
+        |row| row.get(0),
+    )
+    .optional()
+    .context("failed to read persisted embedding-space identity")
+}
+
+pub(super) fn verify_embedding_space_identity(
+    conn: &Connection,
+    expected_embedding_space: &str,
+) -> Result<()> {
+    match read_embedding_space_identity(conn)? {
+        Some(existing) if existing == expected_embedding_space => Ok(()),
+        Some(existing) => Err(anyhow!(
+            "embedding space mismatch: database uses '{existing}' but configured model uses '{expected_embedding_space}'; run an explicit re-embedding migration before changing profiles"
+        )),
+        None => Err(anyhow!(
+            "embedding space mismatch: database has no persisted identity but configured model uses '{expected_embedding_space}'; open it with the current profile before writing vectors"
+        )),
+    }
+}
+
+pub(super) fn update_embedding_space_identity(
+    conn: &Connection,
+    embedding_space: &str,
+) -> Result<()> {
+    let updated = conn
+        .execute(
+            "UPDATE runtime_metadata SET value = ?1 WHERE key = ?2",
+            params![embedding_space, EMBEDDING_SPACE_IDENTITY_KEY],
+        )
+        .context("failed to persist embedding-space identity")?;
+    if updated != 1 {
+        return Err(anyhow!(
+            "expected exactly one embedding-space identity row, updated {updated}"
+        ));
+    }
+    Ok(())
+}
+
 fn ensure_embedding_space_identity(conn: &Connection, embedding_space: &str) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS runtime_metadata (
@@ -48,32 +93,13 @@ fn ensure_embedding_space_identity(conn: &Connection, embedding_space: &str) -> 
     )
     .context("failed to create runtime_metadata table")?;
 
-    let existing: Option<String> = conn
-        .query_row(
-            "SELECT value FROM runtime_metadata WHERE key = 'embedding_space_identity'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .context("failed to read persisted embedding-space identity")?;
+    conn.execute(
+        "INSERT OR IGNORE INTO runtime_metadata (key, value) VALUES (?1, ?2)",
+        params![EMBEDDING_SPACE_IDENTITY_KEY, embedding_space],
+    )
+    .context("failed to persist embedding-space identity")?;
 
-    match existing {
-        None => {
-            conn.execute(
-                "INSERT INTO runtime_metadata (key, value) VALUES ('embedding_space_identity', ?1)",
-                params![embedding_space],
-            )
-            .context("failed to persist embedding-space identity")?;
-        }
-        Some(existing) if existing == embedding_space => {}
-        Some(existing) => {
-            return Err(anyhow!(
-                "embedding space mismatch: database uses '{existing}' but configured model uses '{embedding_space}'; run an explicit re-embedding migration before changing profiles"
-            ));
-        }
-    }
-
-    Ok(())
+    verify_embedding_space_identity(conn, embedding_space)
 }
 
 /// Creates the SQLite schema and verifies that persisted vectors belong to the
