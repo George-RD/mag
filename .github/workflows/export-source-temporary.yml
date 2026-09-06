@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: pr435-implementation
+  cancel-in-progress: true
+
 jobs:
   implement:
     runs-on: ubuntu-latest
@@ -41,8 +45,31 @@ jobs:
           echo 'dcedb2d65ecb55b7b37c156b56447af3e2b92685f4782e221d4227e0d8eb1743  /tmp/pr435.patch' | sha256sum --check
           git apply --check /tmp/pr435.patch
           git apply /tmp/pr435.patch
-          echo 'H4sIAAAAAAAC/5VTy27bMBC86ys2yoWCLMmO3aJg2sQtEPQYoNegIBhpZbOhSJekHLtB/r2UKCdKijzKG1fDmZ3ZVSXqGrJsJRzwwqF1tjCIzTVWbGN0LSQyUaFywu1zY+H6bUyk8Ba6IjS6QphNpx8Xi0ioCncwDSfPZ9X8ZMFPoizLoKhwW6hWyihN03cpLJeQTSdTSGeT+RSWyyg9Proq6xWpkbvWIHyB2CCXWU9RCbWycfIzSqO0tQjWVZTavSop/WrK00OZq/1a31L6A20r3WkoNnxFaYONNptWaoOUXiq1u+hp0bwIetBlXQaS0usVMttwKRkqtp2xD+wZpG/j+Krz7hutFZStdbphljfIKtGgskKrgGUlV0o7VkouGubWyDZCKZ9Vp3LIiSSQnUEw85kkZ3AXpeCPRDdw+5TGZii9FW4dFEjAdicO4Gz+aRFPRuW1cxtLiwJ3vNlIzIXacimqon+fa0/8LrjTN6jEHzT5L6vV+IkXHBNIbh1bC9+pYtZxhwdscn766Mz0fr2zNwMnfvaU+l0lwWCSjGjQGG08S6DL/ZUkOe42WDoSt2qLRtQCq0OQPSE0/gJ+LtDPBb59v4DDMOIDObcWjTsivUDutLdifEuevdTKcaEsicMwu/dxMoH4rsfS4/sHkssbQpIkSu+f70yFNff9Pm7J6yvCuoHr1jGpeR8MN07UvHT2teUJZv8r4adr1lWS8+TJ3Ia/3NOG/QkOhuoo+8Hh0MSaW+Aw5DWAn0XN8PcRGT7ljw3aDS/H/8pk0H0Z8W/4fwEwT0zXOwUAAA==' | base64 --decode | gzip --decompress > /tmp/profile-regression.patch
-          git apply /tmp/profile-regression.patch
+          cat > tests/reembed_profile_identity.rs <<'RUST'
+          #![cfg(feature = "real-embeddings")]
+          use std::sync::Arc;
+          use anyhow::Result;
+          use mag::memory_core::OnnxEmbedder;
+          use mag::memory_core::embedding_model::bge_small_en_v1_5_embedding_model;
+          #[test]
+          fn custom_same_dimension_model_cannot_claim_the_pinned_bge_identity() -> Result<()> {
+              let custom = OnnxEmbedder::with_model(
+                  "custom-384", "https://example.invalid/model.onnx",
+                  "https://example.invalid/tokenizer.json", 384, "last_hidden_state",
+              )?;
+              let result = bge_small_en_v1_5_embedding_model(Arc::new(custom));
+              let error = result.err().expect("unverified custom model must not claim BGE identity");
+              assert!(error.to_string().contains("pinned BGE"), "{error:#}");
+              Ok(())
+          }
+          #[test]
+          fn default_model_can_claim_the_pinned_bge_identity_without_loading_artifacts() -> Result<()> {
+              let model = bge_small_en_v1_5_embedding_model(Arc::new(OnnxEmbedder::new()?))?;
+              let profile = model.model_profile().expect("default model has a pinned profile");
+              assert_eq!(profile.embedding_space_identity(), model.embedding_space_identity());
+              Ok(())
+          }
+          RUST
       - name: Confirm custom-model identity regression is red
         shell: bash
         run: |
@@ -57,8 +84,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo 'H4sIAAAAAAAC/41UbU/bMBD+nl9xA4mlatJSXkWBCla6TRpQBEOahKbIcS6ttcQJtgNUE/9957yQwrSyfLGVOz++e+55HIk4Bt+fCQOsrxXvp5hmahHwTGEf0xCjCFVPaQhXRR0hI3wCziMebrFeb3+PI9/dh8Hm5t7OjuP7/mp0p9vtvnPDyQn4g8HA24dutdAPbVTBDUylfLoupBEpwm8Hnh1wYP2OxzM3RmYKhXAMawpZ4leAQs70Wuen46/fEbh4QPcMw2LmwTjJJNKS5QsKd1eEPbhiygiWTO49mNxTdlPMRRZhckqxmHEzniP/pYtU27rsl9roEDY+asOM4PaQtxQJImbYEKa5EZk8Ws4aeRUDUDOwfeHjFAy2DbUiDSPCkJmNRcNTfZr1NtLSFdu+n3+5SbLMDMESKMWZEY4JmsSs8UZLnRIKTJyoxcSIkRsLoZm2kUbXot2rjQJkur4peRNKQUAYkPVBHj94WgKZSYKosog9qDT18mICKkuZlFi5iiQqowRM4KXZ4RVFdh8sJARBOW2p6dszynLVClKTN8XpeUF6GrixxVB2IJdF4HVRNBOMOgaUS7GxqTuAP+CMIsS4iybkOZDfSaxIC/zO/4GG6ylKQw+Xx6e/49uJieTc6D8dfJ+NvN7cVNp0J4droV5VSIreBRmHlQkuO2U5EsRZJAO/p2/IVKmkj0vjFJxxX4Kn8uJ9U2DbcP2MEW7/W2BoztkY7+w6avYFa59VWilez25q6VrF0Gm1ayxIudhk5ZkgQog4dBsBuQLmKRoFsO5Ro1KfPoGo0SVkGlp66qjJEVeE3v3zBvaqhZb96RIZwqfrTsFrIVLF9p49FCwqTBKa8ejRqJkOboPfngtoJ5eaP+rbaO16av1aay4q97BoWlP/RrW9bS86l/EQs6UnZ0CLyy3PTy8kf1S5PNKFw75VE2uGvVrZ3DioQEzRsi2kaJCHojm2h9YPrLpazhUOKjW5MfNemnEcsN4ZTBVsUNguf8AbZIsEdYBgAA' | base64 --decode | gzip --decompress > /tmp/profile-fix.patch
-          git apply /tmp/profile-fix.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/memory_core/embedder.rs')
+          s = p.read_text()
+          old = '#[derive(Debug, Clone, Copy)]\nstruct ModelArtifactChecksums'
+          assert s.count(old) == 1
+          s = s.replace(old, '#[derive(Debug, Clone, Copy, PartialEq, Eq)]\nstruct ModelArtifactChecksums')
+          old = '    pub fn with_model(\n'
+          assert s.count(old) == 1
+          s = s.replace(old, '''    /// Custom constructors must not acquire BGE identity just by matching dimensions.
+              pub(super) fn uses_pinned_bge_artifacts(&self) -> bool {
+                  self.artifact_checksums == Some(DEFAULT_MODEL_CHECKSUMS)
+              }
+
+          ''' + old)
+          p.write_text(s)
+          p = Path('src/memory_core/embedding_model.rs')
+          s = p.read_text()
+          old = '    let embedder: Arc<dyn Embedder> = embedder;'
+          assert s.count(old) == 1
+          s = s.replace(old, '''    ensure!(
+                  embedder.uses_pinned_bge_artifacts(),
+                  "pinned BGE profile requires the default checksum-verified model; custom ONNX models need their own profile"
+              );
+          ''' + old)
+          p.write_text(s)
+          PY
           cargo fmt --all
       - name: Verify implementation
         shell: bash
