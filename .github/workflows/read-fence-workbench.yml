@@ -6,37 +6,71 @@ on:
 permissions:
   contents: read
 jobs:
-  red:
+  green:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
-          persist-credentials: false
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Require assertion failures before implementation
-        shell: bash
+      - name: Apply reviewed implementation
         run: |
           set -euo pipefail
           mkdir -p /tmp/read-fence-evidence
+          python3 .github/read-fence-apply.py
+          cargo fmt --all
+          git diff --check
+      - name: Regression and engineering gates
+        shell: bash
+        run: |
+          set -euo pipefail
           for feature in fallback vec; do
             flags=()
             if [ "$feature" = vec ]; then flags=(--features sqlite-vec); fi
-            set +e
-            cargo test --no-default-features "${flags[@]}" --test reembed_stale_runtime -- --nocapture 2>&1 | tee "/tmp/read-fence-evidence/red-$feature.log"
-            status=${PIPESTATUS[0]}
-            set -e
-            test "$status" -ne 0
-            grep -q 'test result: FAILED. 1 passed; 4 failed' "/tmp/read-fence-evidence/red-$feature.log"
-            grep -q 'stale semantic reads must fail visibly' "/tmp/read-fence-evidence/red-$feature.log"
-            grep -q 'stale cached advanced reads must fail visibly' "/tmp/read-fence-evidence/red-$feature.log"
-            grep -q 'round-trip migration must not revive an old generation' "/tmp/read-fence-evidence/red-$feature.log"
-            grep -q 'migration racing a semantic read must fail visibly' "/tmp/read-fence-evidence/red-$feature.log"
+            cargo test --no-default-features "${flags[@]}" --test reembed_migration --test reembed_stale_runtime 2>&1 | tee "/tmp/read-fence-evidence/green-$feature.log"
+            cargo test --no-default-features "${flags[@]}" --lib embedding_snapshot 2>&1 | tee "/tmp/read-fence-evidence/snapshot-$feature.log"
+            cargo test --no-default-features "${flags[@]}" --lib generation_rejection 2>&1 | tee "/tmp/read-fence-evidence/cache-$feature.log"
           done
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee /tmp/read-fence-evidence/clippy.log
+          cargo test --all-features 2>&1 | tee /tmp/read-fence-evidence/all-features.log
+      - name: Retrieval benchmark gate
+        run: |
+          set -euo pipefail
+          ./scripts/bench.sh --gate 2>&1 | tee /tmp/read-fence-evidence/benchmark.log
+      - name: Architecture gates
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cairn feedback "cairn brief todo.implement-embedding-space-migration reported no matching todo, while cairn status and the owning bundle expose implement-embedding-space-migration; continued with the owning storage bundle."
+          cairn scan 2>&1 | tee /tmp/read-fence-evidence/cairn-scan.log
+          cairn hook all 2>&1 | tee /tmp/read-fence-evidence/cairn-hooks.log
+      - name: Publish verified source only
+        run: |
+          set -euo pipefail
+          git config user.name 'George'
+          git config user.email '180932462+George-RD@users.noreply.github.com'
+          git add src tests docs/re-embedding.md meta/todos/implement-embedding-space-migration.md
+          git commit -m 'fix: fence embedding reads and caches by migration generation'
+          git push origin HEAD:agent/embedding-space-read-fence
+          git rev-parse HEAD | tee /tmp/read-fence-evidence/verified-sha.txt
+          git archive HEAD | gzip > /tmp/read-fence-evidence/source.tar.gz
+      - name: Preserve worktree evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/read-fence-evidence
+          git diff --binary > /tmp/read-fence-evidence/worktree.patch
+          git status --short > /tmp/read-fence-evidence/worktree-status.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: read-fence-red
+          name: read-fence-green
           path: /tmp/read-fence-evidence/
           retention-days: 14
