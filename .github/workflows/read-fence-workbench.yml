@@ -1,0 +1,39 @@
+name: Read fence workbench
+on:
+  push:
+    branches: [agent/embedding-space-read-fence]
+    paths: [.github/workflows/read-fence-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Capture checkout and architecture context
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/read-fence-evidence
+          git archive HEAD | gzip > /tmp/read-fence-evidence/source.tar.gz
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+          {
+            git rev-parse HEAD
+            cairn context
+            cairn status
+            cairn next
+            cairn brief todo.implement-embedding-space-migration
+            cairn bundle mag.runtime.memory.storage.sqlite
+            cairn rationale mag.runtime.memory.storage.sqlite
+            git log -3 --oneline -- ROADMAP.md
+          } 2>&1 | tee /tmp/read-fence-evidence/context.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: read-fence-context
+          path: /tmp/read-fence-evidence/
+          retention-days: 7
