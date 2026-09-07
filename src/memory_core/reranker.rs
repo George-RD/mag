@@ -170,10 +170,14 @@ impl CrossEncoderReranker {
     fn init_runtime(&self) -> Result<CrossEncoderRuntime> {
         let files = ensure_cross_encoder_files_blocking(self.model_dir.clone())?;
         let cpu_ep = ort::ep::CPU::default().with_arena_allocator(false).build();
+        // Drop the non-Send/Sync recovery builder, not the typed ORT error.
         let session = ort::session::Session::builder()?
-            .with_execution_providers([cpu_ep])?
-            .with_intra_threads(num_cpus::get())?
-            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
+            .with_execution_providers([cpu_ep])
+            .map_err(ort::Error::<()>::from)?
+            .with_intra_threads(num_cpus::get())
+            .map_err(ort::Error::<()>::from)?
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
+            .map_err(ort::Error::<()>::from)?
             .commit_from_file(&files.model_path)
             .with_context(|| {
                 format!(

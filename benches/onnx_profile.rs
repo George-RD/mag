@@ -143,8 +143,10 @@ fn main() -> Result<()> {
     let t0 = Instant::now();
     // Match Python defaults: 0 threads (auto), ORT_ENABLE_ALL optimization
     let mut session = ort::session::Session::builder()?
-        .with_intra_threads(0)?
-        .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
+        .with_intra_threads(0)
+        .map_err(ort::Error::<()>::from)?
+        .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
+        .map_err(ort::Error::<()>::from)?
         .commit_from_file(&model_path)
         .context("failed to create ONNX session")?;
     let session_create_time = t0.elapsed();
