@@ -39,7 +39,7 @@ It deliberately does not claim completion of live read/cache invalidation.
   Normal CI uses strict Clippy and runs both minimal-feature migration targets;
   the Cairn job runs scan as well as the architecture hooks.
 
-## Reproducible evidence
+## Committed regressions and historical run evidence
 
 Run `34024534055`, artifact
 `pr435-implementation-evidence-41e2d5a8e7a8fef6ec18c553178f53c693040451`, contains
@@ -74,3 +74,45 @@ The operating procedure in `docs/re-embedding.md` therefore requires stopping
 all runtimes before migration and starting new ones afterward. The next slice
 belongs to the existing todo: stale semantic and cached-query regressions,
 snapshot/generation-safe reads, cache invalidation, and benchmark verification.
+
+
+## Review follow-up: 7 September 2026
+
+The cached pinned-artifact path created a nested Tokio runtime even when no
+network operation was needed. The regression
+`memory_core::embedder::artifact_regressions::cached_pinned_artifacts_work_inside_current_thread_runtime`
+failed on the pre-fix source with `Cannot start a runtime from within a runtime`.
+The verification run [review TDD and engineering gates](https://github.com/George-RD/mag/actions/runs/34102423945) applied only the
+tests first, required that specific runtime failure (not a build failure), and
+then applied the fix. Its source/staging head was `2b997a7d2063f201cc242b5e93f45d4253cc6a97`; this is patched-worktree
+evidence, not a claim that that head already contained the production fix.
+
+Verified caches are checked synchronously without creating a runtime. Cold or
+corrupt-cache downloads invoked through the synchronous compatibility API use a
+scoped worker when a Tokio handle is present. The worker owns and drops its
+runtime outside the caller's async context; plain synchronous callers keep the
+direct path. Production async entrypoints should continue using `spawn_blocking`.
+
+Fourteen committed, hermetic `artifact_regressions` tests cover cached loads in
+current-thread/multithread Tokio, plain sync and `spawn_blocking`; cold downloads
+in both Tokio flavors and plain sync; bad-cache replacement; post-download
+checksum rejection and removal; failed recovery; re-verification after model or
+tokenizer replacement; external-data checksums; and unpinned-cache compatibility.
+They use an independent loopback HTTP fixture, not production model downloads.
+Re-run with `cargo test --all-features --lib artifact_regressions`.
+
+CI now declares `permissions: contents: read`. The strict Clippy command remains
+unchanged: the alleged `manual_filter` blocker was already fixed in the changed
+CRUD code and the verified run passes without the allowance. The duplicate
+permission reviews describe the same fixed issue.
+
+The proposed directory-only checksum memo was not added: it would weaken the
+on-disk replacement check. Hashing occurs at session initialization/reload, not
+per query; no measured performance regression was supplied. The committed
+replacement regression protects this intentional correctness trade-off.
+
+Historical numeric run IDs above are GitHub Actions runs, not agent-session IDs.
+Their retained logs are supporting observations, not permanent reproducibility
+assets. The committed regressions, named commands, and final exact-head CI links
+in PR #435 are the repeatable evidence. No claim of independent slash-command
+review or completion of live read/cache safety is made.

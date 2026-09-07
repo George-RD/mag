@@ -58,6 +58,18 @@ and architecture results are linked from PR #435. The retained review is
 `meta/reviews/pr435-embedding-space-write-safety.md`; operating guidance is
 `docs/re-embedding.md`.
 
+## PR #435 review follow-up: 7 September 2026
+
+Fixed the pinned-cache nested Tokio runtime panic with synchronous cached-file
+verification and an isolated download runtime for synchronous calls from Tokio.
+Added fourteen hermetic artifact regressions for cached/cold runtime contexts,
+checksum recovery/rejection, replaced-file re-verification, and sidecar identity.
+Normal CI now grants read-only contents access. [Review TDD and engineering
+gates](https://github.com/George-RD/mag/actions/runs/34102423945) records RED before the fix and the ensuing focused/full gates.
+This run verifies a patched worktree; PR #435 separately records final exact-head
+CI after the temporary runner is removed. Existing read/cache work below remains
+in progress; this follow-up adds no todo or new public runtime surface.
+
 ## Remaining boundary in this same todo
 
 Keep this todo `in_progress` and issue #89 open. A runtime opened before another
