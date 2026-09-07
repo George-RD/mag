@@ -149,8 +149,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
-      - name: Run smoke test
-        run: bash scripts/smoke-test.sh
+      - name: Build and smoke-test the checked-out source
+        run: |
+          cargo build --release
+          bash scripts/smoke-test.sh
 
   npm-install-test:
     name: npm Install Test

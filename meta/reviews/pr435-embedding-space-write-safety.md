@@ -1,7 +1,7 @@
 ---
 node: mag.runtime.memory.storage.sqlite
 review_type: agent_introspective
-date: 2026-09-06
+date: 2026-09-07
 reviewer: ChatGPT
 ---
 # PR #435: write safety and pinned CLI composition
@@ -87,6 +87,15 @@ tests first, required that specific runtime failure (not a build failure), and
 then applied the fix. Its source/staging head was `2b997a7d2063f201cc242b5e93f45d4253cc6a97`; this is patched-worktree
 evidence, not a claim that that head already contained the production fix.
 
+The run passed all 14 artifact regressions, 7 migration regressions in each
+feature configuration, 1,014 all-feature Rust tests, strict Clippy, Rustfmt, a
+fresh release-build CLI/MCP smoke, and Cairn scan/hooks. The repository classifier
+returned `false`, so the retrieval benchmark itself was not run. The final push
+step failed because the runner token could not delete workflow files; no test or
+engineering gate failed. Its verified commit
+`e1a46d12b9fd9a89504ca5879b7c700ed846ee68` was recovered through the GitHub connector.
+Final cleaned-head CI remains a separate prerequisite, recorded in PR #435.
+
 Verified caches are checked synchronously without creating a runtime. Cold or
 corrupt-cache downloads invoked through the synchronous compatibility API use a
 scoped worker when a Tokio handle is present. The worker owns and drops its
@@ -102,9 +111,11 @@ They use an independent loopback HTTP fixture, not production model downloads.
 Re-run with `cargo test --all-features --lib artifact_regressions`.
 
 CI now declares `permissions: contents: read`. The strict Clippy command remains
-unchanged: the alleged `manual_filter` blocker was already fixed in the changed
-CRUD code and the verified run passes without the allowance. The duplicate
-permission reviews describe the same fixed issue.
+unchanged. The `manual_filter` failure was not reproducible on the reviewed head,
+and the verification run passes without the allowance. The duplicate permission
+reviews describe the same fixed issue. The ordinary smoke job explicitly builds
+the checked-out source before running the smoke script, so an old cached release
+binary cannot bypass rebuilding.
 
 The proposed directory-only checksum memo was not added: it would weaken the
 on-disk replacement check. Hashing occurs at session initialization/reload, not
