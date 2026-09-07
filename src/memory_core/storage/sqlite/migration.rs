@@ -83,14 +83,7 @@ fn reembed_path_sync(
     )
     .context("failed to configure re-embed sqlite connection")?;
 
-    let source_embedding_space: Option<String> = conn
-        .query_row(
-            "SELECT value FROM runtime_metadata WHERE key = 'embedding_space_identity'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .context("failed to read persisted embedding-space identity")?;
+    let source_embedding_space = schema::read_embedding_space_identity(&conn)?;
     let source_embedding_space = source_embedding_space.ok_or_else(|| {
         anyhow!(
             "database has no persisted embedding-space identity; open it with the current profile before migrating"
@@ -145,6 +138,7 @@ fn reembed_path_sync(
     conn.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
     let tx = retry_on_lock(|| conn.unchecked_transaction())
         .context("failed to begin re-embed transaction")?;
+    schema::verify_embedding_space_identity(&tx, &source_embedding_space)?;
     let backup_path = create_reembed_backup(path)?;
 
     #[cfg(feature = "sqlite-vec")]
@@ -220,17 +214,8 @@ fn reembed_path_sync(
         );
     }
 
-    let identity_rows = tx
-        .execute(
-            "UPDATE runtime_metadata SET value = ?1 WHERE key = 'embedding_space_identity'",
-            params![target_embedding_space],
-        )
+    schema::update_embedding_space_identity(&tx, &target_embedding_space)
         .context("failed to persist migrated embedding-space identity")?;
-    if identity_rows != 1 {
-        return Err(anyhow!(
-            "expected exactly one embedding-space identity row, updated {identity_rows}"
-        ));
-    }
 
     tx.commit()
         .context("failed to commit re-embed transaction")?;

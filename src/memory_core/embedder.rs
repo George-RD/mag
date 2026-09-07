@@ -1,5 +1,8 @@
 #[cfg(feature = "real-embeddings")]
-use std::path::{Path, PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 #[cfg(feature = "real-embeddings")]
@@ -61,11 +64,19 @@ pub(crate) fn normalize_embedding(vec: &mut [f32]) {
 #[cfg(feature = "real-embeddings")]
 const MODEL_NAME: &str = "bge-small-en-v1.5-int8";
 #[cfg(feature = "real-embeddings")]
-const MODEL_URL: &str =
-    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model_int8.onnx";
+pub(super) const BGE_SMALL_EN_V1_5_MODEL_ID: &str = "Xenova/bge-small-en-v1.5";
 #[cfg(feature = "real-embeddings")]
-const TOKENIZER_URL: &str =
-    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/tokenizer.json";
+pub(super) const BGE_SMALL_EN_V1_5_REVISION: &str = "ea104dacec62c0de699686887e3f920caeb4f3e3";
+#[cfg(feature = "real-embeddings")]
+pub(super) const BGE_SMALL_EN_V1_5_MODEL_SHA256: &str =
+    "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197";
+#[cfg(feature = "real-embeddings")]
+pub(super) const BGE_SMALL_EN_V1_5_TOKENIZER_SHA256: &str =
+    "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66";
+#[cfg(feature = "real-embeddings")]
+const MODEL_URL: &str = "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/onnx/model_int8.onnx";
+#[cfg(feature = "real-embeddings")]
+const TOKENIZER_URL: &str = "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/tokenizer.json";
 
 #[cfg(feature = "real-embeddings")]
 const EMBEDDING_CACHE_CAPACITY: std::num::NonZeroUsize = std::num::NonZeroUsize::new(2048).unwrap();
@@ -83,6 +94,7 @@ pub struct OnnxEmbedder {
     dimension: usize,
     output_tensor_name: String,
     use_token_type_ids: bool,
+    artifact_checksums: Option<ModelArtifactChecksums>,
     runtime: std::sync::Mutex<Option<OnnxRuntime>>,
     last_used: std::sync::atomic::AtomicU64,
     cache: std::sync::Mutex<lru::LruCache<[u8; 32], Vec<f32>>>,
@@ -96,6 +108,21 @@ struct OnnxRuntime {
 }
 
 #[cfg(feature = "real-embeddings")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ModelArtifactChecksums {
+    model: &'static str,
+    model_data: Option<&'static str>,
+    tokenizer: &'static str,
+}
+
+#[cfg(feature = "real-embeddings")]
+const DEFAULT_MODEL_CHECKSUMS: ModelArtifactChecksums = ModelArtifactChecksums {
+    model: BGE_SMALL_EN_V1_5_MODEL_SHA256,
+    model_data: None,
+    tokenizer: BGE_SMALL_EN_V1_5_TOKENIZER_SHA256,
+};
+
+#[cfg(feature = "real-embeddings")]
 #[derive(Debug, Clone)]
 struct ModelFiles {
     directory: PathBuf,
@@ -107,13 +134,21 @@ struct ModelFiles {
 #[cfg(feature = "real-embeddings")]
 impl OnnxEmbedder {
     pub fn new() -> Result<Self> {
-        Self::with_model(
+        Self::build(
             MODEL_NAME,
             MODEL_URL,
+            None,
             TOKENIZER_URL,
             384,
             "last_hidden_state",
+            true,
+            Some(DEFAULT_MODEL_CHECKSUMS),
         )
+    }
+
+    /// Custom constructors must not acquire BGE identity just by matching dimensions.
+    pub(super) fn uses_pinned_bge_artifacts(&self) -> bool {
+        self.artifact_checksums == Some(DEFAULT_MODEL_CHECKSUMS)
     }
 
     pub fn with_model(
@@ -143,6 +178,29 @@ impl OnnxEmbedder {
         output_tensor_name: &str,
         use_token_type_ids: bool,
     ) -> Result<Self> {
+        Self::build(
+            name,
+            model_url,
+            model_data_url,
+            tokenizer_url,
+            dimension,
+            output_tensor_name,
+            use_token_type_ids,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        name: &str,
+        model_url: &str,
+        model_data_url: Option<&str>,
+        tokenizer_url: &str,
+        dimension: usize,
+        output_tensor_name: &str,
+        use_token_type_ids: bool,
+        artifact_checksums: Option<ModelArtifactChecksums>,
+    ) -> Result<Self> {
         let model_dir = app_paths::resolve_app_paths()?.model_root.join(name);
         Ok(Self {
             model_dir,
@@ -152,6 +210,7 @@ impl OnnxEmbedder {
             dimension,
             output_tensor_name: output_tensor_name.to_string(),
             use_token_type_ids,
+            artifact_checksums,
             runtime: std::sync::Mutex::new(None),
             last_used: std::sync::atomic::AtomicU64::new(0),
             cache: std::sync::Mutex::new(lru::LruCache::new(EMBEDDING_CACHE_CAPACITY)),
@@ -236,6 +295,7 @@ impl OnnxEmbedder {
             &self.model_url,
             self.model_data_url.as_deref(),
             &self.tokenizer_url,
+            self.artifact_checksums,
         )?;
         // Force CPU-only execution (skip CoreML/Metal which leak memory on
         // long-running macOS processes) and disable the CPU memory arena to
@@ -690,7 +750,14 @@ impl Embedder for OnnxEmbedder {
 #[cfg(feature = "real-embeddings")]
 pub async fn download_bge_small_model() -> Result<PathBuf> {
     let model_dir = default_model_dir()?;
-    let files = ensure_model_files_async(model_dir, MODEL_URL, None, TOKENIZER_URL).await?;
+    let files = ensure_model_files_async(
+        model_dir,
+        MODEL_URL,
+        None,
+        TOKENIZER_URL,
+        Some(DEFAULT_MODEL_CHECKSUMS),
+    )
+    .await?;
     Ok(files.directory)
 }
 
@@ -710,26 +777,43 @@ fn ensure_model_files_blocking(
     model_url: &str,
     model_data_url: Option<&str>,
     tokenizer_url: &str,
+    artifact_checksums: Option<ModelArtifactChecksums>,
 ) -> Result<ModelFiles> {
-    if model_files_exist(&model_dir, model_data_url) {
-        return Ok(model_files_for_dir(model_dir, model_data_url));
+    let files = model_files_for_dir(model_dir.clone(), model_data_url);
+    if cached_model_files_are_ready(&files, artifact_checksums)? {
+        return Ok(files);
     }
 
-    // Create a dedicated single-threaded runtime for model download.
-    // We avoid block_in_place because embed() runs inside spawn_blocking
-    // threads where block_in_place panics. A lightweight current-thread
-    // runtime is safe and sufficient for the download I/O.
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("failed to create temporary tokio runtime for model download")?;
-    let model_data_url_owned = model_data_url.map(str::to_string);
-    runtime.block_on(ensure_model_files_async(
-        model_dir,
-        model_url,
-        model_data_url_owned.as_deref(),
-        tokenizer_url,
-    ))
+    let download = move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("failed to create temporary tokio runtime for model download")?;
+        runtime.block_on(ensure_model_files_async(
+            model_dir,
+            model_url,
+            model_data_url,
+            tokenizer_url,
+            artifact_checksums,
+        ))
+    };
+
+    // The synchronous Embedder compatibility API can be called from a Tokio
+    // task as well as spawn_blocking. Never nest block_on in an async context;
+    // current-thread runtimes cannot use block_in_place either. A scoped worker
+    // owns and drops the download runtime outside the caller's async context.
+    if tokio::runtime::Handle::try_current().is_ok() {
+        std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .name("mag-model-download".into())
+                .spawn_scoped(scope, download)
+                .context("failed to spawn model download worker")?
+                .join()
+                .map_err(|_| anyhow!("model download worker panicked"))?
+        })
+    } else {
+        download()
+    }
 }
 
 #[cfg(feature = "real-embeddings")]
@@ -738,12 +822,9 @@ async fn ensure_model_files_async(
     model_url: &str,
     model_data_url: Option<&str>,
     tokenizer_url: &str,
+    artifact_checksums: Option<ModelArtifactChecksums>,
 ) -> Result<ModelFiles> {
     let files = model_files_for_dir(model_dir, model_data_url);
-    if model_files_exist(&files.directory, model_data_url) {
-        return Ok(files);
-    }
-
     tokio::fs::create_dir_all(&files.directory)
         .await
         .with_context(|| {
@@ -753,38 +834,148 @@ async fn ensure_model_files_async(
             )
         })?;
 
-    if !tokio::fs::try_exists(&files.model_path)
-        .await
-        .context("failed to check model.onnx path")?
-    {
-        download_file(model_url, &files.model_path).await?;
+    ensure_model_artifact(
+        model_url,
+        &files.model_path,
+        artifact_checksums.map(|checksums| checksums.model),
+    )
+    .await?;
+
+    if let (Some(data_url), Some(data_path)) = (model_data_url, &files.model_data_path) {
+        let expected_checksum = artifact_checksums
+            .map(|checksums| {
+                checksums.model_data.ok_or_else(|| {
+                    anyhow!("pinned model data artifact is missing a SHA-256 checksum")
+                })
+            })
+            .transpose()?;
+        ensure_model_artifact(data_url, data_path, expected_checksum).await?;
     }
-    if let (Some(data_url), Some(data_path)) = (model_data_url, &files.model_data_path)
-        && !tokio::fs::try_exists(data_path)
-            .await
-            .context("failed to check model data path")?
-    {
-        download_file(data_url, data_path).await?;
-    }
-    if !tokio::fs::try_exists(&files.tokenizer_path)
-        .await
-        .context("failed to check tokenizer.json path")?
-    {
-        download_file(tokenizer_url, &files.tokenizer_path).await?;
-    }
+
+    ensure_model_artifact(
+        tokenizer_url,
+        &files.tokenizer_path,
+        artifact_checksums.map(|checksums| checksums.tokenizer),
+    )
+    .await?;
 
     Ok(files)
 }
 
 #[cfg(feature = "real-embeddings")]
-fn model_files_exist(model_dir: &Path, model_data_url: Option<&str>) -> bool {
-    let files = model_files_for_dir(model_dir.to_path_buf(), model_data_url);
-    let base = files.model_path.exists() && files.tokenizer_path.exists();
-    if model_data_url.is_some() {
-        base && files.model_data_path.as_ref().is_some_and(|p| p.exists())
-    } else {
-        base
+async fn ensure_model_artifact(
+    url: &str,
+    path: &Path,
+    expected_sha256: Option<&str>,
+) -> Result<()> {
+    if tokio::fs::try_exists(path)
+        .await
+        .with_context(|| format!("failed to check model artifact {}", path.display()))?
+    {
+        let Some(expected_sha256) = expected_sha256 else {
+            return Ok(());
+        };
+        let actual_sha256 = sha256_file(path).await?;
+        if actual_sha256 == expected_sha256 {
+            return Ok(());
+        }
+
+        tracing::warn!(
+            path = %path.display(),
+            expected_sha256,
+            actual_sha256,
+            "cached model artifact checksum mismatch; downloading the pinned artifact again"
+        );
+        tokio::fs::remove_file(path).await.with_context(|| {
+            format!("failed to remove invalid model artifact {}", path.display())
+        })?;
     }
+
+    download_file(url, path).await?;
+
+    if let Some(expected_sha256) = expected_sha256 {
+        let actual_sha256 = sha256_file(path).await?;
+        if actual_sha256 != expected_sha256 {
+            let _ = tokio::fs::remove_file(path).await;
+            return Err(anyhow!(
+                "model artifact checksum mismatch for {}: expected {expected_sha256}, got {actual_sha256}",
+                path.display()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "real-embeddings")]
+async fn sha256_file(path: &Path) -> Result<String> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || sha256_file_blocking(&path))
+        .await
+        .context("spawn_blocking join error while hashing model artifact")?
+}
+
+#[cfg(feature = "real-embeddings")]
+fn sha256_file_blocking(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)
+        .with_context(|| format!("failed to open model artifact {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("failed to read model artifact {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(feature = "real-embeddings")]
+fn cached_model_files_are_ready(
+    files: &ModelFiles,
+    artifact_checksums: Option<ModelArtifactChecksums>,
+) -> Result<bool> {
+    let data_checksum = if files.model_data_path.is_some() {
+        artifact_checksums
+            .map(|checksums| {
+                checksums.model_data.ok_or_else(|| {
+                    anyhow!("pinned model data artifact is missing a SHA-256 checksum")
+                })
+            })
+            .transpose()?
+    } else {
+        None
+    };
+    let artifacts = [
+        (Some(&files.model_path), artifact_checksums.map(|c| c.model)),
+        (files.model_data_path.as_ref(), data_checksum),
+        (
+            Some(&files.tokenizer_path),
+            artifact_checksums.map(|c| c.tokenizer),
+        ),
+    ];
+    for (path, checksum) in artifacts {
+        let Some(path) = path else { continue };
+        if !path
+            .try_exists()
+            .with_context(|| format!("failed to check model artifact {}", path.display()))?
+        {
+            return Ok(false);
+        }
+        // Reverify on every session load, not on every embedding. A directory-
+        // only memo would trust files replaced after the previous verification.
+        if let Some(expected) = checksum
+            && sha256_file_blocking(path)? != expected
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(feature = "real-embeddings")]
@@ -957,6 +1148,21 @@ mod tests {
 
     #[cfg(feature = "real-embeddings")]
     #[test]
+    fn sha256_file_blocking_hashes_artifact_bytes() {
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        let path = dir.path().join("artifact.bin");
+        std::fs::write(&path, b"abc").expect("test artifact should be written");
+
+        let digest = sha256_file_blocking(&path).expect("artifact should be hashed");
+
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[cfg(feature = "real-embeddings")]
+    #[test]
     fn model_dir_returns_expected_path() {
         crate::test_helpers::with_temp_home(|home| {
             let expected = home
@@ -967,5 +1173,305 @@ mod tests {
                 .expect("model_dir() should succeed with a valid HOME");
             assert_eq!(actual, expected);
         });
+    }
+}
+
+#[cfg(all(test, feature = "real-embeddings"))]
+mod artifact_regressions {
+    use super::*;
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    use std::time::Duration;
+
+    const ABC_SHA256: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    const CHECKSUMS: ModelArtifactChecksums = ModelArtifactChecksums {
+        model: ABC_SHA256,
+        model_data: Some(ABC_SHA256),
+        tokenizer: ABC_SHA256,
+    };
+
+    // An independent OS thread also serves current-thread Tokio tests. No
+    // external network, production model, or shared environment is involved.
+    struct ArtifactServer {
+        url: String,
+        hits: Arc<AtomicUsize>,
+        stop: Arc<AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl ArtifactServer {
+        fn new(body: &'static [u8]) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let hits = Arc::new(AtomicUsize::new(0));
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread_hits = Arc::clone(&hits);
+            let thread_stop = Arc::clone(&stop);
+            let worker = std::thread::spawn(move || {
+                while !thread_stop.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream.set_nonblocking(false).unwrap();
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(2)))
+                                .unwrap();
+                            stream
+                                .set_write_timeout(Some(Duration::from_secs(2)))
+                                .unwrap();
+                            let mut request = Vec::new();
+                            let mut byte = [0_u8; 1];
+                            while !request.ends_with(b"\r\n\r\n") {
+                                if stream.read(&mut byte).unwrap_or(0) == 0 {
+                                    break;
+                                }
+                                request.push(byte[0]);
+                            }
+                            if !request.ends_with(b"\r\n\r\n") {
+                                continue;
+                            }
+                            thread_hits.fetch_add(1, Ordering::SeqCst);
+                            let header = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                body.len()
+                            );
+                            stream.write_all(header.as_bytes()).unwrap();
+                            stream.write_all(body).unwrap();
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(1));
+                        }
+                        Err(error) => panic!("artifact server failed: {error}"),
+                    }
+                }
+            });
+            Self {
+                url,
+                hits,
+                stop,
+                worker: Some(worker),
+            }
+        }
+
+        fn hits(&self) -> usize {
+            self.hits.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Drop for ArtifactServer {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(worker) = self.worker.take() {
+                let result = worker.join();
+                if !std::thread::panicking() {
+                    result.unwrap();
+                }
+            }
+        }
+    }
+
+    fn seed_cache(directory: &Path) {
+        std::fs::write(directory.join("model.onnx"), b"abc").unwrap();
+        std::fs::write(directory.join("tokenizer.json"), b"abc").unwrap();
+    }
+
+    fn ensure_pinned(directory: &Path, server: &ArtifactServer) -> Result<ModelFiles> {
+        ensure_model_files_blocking(
+            directory.to_path_buf(),
+            &server.url,
+            None,
+            &server.url,
+            Some(CHECKSUMS),
+        )
+    }
+
+    fn assert_cached_pinned_artifacts() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = ArtifactServer::new(b"abc");
+        seed_cache(directory.path());
+        let files = ensure_pinned(directory.path(), &server).unwrap();
+        assert_eq!(std::fs::read(files.model_path).unwrap(), b"abc");
+        assert_eq!(std::fs::read(files.tokenizer_path).unwrap(), b"abc");
+        assert_eq!(
+            server.hits(),
+            0,
+            "verified cached files must not be downloaded"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cached_pinned_artifacts_work_inside_current_thread_runtime() {
+        assert_cached_pinned_artifacts();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cached_pinned_artifacts_work_inside_multithread_runtime() {
+        assert_cached_pinned_artifacts();
+    }
+
+    #[tokio::test]
+    async fn cached_pinned_artifacts_work_inside_spawn_blocking() {
+        tokio::task::spawn_blocking(assert_cached_pinned_artifacts)
+            .await
+            .unwrap();
+    }
+
+    #[test]
+    fn cached_pinned_artifacts_work_without_runtime() {
+        assert_cached_pinned_artifacts();
+    }
+
+    fn assert_cold_pinned_artifacts() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = ArtifactServer::new(b"abc");
+        let files = ensure_pinned(directory.path(), &server).unwrap();
+        assert_eq!(std::fs::read(files.model_path).unwrap(), b"abc");
+        assert_eq!(std::fs::read(files.tokenizer_path).unwrap(), b"abc");
+        assert_eq!(server.hits(), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cold_pinned_artifacts_download_inside_current_thread_runtime() {
+        assert_cold_pinned_artifacts();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cold_pinned_artifacts_download_inside_multithread_runtime() {
+        assert_cold_pinned_artifacts();
+    }
+
+    #[test]
+    fn cold_pinned_artifacts_download_without_runtime() {
+        assert_cold_pinned_artifacts();
+    }
+
+    #[tokio::test]
+    async fn corrupt_cached_artifact_is_replaced_with_verified_download() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("model.onnx");
+        std::fs::write(&path, b"corrupt cached bytes").unwrap();
+        let server = ArtifactServer::new(b"abc");
+        ensure_model_artifact(&server.url, &path, Some(ABC_SHA256))
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"abc");
+        assert_eq!(server.hits(), 1);
+        ensure_model_artifact(&server.url, &path, Some(ABC_SHA256))
+            .await
+            .unwrap();
+        assert_eq!(server.hits(), 1, "valid cache should be reused");
+    }
+
+    #[tokio::test]
+    async fn mismatched_download_is_rejected_and_removed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("model.onnx");
+        let server = ArtifactServer::new(b"wrong download");
+        let error = ensure_model_artifact(&server.url, &path, Some(ABC_SHA256))
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("model artifact checksum mismatch")
+        );
+        assert!(!path.exists(), "unverified bytes must not remain cached");
+        assert!(!directory.path().join("model.onnx.part").exists());
+        assert_eq!(server.hits(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_corrupt_cache_recovery_does_not_leave_invalid_artifact() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("model.onnx");
+        std::fs::write(&path, b"old corrupt bytes").unwrap();
+        let server = ArtifactServer::new(b"new corrupt bytes");
+        assert!(
+            ensure_model_artifact(&server.url, &path, Some(ABC_SHA256))
+                .await
+                .is_err()
+        );
+        assert!(!path.exists());
+        assert_eq!(server.hits(), 1);
+    }
+
+    #[tokio::test]
+    async fn later_cache_replacement_is_reverified_for_model_and_tokenizer() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = ArtifactServer::new(b"abc");
+        seed_cache(directory.path());
+        ensure_pinned(directory.path(), &server).unwrap();
+        for (index, name) in ["model.onnx", "tokenizer.json"].iter().enumerate() {
+            let path = directory.path().join(name);
+            std::fs::write(&path, b"changed after verification").unwrap();
+            ensure_pinned(directory.path(), &server).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), b"abc");
+            assert_eq!(server.hits(), index + 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn pinned_sidecar_is_checked_and_repaired() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = ArtifactServer::new(b"abc");
+        seed_cache(directory.path());
+        let sidecar = directory.path().join("weights.bin");
+        std::fs::write(&sidecar, b"invalid sidecar").unwrap();
+        let data_url = format!("{}/weights.bin", server.url);
+        let files = ensure_model_files_blocking(
+            directory.path().to_path_buf(),
+            &server.url,
+            Some(&data_url),
+            &server.url,
+            Some(CHECKSUMS),
+        )
+        .unwrap();
+        assert_eq!(files.model_data_path.as_ref(), Some(&sidecar));
+        assert_eq!(std::fs::read(&sidecar).unwrap(), b"abc");
+        assert_eq!(server.hits(), 1);
+    }
+
+    #[tokio::test]
+    async fn pinned_sidecar_without_checksum_is_rejected_even_when_cached() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = ArtifactServer::new(b"abc");
+        seed_cache(directory.path());
+        std::fs::write(directory.path().join("weights.bin"), b"abc").unwrap();
+        let data_url = format!("{}/weights.bin", server.url);
+        let error = ensure_model_files_blocking(
+            directory.path().to_path_buf(),
+            &server.url,
+            Some(&data_url),
+            &server.url,
+            Some(ModelArtifactChecksums {
+                model_data: None,
+                ..CHECKSUMS
+            }),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("missing a SHA-256 checksum"));
+        assert_eq!(server.hits(), 0);
+    }
+
+    #[tokio::test]
+    async fn unpinned_custom_cache_keeps_legacy_no_download_behavior() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = ArtifactServer::new(b"abc");
+        seed_cache(directory.path());
+        std::fs::write(directory.path().join("model.onnx"), b"custom model").unwrap();
+        let files = ensure_model_files_blocking(
+            directory.path().to_path_buf(),
+            &server.url,
+            None,
+            &server.url,
+            None,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(files.model_path).unwrap(), b"custom model");
+        assert_eq!(server.hits(), 0);
     }
 }

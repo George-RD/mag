@@ -3,6 +3,11 @@ use std::{fmt::Write as _, sync::Arc};
 use anyhow::{Result, ensure};
 
 use super::embedder::Embedder;
+#[cfg(feature = "real-embeddings")]
+use super::embedder::{
+    BGE_SMALL_EN_V1_5_MODEL_ID, BGE_SMALL_EN_V1_5_MODEL_SHA256, BGE_SMALL_EN_V1_5_REVISION,
+    BGE_SMALL_EN_V1_5_TOKENIZER_SHA256, OnnxEmbedder,
+};
 
 /// Identifies how text participates in retrieval.
 ///
@@ -207,6 +212,113 @@ impl RetrieverModelProfile {
     }
 }
 
+#[cfg(any(feature = "real-embeddings", test))]
+struct ProfiledEmbedderAdapter {
+    inner: Arc<dyn Embedder>,
+    profile: RetrieverModelProfile,
+    embedding_space_identity: String,
+}
+
+#[cfg(any(feature = "real-embeddings", test))]
+impl ProfiledEmbedderAdapter {
+    fn new(inner: Arc<dyn Embedder>, profile: RetrieverModelProfile) -> Result<Self> {
+        let metadata = profile.metadata();
+        ensure!(
+            metadata.role == "dense-embedding",
+            "profile-backed embedder requires a dense-embedding profile"
+        );
+        ensure!(
+            inner.dimension() == metadata.output_dimensions,
+            "profile output dimension {} does not match embedder dimension {}",
+            metadata.output_dimensions,
+            inner.dimension()
+        );
+        let embedding_space_identity = profile.embedding_space_identity();
+        Ok(Self {
+            inner,
+            profile,
+            embedding_space_identity,
+        })
+    }
+}
+
+#[cfg(any(feature = "real-embeddings", test))]
+impl EmbeddingModel for ProfiledEmbedderAdapter {
+    fn dimension(&self) -> usize {
+        self.inner.dimension()
+    }
+
+    fn embedding_space_identity(&self) -> &str {
+        &self.embedding_space_identity
+    }
+
+    fn model_profile(&self) -> Option<RetrieverModelProfile> {
+        Some(self.profile)
+    }
+
+    fn embed_for(&self, _input: EmbeddingInputKind, text: &str) -> Result<Vec<f32>> {
+        self.inner.embed(text)
+    }
+
+    fn embed_batch_for(&self, _input: EmbeddingInputKind, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        self.inner.embed_batch(texts)
+    }
+}
+
+#[cfg(feature = "real-embeddings")]
+const BGE_SMALL_EN_V1_5_CHECKSUMS: [RetrieverArtifactChecksum; 2] = [
+    RetrieverArtifactChecksum {
+        artifact: "onnx/model_int8.onnx",
+        sha256: BGE_SMALL_EN_V1_5_MODEL_SHA256,
+    },
+    RetrieverArtifactChecksum {
+        artifact: "tokenizer.json",
+        sha256: BGE_SMALL_EN_V1_5_TOKENIZER_SHA256,
+    },
+];
+
+#[cfg(feature = "real-embeddings")]
+fn bge_small_en_v1_5_profile() -> Result<RetrieverModelProfile> {
+    RetrieverModelProfile::new(RetrieverModelProfileSpec {
+        model_id: BGE_SMALL_EN_V1_5_MODEL_ID,
+        revision: BGE_SMALL_EN_V1_5_REVISION,
+        checksums: &BGE_SMALL_EN_V1_5_CHECKSUMS,
+        role: "dense-embedding",
+        runtime: "onnx-runtime-cpu",
+        quantization: "int8",
+        output_dimensions: 384,
+        pooling: "attention-mask-mean+l2-normalize:v1",
+        query_transform: "identity:v1",
+        document_transform: "identity:v1",
+        max_input_tokens: 512,
+        licence: "apache-2.0",
+        local_resources: LocalResourceExpectations {
+            model_disk_bytes: 34_472_227,
+            peak_ram_bytes: 180_000_000,
+        },
+    })
+}
+
+/// Wraps MAG's pinned production ONNX embedder in its immutable model profile.
+///
+/// The adapter deliberately preserves the incumbent role-neutral text handling;
+/// the profile records that behavior explicitly so future transformation changes
+/// produce a different embedding-space identity and require migration.
+#[cfg(feature = "real-embeddings")]
+pub fn bge_small_en_v1_5_embedding_model(
+    embedder: Arc<OnnxEmbedder>,
+) -> Result<Arc<dyn EmbeddingModel>> {
+    ensure!(
+        embedder.uses_pinned_bge_artifacts(),
+        "pinned BGE profile requires the default checksum-verified model; custom ONNX models need their own profile"
+    );
+    let embedder: Arc<dyn Embedder> = embedder;
+    Ok(Arc::new(ProfiledEmbedderAdapter::new(
+        embedder,
+        bge_small_en_v1_5_profile()?,
+    )?))
+}
+
 /// Compatibility adapter for the role-neutral [`Embedder`] interface.
 ///
 /// It preserves optimized legacy batch inference while the production storage
@@ -376,6 +488,66 @@ mod tests {
             ordered.embedding_space_identity(),
             reordered.embedding_space_identity()
         );
+    }
+
+    #[test]
+    fn profiled_embedder_exposes_validated_identity_and_preserves_role_neutral_behavior() {
+        let profile = RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            output_dimensions: 32,
+            query_transform: "identity:v1",
+            document_transform: "identity:v1",
+            ..production_profile_spec("dense-embedding")
+        })
+        .expect("profile should validate");
+        let model = ProfiledEmbedderAdapter::new(Arc::new(PlaceholderEmbedder), profile)
+            .expect("profile dimension should match the embedder");
+
+        assert_eq!(model.model_profile(), Some(profile));
+        assert_eq!(
+            model.embedding_space_identity(),
+            profile.embedding_space_identity()
+        );
+        assert_eq!(
+            model
+                .embed_for(EmbeddingInputKind::Query, "same text")
+                .expect("query embedding should succeed"),
+            model
+                .embed_for(EmbeddingInputKind::Document, "same text")
+                .expect("document embedding should succeed")
+        );
+    }
+
+    #[test]
+    fn profiled_embedder_rejects_dimension_mismatch() {
+        let profile = RetrieverModelProfile::new(production_profile_spec("dense-embedding"))
+            .expect("profile should validate");
+        let result = ProfiledEmbedderAdapter::new(Arc::new(PlaceholderEmbedder), profile);
+
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "real-embeddings")]
+    #[test]
+    fn production_bge_profile_is_pinned_to_verified_artifacts() {
+        crate::test_helpers::with_temp_home(|_| {
+            let embedder = Arc::new(
+                OnnxEmbedder::new().expect("production ONNX embedder should be constructed"),
+            );
+            let model = bge_small_en_v1_5_embedding_model(embedder)
+                .expect("production embedder should be profile-backed");
+            let profile = model
+                .model_profile()
+                .expect("production model should expose its profile");
+            let metadata = profile.metadata();
+
+            assert_eq!(metadata.model_id, BGE_SMALL_EN_V1_5_MODEL_ID);
+            assert_eq!(metadata.revision, BGE_SMALL_EN_V1_5_REVISION);
+            assert_eq!(metadata.checksums, &BGE_SMALL_EN_V1_5_CHECKSUMS);
+            assert_eq!(
+                model.embedding_space_identity(),
+                profile.embedding_space_identity()
+            );
+        });
     }
 
     #[test]
