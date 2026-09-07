@@ -1,5 +1,5 @@
 ---
-node: mag.runtime.memory
+node: mag
 review_type: agent_introspective
 date: 2026-09-07
 reviewer: ChatGPT
@@ -8,7 +8,7 @@ reviewer: ChatGPT
 # PR #437: ONNX session-builder compatibility
 
 Scope: continue the existing dependency PR rather than open a new roadmap task.
-The reviewed source and tests are at `c552271cd8c36bff2779ad602dcdf57b20ef7be3`.
+The reviewed source and tests are at `833aff489985f6327b1d9e1cdd34f41805eaccbb`.
 This does not complete or change the scope of the existing
 [embedding-space migration todo](../todos/implement-embedding-space-migration.md).
 
@@ -40,6 +40,15 @@ disabled arena allocator, CPU-derived thread count, optimization level, model
 loading, and inference paths are unchanged. No errors are ignored or retried;
 no unsafe trait implementations or string-only error wrappers are introduced.
 
+The subsequent all-targets check at `001459cb878ac1caaf7bb714fb16037e033370f8`
+exposed the same error at two builder calls in `benches/onnx_profile.rs`:
+[Check & Lint job 101815009540](https://github.com/George-RD/mag/actions/runs/34145005290/job/101815009540).
+Commit `833aff489985f6327b1d9e1cdd34f41805eaccbb` applies the same typed conversion
+to those calls while preserving the benchmark's automatic thread count of zero
+and Level3 optimization. A repository search for `Session::builder` found only
+these three original Rust callers. This is why the full all-targets check,
+not only production-adapter compilation, is a landing requirement.
+
 Two model-free native-runtime tests in `tests/ort_builder_compatibility.rs`
 exercise the existing CPU configuration and verify that a recoverable builder
 error remains downcastable with its code and message intact after conversion
@@ -47,24 +56,25 @@ and application context. They complement compilation of the actual production
 adapters; they are not end-to-end model-quality tests.
 
 The source diff was reviewed against the original head: the production change
-is limited to two comments and six conversions. No new module, public interface,
-or cross-module dependency is introduced. The new integration test is already
-owned by `mag.quality.tests` in `cairn.blueprint`.
+is limited to two comments and six conversions, with two further conversions
+in the profiling benchmark. No new module, public interface, or cross-module
+dependency is introduced. The files are covered by the existing models,
+retrieval, `mag.quality.benchmarks`, and `mag.quality.tests` blueprint nodes.
 
-No additional code-review findings were identified. This is an introspective
-review, not an independent or cross-model approval.
+The all-targets finding is addressed in code and remains subject to fresh CI.
+This is an introspective review, not an independent or cross-model approval.
 
 ## Verification and landing gate
 
-The source-only fix at `7939bb7dadf77c496d397aae6c5bc555d234d786` passed the
-[Cairn architecture gate](https://github.com/George-RD/mag/actions/runs/34144779920).
-That earlier result does not authorize merging a later head.
+Earlier Cairn architecture checks passed, including
+[run 34145005347](https://github.com/George-RD/mag/actions/runs/34145005347).
+Those earlier results do not authorize merging a later head.
 
 Before merge, verify CI and the Cairn architecture gate against the current PR
 head, including both new native-runtime tests, the all-features suite, the
-without-sqlite-vec checks, lint, benchmark gate, and packaging/smoke checks.
-Record the exact final head and workflow results in the PR discussion so the
-evidence does not require a self-referential documentation commit.
+without-sqlite-vec checks, all-targets lint, benchmark gate, and packaging/smoke
+checks. Record the exact final head and workflow results in the PR discussion
+so the evidence does not require a self-referential documentation commit.
 
 This editing environment has no Rust or Cairn executables and cannot resolve
 GitHub for a local checkout. No local test, scan, or hook execution is claimed;
