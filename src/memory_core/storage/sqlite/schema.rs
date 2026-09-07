@@ -40,6 +40,67 @@ const FTS5_TABLE_DDL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts US
 );";
 
 const EMBEDDING_SPACE_IDENTITY_KEY: &str = "embedding_space_identity";
+const EMBEDDING_GENERATION_KEY: &str = "embedding_generation";
+
+/// Read a generation strictly: missing or damaged metadata cannot authorize a read.
+pub(super) fn read_embedding_generation(conn: &Connection) -> Result<u64> {
+    let value: String = conn
+        .query_row(
+            "SELECT value FROM runtime_metadata WHERE key = ?1",
+            params![EMBEDDING_GENERATION_KEY],
+            |row| row.get(0),
+        )
+        .context("failed to read persisted embedding generation")?;
+    value
+        .parse()
+        .context("invalid persisted embedding generation")
+}
+
+fn ensure_embedding_generation(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO runtime_metadata (key, value) VALUES (?1, '0')",
+        params![EMBEDDING_GENERATION_KEY],
+    )
+    .context("failed to initialize embedding generation")?;
+    read_embedding_generation(conn)?;
+    Ok(())
+}
+
+/// Called only inside the migration's writer transaction. Legacy databases get
+/// generation zero; a committed migration advances it even when a later migration
+/// returns to the original model identity (the A -> B -> A cache problem).
+pub(super) fn advance_embedding_generation(conn: &Connection) -> Result<()> {
+    ensure_embedding_generation(conn)?;
+    let generation = read_embedding_generation(conn)?;
+    let next = generation
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("embedding generation exhausted"))?;
+    let updated = conn
+        .execute(
+            "UPDATE runtime_metadata SET value = ?1 WHERE key = ?2",
+            params![next.to_string(), EMBEDDING_GENERATION_KEY],
+        )
+        .context("failed to persist embedding generation")?;
+    if updated != 1 {
+        return Err(anyhow!(
+            "expected one embedding generation row, updated {updated}"
+        ));
+    }
+    Ok(())
+}
+
+/// Capture startup identity and generation from one snapshot, including when
+/// another process finishes migration while this connection pool is opening.
+pub(super) fn verified_embedding_generation(
+    conn: &Connection,
+    embedding_space: &str,
+) -> Result<u64> {
+    let snapshot = conn
+        .unchecked_transaction()
+        .context("failed to begin embedding metadata snapshot")?;
+    verify_embedding_space_identity(&snapshot, embedding_space)?;
+    read_embedding_generation(&snapshot)
+}
 
 pub(super) fn read_embedding_space_identity(conn: &Connection) -> Result<Option<String>> {
     conn.query_row(
@@ -99,7 +160,8 @@ fn ensure_embedding_space_identity(conn: &Connection, embedding_space: &str) -> 
     )
     .context("failed to persist embedding-space identity")?;
 
-    verify_embedding_space_identity(conn, embedding_space)
+    verify_embedding_space_identity(conn, embedding_space)?;
+    ensure_embedding_generation(conn)
 }
 
 /// Creates the SQLite schema and verifies that persisted vectors belong to the

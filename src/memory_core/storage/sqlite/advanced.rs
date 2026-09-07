@@ -26,6 +26,7 @@ impl FtsSearcher for SqliteStorage {
 
         tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
+            let conn = pool.embedding_snapshot(&conn)?;
             pipeline::collect_fts_candidates(
                 &conn,
                 &query,
@@ -51,7 +52,18 @@ impl AdvancedSearcher for SqliteStorage {
         if limit == 0 {
             return Ok(Vec::new());
         }
+        let result = self.advanced_search_in_generation(query, limit, opts).await;
+        self.finish_embedding_read(result).await
+    }
+}
 
+impl SqliteStorage {
+    async fn advanced_search_in_generation(
+        &self,
+        query: &str,
+        limit: usize,
+        opts: &SearchOptions,
+    ) -> Result<Vec<SemanticResult>> {
         let today = chrono::Local::now().date_naive();
         let temporal = expand_temporal_query(query, &today);
         let query = temporal.cleaned_query;
@@ -197,6 +209,8 @@ impl AdvancedSearcher for SqliteStorage {
                     );
 
                     let conn = pool.reader()?;
+
+                    let conn = pool.embedding_snapshot(&conn)?;
                     // `fuse_and_score` orchestrates phases 3-6 internally
                     // (RRF fusion -> refine -> graph enrichment -> entity expansion
                     // -> abstention/dedup via `abstain_and_dedup`).
@@ -252,6 +266,32 @@ mod tests {
     use super::pipeline::{advanced_fts_candidate_limit, collect_fts_candidates};
     use crate::memory_core::{MemoryInput, SearchOptions, Storage, storage::SqliteStorage};
     use rusqlite::params;
+
+    #[tokio::test]
+    async fn generation_rejection_clears_query_and_hot_caches() -> anyhow::Result<()> {
+        use crate::memory_core::AdvancedSearcher;
+        let storage = SqliteStorage::new_in_memory()?;
+        storage
+            .store("alpha", "alpha memory", &MemoryInput::default())
+            .await?;
+        storage
+            .advanced_search("alpha", 5, &SearchOptions::default())
+            .await?;
+        assert!(!storage.query_cache.lock().unwrap().is_empty());
+        assert!(storage.hot_cache.as_ref().unwrap().is_initialized());
+        {
+            let conn = storage.pool.writer()?;
+            super::super::schema::advance_embedding_generation(&conn)?;
+        }
+        let error = storage
+            .advanced_search("alpha", 5, &SearchOptions::default())
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("embedding generation mismatch"));
+        assert!(storage.query_cache.lock().unwrap().is_empty());
+        assert!(!storage.hot_cache.as_ref().unwrap().is_initialized());
+        Ok(())
+    }
 
     #[test]
     fn advanced_fts_candidate_limit_is_bounded() {

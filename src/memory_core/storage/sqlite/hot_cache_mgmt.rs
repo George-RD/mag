@@ -3,6 +3,21 @@ use std::sync::atomic::Ordering;
 
 use anyhow::{Context, Result};
 
+use super::conn_pool::ConnPool;
+use super::hot_cache::HotTierCache;
+
+fn refresh_generation_bound_hot_cache(pool: &ConnPool, hot_cache: &HotTierCache) -> Result<()> {
+    let result = (|| {
+        let conn = pool.reader()?;
+        let conn = pool.embedding_snapshot(&conn)?;
+        hot_cache.refresh(&conn)
+    })();
+    if result.is_err() {
+        hot_cache.clear();
+    }
+    result
+}
+
 impl super::SqliteStorage {
     pub(super) async fn refresh_hot_cache(&self) -> Result<()> {
         self.start_hot_cache_refresh_task();
@@ -10,12 +25,9 @@ impl super::SqliteStorage {
             return Ok(());
         };
         let pool = Arc::clone(&self.pool);
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.reader()?;
-            hot_cache.refresh(&conn)
-        })
-        .await
-        .context("spawn_blocking join error")?
+        tokio::task::spawn_blocking(move || refresh_generation_bound_hot_cache(&pool, &hot_cache))
+            .await
+            .context("spawn_blocking join error")?
     }
 
     pub(super) fn refresh_hot_cache_best_effort(&self) {
@@ -26,8 +38,7 @@ impl super::SqliteStorage {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
                 let result = tokio::task::spawn_blocking(move || {
-                    let conn = pool.reader()?;
-                    hot_cache.refresh(&conn)
+                    refresh_generation_bound_hot_cache(&pool, &hot_cache)
                 })
                 .await;
                 match result {
@@ -89,8 +100,7 @@ impl super::SqliteStorage {
                 };
                 let hot_cache = hot_cache.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    let conn = pool.reader()?;
-                    hot_cache.refresh(&conn)
+                    refresh_generation_bound_hot_cache(&pool, &hot_cache)
                 })
                 .await;
                 match result {

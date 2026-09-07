@@ -5,7 +5,9 @@ use std::time::Duration;
 use anyhow::Result;
 use mag::LocalMemoryRuntime;
 use mag::memory_core::storage::{ReembedOptions, SqliteStorage};
-use mag::memory_core::{EmbeddingInputKind, EmbeddingModel, MemoryInput, MemoryUpdate, SearchOptions};
+use mag::memory_core::{
+    EmbeddingInputKind, EmbeddingModel, MemoryInput, MemoryUpdate, SearchOptions,
+};
 use rusqlite::Connection;
 use tempfile::tempdir;
 
@@ -160,13 +162,17 @@ async fn runtime_opened_before_reembed_cannot_write_after_same_dimension_migrati
 }
 
 const READ_QUERY: &str = "What does alpha memory say about migration safety?";
-const READ_CONTENT: &str = "alpha memory explains migration safety with consistent embedding spaces";
+const READ_CONTENT: &str =
+    "alpha memory explains migration safety with consistent embedding spaces";
 
 async fn migrate(path: &std::path::Path, identity: &'static str, dimension: usize) -> Result<()> {
     LocalMemoryRuntime::reembed_path_with_embedding_model(
         path.to_path_buf(),
         Arc::new(FixedEmbeddingModel::new(identity, dimension)),
-        ReembedOptions { batch_size: 1, dry_run: false },
+        ReembedOptions {
+            batch_size: 1,
+            dry_run: false,
+        },
     )
     .await?;
     Ok(())
@@ -177,25 +183,39 @@ async fn stale_semantic_reads_fail_after_reembed_including_dimension_changes() -
     for dimension in [4, 8] {
         let dir = tempdir()?;
         let path = dir.path().join("memory.db");
-        let runtime = LocalMemoryRuntime::from_storage(
-            SqliteStorage::new_with_path_and_embedding_model(
-                path.clone(), Arc::new(FixedEmbeddingModel::new("space-a", 4)),
-            )?,
+        let runtime =
+            LocalMemoryRuntime::from_storage(SqliteStorage::new_with_path_and_embedding_model(
+                path.clone(),
+                Arc::new(FixedEmbeddingModel::new("space-a", 4)),
+            )?);
+        runtime
+            .store_raw("alpha", READ_CONTENT, &MemoryInput::default())
+            .await?;
+        assert!(
+            !runtime
+                .semantic_search(READ_QUERY, 5, &SearchOptions::default())
+                .await?
+                .is_empty()
         );
-        runtime.store_raw("alpha", READ_CONTENT, &MemoryInput::default()).await?;
-        assert!(!runtime.semantic_search(READ_QUERY, 5, &SearchOptions::default()).await?.is_empty());
         migrate(&path, "space-b", dimension).await?;
-        let error = runtime.semantic_search(READ_QUERY, 5, &SearchOptions::default())
-            .await.expect_err("stale semantic reads must fail visibly");
+        let error = runtime
+            .semantic_search(READ_QUERY, 5, &SearchOptions::default())
+            .await
+            .expect_err("stale semantic reads must fail visibly");
         assert_embedding_space_mismatch(&error);
         assert_eq!(runtime.retrieve("alpha").await?, READ_CONTENT);
 
-        let fresh = LocalMemoryRuntime::from_storage(
-            SqliteStorage::new_with_path_and_embedding_model(
-                path.clone(), Arc::new(FixedEmbeddingModel::new("space-b", dimension)),
-            )?,
+        let fresh =
+            LocalMemoryRuntime::from_storage(SqliteStorage::new_with_path_and_embedding_model(
+                path.clone(),
+                Arc::new(FixedEmbeddingModel::new("space-b", dimension)),
+            )?);
+        assert!(
+            !fresh
+                .semantic_search(READ_QUERY, 5, &SearchOptions::default())
+                .await?
+                .is_empty()
         );
-        assert!(!fresh.semantic_search(READ_QUERY, 5, &SearchOptions::default()).await?.is_empty());
     }
     Ok(())
 }
@@ -208,15 +228,33 @@ async fn stale_advanced_cache_hits_fail_after_reembed() -> Result<()> {
     let runtime = LocalMemoryRuntime::from_storage(
         SqliteStorage::new_with_path_and_embedding_model(path.clone(), model.clone())?,
     );
-    runtime.store_raw("alpha", READ_CONTENT, &MemoryInput::default()).await?;
-    assert!(!runtime.advanced_search(READ_QUERY, 5, &SearchOptions::default()).await?.is_empty());
+    runtime
+        .store_raw("alpha", READ_CONTENT, &MemoryInput::default())
+        .await?;
+    assert!(
+        !runtime
+            .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+            .await?
+            .is_empty()
+    );
     let queries = model.queries.load(Ordering::SeqCst);
-    assert!(queries > 0, "fixture must exercise semantic advanced search");
-    runtime.advanced_search(READ_QUERY, 5, &SearchOptions::default()).await?;
-    assert_eq!(model.queries.load(Ordering::SeqCst), queries, "fixture must exercise a cache hit");
+    assert!(
+        queries > 0,
+        "fixture must exercise semantic advanced search"
+    );
+    runtime
+        .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+        .await?;
+    assert_eq!(
+        model.queries.load(Ordering::SeqCst),
+        queries,
+        "fixture must exercise a cache hit"
+    );
     migrate(&path, "space-b", 4).await?;
-    let error = runtime.advanced_search(READ_QUERY, 5, &SearchOptions::default())
-        .await.expect_err("stale cached advanced reads must fail visibly");
+    let error = runtime
+        .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+        .await
+        .expect_err("stale cached advanced reads must fail visibly");
     assert_embedding_space_mismatch(&error);
     Ok(())
 }
@@ -225,24 +263,37 @@ async fn stale_advanced_cache_hits_fail_after_reembed() -> Result<()> {
 async fn returning_to_original_space_does_not_revive_stale_query_caches() -> Result<()> {
     let dir = tempdir()?;
     let path = dir.path().join("memory.db");
-    let runtime = LocalMemoryRuntime::from_storage(
-        SqliteStorage::new_with_path_and_embedding_model(
-            path.clone(), Arc::new(FixedEmbeddingModel::new("space-a", 4)),
-        )?,
-    );
-    runtime.store_raw("alpha", READ_CONTENT, &MemoryInput::default()).await?;
-    runtime.advanced_search(READ_QUERY, 5, &SearchOptions::default()).await?;
+    let runtime =
+        LocalMemoryRuntime::from_storage(SqliteStorage::new_with_path_and_embedding_model(
+            path.clone(),
+            Arc::new(FixedEmbeddingModel::new("space-a", 4)),
+        )?);
+    runtime
+        .store_raw("alpha", READ_CONTENT, &MemoryInput::default())
+        .await?;
+    runtime
+        .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+        .await?;
     migrate(&path, "space-b", 4).await?;
     migrate(&path, "space-a", 4).await?;
-    let error = runtime.advanced_search(READ_QUERY, 5, &SearchOptions::default())
-        .await.expect_err("round-trip migration must not revive an old generation");
-    assert!(format!("{error:#}").contains("embedding generation mismatch"), "{error:#}");
-    let fresh = LocalMemoryRuntime::from_storage(
-        SqliteStorage::new_with_path_and_embedding_model(
-            path.clone(), Arc::new(FixedEmbeddingModel::new("space-a", 4)),
-        )?,
+    let error = runtime
+        .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+        .await
+        .expect_err("round-trip migration must not revive an old generation");
+    assert!(
+        format!("{error:#}").contains("embedding generation mismatch"),
+        "{error:#}"
     );
-    assert!(!fresh.advanced_search(READ_QUERY, 5, &SearchOptions::default()).await?.is_empty());
+    let fresh = LocalMemoryRuntime::from_storage(SqliteStorage::new_with_path_and_embedding_model(
+        path.clone(),
+        Arc::new(FixedEmbeddingModel::new("space-a", 4)),
+    )?);
+    assert!(
+        !fresh
+            .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+            .await?
+            .is_empty()
+    );
     Ok(())
 }
 
@@ -255,25 +306,91 @@ async fn migration_during_query_embedding_rejects_semantic_and_advanced_reads() 
         let runtime = LocalMemoryRuntime::from_storage(
             SqliteStorage::new_with_path_and_embedding_model(path.clone(), model.clone())?,
         );
-        runtime.store_raw("alpha", READ_CONTENT, &MemoryInput::default()).await?;
+        runtime
+            .store_raw("alpha", READ_CONTENT, &MemoryInput::default())
+            .await?;
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (resume_tx, resume_rx) = mpsc::channel();
         *model.query_gate.lock().expect("query gate poisoned") = Some(QueryGate {
-            started: started_tx, resume: resume_rx,
+            started: started_tx,
+            resume: resume_rx,
         });
         let read = tokio::spawn(async move {
             if advanced {
-                runtime.advanced_search(READ_QUERY, 5, &SearchOptions::default()).await
+                runtime
+                    .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+                    .await
             } else {
-                runtime.semantic_search(READ_QUERY, 5, &SearchOptions::default()).await
+                runtime
+                    .semantic_search(READ_QUERY, 5, &SearchOptions::default())
+                    .await
             }
         });
         tokio::time::timeout(Duration::from_secs(30), started_rx).await??;
         let migration = migrate(&path, "space-b", 4).await;
         resume_tx.send(())?;
         migration?;
-        let error = read.await?.expect_err("migration racing a semantic read must fail visibly");
+        let error = read
+            .await?
+            .expect_err("migration racing a semantic read must fail visibly");
         assert_embedding_space_mismatch(&error);
     }
+    Ok(())
+}
+
+struct PausedReranker(Mutex<Option<QueryGate>>);
+
+impl mag::memory_core::reranker::Reranker for PausedReranker {
+    fn rerank(
+        &self,
+        _query: &str,
+        _candidates: &[(&str, &str)],
+    ) -> Result<std::collections::HashMap<String, f32>> {
+        if let Some(gate) = self.0.lock().expect("reranker gate poisoned").take() {
+            let _ = gate.started.send(());
+            gate.resume.recv_timeout(Duration::from_secs(30))?;
+        }
+        Ok(std::collections::HashMap::new())
+    }
+}
+
+#[tokio::test]
+async fn round_trip_migration_between_candidate_and_fusion_phases_is_rejected() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join("memory.db");
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let storage = SqliteStorage::new_with_path_and_embedding_model(
+        path.clone(),
+        Arc::new(FixedEmbeddingModel::new("space-a", 4)),
+    )?
+    .with_reranker(Arc::new(PausedReranker(Mutex::new(Some(QueryGate {
+        started: started_tx,
+        resume: resume_rx,
+    })))));
+    let runtime = LocalMemoryRuntime::from_storage(storage);
+    runtime
+        .store_raw("alpha", READ_CONTENT, &MemoryInput::default())
+        .await?;
+    let read = tokio::spawn(async move {
+        runtime
+            .advanced_search(READ_QUERY, 5, &SearchOptions::default())
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(30), started_rx).await??;
+    let migration = async {
+        migrate(&path, "space-b", 4).await?;
+        migrate(&path, "space-a", 4).await
+    }
+    .await;
+    resume_tx.send(())?;
+    migration?;
+    let error = read
+        .await?
+        .expect_err("multi-phase reads must not mix embedding generations");
+    assert!(
+        format!("{error:#}").contains("embedding generation mismatch"),
+        "{error:#}"
+    );
     Ok(())
 }

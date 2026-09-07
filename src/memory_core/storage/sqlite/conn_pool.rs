@@ -4,9 +4,12 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
 
-use super::schema::initialize_schema;
+use super::schema::{
+    initialize_schema, read_embedding_generation, verified_embedding_generation,
+    verify_embedding_space_identity,
+};
 
 /// Returns `true` when a rusqlite error indicates SQLite lock contention
 /// (`SQLITE_BUSY` or `SQLITE_LOCKED`). Used to decide whether to retry a transaction.
@@ -102,6 +105,9 @@ pub(crate) struct ConnPool {
     write_count: AtomicU64,
     /// Whether this pool is file-backed (WAL checkpoints only apply to files).
     is_file_backed: bool,
+    /// Immutable generation binding; migration requires opening a fresh runtime.
+    embedding_space: String,
+    embedding_generation: u64,
 }
 
 impl ConnPool {
@@ -144,12 +150,15 @@ impl ConnPool {
             readers.push(Mutex::new(reader));
         }
 
+        let embedding_generation = verified_embedding_generation(&writer, embedding_space)?;
         Ok(Self {
             writer: Mutex::new(writer),
             readers,
             reader_idx: AtomicUsize::new(0),
             write_count: AtomicU64::new(0),
             is_file_backed: true,
+            embedding_space: embedding_space.to_owned(),
+            embedding_generation,
         })
     }
 
@@ -164,13 +173,37 @@ impl ConnPool {
         let conn = Connection::open_in_memory().context("failed to open in-memory sqlite")?;
         initialize_schema(&conn, embedding_dim, embedding_space)?;
 
+        let embedding_generation = verified_embedding_generation(&conn, embedding_space)?;
         Ok(Self {
             writer: Mutex::new(conn),
             readers: Vec::new(),
             reader_idx: AtomicUsize::new(0),
             write_count: AtomicU64::new(0),
             is_file_backed: false,
+            embedding_space: embedding_space.to_owned(),
+            embedding_generation,
         })
+    }
+
+    /// Pin metadata and subsequent vector/index/hydration reads to one SQLite
+    /// snapshot. Every phase of a multi-connection search must use this binding.
+    /// Dropping the returned transaction releases the read snapshot.
+    pub(crate) fn embedding_snapshot<'conn>(
+        &self,
+        conn: &'conn Connection,
+    ) -> Result<Transaction<'conn>> {
+        let snapshot = conn
+            .unchecked_transaction()
+            .context("failed to begin embedding read snapshot")?;
+        verify_embedding_space_identity(&snapshot, &self.embedding_space)?;
+        let generation = read_embedding_generation(&snapshot)?;
+        if generation != self.embedding_generation {
+            return Err(anyhow!(
+                "embedding generation mismatch: database uses {generation} but runtime uses {}; restart MAG after re-embedding",
+                self.embedding_generation,
+            ));
+        }
+        Ok(snapshot)
     }
 
     /// Acquires the writer connection.
@@ -260,6 +293,96 @@ fn configure_reader(conn: &Connection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedding_snapshot_keeps_metadata_blob_and_index_together() -> Result<()> {
+        use super::super::{encode_embedding, schema};
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("snapshot.db");
+        let pool = ConnPool::open_file(&path, 4, "space-a")?;
+        let original = encode_embedding(&[1.0, 0.0, 0.0, 0.0]);
+        let replacement = encode_embedding(&[0.0, 1.0, 0.0, 0.0]);
+        {
+            let writer = pool.writer()?;
+            writer.execute(
+                "INSERT INTO memories (id, content, embedding, content_hash, source_type) VALUES ('alpha', 'alpha', ?1, 'alpha', 'user')",
+                [&original],
+            )?;
+            #[cfg(feature = "sqlite-vec")]
+            writer.execute(
+                "INSERT INTO vec_memories (memory_id, embedding) VALUES ('alpha', ?1)",
+                [&original],
+            )?;
+        }
+        let reader = pool.reader()?;
+        let snapshot = pool.embedding_snapshot(&reader)?;
+
+        // Commit the vector/identity/generation change AFTER the fence but BEFORE
+        // its vector read. A preflight check without a snapshot fails this test.
+        let mut concurrent = Connection::open(&path)?;
+        let migration = concurrent.transaction()?;
+        migration.execute(
+            "UPDATE memories SET embedding = ?1 WHERE id = 'alpha'",
+            [&replacement],
+        )?;
+        #[cfg(feature = "sqlite-vec")]
+        {
+            migration.execute("DELETE FROM vec_memories WHERE memory_id = 'alpha'", [])?;
+            migration.execute(
+                "INSERT INTO vec_memories (memory_id, embedding) VALUES ('alpha', ?1)",
+                [&replacement],
+            )?;
+        }
+        schema::advance_embedding_generation(&migration)?;
+        schema::update_embedding_space_identity(&migration, "space-b")?;
+        migration.commit()?;
+
+        assert_eq!(
+            schema::read_embedding_space_identity(&snapshot)?.as_deref(),
+            Some("space-a")
+        );
+        assert_eq!(schema::read_embedding_generation(&snapshot)?, 0);
+        let blob: Vec<u8> = snapshot.query_row(
+            "SELECT embedding FROM memories WHERE id = 'alpha'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(blob, original);
+        #[cfg(feature = "sqlite-vec")]
+        {
+            let indexed: Vec<u8> = snapshot.query_row(
+                "SELECT embedding FROM vec_memories WHERE memory_id = 'alpha'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert_eq!(indexed, original);
+        }
+        drop(snapshot);
+        assert!(
+            pool.embedding_snapshot(&reader).is_err(),
+            "a subsequent snapshot must reject the migrated database"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn embedding_snapshot_rejects_missing_or_invalid_generation() -> Result<()> {
+        let pool = ConnPool::open_in_memory(4, "space-a")?;
+        let conn = pool.reader()?;
+        for value in ["not-a-generation", "-1", "18446744073709551616"] {
+            conn.execute(
+                "UPDATE runtime_metadata SET value = ?1 WHERE key = 'embedding_generation'",
+                [value],
+            )?;
+            assert!(pool.embedding_snapshot(&conn).is_err());
+        }
+        conn.execute(
+            "DELETE FROM runtime_metadata WHERE key = 'embedding_generation'",
+            [],
+        )?;
+        assert!(pool.embedding_snapshot(&conn).is_err());
+        Ok(())
+    }
 
     #[test]
     fn is_lock_error_detects_busy() {

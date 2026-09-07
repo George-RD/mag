@@ -85,3 +85,28 @@ a check before a later unguarded read is insufficient. Invalidate generation-bou
 query/hot caches and cover both sqlite-vec and BLOB fallback. This is already
 required by the storage contract and #89, not a new roadmap gap. Retrieval and
 query-pipeline changes must pass the repository benchmark and local quality gates.
+
+
+## Read/cache safety implementation: 8 September 2026
+
+The `agent/embedding-space-read-fence` slice binds each SQLite pool to its startup
+model identity and persisted embedding generation. Semantic and similar-memory
+reads pin metadata, vectors, and hydration to one SQLite snapshot. Advanced-search
+candidate, fusion, graph, and decomposition phases use the same generation
+binding; a live check also gates cached/final results. Rejection clears the query
+and hot caches, and hot-cache refresh uses a verified snapshot. Successful
+migration advances generation transactionally; dry-run, no-op, and rollback do not.
+The CLI/runtime boundary and model defaults are unchanged.
+
+Test-only head `e99964f313c3306d86a39d4aad89011f1485f51b` reproduced four assertion
+failures in both BLOB fallback and sqlite-vec configurations in run `34158983897`:
+stale semantic results, a confirmed advanced-search cache hit, A-to-B-to-A cache
+reuse, and migration while query embedding is paused. Additional coverage pins
+the read-snapshot race and a migration between advanced-search phases. Exact-head
+engineering, benchmark, architecture, and review evidence belongs in the linked
+PR; this note does not claim those later checks have passed yet.
+
+Keep this todo and #89 in progress until the complete cleaned-head verification
+and remaining adoption/evaluation obligations are reconciled. Offline stop,
+migrate, restart guidance remains in force; this is not a live profile hot-swap
+or permission to replace a database file under running processes.

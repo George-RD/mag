@@ -57,6 +57,7 @@ pub(crate) async fn run_single_query_pipeline(
         let include_superseded = local_ctx.include_superseded;
         let fts_result = tokio::task::spawn_blocking(move || {
             let conn = pool_arc.reader()?;
+            let conn = pool_arc.embedding_snapshot(&conn)?;
             collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
         })
         .await
@@ -72,6 +73,7 @@ pub(crate) async fn run_single_query_pipeline(
     let strat = Arc::clone(scoring_strategy);
     tokio::task::spawn_blocking(move || {
         let conn = pool_for_fuse.reader()?;
+        let conn = pool_for_fuse.embedding_snapshot(&conn)?;
         fuse_and_score(
             &conn,
             vector_candidates,
