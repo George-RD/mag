@@ -1,34 +1,27 @@
 ---
 node: mag.runtime.memory.storage.sqlite
-status: in_progress
+status: done
 created: 2026-07-29
 unblocked: 2026-08-28
+completed: 2026-09-08
 ---
 # Implement Embedding-Space Migration
 
-Unblocked by the role-aware embedding boundary, persisted embedding-space
-identity checks, and the validated retriever profile contract completed through
-PRs #414, #417, and #429.
+Complete the model migration capability tracked by GitHub issue #89. The
+role-aware embedding boundary, persisted embedding-space identity checks, and
+validated retriever profile contract landed through PRs #414, #417, and #429.
+The recoverable migration, write safety, pinned production composition, and
+read/cache generation safety are now implemented by the slices recorded below.
 
-Complete the model migration capability tracked by GitHub issue #89. Reuse the
-existing `EmbeddingModel` profile/embedding-space identity boundary; do not add a
-second model-name contract to the legacy `Embedder` compatibility path.
+The CLI remains the canonical command surface through `LocalMemoryRuntime`.
+Migration reuses `EmbeddingModel`; MCP remains an optional thin transport over
+the same runtime. This does not introduce arbitrary CLI model selection, live
+profile hot-swapping, or a second legacy embedder/model-name contract.
 
-Provide a transactional batch `re-embed` path for the memory BLOB and vector
-index. The operation needs dry-run and progress reporting, interruption-safe
-recovery, dimension changes, cache invalidation, index repair, and a clear
-rollback or backup path. MAG must never silently query a database containing
-mixed or stale embedding spaces.
+## Recoverable migration: PRs #433 and #434
 
-The CLI is the canonical command surface and the migration workflow belongs in
-`LocalMemoryRuntime` (or a typed application workflow it owns). Any MCP exposure
-must remain an optional thin transport over that same workflow rather than
-calling `SqliteStorage` directly.
-
-## Recoverable migration: PR #433
-
-PR #433 implements dry-run affected-memory reporting, bounded embedding batches
-with progress logs, a pre-migration backup, one transactional
+The migration implements dry-run affected-memory reporting, bounded embedding
+batches with progress logs, a pre-migration backup, one transactional
 BLOB/vector-index/identity migration, rollback on failure or interruption,
 vector-index recreation for dimension changes, and a feature-minimal refusal
 path when an existing vector index cannot be repaired without `sqlite-vec`.
@@ -39,6 +32,7 @@ Exact-head verification for implementation commit
 including Rustfmt, Clippy, the full Rust suite, the no-default-features migration
 test, benchmark gate, smoke test, wrappers, npm install, installer integrity, and
 version consistency. Cairn architecture gate run `33257233085` also passed.
+PR #434 carries the final migration and backup-integrity follow-up.
 
 ## Write safety and pinned production composition: PR #435
 
@@ -65,48 +59,55 @@ verification and an isolated download runtime for synchronous calls from Tokio.
 Added fourteen hermetic artifact regressions for cached/cold runtime contexts,
 checksum recovery/rejection, replaced-file re-verification, and sidecar identity.
 Normal CI now grants read-only contents access. [Review TDD and engineering
-gates](https://github.com/George-RD/mag/actions/runs/34102423945) records RED before the fix and the ensuing focused/full gates.
-This run verifies a patched worktree; PR #435 separately records final exact-head
-CI after the temporary runner is removed. Existing read/cache work below remains
-in progress; this follow-up adds no todo or new public runtime surface.
+gates](https://github.com/George-RD/mag/actions/runs/34102423945) records RED before
+the fix and the ensuing focused/full gates. This run verifies a patched worktree;
+PR #435 separately records final exact-head CI after the temporary runner was
+removed.
 
-## Remaining boundary in this same todo
+That slice deliberately left live read/cache safety open: an already-running
+process could still query with its old embedder or return a cached advanced-search
+result after another process migrated. The read/cache slice below closes that
+remaining requirement; the earlier review's warning describes its historical
+boundary, not the current implementation.
 
-Keep this todo `in_progress` and issue #89 open. A runtime opened before another
-process migrates can still query using its old embedder or return a cached
-advanced-search result. The write fence does not establish live read/cache
-safety. Migration is offline maintenance: stop all processes sharing the database
-and restart fresh runtimes afterward.
+## Read/cache generation safety: 8 September 2026
 
-The next implementation slice must prove stale semantic reads and cached
-advanced-search reads fail visibly, including a migration racing with query
-execution. Fence identity and vector reads to the same snapshot or generation;
-a check before a later unguarded read is insufficient. Invalidate generation-bound
-query/hot caches and cover both sqlite-vec and BLOB fallback. This is already
-required by the storage contract and #89, not a new roadmap gap. Retrieval and
-query-pipeline changes must pass the repository benchmark and local quality gates.
-
-
-## Read/cache safety implementation: 8 September 2026
-
-The `agent/embedding-space-read-fence` slice binds each SQLite pool to its startup
-model identity and persisted embedding generation. Semantic and similar-memory
-reads pin metadata, vectors, and hydration to one SQLite snapshot. Advanced-search
-candidate, fusion, graph, and decomposition phases use the same generation
-binding; a live check also gates cached/final results. Rejection clears the query
-and hot caches, and hot-cache refresh uses a verified snapshot. Successful
-migration advances generation transactionally; dry-run, no-op, and rollback do not.
-The CLI/runtime boundary and model defaults are unchanged.
+Each SQLite pool binds to its startup model identity and persisted embedding
+generation. Semantic and similar-memory reads pin identity, generation, vectors,
+and hydration to one SQLite snapshot. Advanced-search candidate, fusion, graph,
+and decomposition phases verify the same generation binding. A final live check
+also gates cache hits and completed results. Rejection clears query and hot
+caches; hot-cache refresh uses a verified snapshot. Successful migration advances
+generation in its existing transaction. Dry-run, no-op, and rollback do not.
+Returning from model A to B and back to A cannot revive an old runtime's caches.
 
 Test-only head `e99964f313c3306d86a39d4aad89011f1485f51b` reproduced four assertion
-failures in both BLOB fallback and sqlite-vec configurations in run `34158983897`:
-stale semantic results, a confirmed advanced-search cache hit, A-to-B-to-A cache
-reuse, and migration while query embedding is paused. Additional coverage pins
-the read-snapshot race and a migration between advanced-search phases. Exact-head
-engineering, benchmark, architecture, and review evidence belongs in the linked
-PR; this note does not claim those later checks have passed yet.
+failures in both BLOB fallback and sqlite-vec configurations in [RED run
+34158983897](https://github.com/George-RD/mag/actions/runs/34158983897). Additional
+regressions cover migration after snapshot acquisition, between advanced-search
+phases, cache invalidation, malformed generation metadata, and generation overflow
+rolling back vectors.
 
-Keep this todo and #89 in progress until the complete cleaned-head verification
-and remaining adoption/evaluation obligations are reconciled. Offline stop,
-migrate, restart guidance remains in force; this is not a live profile hot-swap
-or permission to replace a database file under running processes.
+[GREEN run 34159459046](https://github.com/George-RD/mag/actions/runs/34159459046)
+verified the patched worktree before publishing implementation commit
+`5f94f333dcd6a27db43ff43df04b4a41bf68afdd`: 1,026 all-feature Rust tests,
+17 focused migration/read/cache tests in each storage configuration, Rustfmt,
+strict Clippy, the retrieval benchmark, and Cairn scan/hooks passed. The benchmark
+used the repository's two-sample gate: 91.3% word overlap against the recorded
+90.1% ten-sample baseline. These differently sized samples are not a quality
+improvement claim. The existing stale-methodology warning remains visible.
+
+The durable review and rerun commands are in
+`meta/reviews/embedding-space-read-safety.md`. Cleanup removes the temporary
+workflow and patch carrier and separates advanced-search tests without changing
+behavior. The pull request records verification of its final cleaned head;
+intermediate worktree evidence does not replace final-head CI or authorize merge.
+
+## Operating boundary
+
+Stop all processes sharing the database, migrate, then start fresh runtimes.
+These read/write guards make accidental overlap fail visibly; they do not make
+in-place database-file replacement or profile hot-swapping supported operations.
+Raw retrieval and metadata-only operations remain available. The separate local
+memory intelligence evaluation harness remains its own existing Cairn todo, not
+an unfinished requirement of #89.
