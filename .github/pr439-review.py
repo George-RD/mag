@@ -1,36 +1,254 @@
-"""Temporary PR439 TDD patch carrier; removed before merge.
-
-Payloads are gzip-compressed UTF-8 unified diffs, not executable pickles.
-The runner preserves readable patches and validates SHA-256 before git apply.
-RED adds regressions and a behavior-preserving refresh seam; GREEN fixes the
-refresh and fixtures and instruments existing routing and timeout tests.
-"""
-import base64
-import gzip
-import hashlib
+"""Temporary, readable PR439 TDD transformations; removed before merge."""
 from pathlib import Path
 import subprocess
 import sys
 
-PATCHES = {
-    "red": (
-        "f409009ad36aa565127b8d9be1f0ee761223b44d4b3bea338d6742cdc08c42a8",
-        "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"
-    ),
-    "green": (
-        "b1ef87e9fd78c8c5581a96b115e39c7661f50908acd50656b7b5798aede3da22",
-        "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"
-    ),
+ROOT = Path.cwd()
+
+def replace(path, old, new, count=1):
+    p = ROOT / path
+    text = p.read_text()
+    actual = text.count(old)
+    if actual != count:
+        raise RuntimeError(f'{path}: expected {count} occurrences, found {actual}: {old[:90]!r}')
+    p.write_text(text.replace(old, new))
+
+def append(path, text):
+    p = ROOT / path
+    p.write_text(p.read_text() + text)
+
+hot = 'src/memory_core/storage/sqlite/hot_cache_mgmt.rs'
+advanced = 'src/memory_core/storage/sqlite/advanced_tests.rs'
+race = 'tests/reembed_stale_runtime.rs'
+
+if sys.argv[1] == 'red':
+    # Isolate the existing refresh operation at its exact snapshot boundary.
+    replace(hot,
+        'fn refresh_generation_bound_hot_cache(pool: &ConnPool, hot_cache: &HotTierCache) -> Result<()> {\n',
+        '''fn refresh_generation_bound_hot_cache(pool: &ConnPool, hot_cache: &HotTierCache) -> Result<()> {
+    refresh_generation_bound_hot_cache_with(pool, hot_cache, |conn| hot_cache.refresh(conn))
 }
 
-stage = sys.argv[1]
-expected, encoded = PATCHES[stage]
-patch = gzip.decompress(base64.b64decode(encoded, validate=True))
-if hashlib.sha256(patch).hexdigest() != expected:
-    raise SystemExit("patch digest mismatch")
-evidence = Path("/tmp/pr439-review")
+fn refresh_generation_bound_hot_cache_with(
+    pool: &ConnPool,
+    hot_cache: &HotTierCache,
+    refresh: impl FnOnce(&rusqlite::Connection) -> Result<()>,
+) -> Result<()> {
+''')
+    replace(hot, '        hot_cache.refresh(&conn)\n', '        refresh(&conn)\n')
+    append(hot, '''
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::schema;
+    use rusqlite::Connection;
+    use std::time::Duration;
+
+    #[test]
+    fn hot_cache_refresh_rejects_migration_during_snapshot() -> Result<()> {
+        // Same-space generation changes cover A -> B -> A without relying on
+        // different vector dimensions or values to detect stale state.
+        for target_space in ["space-b", "space-a"] {
+            let dir = tempfile::tempdir()?;
+            let path = dir.path().join("hot-cache.db");
+            let pool = ConnPool::open_file(&path, 4, "space-a")?;
+            {
+                let writer = pool.writer()?;
+                writer.execute(
+                    "INSERT INTO memories (id, content, embedding, content_hash, source_type, access_count) VALUES ('alpha', 'alpha', ?1, 'alpha', 'user', 1)",
+                    [super::super::encode_embedding(&[1.0, 0.0, 0.0, 0.0])],
+                )?;
+            }
+            let cache = HotTierCache::new(10, Duration::from_secs(300));
+            let error = refresh_generation_bound_hot_cache_with(&pool, &cache, |snapshot| {
+                cache.refresh(snapshot)?;
+                assert!(cache.is_initialized());
+                assert_eq!(cache.query("alpha", 5).len(), 1);
+                let mut concurrent = Connection::open(&path)?;
+                let migration = concurrent.transaction()?;
+                schema::advance_embedding_generation(&migration)?;
+                schema::update_embedding_space_identity(&migration, target_space)?;
+                migration.commit()?;
+                Ok(())
+            })
+            .expect_err("hot cache refresh must reject migration during its snapshot");
+            let expected = if target_space == "space-a" {
+                "embedding generation mismatch"
+            } else {
+                "embedding space mismatch"
+            };
+            assert!(format!("{error:#}").contains(expected), "{error:#}");
+            assert!(!cache.is_initialized());
+            assert!(cache.query("alpha", 5).is_empty());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn hot_cache_refresh_succeeds_without_migration() -> Result<()> {
+        // Release the first reader even for the single-connection memory pool.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| {
+                let pool = ConnPool::open_in_memory(4, "space-a")?;
+                let cache = HotTierCache::new(10, Duration::from_secs(300));
+                refresh_generation_bound_hot_cache(&pool, &cache)?;
+                assert!(cache.is_initialized());
+                Ok::<_, anyhow::Error>(())
+            })();
+            let _ = tx.send(result);
+        });
+        rx.recv_timeout(Duration::from_secs(10))??;
+        Ok(())
+    }
+}
+''')
+    # These fixture checks fail against canonical dedup before changing data.
+    replace(advanced, '    let conn = storage.test_conn().unwrap();\n', '''    let conn = storage.test_conn().unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, (super::pipeline::ADVANCED_FTS_CANDIDATE_MIN + 21) as i64,
+        "FTS bound fixture must exceed the candidate limit after canonical dedup");
+''', count=2)
+    # The first reader may retain its old view, but the second must reject it.
+    replace('src/memory_core/storage/sqlite/conn_pool.rs',
+        '        drop(snapshot);\n        assert!(\n            pool.embedding_snapshot(&reader).is_err(),',
+        '''        let other_reader = pool.reader()?;
+        assert!(
+            pool.embedding_snapshot(&other_reader).is_err(),
+            "parallel candidate snapshots must reject a different generation"
+        );
+        drop(other_reader);
+        drop(snapshot);
+        assert!(
+            pool.embedding_snapshot(&reader).is_err(),''')
+
+elif sys.argv[1] == 'green':
+    replace(hot, '''        let conn = pool.reader()?;
+        let conn = pool.embedding_snapshot(&conn)?;
+        refresh(&conn)
+''', '''        {
+            let conn = pool.reader()?;
+            let snapshot = pool.embedding_snapshot(&conn)?;
+            refresh(&snapshot)?;
+        }
+        // An overlapping migration may have committed while refresh held its
+        // old snapshot. Release that snapshot AND its reader before validating
+        // the live generation, including for single-connection pools.
+        let conn = pool.reader()?;
+        let _snapshot = pool.embedding_snapshot(&conn)?;
+        Ok(())
+''')
+    # Unique short documents outrank the longer desired document in BM25.
+    replace(advanced, '        let id = format!("old-{idx}");\n', '''        let id = format!("old-{idx}");
+        let content = format!("alpha {idx}");
+''')
+    replace(advanced, '        let id = format!("old-event-{idx}");\n', '''        let id = format!("old-event-{idx}");
+        let content = format!("alpha {idx}");
+''')
+    replace(advanced, '''            &id,
+            "alpha",
+            &MemoryInput {
+                content: "alpha".to_string(),
+''', '''            &id,
+            &content,
+            &MemoryInput {
+                content: content.clone(),
+''', count=2)
+    replace(advanced, '    let candidates = collect_fts_candidates(\n', '''    assert_unfiltered_limit_excludes(&conn, &storage, "recent-match");
+    let candidates = collect_fts_candidates(
+''')
+    replace(advanced, '    let recent_candidates = collect_fts_candidates(\n', '''    assert_unfiltered_limit_excludes(&conn, &storage, "recent-event-match");
+    let recent_candidates = collect_fts_candidates(
+''')
+    append(advanced, '''
+fn assert_unfiltered_limit_excludes(
+    conn: &rusqlite::Connection,
+    storage: &SqliteStorage,
+    excluded_id: &str,
+) {
+    let unfiltered = collect_fts_candidates(
+        conn, "alpha", 1, &SearchOptions::default(), true, &storage.scoring_params,
+    ).unwrap();
+    assert_eq!(unfiltered.len(), super::pipeline::ADVANCED_FTS_CANDIDATE_MIN);
+    assert!(!unfiltered.iter().any(|(id, _, _)| id == excluded_id),
+        "fixture must put the filtered match outside the unfiltered candidate limit");
+}
+
+#[derive(Debug, Default)]
+struct QueryCountingModel(std::sync::atomic::AtomicUsize);
+
+impl crate::memory_core::EmbeddingModel for QueryCountingModel {
+    fn dimension(&self) -> usize { 4 }
+    fn embedding_space_identity(&self) -> &str { "test-query-routing" }
+    fn embed_for(
+        &self,
+        kind: crate::memory_core::EmbeddingInputKind,
+        _text: &str,
+    ) -> anyhow::Result<Vec<f32>> {
+        if kind == crate::memory_core::EmbeddingInputKind::Query {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(vec![1.0, 0.0, 0.0, 0.0])
+    }
+}
+
+fn routing_storage() -> (SqliteStorage, std::sync::Arc<QueryCountingModel>) {
+    let model = std::sync::Arc::new(QueryCountingModel::default());
+    let storage = SqliteStorage::new_in_memory_with_embedding_model(model.clone()).unwrap();
+    (storage, model)
+}
+''')
+    # Instrument the existing routing tests rather than creating duplicates.
+    for name in ['keyword_dispatch_returns_fts_results', 'non_keyword_query_uses_full_pipeline', 'blank_query_routes_to_fts_only']:
+        replace(advanced, f'''async fn {name}() {{
+    use crate::memory_core::AdvancedSearcher;
+
+    let storage = SqliteStorage::new_in_memory().unwrap();''',
+            f'''async fn {name}() {{
+    use crate::memory_core::AdvancedSearcher;
+
+    let (storage, model) = routing_storage();''')
+    replace(advanced, '    assert!(!results.is_empty(), "keyword query should return results");', '''    assert_eq!(model.0.load(std::sync::atomic::Ordering::SeqCst), 0,
+        "keyword dispatch must skip query embeddings");
+    assert!(!results.is_empty(), "keyword query should return results");''')
+    replace(advanced, '    // Should still return results through the full pipeline.', '''    assert!(model.0.load(std::sync::atomic::Ordering::SeqCst) > 0,
+        "natural-language dispatch must compute query embeddings");
+    // Should still return results through the full pipeline.''')
+    replace(advanced, '        // FTS5 with an empty query matches nothing, so we expect an empty', '''        assert_eq!(model.0.load(std::sync::atomic::Ordering::SeqCst), 0,
+            "blank dispatch must skip query embeddings");
+        // FTS5 with an empty query matches nothing, so we expect an empty''')
+    # Release the read gate before propagating a migration error or timeout.
+    replace(race, '''        let migration = migrate(&path, "space-b", 4).await;
+        resume_tx.send(())?;
+        migration?;
+        let error = read
+            .await?''', '''        let migration = tokio::time::timeout(
+            Duration::from_secs(20), migrate(&path, "space-b", 4),
+        ).await;
+        resume_tx.send(())?;
+        migration??;
+        let error = tokio::time::timeout(Duration::from_secs(30), read)
+            .await??''')
+    replace(race, '''    let migration = async {
+        migrate(&path, "space-b", 4).await?;
+        migrate(&path, "space-a", 4).await
+    }
+    .await;
+    resume_tx.send(())?;
+    migration?;
+    let error = read
+        .await?''', '''    let migration = tokio::time::timeout(Duration::from_secs(20), async {
+        migrate(&path, "space-b", 4).await?;
+        migrate(&path, "space-a", 4).await
+    })
+    .await;
+    resume_tx.send(())?;
+    migration??;
+    let error = tokio::time::timeout(Duration::from_secs(30), read)
+        .await??''')
+else:
+    raise SystemExit('usage: pr439-review.py red|green')
+
+evidence = Path('/tmp/pr439-review')
 evidence.mkdir(parents=True, exist_ok=True)
-path = evidence / f"{stage}.patch"
-path.write_bytes(patch)
-subprocess.run(["git", "apply", "--check", str(path)], check=True)
-subprocess.run(["git", "apply", str(path)], check=True)
+(evidence / f'{sys.argv[1]}.patch').write_bytes(subprocess.check_output(['git', 'diff', '--binary', '--', 'src', 'tests']))
