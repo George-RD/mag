@@ -53,8 +53,9 @@ baseline still needs authenticated artifacts and honest measurement context.
 
 Review found stale README claims that the adapter was unimplemented; both were
 reconciled with this slice. Source ownership and model/runtime contracts are
-updated. Temporary authoring infrastructure is absent from the final diff;
-ordinary CI permissions and test requirements are unchanged.
+updated. Temporary authoring infrastructure is absent from the final diff.
+CI permissions remain unchanged and existing gates are not weakened; a permanent
+explicit-feature release job adds coverage for the documented producer build.
 
 ## Observed verification
 
@@ -71,6 +72,32 @@ success did an isolated publication job commit the verified patch. The code
 execution job had read-only repository permissions; the write job applied only
 allowlisted paths and executed no repository code. Both temporary files were
 then deleted using ordinary connector commits.
+
+The cleaned implementation head `fe4bee662bf15becbee5647dc720a24eadb91146` passed
+ordinary CI `34278288096`, Cairn `34278288146`, and the Python evaluation matrix
+`34278287995`. The retrieval classifier did not require a benchmark rerun.
+Cairn's existing orphan/provenance and oversized-module warnings remained.
+
+## Independent review correction: explicit build profile
+
+Codex review of that head found that the README incorrectly said `llm` was a
+default feature. Cargo defaults and packaged release profiles do not enable it,
+so the documented `cargo build --release` could not produce this command even
+though all-features tests passed. Review comment `3962279771` identified this
+real build/documentation mismatch.
+
+A documentation regression was committed first at
+`62ec3edf657f9c9571e1bdb00fe1b797baeb4768`. Evaluation run `34279336804`, job
+`102240041170`, ran 53 tests: the existing 52 passed and the new build-profile
+test failed because the README command lacked `llm`. The README was then fixed
+to require `cargo build --release --features llm` and explicitly state that
+default and packaged binaries exclude this opt-in evaluation command.
+
+The permanent evaluation workflow now tests both producer integration binaries
+in the default-plus-`llm` release profile, then runs `intelligence-produce
+--describe` on that binary. This supplements, rather than replaces, full
+all-features CI. Cargo defaults and release packaging remain unchanged. Final
+same-head CI and a fresh independent review must verify the correction.
 
 No local Rust or Cairn execution is claimed: the authoring container lacked
 those executables and direct repository network access. Final ordinary full CI,
