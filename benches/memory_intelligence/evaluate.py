@@ -277,19 +277,30 @@ def _finite_float(value: str) -> float:
     return parsed
 
 
-def load_json(path: Path) -> Any:
+def parse_json(text: str) -> Any:
+    """Decode artifacts and producer responses with the same strict JSON rules."""
     return json.loads(
-        path.read_text(encoding="utf-8"),
+        text,
         object_pairs_hook=_unique_object,
         parse_constant=_reject_constant,
         parse_float=_finite_float,
     )
 
 
-def _write_report(path: Path, text: str, inputs: tuple[Path, ...]) -> None:
+def load_json(path: Path) -> Any:
+    return parse_json(path.read_text(encoding="utf-8"))
+
+
+def check_output_path(path: Path, inputs: tuple[Path, ...]) -> None:
+    """Reject input aliases before either executing a producer or writing output."""
     for source in inputs:
         if path.resolve() == source.resolve() or (path.exists() and path.samefile(source)):
             raise ValueError("output must not overwrite an input file")
+
+
+def write_report(path: Path, text: str, inputs: tuple[Path, ...]) -> None:
+    """Atomically replace an artifact without overwriting its input files."""
+    check_output_path(path, inputs)
     # An invalid run or interrupted write must not leave a partially written scorecard.
     temporary = None
     try:
@@ -327,7 +338,7 @@ def main() -> None:
             report = evaluate(dataset, load_json(args.run))
         text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         if args.command == "score" and args.output is not None:
-            _write_report(args.output, text, (args.dataset, args.run))
+            write_report(args.output, text, (args.dataset, args.run))
         else:
             print(text, end="")
     except (OSError, ValueError, TypeError, RecursionError) as exc:

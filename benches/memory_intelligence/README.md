@@ -1,10 +1,12 @@
-# Recorded memory-intelligence evaluation
+# Memory-intelligence capture and scoring
 
-This is the first slice of `todo.build-local-memory-intelligence-eval-harness`.
-It validates a versioned development dataset and scores **recorded outputs**. It
-does not load a model, call an endpoint, exercise production ingestion, or claim
-a measured local-model baseline. Python 3.10 or newer and the standard library
-are sufficient.
+This implements bounded slices of
+`todo.build-local-memory-intelligence-eval-harness`: versioned dataset validation,
+recorded-output scoring, and capture from a trusted external CLI producer.
+The harness does not own model loading or memory semantics. A production MAG
+producer adapter and a measured local-model baseline remain outstanding.
+Python 3.10 or newer and the standard library are sufficient; capture requires
+POSIX process groups (Linux or macOS).
 
 ## Commands
 
@@ -18,7 +20,7 @@ python3 benches/memory_intelligence/evaluate.py score \
   benches/memory_intelligence/dataset.v1.json recorded-run.json \
   --output scorecard.json
 
-python3 -m unittest discover -s tests -p test_memory_intelligence_eval.py -v
+python3 -m unittest discover -s tests -p 'test_memory_intelligence_*.py' -v
 ```
 
 Without `--output`, scoring prints JSON to stdout. Exit 0 means a valid scorecard
@@ -105,10 +107,82 @@ means `null`, never an invented zero. Load time and peak RAM are copied only whe
 supplied. This scorer's execution time is not model latency, and resource
 expectations in a profile are not measured resource usage.
 
+## Trusted CLI producer capture
+
+Supply an executable that implements the protocol below. No production MAG
+adapter is bundled yet; a fixture executable tests the bridge, not model quality.
+For an existing compatible producer, the command shape is:
+
+```bash
+python3 benches/memory_intelligence/capture.py \
+  benches/memory_intelligence/dataset.v1.json \
+  --metadata actual-producer-metadata.json --output recorded-run.json \
+  --timeout-seconds 60 --max-bytes 1048576 \
+  --producer /absolute/path/to/compatible-producer --its-own-options
+```
+
+`--producer` must be last. Its remaining arguments form an argument vector, not
+a shell command. The executable is resolved before changing directory; symlinks
+are preserved so virtual-environment launchers retain their behavior. Use absolute
+paths for producer scripts, model files, configuration, or other path arguments.
+Each case starts a new process in its own empty temporary working directory.
+
+The producer reads one UTF-8 JSON document from stdin until EOF:
+
+```json
+{
+  "schema_version": 1,
+  "task": "facts",
+  "instruction": "Extract the owner as owner=NAME.",
+  "sources": [{"id": "m1", "text": "Iris owns the project."}]
+}
+```
+
+It writes exactly one JSON response with the `items` shape above to stdout and
+exits zero. Case IDs can contain answer hints, so they are excluded alongside
+annotations, dataset identity, and run metadata. The parent joins responses to
+case IDs; the producer does not supply or choose them. Requests preserve source
+text and source IDs. Producers must not read the annotated dataset separately.
+
+The metadata input contains `code_revision`, `model_profile`,
+`embedding_space_identity`, and `measurement_context` from the recorded-run
+contract. Optional externally observed `load_time_ms` and `peak_ram_bytes` may
+also be supplied. It must not contain `schema_version`, `dataset_sha256`,
+`results`, unknown fields, or the reserved `measurement_context.capture` key.
+Metadata is validated before launching, copied unchanged except for the appended
+capture context, and never sent to the producer. The bridge records the resolved
+executable and an argument-vector digest, not raw arguments or environment values.
+Keep a separately protected invocation record for reproducibility; a digest alone
+cannot reconstruct arguments or authenticate the executable or supplied profile.
+
+The timeout covers process launch and pipe I/O. Input, stdout, and stderr each
+have the configured byte limit (default 1 MiB; maximum 16 MiB). Stderr is drained
+and discarded, never copied into artifacts or echoed. Timeouts, nonzero exits,
+invalid UTF-8/JSON, and quota failures become failed attempts; later cases still
+run. Valid JSON with an invalid response shape is preserved for the scorer to
+reject, not repaired. No automatic retries or selective result omission occur.
+Same-group descendants are killed even after their parent exits successfully.
+
+This is a **trusted-producer boundary, not a security sandbox**. The environment
+is inherited and the filesystem/network are not isolated. Producers must not
+detach into another session or read gold answers through other channels. Do not
+run untrusted commands or point a producer at a personal production database.
+
+Per-case latency is observed wall time including process startup, I/O, JSON
+parsing, and cleanup. It is not isolated inference latency or evidence of warm
+model performance. The runner does not measure tokens, model load time, or peak
+RAM; missing observations remain null, and any supplied resource measurements
+must disclose their external method. Tests are explicitly marked as fixtures.
+
+Capture writes the run atomically, leaves stdout empty, and exits zero when an
+artifact is produced, even if every attempt failed. Configuration or file errors
+exit 2. Dataset/metadata output aliases are rejected before execution. A failed
+validation or write does not replace an existing output with a partial run.
+
 ## Remaining harness work
 
-Add capture through the CLI-first selected runtime, without feeding gold labels
-to the model or creating a separate MCP/runtime implementation. Capture actual
-profiles, latency, load time, peak RAM, and tokens; then record a reproducible
-local baseline. Model promotion also needs a larger, held-out evaluation and
-broader task-success evidence. The parent Cairn todo remains in progress.
+Implement a compatible producer through the selected CLI-first MAG runtime,
+without adding separate Python or MCP memory semantics. Capture its actual
+profiles and resource observations, then record a reproducible local-model
+baseline. Model promotion also needs a larger, held-out evaluation and broader
+task-success evidence. The parent Cairn todo remains in progress.
