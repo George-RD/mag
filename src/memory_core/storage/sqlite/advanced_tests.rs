@@ -42,12 +42,13 @@ async fn bounded_fts_candidates_preserve_created_at_filters() {
 
     for idx in 0..(super::pipeline::ADVANCED_FTS_CANDIDATE_MIN + 20) {
         let id = format!("old-{idx}");
+        let content = format!("alpha {idx}");
         <SqliteStorage as Storage>::store(
             &storage,
             &id,
-            "alpha",
+            &content,
             &MemoryInput {
-                content: "alpha".to_string(),
+                content: content.clone(),
                 ..Default::default()
             },
         )
@@ -68,6 +69,14 @@ async fn bounded_fts_candidates_preserve_created_at_filters() {
     .unwrap();
 
     let conn = storage.test_conn().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        count,
+        (super::pipeline::ADVANCED_FTS_CANDIDATE_MIN + 21) as i64,
+        "FTS bound fixture must exceed the candidate limit after canonical dedup"
+    );
     conn.execute(
         "UPDATE memories SET created_at = '2000-01-01T00:00:00.000Z' WHERE id LIKE 'old-%'",
         [],
@@ -79,6 +88,7 @@ async fn bounded_fts_candidates_preserve_created_at_filters() {
     )
     .unwrap();
 
+    assert_unfiltered_limit_excludes(&conn, &storage, "recent-match");
     let candidates = collect_fts_candidates(
         &conn,
         "alpha",
@@ -102,12 +112,13 @@ async fn bounded_fts_candidates_preserve_event_at_filters() {
 
     for idx in 0..(super::pipeline::ADVANCED_FTS_CANDIDATE_MIN + 20) {
         let id = format!("old-event-{idx}");
+        let content = format!("alpha {idx}");
         <SqliteStorage as Storage>::store(
             &storage,
             &id,
-            "alpha",
+            &content,
             &MemoryInput {
-                content: "alpha".to_string(),
+                content: content.clone(),
                 referenced_date: Some("2000-01-01T00:00:00.000Z".to_string()),
                 ..Default::default()
             },
@@ -130,6 +141,15 @@ async fn bounded_fts_candidates_preserve_event_at_filters() {
     .unwrap();
 
     let conn = storage.test_conn().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        count,
+        (super::pipeline::ADVANCED_FTS_CANDIDATE_MIN + 21) as i64,
+        "FTS bound fixture must exceed the candidate limit after canonical dedup"
+    );
+    assert_unfiltered_limit_excludes(&conn, &storage, "recent-event-match");
     let recent_candidates = collect_fts_candidates(
         &conn,
         "alpha",
@@ -153,7 +173,7 @@ async fn bounded_fts_candidates_preserve_event_at_filters() {
 async fn keyword_dispatch_returns_fts_results() {
     use crate::memory_core::AdvancedSearcher;
 
-    let storage = SqliteStorage::new_in_memory().unwrap();
+    let (storage, model) = routing_storage();
 
     // Store memories with identifiable content.
     <SqliteStorage as Storage>::store(
@@ -186,6 +206,11 @@ async fn keyword_dispatch_returns_fts_results() {
         .await
         .unwrap();
 
+    assert_eq!(
+        model.0.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "keyword dispatch must skip query embeddings"
+    );
     assert!(!results.is_empty(), "keyword query should return results");
     assert!(
         results.iter().any(|r| r.content.contains("SqliteStorage")),
@@ -198,7 +223,7 @@ async fn keyword_dispatch_returns_fts_results() {
 async fn non_keyword_query_uses_full_pipeline() {
     use crate::memory_core::AdvancedSearcher;
 
-    let storage = SqliteStorage::new_in_memory().unwrap();
+    let (storage, model) = routing_storage();
 
     <SqliteStorage as Storage>::store(
         &storage,
@@ -222,6 +247,10 @@ async fn non_keyword_query_uses_full_pipeline() {
         .await
         .unwrap();
 
+    assert!(
+        model.0.load(std::sync::atomic::Ordering::SeqCst) > 0,
+        "natural-language dispatch must compute query embeddings"
+    );
     // Should still return results through the full pipeline.
     assert!(!results.is_empty(), "full pipeline should return results");
 }
@@ -236,7 +265,7 @@ async fn non_keyword_query_uses_full_pipeline() {
 async fn blank_query_routes_to_fts_only() {
     use crate::memory_core::AdvancedSearcher;
 
-    let storage = SqliteStorage::new_in_memory().unwrap();
+    let (storage, model) = routing_storage();
 
     <SqliteStorage as Storage>::store(
         &storage,
@@ -255,6 +284,11 @@ async fn blank_query_routes_to_fts_only() {
             .advanced_search(query, 5, &SearchOptions::default())
             .await
             .expect("blank query must dispatch cleanly");
+        assert_eq!(
+            model.0.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "blank dispatch must skip query embeddings"
+        );
         // FTS5 with an empty query matches nothing, so we expect an empty
         // result set rather than a panic or an embedding-driven scan.
         assert!(
@@ -262,4 +296,56 @@ async fn blank_query_routes_to_fts_only() {
             "blank query {query:?} should yield no FTS5 matches"
         );
     }
+}
+
+fn assert_unfiltered_limit_excludes(
+    conn: &rusqlite::Connection,
+    storage: &SqliteStorage,
+    excluded_id: &str,
+) {
+    let unfiltered = collect_fts_candidates(
+        conn,
+        "alpha",
+        1,
+        &SearchOptions::default(),
+        true,
+        &storage.scoring_params,
+    )
+    .unwrap();
+    assert_eq!(
+        unfiltered.len(),
+        super::pipeline::ADVANCED_FTS_CANDIDATE_MIN
+    );
+    assert!(
+        !unfiltered.iter().any(|(id, _, _)| id == excluded_id),
+        "fixture must put the filtered match outside the unfiltered candidate limit"
+    );
+}
+
+#[derive(Debug, Default)]
+struct QueryCountingModel(std::sync::atomic::AtomicUsize);
+
+impl crate::memory_core::EmbeddingModel for QueryCountingModel {
+    fn dimension(&self) -> usize {
+        4
+    }
+    fn embedding_space_identity(&self) -> &str {
+        "test-query-routing"
+    }
+    fn embed_for(
+        &self,
+        kind: crate::memory_core::EmbeddingInputKind,
+        _text: &str,
+    ) -> anyhow::Result<Vec<f32>> {
+        if kind == crate::memory_core::EmbeddingInputKind::Query {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(vec![1.0, 0.0, 0.0, 0.0])
+    }
+}
+
+fn routing_storage() -> (SqliteStorage, std::sync::Arc<QueryCountingModel>) {
+    let model = std::sync::Arc::new(QueryCountingModel::default());
+    let storage = SqliteStorage::new_in_memory_with_embedding_model(model.clone()).unwrap();
+    (storage, model)
 }

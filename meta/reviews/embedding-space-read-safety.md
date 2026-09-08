@@ -135,3 +135,37 @@ status remains in Cairn's native todos.
 
 The supported operating procedure remains stop all sharing processes, migrate,
 then restart. See `docs/re-embedding.md`.
+
+## PR #439 review follow-up: 8 September 2026
+
+The [review TDD run](https://github.com/George-RD/mag/actions/runs/34246491404) requires runtime assertion failures for the populated
+hot-cache refresh race and both deduplicated FTS fixtures in BLOB and sqlite-vec
+builds before applying the fix. Refresh now releases its old snapshot and reader
+before checking the live generation; failures clear actual cached entries. A
+private refresh callback provides a deterministic interleaving without sleeps or
+global test hooks. Earlier run 34245431412 stopped on a new SQL count fixture type
+error; run 34246052335 proved RED and 56 GREEN checks but stopped on an unused
+import in the temporary mutation harness. Neither compile failure was accepted as
+a behavioral regression. The harness and portable artifact filenames were fixed.
+
+Existing routing tests now count query embeddings: keyword and blank queries
+skip vector work, while natural-language queries perform it. FTS fixtures use 121
+distinct rows and prove the desired match is outside the unfiltered 100-candidate
+limit. Mutation checks deliberately break each routing branch and move date
+filtering after LIMIT; the strengthened assertions must fail. All mutations are
+restored before engineering gates. Migration and read joins have bounded timeouts.
+
+The parallel-candidate review finding does not require a second generation token:
+ConnPool already pins one immutable generation for both reader snapshots, fusion,
+and decomposition. The snapshot regression now also rejects a second reader after
+migration while the original snapshot remains open. The final result/cache guard
+remains required; these guards provide a validation boundary, not a promise to
+prevent a migration immediately after validation. Stop/migrate/restart remains
+the supported operational procedure.
+
+Focused tests in both storage configurations, the full all-feature suite, Rustfmt,
+strict Clippy, and the repository retrieval benchmark pass before source publication.
+Cairn scan/hooks follow this note. This is worktree evidence, not final-head CI.
+Final cleaned-head CI and review disposition are recorded on PR #439. This direct
+self-review is not an independently executed slash-command /code-review. Artifacts
+have 14-day retention; test names and repository commands remain durable.

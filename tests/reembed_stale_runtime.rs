@@ -327,11 +327,12 @@ async fn migration_during_query_embedding_rejects_semantic_and_advanced_reads() 
             }
         });
         tokio::time::timeout(Duration::from_secs(30), started_rx).await??;
-        let migration = migrate(&path, "space-b", 4).await;
+        let migration =
+            tokio::time::timeout(Duration::from_secs(20), migrate(&path, "space-b", 4)).await;
         resume_tx.send(())?;
-        migration?;
-        let error = read
-            .await?
+        migration??;
+        let error = tokio::time::timeout(Duration::from_secs(30), read)
+            .await??
             .expect_err("migration racing a semantic read must fail visibly");
         assert_embedding_space_mismatch(&error);
     }
@@ -378,15 +379,15 @@ async fn round_trip_migration_between_candidate_and_fusion_phases_is_rejected() 
             .await
     });
     tokio::time::timeout(Duration::from_secs(30), started_rx).await??;
-    let migration = async {
+    let migration = tokio::time::timeout(Duration::from_secs(20), async {
         migrate(&path, "space-b", 4).await?;
         migrate(&path, "space-a", 4).await
-    }
+    })
     .await;
     resume_tx.send(())?;
-    migration?;
-    let error = read
-        .await?
+    migration??;
+    let error = tokio::time::timeout(Duration::from_secs(30), read)
+        .await??
         .expect_err("multi-phase reads must not mix embedding generations");
     assert!(
         format!("{error:#}").contains("embedding generation mismatch"),

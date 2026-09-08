@@ -357,6 +357,12 @@ mod tests {
             )?;
             assert_eq!(indexed, original);
         }
+        let other_reader = pool.reader()?;
+        assert!(
+            pool.embedding_snapshot(&other_reader).is_err(),
+            "parallel candidate snapshots must reject a different generation"
+        );
+        drop(other_reader);
         drop(snapshot);
         assert!(
             pool.embedding_snapshot(&reader).is_err(),
