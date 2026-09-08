@@ -40,7 +40,13 @@ judge or a broad model-quality claim.
 - Dataset review found an expected contradiction attribute absent from the
   producer instruction. A failing assertion now requires that canonical label
   vocabulary to be disclosed for both positive and negative contradiction cases.
-- Local Python 3.13 verification passes 28 hermetic tests, including CLI execution,
+- PR #441 review identified responsibility being labeled as ownership in the
+  Arabic seed. The source now states ownership explicitly, with an observed
+  failing fixture regression before the correction.
+- PR #441 review also found deeply nested JSON escaping the CLI error path.
+  A regression reproduced tracebacks for both dataset and run input before
+  recursion failures were included in controlled exit-2 handling.
+- Local Python 3.13 verification passes 29 hermetic tests, including CLI execution,
   all annotations round-tripping as reference outputs, invalid artifacts,
   incomplete runs, fabricated citations, and unmeasured performance.
 - Four local behavioral mutations were rejected by assertions: removing missing

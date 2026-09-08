@@ -330,7 +330,7 @@ def main() -> None:
             _write_report(args.output, text, (args.dataset, args.run))
         else:
             print(text, end="")
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError, RecursionError) as exc:
         parser.exit(2, f"error: {exc}\n")
 
 

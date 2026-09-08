@@ -306,6 +306,8 @@ class CliAndDatasetTests(unittest.TestCase):
         for case in dataset["cases"]:
             if case["task"] == "contradictions":
                 self.assertIn("review_start_time", case["instruction"])
+            if case["id"] == "facts-arabic-to-english":
+                self.assertEqual(case["sources"][0]["text"], "ليلى تملك مشروع أطلس.")
 
     def test_all_checked_in_annotations_round_trip_as_reference_outputs(self):
         dataset = eval_module.load_json(DATASET)
@@ -341,6 +343,24 @@ class CliAndDatasetTests(unittest.TestCase):
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertNotIn("Traceback", result.stderr)
+
+    def test_cli_rejects_deeply_nested_json_without_a_traceback(self):
+        dataset, _ = fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_path, nested_path = Path(tmp) / "dataset.json", Path(tmp) / "nested.json"
+            dataset_path.write_text(json.dumps(dataset), encoding="utf-8")
+            nested_path.write_text("[" * 10000 + "0" + "]" * 10000, encoding="utf-8")
+            for arguments in (
+                ["validate", str(nested_path)],
+                ["score", str(dataset_path), str(nested_path)],
+            ):
+                with self.subTest(arguments=arguments):
+                    result = subprocess.run(
+                        [sys.executable, str(EVALUATOR), *arguments], capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertEqual(result.stdout, "")
 
     def test_cli_refuses_to_overwrite_its_inputs(self):
         dataset, run = fixture()
