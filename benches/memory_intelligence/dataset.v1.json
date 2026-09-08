@@ -214,7 +214,7 @@
     {
       "id": "contradictions-same-time",
       "task": "contradictions",
-      "instruction": "Report conflicting claims about the same scheduled event as contradiction=<attribute>. Cite both conflicting memories.",
+      "instruction": "Report conflicting claims about the same scheduled event as contradiction=<attribute>. Cite both conflicting memories. Use review_start_time as the attribute name for the review start time.",
       "sources": [
         {
           "id": "m1",
@@ -238,7 +238,7 @@
     {
       "id": "contradictions-explicit-supersession",
       "task": "contradictions",
-      "instruction": "Report contradiction=<attribute> only for incompatible current claims. An explicit later replacement is not a contradiction; return no items for supersession alone.",
+      "instruction": "Report contradiction=<attribute> only for incompatible current claims. An explicit later replacement is not a contradiction; return no items for supersession alone. Use review_start_time as the attribute name for the review start time.",
       "sources": [
         {
           "id": "m1",

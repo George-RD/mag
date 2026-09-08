@@ -303,6 +303,9 @@ class CliAndDatasetTests(unittest.TestCase):
         self.assertEqual({case["task"] for case in dataset["cases"]}, eval_module.TASKS)
         self.assertGreaterEqual(sum(not case["expected"] for case in dataset["cases"]), 2)
         self.assertTrue(any("ليلى" in source["text"] for case in dataset["cases"] for source in case["sources"]))
+        for case in dataset["cases"]:
+            if case["task"] == "contradictions":
+                self.assertIn("review_start_time", case["instruction"])
 
     def test_all_checked_in_annotations_round_trip_as_reference_outputs(self):
         dataset = eval_module.load_json(DATASET)

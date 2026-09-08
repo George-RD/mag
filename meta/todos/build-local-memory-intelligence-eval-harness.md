@@ -17,7 +17,7 @@ task categories are represented, with negative controls, multi-source provenance
 and an Arabic-to-English fact case.
 
 The scorecard records the supplied exact profile snapshot and its digest,
-embedding-space identity (explicitly null for a model-free embedding path),
+embedding-space identity (explicitly null when no embedding space participated),
 dataset digest, producing code revision, and measurement context. It reports
 schema validity, exact content and grounded precision/recall/F1, task success,
 p50/p95 observed latency, observed tokens, load time, and peak RAM. Missing
@@ -37,6 +37,9 @@ judge or a broad model-quality claim.
   boundary failed; the implemented boundary passes.
 - Review found JSON exponent overflow (`1e9999`) bypassing rejection of nonfinite
   constants. A failing regression was added before fixing numeric decoding.
+- Dataset review found an expected contradiction attribute absent from the
+  producer instruction. A failing assertion now requires that canonical label
+  vocabulary to be disclosed for both positive and negative contradiction cases.
 - Local Python 3.13 verification passes 28 hermetic tests, including CLI execution,
   all annotations round-tripping as reference outputs, invalid artifacts,
   incomplete runs, fabricated citations, and unmeasured performance.
