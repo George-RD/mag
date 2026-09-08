@@ -204,6 +204,22 @@ print('{"items":[]}')
                     capture.capture_run(dataset(), metadata(), command)
         start.assert_not_called()
 
+    def test_parent_exit_closes_inherited_child_pipes_and_preserves_buffered_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "escaped"
+            started = Path(tmp) / "started"
+            child = f"import time; from pathlib import Path; time.sleep(2); Path({str(marker)!r}).touch()"
+            code = ("import subprocess, sys; "
+                    f"p = subprocess.Popen([sys.executable, '-S', '-c', {child!r}]); "
+                    f"f = open({str(started)!r}, 'a'); f.write(str(p.pid) + '\\n'); f.close(); "
+                    # More than a pipe buffer; cleanup must still drain the response.
+                    "print(' ' * 200000 + '{\"items\":[]}')")
+            run = self.run_producer(code, timeout=1)
+            self.assertEqual(len(started.read_text().splitlines()), 2)
+            self.assertTrue(all(r.get("output") == {"items": []} for r in run["results"]))
+            time.sleep(2.1)
+            self.assertFalse(marker.exists())
+
     def test_same_group_descendants_are_killed_on_timeout_and_parent_exit(self):
         with tempfile.TemporaryDirectory() as tmp:
             marker = Path(tmp) / "escaped"

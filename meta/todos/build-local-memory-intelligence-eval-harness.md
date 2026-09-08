@@ -68,14 +68,16 @@ helpers. It preserves supplied metadata and observes per-case process wall time,
 not isolated model latency. It does not invent tokens, model load time, or RAM.
 No MAG runtime producer or model-quality baseline is claimed by this slice.
 
-Local Python 3.13 verification passed 22 new tests, including real subprocesses,
+Local Python 3.13 verification passed 23 new tests, including real subprocesses,
 CLI artifacts, quota/deadlock cases, malformed responses, input-alias protection,
 virtual-environment executable symlinks, and descendant cleanup. TDD reproduced
 answer/case-ID leakage and the symlink-resolution failure before correction.
-Five behavioral mutations were killed by assertions: leaking annotations,
-dropping failed attempts, disabling stream quotas, inventing zero latency, and
-leaving descendants after a successful parent exit. Durable scope and evidence
-are in `meta/reviews/memory-intelligence-producer-capture.md`.
+PR #442 review additionally reproduced false timeouts when a successful parent's
+child retained inherited pipes; cleanup now observes parent exit before EOF and
+preserves buffered output. Five behavioral mutations were killed by assertions:
+leaking annotations, dropping failed attempts, disabling stream quotas, inventing
+zero latency, and leaving descendants after a successful parent exit. Durable
+scope and evidence are in `meta/reviews/memory-intelligence-producer-capture.md`.
 
 The evaluation workflow runs both suites and dataset validation on Linux with
 Python 3.10/3.13 and macOS with Python 3.13. Full repository CI and the pinned

@@ -51,14 +51,14 @@ a slash-command `/code-review`. Live PR reviews and exact-head CI are separate.
 The first two request-boundary assertions failed when the whole case crossed the
 producer boundary. They pass after the allowlist projection. The executable
 symlink assertion also failed before its correction. Local Python 3.13.5 then
-passed all 22 new tests with real subprocesses, including CLI artifact behavior,
+passed all 23 new tests with real subprocesses, including CLI artifact behavior,
 closed-pipe timeouts, quota errors, malformed/duplicate/nonfinite JSON, invalid
 UTF-8 and lone surrogates, input aliases, fresh directories, and literal argv.
 
 The test subprocesses use `python -S` to exclude this authoring environment's
 site startup hooks. Production capture does not alter a producer's Python flags.
-The descendant regression explicitly records two child PIDs, waits beyond the
-child's delayed action, and checks that cleanup prevented that action.
+The descendant regressions explicitly record two child PIDs, wait beyond the
+child's delayed action, and check that cleanup prevented that action.
 
 Five local mutations each produced the intended assertion failure, not an import
 or compilation error, and were restored before rerunning the green suite:
@@ -73,15 +73,38 @@ or compilation error, and were restored before rerunning the green suite:
 
 Source blobs matched the locally tested copies at publication:
 
-- `capture.py`: `29b0307bc28f6209a54845b2aefe04ff9addcee7`
+- `capture.py`: `79c9032d2cd8c1942d2e49017dddb1308e57d96a`
 - `evaluate.py`: `09af165408e59a0cf68f2dd4e798004654fa0c34`
-- `test_memory_intelligence_capture.py`: `4a8acb883d5765d9e5a9cf6728221718cfdf42e3`
+- `test_memory_intelligence_capture.py`: `d67d10cc158b1419bebd1639bdc3791f0bc5152d`
 
 The existing 29 scorer tests belong to #441's evidence; this session does not
 claim a local execution of those tests or of Rust/Cairn. The updated evaluation
 workflow runs both suites on Linux (Python 3.10/3.13) and macOS (Python 3.13).
 Full repository CI and pinned Cairn scan/hooks must pass at the exact PR head
 before merge. Any legacy Cairn warnings must remain visible, not suppressed.
+
+## PR #442 review correction
+
+Codex identified a P1 inherited-pipe edge case at the initial head: a same-group
+child with inherited stdout/stderr could keep the pipes open after its parent
+returned valid JSON and exited zero. Waiting for EOF before group cleanup then
+misclassified a successful producer as a timeout.
+
+A new real-process regression reproduced the assertion failure before the fix
+(two cases took approximately two seconds with a one-second per-case timeout).
+The parent records child PIDs and emits a response larger than a pipe buffer;
+the child inherits the pipes and attempts a delayed file write. The runner now
+polls parent exit with bounded selector waits, stops the group before waiting
+for EOF, and drains buffered output. It tracks completed cleanup to avoid a
+second group signal. The regression now preserves both JSON responses and
+prevents the child's delayed write. All 23 capture tests and the five existing
+mutation checks passed after the correction.
+
+At the initial head `eca5386485e42aad768b779f151b93c4047003fb`, full CI
+`34259962861`, evaluation matrix `34259963247` (51 tests before this additional
+regression), and Cairn `34259962829` all passed. These are historical evidence,
+not verification of the subsequent correction. The revised head must complete
+fresh CI before merge; its combined evaluation suite contains 52 tests.
 
 ## Remaining limits
 
