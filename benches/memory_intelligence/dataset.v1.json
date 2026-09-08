@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "dataset_id": "mag-memory-intelligence-dev-v1",
+  "cases": [
+    {
+      "id": "facts-explicit",
+      "task": "facts",
+      "instruction": "Return one label owner=<name> for the stated owner of Orbit. Do not infer unstated facts.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "Iris owns the Orbit project."
+        },
+        {
+          "id": "m2",
+          "text": "Noah reviewed the Orbit notes."
+        }
+      ],
+      "expected": [
+        {
+          "value": "owner=Iris",
+          "source_ids": [
+            "m1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "facts-proposal-is-not-a-fact",
+      "task": "facts",
+      "instruction": "Return owner=<name> only for a confirmed owner of Orbit, not a proposal. Otherwise return no items.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "Perhaps Noah should own Orbit. No owner has been chosen."
+        }
+      ],
+      "expected": []
+    },
+    {
+      "id": "entities-explicit-alias",
+      "task": "entities",
+      "instruction": "Normalize only explicitly stated aliases. Return alias=<alias>;canonical=<full name>.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "The North Coast Lab is called NCL in these notes."
+        },
+        {
+          "id": "m2",
+          "text": "NCL and Harbor Lab are separate organizations."
+        }
+      ],
+      "expected": [
+        {
+          "value": "alias=NCL;canonical=North Coast Lab",
+          "source_ids": [
+            "m1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "temporal-relative-date",
+      "task": "temporal",
+      "instruction": "The source was written on 2026-09-08. Resolve yesterday to an ISO date. Return event=review;date=<YYYY-MM-DD>.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "We finished the review yesterday."
+        }
+      ],
+      "expected": [
+        {
+          "value": "event=review;date=2026-09-07",
+          "source_ids": [
+            "m1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "relationships-direction",
+      "task": "relationships",
+      "instruction": "Return supervises=<supervisor>-><report> for the explicit reporting relationship.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "Noah reports to Iris, not the other way around."
+        },
+        {
+          "id": "m2",
+          "text": "They both work on Orbit."
+        }
+      ],
+      "expected": [
+        {
+          "value": "supervises=Iris->Noah",
+          "source_ids": [
+            "m1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "decisions-not-suggestions",
+      "task": "decisions",
+      "instruction": "Return decision=<selected database> for the accepted decision, not an alternative that was only suggested.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "PostgreSQL was suggested for Orbit."
+        },
+        {
+          "id": "m2",
+          "text": "Decision: retain SQLite for Orbit. The PostgreSQL proposal was rejected."
+        }
+      ],
+      "expected": [
+        {
+          "value": "decision=SQLite",
+          "source_ids": [
+            "m2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "questions-unresolved",
+      "task": "questions",
+      "instruction": "Return question=<verbatim question> for the explicit unresolved question, including its question mark.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "Who will own the migration? This is still unanswered."
+        },
+        {
+          "id": "m2",
+          "text": "The migration is planned for October."
+        }
+      ],
+      "expected": [
+        {
+          "value": "question=Who will own the migration?",
+          "source_ids": [
+            "m1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "questions-already-answered",
+      "task": "questions",
+      "instruction": "Return question=<verbatim question> only for an explicitly unresolved question. Otherwise return no items.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "Who owns Orbit? Iris owns Orbit; the ownership question is now resolved."
+        }
+      ],
+      "expected": []
+    },
+    {
+      "id": "status-current-not-old",
+      "task": "status",
+      "instruction": "Return status=<current status> for Orbit, using the latest dated update rather than the older status.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "2026-09-01: Orbit is blocked."
+        },
+        {
+          "id": "m2",
+          "text": "2026-09-08: Orbit is complete. This replaces the earlier blocked status."
+        }
+      ],
+      "expected": [
+        {
+          "value": "status=complete",
+          "source_ids": [
+            "m2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grouping-retain-both-members",
+      "task": "grouping",
+      "instruction": "Group the memories about Orbit into one label topic=Orbit. Cite every member of the group and exclude unrelated memories.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "Orbit needs an import check."
+        },
+        {
+          "id": "m2",
+          "text": "Orbit's export check passed."
+        },
+        {
+          "id": "m3",
+          "text": "Neptune needs a new logo."
+        }
+      ],
+      "expected": [
+        {
+          "value": "topic=Orbit",
+          "source_ids": [
+            "m1",
+            "m2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contradictions-same-time",
+      "task": "contradictions",
+      "instruction": "Report conflicting claims about the same scheduled event as contradiction=<attribute>. Cite both conflicting memories.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "The Orbit review on 2026-09-10 starts at 10:00 UTC."
+        },
+        {
+          "id": "m2",
+          "text": "The Orbit review on 2026-09-10 starts at 14:00 UTC. This is not a reschedule; both notes claim the original time."
+        }
+      ],
+      "expected": [
+        {
+          "value": "contradiction=review_start_time",
+          "source_ids": [
+            "m1",
+            "m2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contradictions-explicit-supersession",
+      "task": "contradictions",
+      "instruction": "Report contradiction=<attribute> only for incompatible current claims. An explicit later replacement is not a contradiction; return no items for supersession alone.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "2026-09-01: The Orbit review is scheduled for 10:00 UTC."
+        },
+        {
+          "id": "m2",
+          "text": "2026-09-02: The Orbit review has been rescheduled to 14:00 UTC, replacing the earlier time."
+        }
+      ],
+      "expected": []
+    },
+    {
+      "id": "provenance-two-source-derivation",
+      "task": "provenance",
+      "instruction": "Infer the organization of Orbit's owner. Return owner_organization=<organization> and cite every memory needed for that inference.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "Iris owns Orbit."
+        },
+        {
+          "id": "m2",
+          "text": "Iris works for Harbor Lab."
+        },
+        {
+          "id": "m3",
+          "text": "Noah works for North Coast Lab."
+        }
+      ],
+      "expected": [
+        {
+          "value": "owner_organization=Harbor Lab",
+          "source_ids": [
+            "m1",
+            "m2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "facts-arabic-to-english",
+      "task": "facts",
+      "instruction": "Read the Arabic source and return one English label owner=<name> for the owner of the project. Transliterate ليلى as Layla.",
+      "sources": [
+        {
+          "id": "m1",
+          "text": "ليلى هي المسؤولة عن مشروع أطلس."
+        }
+      ],
+      "expected": [
+        {
+          "value": "owner=Layla",
+          "source_ids": [
+            "m1"
+          ]
+        }
+      ]
+    }
+  ]
+}
