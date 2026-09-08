@@ -110,9 +110,9 @@ expectations in a profile are not measured resource usage.
 
 ## Trusted CLI producer capture
 
-Supply an executable that implements the protocol below. No production MAG
-adapter is bundled yet; a fixture executable tests the bridge, not model quality.
-For an existing compatible producer, the command shape is:
+Supply an executable that implements the protocol below. MAG's opt-in runtime
+adapter is documented under Selected-runtime producer; fixture executables test
+the bridge, not model quality. For any compatible producer, the command shape is:
 
 ```bash
 python3 benches/memory_intelligence/capture.py \
@@ -182,11 +182,11 @@ validation or write does not replace an existing output with a partial run.
 
 ## Remaining harness work
 
-Implement a compatible producer through the selected CLI-first MAG runtime,
-without adding separate Python or MCP memory semantics. Capture its actual
-profiles and resource observations, then record a reproducible local-model
-baseline. Model promotion also needs a larger, held-out evaluation and broader
-task-success evidence. The parent Cairn todo remains in progress.
+Capture authenticated model profiles and actual resource observations through
+the selected CLI-first runtime producer, then record a reproducible local-model
+baseline. Do not add separate Python or MCP memory semantics. Model promotion
+also needs a larger, held-out evaluation and broader task-success evidence.
+The parent Cairn todo remains in progress.
 
 ## Selected-runtime producer
 
