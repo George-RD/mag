@@ -190,13 +190,17 @@ The parent Cairn todo remains in progress.
 
 ## Selected-runtime producer
 
-Build MAG with the `llm` feature (included in the default build), then inspect
-the explicit settings without opening a database or contacting a model:
+This evaluation command is opt-in and is not included in default or packaged
+release binaries. Build from source with the explicit `llm` feature, then inspect
+the configured settings without opening a database or contacting a model:
 
 ```bash
-cargo build --release
+cargo build --release --features llm
 ./target/release/mag intelligence-produce --describe
 ```
+
+CI exercises this default-plus-`llm` release profile separately from all-features
+checks, including the real executable and its configuration-only smoke test.
 
 Use the absolute path to that binary as the capture producer. Keep
 `--producer` last because it consumes the remaining arguments:
