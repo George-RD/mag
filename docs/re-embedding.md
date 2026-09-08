@@ -8,11 +8,14 @@ their own stable profile identity rather than claim the default BGE identity.
 ## Offline maintenance only
 
 Stop every MAG client, server, and embedded runtime sharing the database before
-migrating. Restart them only after the command finishes. The transaction-level
-write fence rejects stale vector writes, but an already-running process can
-still serve stale semantic-query or cache results. Live read/cache generation
-fencing remains tracked in issue #89 and
-`todo.implement-embedding-space-migration`.
+migrating. Restart them only after the command finishes. Vector writes check the
+persisted model identity inside their transaction. Semantic, similar-memory,
+and advanced searches now check identity and generation in their read snapshots
+and again before returning results, including query-cache hits. A process opened
+before migration fails visibly and clears its query and hot caches rather than
+adopting the new generation. Migrating A to B and back to A still requires a fresh
+runtime. These guards are a safety net, not live model switching; raw retrieval
+and metadata-only operations remain available.
 
 Use the same `MAG_DATA_ROOT` for inspection, migration, and subsequent startup.
 `mag paths` reports the selected database path without opening the database.
@@ -37,8 +40,8 @@ checksums. Actual migration may download them on first use. A build without
 ## Recovery
 
 Migration reserves the SQLite writer slot, creates a SQLite-consistent backup,
-then changes memory vectors, the vector index, and the persisted identity in one
-transaction. An embedding failure or interruption rolls back those changes.
+then changes memory vectors, the vector index, the persisted identity, and the
+embedding generation in one transaction. An embedding failure or interruption rolls back those changes.
 Keep the reported backup after a successful migration. For a later rollback,
 stop all runtimes and restore that complete backup with SQLite-aware tooling;
 it retains the source-space identity and needs a source-compatible runtime.

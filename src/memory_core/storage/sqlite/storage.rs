@@ -153,6 +153,31 @@ impl SqliteStorage {
         })
     }
 
+    /// A final live generation check is the read's completion point, including
+    /// cache hits and searches split over several snapshots. Clear both caches
+    /// on failure; a stale runtime never adopts a newer generation implicitly.
+    pub(super) async fn finish_embedding_read<T>(&self, read: Result<T>) -> Result<T> {
+        let result = match read {
+            Ok(value) => {
+                let pool = Arc::clone(&self.pool);
+                tokio::task::spawn_blocking(move || {
+                    let conn = pool.reader()?;
+                    let _snapshot = pool.embedding_snapshot(&conn)?;
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await
+                .context("embedding read validation join error")
+                .and_then(|result| result)
+                .map(|()| value)
+            }
+            Err(error) => Err(error),
+        };
+        if result.is_err() {
+            self.invalidate_query_cache();
+        }
+        result
+    }
+
     /// Run `ANALYZE` to update SQLite query planner statistics.
     /// Call after bulk inserts to ensure optimal index selection.
     #[allow(dead_code)]

@@ -86,6 +86,7 @@ impl super::SqliteStorage {
 
         let similar_ids = tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
+            let conn = pool.embedding_snapshot(&conn)?;
 
             let source_embedding: Vec<u8> = conn
                 .query_row(

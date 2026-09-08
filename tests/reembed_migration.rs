@@ -56,6 +56,14 @@ impl EmbeddingModel for TestEmbeddingModel {
     }
 }
 
+fn generation(path: &std::path::Path) -> Result<String> {
+    Ok(rusqlite::Connection::open(path)?.query_row(
+        "SELECT value FROM runtime_metadata WHERE key = 'embedding_generation'",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
 async fn seed_database(path: &std::path::Path, model: Arc<dyn EmbeddingModel>) -> Result<()> {
     let storage = SqliteStorage::new_with_path_and_embedding_model(path.to_path_buf(), model)?;
     let runtime = LocalMemoryRuntime::from_storage(storage);
@@ -87,6 +95,11 @@ async fn reembed_dry_run_reports_affected_memories_without_changing_space() -> R
     )
     .await?;
 
+    assert_eq!(
+        generation(&path)?,
+        "0",
+        "dry-run must not advance the generation"
+    );
     assert_eq!(report.source_embedding_space, "space-a");
     assert_eq!(report.target_embedding_space, "space-b");
     assert_eq!(report.memory_count, 2);
@@ -141,6 +154,8 @@ async fn reembed_migrates_same_dimension_space_atomically_and_creates_backup() -
     )
     .await?;
 
+    assert_eq!(generation(&path)?, "1");
+    assert_eq!(generation(report.backup_path.as_ref().unwrap())?, "0");
     assert_eq!(report.memory_count, 2);
     assert_eq!(report.migrated_count, 2);
     assert!(
@@ -282,6 +297,11 @@ async fn reembed_failure_rolls_back_vectors_and_embedding_space_identity() -> Re
     .await;
 
     assert!(result.is_err());
+    assert_eq!(
+        generation(&path)?,
+        "0",
+        "failed migration must not advance the generation"
+    );
     assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), source).is_ok());
     assert!(SqliteStorage::new_with_path_and_embedding_model(path, target).is_err());
     Ok(())
@@ -323,5 +343,53 @@ async fn reembed_refuses_existing_vector_index_without_sqlite_vec_support() -> R
     );
     assert!(SqliteStorage::new_with_path_and_embedding_model(path.clone(), source).is_ok());
     assert!(SqliteStorage::new_with_path_and_embedding_model(path, target).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn reembed_noop_keeps_generation_and_backup_unchanged() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join("memory.db");
+    let model: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-a", 4));
+    seed_database(&path, Arc::clone(&model)).await?;
+    let report = LocalMemoryRuntime::reembed_path_with_embedding_model(
+        path.clone(),
+        model,
+        ReembedOptions::default(),
+    )
+    .await?;
+    assert_eq!(report.migrated_count, 0);
+    assert!(report.backup_path.is_none());
+    assert_eq!(generation(&path)?, "0");
+    Ok(())
+}
+
+#[tokio::test]
+async fn reembed_exhausted_generation_rolls_back_changed_vectors() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join("memory.db");
+    let source: Arc<dyn EmbeddingModel> = Arc::new(TestEmbeddingModel::new("space-a", 4));
+    seed_database(&path, Arc::clone(&source)).await?;
+    rusqlite::Connection::open(&path)?.execute(
+        "UPDATE runtime_metadata SET value = ?1 WHERE key = 'embedding_generation'",
+        [u64::MAX.to_string()],
+    )?;
+    let error = LocalMemoryRuntime::reembed_path_with_embedding_model(
+        path.clone(),
+        Arc::new(TestEmbeddingModel::new("space-b", 6)),
+        ReembedOptions::default(),
+    )
+    .await
+    .expect_err("a generation must never wrap and revive old caches");
+    assert!(format!("{error:#}").contains("embedding generation exhausted"));
+    assert_eq!(generation(&path)?, u64::MAX.to_string());
+    let conn = rusqlite::Connection::open(&path)?;
+    let length: i64 = conn.query_row(
+        "SELECT length(embedding) FROM memories WHERE id = 'alpha'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(length, 16, "vector dimension change must roll back");
+    assert!(SqliteStorage::new_with_path_and_embedding_model(path, source).is_ok());
     Ok(())
 }

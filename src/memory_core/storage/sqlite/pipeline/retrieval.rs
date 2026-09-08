@@ -348,6 +348,7 @@ pub(crate) async fn collect_dual_candidates(
                 let sp = ctx.scoring_params.clone();
                 move || {
                     let conn = pool.reader()?;
+                    let conn = pool.embedding_snapshot(&conn)?;
                     collect_vector_candidates(
                         &conn,
                         &emb,
@@ -365,6 +366,7 @@ pub(crate) async fn collect_dual_candidates(
                 let sp = ctx.scoring_params.clone();
                 move || {
                     let conn = pool.reader()?;
+                    let conn = pool.embedding_snapshot(&conn)?;
                     collect_fts_candidates(&conn, &q, candidate_limit, &o, include_superseded, &sp)
                 }
             }),
@@ -381,6 +383,7 @@ pub(crate) async fn collect_dual_candidates(
             let sp = ctx.scoring_params.clone();
             move || {
                 let conn = pool.reader()?;
+                let conn = pool.embedding_snapshot(&conn)?;
                 let vec_c = collect_vector_candidates(
                     &conn,
                     &emb,

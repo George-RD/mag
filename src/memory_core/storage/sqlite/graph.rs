@@ -147,8 +147,9 @@ impl SimilarFinder for SqliteStorage {
         let pool = Arc::clone(&self.pool);
         let memory_id = memory_id.to_string();
 
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let conn = pool.reader()?;
+            let conn = pool.embedding_snapshot(&conn)?;
 
             let source_embedding: Vec<u8> = conn
                 .query_row(
@@ -267,7 +268,8 @@ impl SimilarFinder for SqliteStorage {
             Ok::<_, anyhow::Error>(ranked)
         })
         .await
-        .context("spawn_blocking join error")?
+        .context("spawn_blocking join error")?;
+        self.finish_embedding_read(result).await
     }
 }
 

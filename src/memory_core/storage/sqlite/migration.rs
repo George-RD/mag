@@ -214,6 +214,7 @@ fn reembed_path_sync(
         );
     }
 
+    schema::advance_embedding_generation(&tx)?;
     schema::update_embedding_space_identity(&tx, &target_embedding_space)
         .context("failed to persist migrated embedding-space identity")?;
 
