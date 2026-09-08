@@ -15,6 +15,8 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
             path "./src/main.rs"
             path "./src/lib.rs"
             path "./src/local_memory_runtime.rs"
+            path "./src/local_memory_runtime"
+            path "./src/intelligence_cli.rs"
             path "./src/cli.rs"
             contract "./meta/contracts/runtime.entrypoints.md"
         }
@@ -129,7 +131,7 @@ System MAG "Local-first durable memory for AI agents" id "mag" @memory @local-fi
 mag.runtime.entrypoints -> mag.runtime.setup "Dispatches setup, configuration, and uninstall commands"
 mag.runtime.entrypoints -> mag.runtime.mcp "Starts and hosts the MCP stdio server"
 mag.runtime.entrypoints -> mag.runtime.memory.domain "Builds the compatibility-sensitive CLI pipeline"
-mag.runtime.entrypoints -> mag.runtime.memory.models "Constructs the production embedding adapter"
+mag.runtime.entrypoints -> mag.runtime.memory.models "Constructs production embedding and opt-in evaluation generation adapters"
 mag.runtime.entrypoints -> mag.runtime.memory.retrieval "Optionally constructs the cross-encoder reranker"
 mag.runtime.entrypoints -> mag.runtime.memory.storage.sqlite "Constructs the production storage and query backend"
 

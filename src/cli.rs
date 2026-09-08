@@ -79,9 +79,33 @@ pub struct Cli {
     pub command: Commands,
 }
 
+/// Explicit settings for the opt-in, non-persisting evaluation producer.
+#[cfg(feature = "llm")]
+#[derive(Args)]
+pub struct IntelligenceProducerArgs {
+    /// OpenAI-compatible endpoint. MAG_LLM_* environment settings are not loaded.
+    #[arg(long, default_value = mag::memory_core::llm::DEFAULT_LOCAL_LLM_BASE_URL)]
+    pub base_url: String,
+    /// Model identifier configured on the endpoint, not an authenticated artifact ID.
+    #[arg(long, default_value = mag::memory_core::llm::DEFAULT_LOCAL_LLM_MODEL)]
+    pub model: String,
+    /// HTTP timeout; use capture.py for a whole-process deadline.
+    #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=600))]
+    pub timeout_seconds: u64,
+    /// Maximum completion tokens requested from the server.
+    #[arg(long, default_value_t = 512, value_parser = clap::value_parser!(u32).range(1..=16384))]
+    pub max_tokens: u32,
+    /// Describe configured, unverified settings without stdin or model access.
+    #[arg(long)]
+    pub describe: bool,
+}
+
 /// Available subcommands for the memory pipeline.
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Produces one answer-blind intelligence evaluation attempt from stdin.
+    #[cfg(feature = "llm")]
+    IntelligenceProduce(IntelligenceProducerArgs),
     /// Ingests raw content into the system.
     Ingest {
         content: String,

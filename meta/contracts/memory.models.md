@@ -10,10 +10,12 @@ same memory semantics.
 
 The current production binary constructs the ONNX embedder and may attach the
 cross-encoder to the SQLite retrieval path. `memory_core::llm` is feature-gated
-infrastructure consumed by substrate experiments, tests, and a mock benchmark;
-no production CLI or MCP entrypoint currently constructs an LLM backend.
-Environment defaults must not be documented as active product behaviour until
-the selected composition root wires them behind evaluation gates.
+infrastructure used by the opt-in, non-persisting `intelligence-produce` CLI
+workflow as well as retained experiments and tests. Ordinary ingestion, search,
+and MCP do not construct a generation backend. The evaluation command uses
+explicit flags over local defaults, not inherited `MAG_LLM_*` configuration.
+Its profile describes configured settings, not authenticated model artifacts or
+a measured local-model baseline.
 
 Every production model profile declares its model ID, revision, checksums, role,
 runtime, quantization, output dimensions, pooling, query/document handling,
@@ -31,3 +33,19 @@ recoverable re-embedding migration. Missing models fail visibly and fall back
 only when the caller explicitly permits it. Models with additional licence
 conditions are opt-in profiles unless an accepted decision establishes another
 default.
+
+## Evaluation generation boundary
+
+The selected runtime calls plain `LlmBackend::complete` once per request, never
+the repairing structured-completion path. Malformed output remains an attempt
+for the independent scorer. The existing HTTP provider trims surrounding
+whitespace; this transformation is disclosed in `--describe` metadata. Backend
+errors crossing this boundary are redacted, without retries or fallback.
+
+The request and returned completion each have a one-MiB application limit.
+The existing HTTP adapter buffers its response before the completion limit is
+checked: this is a trusted-endpoint evaluation path, not HTTP memory isolation.
+Capture owns the whole-process deadline and stream quotas. No artifact revision,
+checksum, quantization, licence, token count, load time, or peak RAM is inferred
+from an endpoint's model name. Configured profiles do not satisfy the production
+model-verification contract above.

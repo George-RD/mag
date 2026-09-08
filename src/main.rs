@@ -31,6 +31,8 @@ mod doctor_checks;
 #[cfg(feature = "daemon-http")]
 #[allow(dead_code)]
 mod idle_timer;
+#[cfg(feature = "llm")]
+mod intelligence_cli;
 mod mcp;
 #[cfg(test)]
 #[allow(dead_code)]
@@ -75,6 +77,10 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+    #[cfg(feature = "llm")]
+    if let Commands::IntelligenceProduce(args) = &cli.command {
+        return intelligence_cli::run(args).await;
+    }
 
     if matches!(cli.command, Commands::DownloadModel) {
         #[cfg(feature = "real-embeddings")]
@@ -394,6 +400,10 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .collect();
             println!("{}", json!({ "relationships": payload }));
+        }
+        #[cfg(feature = "llm")]
+        Commands::IntelligenceProduce(_) => {
+            unreachable!("IntelligenceProduce is handled before storage initialization");
         }
         Commands::Paths => {
             unreachable!("paths is handled before storage initialization");

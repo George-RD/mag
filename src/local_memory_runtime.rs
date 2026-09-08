@@ -1,3 +1,6 @@
+#[cfg(feature = "llm")]
+pub mod intelligence;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

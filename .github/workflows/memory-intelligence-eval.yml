@@ -30,3 +30,32 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_memory_intelligence_*.py' -v
       - name: Validate the versioned development dataset
         run: python benches/memory_intelligence/evaluate.py validate benches/memory_intelligence/dataset.v1.json
+
+  producer-cli-build:
+    name: Opt-in producer (release, llm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: memory-intelligence-producer
+      - name: Test the documented feature profile, not all-features
+        run: cargo test --locked --release --features llm --test memory_intelligence_producer_cli --test memory_intelligence_producer_runtime
+      - name: Smoke-test configured profile without a model
+        run: |
+          set -euo pipefail
+          ./target/release/mag intelligence-produce --describe > "$RUNNER_TEMP/producer-profile.json"
+          python3 - "$RUNNER_TEMP/producer-profile.json" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          description = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          assert description["model_profile"]["verification"] == "configured_not_authenticated"
+          assert description["model_profile"]["revision"] is None
+          assert description["embedding_space_identity"] is None
+          PY
