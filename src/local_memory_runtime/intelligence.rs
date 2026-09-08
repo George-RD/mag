@@ -57,17 +57,29 @@ pub struct IntelligenceRequest {
 
 impl IntelligenceRequest {
     fn prompt(&self) -> Result<String> {
-        ensure!(self.schema_version == 1, "unsupported intelligence protocol version");
-        ensure!(!self.instruction.trim().is_empty(), "instruction must not be empty");
+        ensure!(
+            self.schema_version == 1,
+            "unsupported intelligence protocol version"
+        );
+        ensure!(
+            !self.instruction.trim().is_empty(),
+            "instruction must not be empty"
+        );
         ensure!(!self.sources.is_empty(), "sources must not be empty");
         let mut ids = HashSet::new();
         for source in &self.sources {
             ensure!(!source.id.trim().is_empty(), "source ID must not be empty");
-            ensure!(!source.text.trim().is_empty(), "source text must not be empty");
+            ensure!(
+                !source.text.trim().is_empty(),
+                "source text must not be empty"
+            );
             ensure!(ids.insert(&source.id), "duplicate source ID");
         }
         let prompt = serde_json::to_string(self)?;
-        ensure!(prompt.len() <= MAX_INTELLIGENCE_BYTES, "intelligence request exceeds byte limit");
+        ensure!(
+            prompt.len() <= MAX_INTELLIGENCE_BYTES,
+            "intelligence request exceeds byte limit"
+        );
         Ok(prompt)
     }
 }
@@ -87,7 +99,10 @@ impl LocalMemoryRuntime {
         let completion = backend.complete(&prompt, Some(SYSTEM_PROMPT)).await.map_err(|_| {
             anyhow::anyhow!("memory intelligence backend failed; check the configured endpoint, model and timeout")
         })?;
-        ensure!(completion.len() <= MAX_INTELLIGENCE_BYTES, "intelligence completion exceeds byte limit");
+        ensure!(
+            completion.len() <= MAX_INTELLIGENCE_BYTES,
+            "intelligence completion exceeds byte limit"
+        );
         Ok(completion)
     }
 }

@@ -3,8 +3,9 @@
 This implements bounded slices of
 `todo.build-local-memory-intelligence-eval-harness`: versioned dataset validation,
 recorded-output scoring, and capture from a trusted external CLI producer.
-The harness does not own model loading or memory semantics. A production MAG
-producer adapter and a measured local-model baseline remain outstanding.
+The harness does not own model loading or memory semantics. The opt-in MAG
+runtime producer is available through `mag intelligence-produce`; a measured
+local-model baseline and authenticated generation artifacts remain outstanding.
 Python 3.10 or newer and the standard library are sufficient; capture requires
 POSIX process groups (Linux or macOS).
 
@@ -186,3 +187,43 @@ without adding separate Python or MCP memory semantics. Capture its actual
 profiles and resource observations, then record a reproducible local-model
 baseline. Model promotion also needs a larger, held-out evaluation and broader
 task-success evidence. The parent Cairn todo remains in progress.
+
+## Selected-runtime producer
+
+Build MAG with the `llm` feature (included in the default build), then inspect
+the explicit settings without opening a database or contacting a model:
+
+```bash
+cargo build --release
+./target/release/mag intelligence-produce --describe
+```
+
+Use the absolute path to that binary as the capture producer. Keep
+`--producer` last because it consumes the remaining arguments:
+
+```bash
+python3 benches/memory_intelligence/capture.py \
+  benches/memory_intelligence/dataset.v1.json \
+  --metadata /tmp/mag-run-metadata.json \
+  --output /tmp/mag-captured-run.json \
+  --timeout-seconds 60 \
+  --producer /absolute/path/to/mag intelligence-produce \
+  --base-url http://localhost:11434/v1 \
+  --model LiquidAI/lfm2.5-1.2b-instruct --timeout-seconds 50
+```
+
+The endpoint must already serve an OpenAI-compatible chat-completion API.
+This command does not download or verify a generation model, load embeddings,
+open SQLite, inherit `MAG_LLM_*` configuration, retry, or repair malformed
+completions. It makes one plain completion call per request. The existing HTTP
+adapter trims surrounding whitespace; fences and incorrect schemas remain
+incorrect and receive no producer-side salvage. Use only a trusted endpoint;
+the application completion-size check is not a bounded HTTP-body reader.
+
+`--describe` emits the `model_profile` and null `embedding_space_identity`
+fragments, not a complete capture metadata file. Add the producing binary's
+actual source revision and honest measurement context using the metadata
+contract above. `configured_not_authenticated` does not prove that the server
+loaded the named model. Unknown revision, checksums, quantization, and licence
+stay null. Do not present absent token, load-time, or RAM measurements as zero.
+The hermetic mock-server tests prove wiring, not model quality.

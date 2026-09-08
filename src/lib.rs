@@ -15,3 +15,9 @@ pub use local_memory_runtime::LocalMemoryRuntime;
 
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
+
+#[cfg(feature = "llm")]
+pub use local_memory_runtime::intelligence::{
+    INTELLIGENCE_PROMPT_VERSION, IntelligenceRequest, IntelligenceSource, IntelligenceTask,
+    MAX_INTELLIGENCE_BYTES,
+};

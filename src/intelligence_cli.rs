@@ -16,9 +16,12 @@ impl IntelligenceProducerArgs {
         let url = reqwest::Url::parse(&self.base_url)
             .map_err(|_| anyhow::anyhow!("invalid intelligence endpoint URL"))?;
         ensure!(
-            matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
-                && url.username().is_empty() && url.password().is_none()
-                && url.query().is_none() && url.fragment().is_none(),
+            matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none(),
             "intelligence endpoint must be HTTP(S) without credentials, query or fragment"
         );
         ensure!(!self.model.trim().is_empty(), "model must not be empty");
@@ -60,10 +63,16 @@ pub async fn run(args: &IntelligenceProducerArgs) -> Result<()> {
         return Ok(());
     }
     let mut input = Vec::new();
-    std::io::stdin().take(u64::try_from(MAX_INTELLIGENCE_BYTES)? + 1).read_to_end(&mut input)?;
-    ensure!(input.len() <= MAX_INTELLIGENCE_BYTES, "intelligence request exceeds byte limit");
-    let request: IntelligenceRequest = serde_json::from_slice(&input)
-        .map_err(|_| anyhow::anyhow!("invalid intelligence request; expected answer-blind protocol v1 JSON"))?;
+    std::io::stdin()
+        .take(u64::try_from(MAX_INTELLIGENCE_BYTES)? + 1)
+        .read_to_end(&mut input)?;
+    ensure!(
+        input.len() <= MAX_INTELLIGENCE_BYTES,
+        "intelligence request exceeds byte limit"
+    );
+    let request: IntelligenceRequest = serde_json::from_slice(&input).map_err(|_| {
+        anyhow::anyhow!("invalid intelligence request; expected answer-blind protocol v1 JSON")
+    })?;
     let backend = build_llm_backend(config)
         .map_err(|_| anyhow::anyhow!("could not initialize intelligence backend"))?;
     let completion = LocalMemoryRuntime::produce_intelligence(backend.as_ref(), &request).await?;

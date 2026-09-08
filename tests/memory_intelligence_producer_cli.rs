@@ -27,14 +27,16 @@ impl Server {
         let stopped = Arc::clone(&stop);
         let worker = thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(15);
-            while Instant::now() < deadline
-                && !stopped.load(std::sync::atomic::Ordering::Relaxed)
-            {
+            while Instant::now() < deadline && !stopped.load(std::sync::atomic::Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         stream.set_nonblocking(false).unwrap();
-                        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-                        stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(5)))
+                            .unwrap();
+                        stream
+                            .set_write_timeout(Some(Duration::from_secs(5)))
+                            .unwrap();
                         let mut bytes = Vec::new();
                         let mut buf = [0; 4096];
                         loop {
@@ -44,15 +46,21 @@ impl Server {
                             }
                             bytes.extend_from_slice(&buf[..count]);
                             assert!(bytes.len() <= 2 * 1024 * 1024);
-                            if let Some(header_end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            if let Some(header_end) =
+                                bytes.windows(4).position(|w| w == b"\r\n\r\n")
+                            {
                                 let headers = String::from_utf8_lossy(&bytes[..header_end]);
-                                let length = headers.lines().find_map(|line| {
-                                    let (key, value) = line.split_once(':')?;
-                                    key.eq_ignore_ascii_case("content-length")
-                                        .then(|| value.trim().parse::<usize>().unwrap())
-                                }).unwrap();
+                                let length = headers
+                                    .lines()
+                                    .find_map(|line| {
+                                        let (key, value) = line.split_once(':')?;
+                                        key.eq_ignore_ascii_case("content-length")
+                                            .then(|| value.trim().parse::<usize>().unwrap())
+                                    })
+                                    .unwrap();
                                 if bytes.len() >= header_end + 4 + length {
-                                    *captured.lock().unwrap() = Some(String::from_utf8(bytes).unwrap());
+                                    *captured.lock().unwrap() =
+                                        Some(String::from_utf8(bytes).unwrap());
                                     break;
                                 }
                             }
@@ -71,16 +79,28 @@ impl Server {
                 }
             }
         });
-        Self { url, request, stop, worker: Some(worker) }
+        Self {
+            url,
+            request,
+            stop,
+            worker: Some(worker),
+        }
     }
 
     fn completion(text: &str) -> Self {
-        Self::new(200, json!({"choices": [{"message": {"content": text}}]}).to_string())
+        Self::new(
+            200,
+            json!({"choices": [{"message": {"content": text}}]}).to_string(),
+        )
     }
 
     fn body(&self) -> Value {
         let request = self.request.lock().unwrap();
-        let (_, body) = request.as_ref().expect("producer did not call backend").split_once("\r\n\r\n").unwrap();
+        let (_, body) = request
+            .as_ref()
+            .expect("producer did not call backend")
+            .split_once("\r\n\r\n")
+            .unwrap();
         serde_json::from_str(body).unwrap()
     }
 }
@@ -104,7 +124,15 @@ fn request() -> Value {
 fn invoke(url: &str, input: &[u8], extra: &[&str]) -> (Output, tempfile::TempDir) {
     let root = tempfile::tempdir().unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_mag"))
-        .args(["intelligence-produce", "--base-url", url, "--model", "test-fixture", "--timeout-seconds", "3"])
+        .args([
+            "intelligence-produce",
+            "--base-url",
+            url,
+            "--model",
+            "test-fixture",
+            "--timeout-seconds",
+            "3",
+        ])
         .args(extra)
         .env("HOME", root.path())
         .env("USERPROFILE", root.path())
@@ -115,7 +143,8 @@ fn invoke(url: &str, input: &[u8], extra: &[&str]) -> (Output, tempfile::TempDir
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn().unwrap();
+        .spawn()
+        .unwrap();
     let write_result = child.stdin.take().unwrap().write_all(input);
     if let Err(error) = write_result {
         assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
@@ -134,29 +163,61 @@ fn invoke(url: &str, input: &[u8], extra: &[&str]) -> (Output, tempfile::TempDir
 
 #[test]
 fn producer_uses_plain_completion_without_touching_storage() {
-    let server = Server::completion("{\"items\":[{\"value\":\"owner=Iris\",\"source_ids\":[\"m1\"]}]}");
+    let server =
+        Server::completion("{\"items\":[{\"value\":\"owner=Iris\",\"source_ids\":[\"m1\"]}]}");
     let input = request();
     let (output, root) = invoke(&server.url, input.to_string().as_bytes(), &[]);
-    assert!(output.status.success(), "producer must accept the capture protocol: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "producer must accept the capture protocol: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(actual["items"][0]["value"], "owner=Iris");
-    assert!(!root.path().join("must-not-exist").exists(), "evaluation must not open a personal database or download embeddings");
+    assert!(
+        !root.path().join("must-not-exist").exists(),
+        "evaluation must not open a personal database or download embeddings"
+    );
     let body = server.body();
     assert_eq!(body["model"], "test-fixture");
     assert_eq!(body["max_tokens"], 512);
-    assert!(body.get("response_format").is_none(), "must not use the repairing structured-completion path");
-    let prompt: Value = serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+    assert!(
+        body.get("response_format").is_none(),
+        "must not use the repairing structured-completion path"
+    );
+    let prompt: Value =
+        serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
     assert_eq!(prompt, input);
-    assert!(body["messages"][0]["content"].as_str().unwrap().contains("source_ids"));
-    assert!(!server.request.lock().unwrap().as_ref().unwrap().contains("inherited-secret"));
+    assert!(
+        body["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("source_ids")
+    );
+    assert!(
+        !server
+            .request
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .contains("inherited-secret")
+    );
 }
 
 #[test]
 fn producer_preserves_fences_and_invalid_schema_for_the_scorer() {
-    for text in ["```json\n{\"items\":[]}\n```", "{\"wrong_shape\":true}", "not JSON"] {
+    for text in [
+        "```json\n{\"items\":[]}\n```",
+        "{\"wrong_shape\":true}",
+        "not JSON",
+    ] {
         let server = Server::completion(text);
         let (output, _) = invoke(&server.url, request().to_string().as_bytes(), &[]);
-        assert!(output.status.success(), "producer must preserve completion attempts");
+        assert!(
+            output.status.success(),
+            "producer must preserve completion attempts"
+        );
         assert_eq!(String::from_utf8(output.stdout).unwrap(), text);
     }
 }
@@ -178,13 +239,20 @@ fn producer_rejects_label_fields_and_invalid_sources_before_inference() {
     let mut wrong_task = request();
     wrong_task["task"] = json!("invented_task");
     inputs.push(wrong_task.to_string());
-    inputs.push(request().to_string().replacen("{", "{\"task\":\"facts\",", 1));
+    inputs.push(
+        request()
+            .to_string()
+            .replacen("{", "{\"task\":\"facts\",", 1),
+    );
     for input in inputs {
         let server = Server::completion("{\"items\":[]}");
         let (output, root) = invoke(&server.url, input.as_bytes(), &[]);
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
-        assert!(server.request.lock().unwrap().is_none(), "invalid input reached the model");
+        assert!(
+            server.request.lock().unwrap().is_none(),
+            "invalid input reached the model"
+        );
         assert!(!root.path().join("must-not-exist").exists());
     }
 }
@@ -196,7 +264,10 @@ fn producer_backend_failure_is_visible_and_redacted() {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("backend failed"), "backend failure must be actionable: {stderr}");
+    assert!(
+        stderr.contains("backend failed"),
+        "backend failure must be actionable: {stderr}"
+    );
     assert!(!stderr.contains("backend-body-secret"));
     assert!(!stderr.contains("inherited-secret"));
 }
@@ -205,7 +276,10 @@ fn producer_backend_failure_is_visible_and_redacted() {
 fn producer_describes_configuration_without_claiming_model_verification() {
     let server = Server::completion("unused");
     let (output, root) = invoke(&server.url, b"", &["--describe"]);
-    assert!(output.status.success(), "describe must work without stdin or a running model");
+    assert!(
+        output.status.success(),
+        "describe must work without stdin or a running model"
+    );
     let description: Value = serde_json::from_slice(&output.stdout).unwrap();
     let profile = &description["model_profile"];
     assert_eq!(profile["model"], "test-fixture");

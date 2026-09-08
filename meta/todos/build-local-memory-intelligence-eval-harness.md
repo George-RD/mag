@@ -90,10 +90,29 @@ runnable Cairn/Rust checkout; the repository's architecture gate is not waived.
 
 ## Remaining before completion
 
-Implement a compatible producer through the selected CLI-first MAG runtime and
-capture its actual profile/resource observations, then record a real local-model
-baseline. Do not introduce a parallel Python or MCP memory implementation. Do
+The selected CLI-first runtime producer is implemented in PR #443. Capture its
+actual authenticated profile/resource observations and record a real local-model
+baseline before completing this todo. Do not introduce a parallel Python or MCP memory implementation. Do
 not feed expected annotations to the producer or count fixture success as model
 evaluation. Preserve facts, entities, temporal references, relationships,
 decisions, questions, status, grouping, contradictions, and provenance coverage.
 Keep this todo in progress until the end-to-end runtime harness and baseline exist.
+
+## Selected-runtime producer slice (PR #443)
+
+`mag intelligence-produce` exposes the typed, non-persisting runtime workflow
+without storage or embedding initialization. Strict answer-blind requests call
+the existing plain generation backend once; malformed responses are not repaired.
+`--describe` reports configured, unauthenticated settings with absent provenance
+explicitly null. Runtime and real-process mock-HTTP tests cover this boundary.
+
+The test-only commit preceded implementation and requires the missing CLI
+command. Exact red/green CI and review evidence belongs in the PR and its review
+record. Source ownership is extended under `mag.runtime.entrypoints`; generation
+wiring updates the existing model dependency rather than introducing a parallel
+runtime. Authoring uses remote Rust verification because no local Rust/Cairn
+execution is available. The ordinary exact-head CI and Cairn gates remain
+mandatory; this section is not itself a claim that those gates have passed.
+
+The parent remains in progress. This slice does not measure a real local model,
+authenticate server-side model artifacts, or enable generation during ingestion.
