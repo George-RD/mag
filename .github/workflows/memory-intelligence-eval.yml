@@ -1,0 +1,28 @@
+name: Memory intelligence evaluation
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  recorded-output-evaluation:
+    name: Recorded-output evaluation (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test recorded-output scoring and provenance
+        run: python -m unittest discover -s tests -p test_memory_intelligence_eval.py -v
+      - name: Validate the versioned development dataset
+        run: python benches/memory_intelligence/evaluate.py validate benches/memory_intelligence/dataset.v1.json
