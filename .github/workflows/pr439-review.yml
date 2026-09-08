@@ -51,7 +51,8 @@ jobs:
             flags=()
             if [ "$feature" = vec ]; then flags=(--features sqlite-vec); fi
             for filter in hot_cache_refresh advanced::tests embedding_snapshot; do
-              cargo test --no-default-features "${flags[@]}" --lib "$filter" 2>&1 | tee "/tmp/pr439-review/green-$feature-$filter.log"
+              name=${filter//:/-}
+              cargo test --no-default-features "${flags[@]}" --lib "$filter" 2>&1 | tee "/tmp/pr439-review/green-$feature-$name.log"
             done
             cargo test --no-default-features "${flags[@]}" --test reembed_migration --test reembed_stale_runtime 2>&1 | tee "/tmp/pr439-review/green-$feature-runtime.log"
           done
@@ -62,21 +63,24 @@ jobs:
           from pathlib import Path
           import subprocess
           root = Path('/tmp/pr439-review')
-          def require_failure(name, filter):
+          def require_failure(name, filter, expected):
               result = subprocess.run(['cargo', 'test', '--no-default-features', '--lib', filter], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
               (root / f'mutation-{name}.log').write_text(result.stdout)
               print(result.stdout)
-              assert result.returncode == 101 and 'test result: FAILED' in result.stdout, name
+              assert result.returncode == 101 and 'test result: FAILED' in result.stdout and expected in result.stdout, name
           p = Path('src/memory_core/storage/sqlite/advanced.rs')
           original = p.read_text()
           condition = 'if intent == QueryIntent::Keyword || ctx.query.trim().is_empty() {'
           assert original.count(condition) == 1
+          # Keep the original expression referenced so mutations compile under
+          # deny(unused_imports), rather than mistaking compiler errors for kills.
+          expression = '(intent == QueryIntent::Keyword || ctx.query.trim().is_empty())'
           try:
-              p.write_text(original.replace(condition, 'if false {'))
-              require_failure('keyword-vector-work', 'keyword_dispatch_returns_fts_results')
-              require_failure('blank-vector-work', 'blank_query_routes_to_fts_only')
-              p.write_text(original.replace(condition, 'if true {'))
-              require_failure('natural-language-fts-only', 'non_keyword_query_uses_full_pipeline')
+              p.write_text(original.replace(condition, f'if {expression} && false {{'))
+              require_failure('keyword-vector-work', 'keyword_dispatch_returns_fts_results', 'keyword dispatch must skip query embeddings')
+              require_failure('blank-vector-work', 'blank_query_routes_to_fts_only', 'blank dispatch must skip query embeddings')
+              p.write_text(original.replace(condition, f'if {expression} || true {{'))
+              require_failure('natural-language-fts-only', 'non_keyword_query_uses_full_pipeline', 'natural-language dispatch must compute query embeddings')
           finally:
               p.write_text(original)
           p = Path('src/memory_core/storage/sqlite/pipeline/retrieval.rs')
@@ -88,7 +92,7 @@ jobs:
           mutated = mutated.replace(decoded, decoded + '\n                if opts.created_after.as_ref().is_some_and(|after| created_at.as_str() < after.as_str()) || opts.event_after.as_ref().is_some_and(|after| event_at.as_str() < after.as_str()) { continue; }')
           try:
               p.write_text(mutated)
-              require_failure('fts-filter-after-limit', 'bounded_fts_candidates_preserve')
+              require_failure('fts-filter-after-limit', 'bounded_fts_candidates_preserve', 'assertion `left == right` failed')
           finally:
               p.write_text(original)
           PY
@@ -112,7 +116,7 @@ jobs:
           import os
           from pathlib import Path
           run = f"https://github.com/George-RD/mag/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-          note = f'''\n## PR #439 review follow-up: 8 September 2026\n\nThe [review TDD run]({run}) requires runtime assertion failures for the populated\nhot-cache refresh race and both deduplicated FTS fixtures in BLOB and sqlite-vec\nbuilds before applying the fix. Refresh now releases its old snapshot and reader\nbefore checking the live generation; failures clear actual cached entries. A\nprivate refresh callback provides a deterministic interleaving without sleeps or\nglobal test hooks. The earlier run 34245431412 stopped on a new test fixture's\nSQL count type error; that compile failure was not accepted as RED evidence.\n\nExisting routing tests now count query embeddings: keyword and blank queries\nskip vector work, while natural-language queries perform it. FTS fixtures use 121\ndistinct rows and prove the desired match is outside the unfiltered 100-candidate\nlimit. Mutation checks deliberately break each routing branch and move date\nfiltering after LIMIT; the strengthened assertions must fail. All mutations are\nrestored before engineering gates. Migration and read joins have bounded timeouts.\n\nThe parallel-candidate review finding does not require a second generation token:\nConnPool already pins one immutable generation for both reader snapshots, fusion,\nand decomposition. The snapshot regression now also rejects a second reader after\nmigration while the original snapshot remains open. The final result/cache guard\nremains required; these guards provide a validation boundary, not a promise to\nprevent a migration immediately after validation. Stop/migrate/restart remains\nthe supported operational procedure.\n\nFocused tests in both storage configurations, the full all-feature suite, Rustfmt,\nstrict Clippy, and the repository retrieval benchmark pass before source publication.\nCairn scan/hooks follow this note. This is worktree evidence, not final-head CI.\nFinal cleaned-head CI and review disposition are recorded on PR #439. This direct\nself-review is not an independently executed slash-command /code-review. Artifacts\nhave 14-day retention; test names and repository commands remain durable.\n'''
+          note = f'''\n## PR #439 review follow-up: 8 September 2026\n\nThe [review TDD run]({run}) requires runtime assertion failures for the populated\nhot-cache refresh race and both deduplicated FTS fixtures in BLOB and sqlite-vec\nbuilds before applying the fix. Refresh now releases its old snapshot and reader\nbefore checking the live generation; failures clear actual cached entries. A\nprivate refresh callback provides a deterministic interleaving without sleeps or\nglobal test hooks. Earlier run 34245431412 stopped on a new SQL count fixture type\nerror; run 34246052335 proved RED and 56 GREEN checks but stopped on an unused\nimport in the temporary mutation harness. Neither compile failure was accepted as\na behavioral regression. The harness and portable artifact filenames were fixed.\n\nExisting routing tests now count query embeddings: keyword and blank queries\nskip vector work, while natural-language queries perform it. FTS fixtures use 121\ndistinct rows and prove the desired match is outside the unfiltered 100-candidate\nlimit. Mutation checks deliberately break each routing branch and move date\nfiltering after LIMIT; the strengthened assertions must fail. All mutations are\nrestored before engineering gates. Migration and read joins have bounded timeouts.\n\nThe parallel-candidate review finding does not require a second generation token:\nConnPool already pins one immutable generation for both reader snapshots, fusion,\nand decomposition. The snapshot regression now also rejects a second reader after\nmigration while the original snapshot remains open. The final result/cache guard\nremains required; these guards provide a validation boundary, not a promise to\nprevent a migration immediately after validation. Stop/migrate/restart remains\nthe supported operational procedure.\n\nFocused tests in both storage configurations, the full all-feature suite, Rustfmt,\nstrict Clippy, and the repository retrieval benchmark pass before source publication.\nCairn scan/hooks follow this note. This is worktree evidence, not final-head CI.\nFinal cleaned-head CI and review disposition are recorded on PR #439. This direct\nself-review is not an independently executed slash-command /code-review. Artifacts\nhave 14-day retention; test names and repository commands remain durable.\n'''
           for path in ['meta/reviews/embedding-space-read-safety.md', 'meta/todos/implement-embedding-space-migration.md']:
               p = Path(path)
               p.write_text(p.read_text() + note)
