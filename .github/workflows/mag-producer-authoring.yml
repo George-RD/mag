@@ -1,0 +1,92 @@
+name: Temporary MAG producer authoring
+
+on:
+  push:
+    branches: [agent/memory-intelligence-runtime-producer]
+    paths:
+      - .github/mag-producer-authoring.py
+      - .github/workflows/mag-producer-authoring.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mag-producer-authoring
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mag-producer-authoring
+      - name: Apply the bounded integration patch
+        run: python3 .github/mag-producer-authoring.py
+      - name: Format Rust
+        run: cargo fmt --all
+      - name: Verify producer behavior
+        run: cargo test --all-features --test memory_intelligence_producer_cli --test memory_intelligence_producer_runtime
+      - name: Check all feature and target combinations used by CI
+        run: |
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --no-default-features --test memory_intelligence_producer_cli --test memory_intelligence_producer_runtime
+      - name: Verify capture and scorer regressions
+        run: python3 -m unittest discover -s tests -p 'test_memory_intelligence_*.py' -v
+      - name: Export only the verified patch
+        run: |
+          git diff --check
+          git diff --binary HEAD > "$RUNNER_TEMP/producer.patch"
+          test -s "$RUNNER_TEMP/producer.patch"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-producer-patch
+          path: ${{ runner.temp }}/producer.patch
+          retention-days: 2
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-producer-patch
+          path: ${{ runner.temp }}/verified-patch
+      - name: Apply verified changes without running repository code
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=agent/memory-intelligence-runtime-producer
+          actual="$(git ls-remote origin "refs/heads/$branch" | cut -f1)"
+          test "$actual" = "$EXPECTED_HEAD"
+          patch="$RUNNER_TEMP/verified-patch/producer.patch"
+          git apply --check "$patch"
+          git apply "$patch"
+          git diff --name-only > "$RUNNER_TEMP/changed-paths"
+          while IFS= read -r path; do
+            case "$path" in
+              src/lib.rs|src/main.rs|src/cli.rs|src/local_memory_runtime.rs|src/intelligence_cli.rs|src/local_memory_runtime/intelligence.rs|tests/memory_intelligence_producer_cli.rs|tests/memory_intelligence_producer_runtime.rs|cairn.blueprint|meta/contracts/memory.models.md|meta/contracts/runtime.entrypoints.md|meta/todos/build-local-memory-intelligence-eval-harness.md|benches/memory_intelligence/README.md) ;;
+              *) echo "Unexpected publication path: $path" >&2; exit 1 ;;
+            esac
+          done < "$RUNNER_TEMP/changed-paths"
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --pathspec-from-file="$RUNNER_TEMP/changed-paths"
+          git -c core.hooksPath=/dev/null commit -m 'feat(eval): wire and verify CLI-first runtime producer'
+          git push origin "HEAD:refs/heads/$branch"
