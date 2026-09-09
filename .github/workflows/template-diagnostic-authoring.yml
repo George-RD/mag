@@ -8,7 +8,7 @@ permissions:
 jobs:
   source:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -17,13 +17,27 @@ jobs:
       - name: Export source history without checkout credentials
         run: |
           set -euo pipefail
-          git bundle create "$RUNNER_TEMP/mag-source.bundle" --all
-          git for-each-ref --format='%(refname) %(objectname)' > "$RUNNER_TEMP/mag-refs.txt"
+          mkdir -p "$RUNNER_TEMP/context"
+          git bundle create "$RUNNER_TEMP/context/mag-source.bundle" --all
+          git for-each-ref --format='%(refname) %(objectname)' > "$RUNNER_TEMP/context/mag-refs.txt"
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+          { cairn brief todo.wire-lfm25-production-ingestion; cairn status; cairn next; cairn bundle mag.quality.benchmarks; cairn rationale mag.runtime.memory.models; } > "$RUNNER_TEMP/context/cairn-context.txt"
+          cp "$HOME/.cargo/bin/cairn" "$RUNNER_TEMP/context/cairn"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ggml-org/llama.cpp
+          ref: 304665fe7ac957df95e3ff8c8c4ffdf92dd6ffa3
+          path: .template/llama.cpp
+          persist-credentials: false
+          sparse-checkout: |
+            tools/server
+            common
+      - name: Export pinned template sources
+        run: tar --exclude=.git -czf "$RUNNER_TEMP/context/llama-template-source.tar.gz" -C .template/llama.cpp tools/server common
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: template-diagnostic-source
-          path: |
-            ${{ runner.temp }}/mag-source.bundle
-            ${{ runner.temp }}/mag-refs.txt
+          name: template-diagnostic-context
+          path: ${{ runner.temp }}/context/
           if-no-files-found: error
           retention-days: 1
