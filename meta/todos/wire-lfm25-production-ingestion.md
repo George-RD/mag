@@ -50,12 +50,20 @@ unsupported constraints do not silently fall back. See
 `benches/memory_intelligence/SCHEMA_COMPARISON.md` and
 `meta/reviews/memory-intelligence-schema-comparison.md`.
 
-Next measure the disclosed schema-constrained comparison, separating
-output-shape compliance from extraction quality. Do not rewrite the prompt based on an assumed template fault.
-Model limitations remain an alternative explanation, not an established cause.
-Preserve the baseline and negative controls; do not tune or weaken the scorer
-until results look favorable. Qualify improvements on additional held-out cases
-before production promotion.
+The same-host paired comparison is now preserved under
+`benches/memory_intelligence/baselines/2026-09-09-lfm25-1.2b-q4km-cpu-schema/`.
+Native constraints improved scorer-valid outputs from 11/14 to 13/14, but solved
+only one of eleven positive cases (Arabic owner extraction). Both arms passed
+all three negative controls. Grouping remains wrong and duplicate contradiction
+labels remain invalid. Same binary/model hashes and independent scorecard replay
+are verified. This is not passing held-out or production qualification.
+
+Next establish the rule-only comparator and additional held-out qualification
+boundary before claiming useful improvement. Keep this model/mode diagnostic-only.
+Do not rewrite the prompt based on an assumed template fault or keep tuning the
+same development seed until results look favorable. Preserve every baseline and
+negative control; do not repair outputs or weaken the scorer. Model limitations
+remain an alternative explanation, not an established cause.
 
 Then wire LFM2.5 1.2B into the chosen production write path behind explicit
 enable/disable configuration, observable health, bounded structured output,

@@ -44,3 +44,11 @@ randomized trial, hermetic build, cold-cache benchmark or isolated model time.
 Use the same independent scorer and negative controls. This development seed is
 not held out. Additional held-out, rule-only and local resource-budget
 qualification still gate production ingestion.
+
+
+## Recorded first comparison
+
+The [same-host paired measurement](baselines/2026-09-09-lfm25-1.2b-q4km-cpu-schema/)
+retains both original arms and replay checks. Scorer-valid outputs improved from
+11/14 to 13/14, but only one of eleven positive cases succeeded. Production
+qualification remains unmet; do not equate native output shape with extraction.
