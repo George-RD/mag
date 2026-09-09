@@ -1,0 +1,41 @@
+name: MAG session inspection
+
+on:
+  push:
+    branches: [agent/local-baseline-readiness-followup]
+    paths: [.github/workflows/mag-session-verify.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install repository-selected Cairn version
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Inspect current ownership, priorities and constraints
+        run: |
+          set -euo pipefail
+          cairn status
+          cairn next
+          cairn brief todo.wire-lfm25-production-ingestion
+          cairn rationale mag.runtime.memory.models
+          cairn rationale mag.quality.benchmarks
+          git log -8 --oneline
+          git for-each-ref --format='%(refname:short) %(objectname:short)' refs/remotes/origin
+      - name: Export tracked source only
+        run: git archive --format=tar.gz -o "$RUNNER_TEMP/mag-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mag-session-source
+          path: ${{ runner.temp }}/mag-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
