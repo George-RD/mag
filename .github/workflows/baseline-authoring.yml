@@ -5,9 +5,8 @@ on:
     paths: [.github/workflows/baseline-authoring.yml]
 permissions:
   contents: write
-  actions: read
 jobs:
-  archive:
+  finalize:
     if: github.ref == 'refs/heads/agent/memory-intelligence-local-baseline'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -15,29 +14,37 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Import the original measured artifact and restore the exact tested assertion
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Install Cairn 0.9.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Reconcile status with Cairn and remove temporary authoring workflows
         run: |
           set -euo pipefail
-          path=benches/memory_intelligence/baselines/2026-09-09-lfm25-1.2b-q4km-cpu/evidence.zip
-          mkdir -p "$(dirname "$path")"
-          gh api /repos/George-RD/mag/actions/artifacts/10087628388/zip > "$path"
-          echo "01ed0eecc77d96b29efd5fcc596d3f23134d0806d6500c5a3148d3099f17d7dd  $path" | sha256sum --check
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('tests/test_memory_intelligence_local_baseline.py')
+          path = Path('benches/memory_intelligence/README.md')
           source = path.read_text()
-          before = 'self.assertTrue(profile["producer"]["producer"] if "producer" in profile["producer"] else profile["producer"]["test_fixture"])'
-          after = 'self.assertTrue(profile["producer"]["test_fixture"])'
+          before = '''The harness does not own model loading or memory semantics. The opt-in MAG
+          runtime producer is available through `mag intelligence-produce`; a measured
+          local-model baseline and authenticated generation artifacts remain outstanding.'''
+          after = '''The scorer and capture bridge do not own memory semantics. The opt-in MAG
+          runtime producer is available through `mag intelligence-produce`. The
+          [local baseline runner](LOCAL_BASELINE.md) supervises a pinned local server,
+          verifies the model file, and records observed resource use without changing
+          the producer's configured profile into an authentication claim.'''
           assert source.count(before) == 1
           path.write_text(source.replace(before, after))
           PY
-          test "$(git hash-object tests/test_memory_intelligence_local_baseline.py)" = d51092b854f36d4482e0eda22e96ca0eb847c6d7
+          cairn todo set build-local-memory-intelligence-eval-harness done
+          cairn todo set wire-lfm25-production-ingestion open
+          rm .github/workflows/baseline-authoring.yml .github/workflows/baseline-probe-diagnosis.yml
           python3 -m unittest discover -s tests -p 'test_memory_intelligence_*.py' -v
+          cairn scan
+          cairn hook all
           test "$(git ls-remote origin refs/heads/agent/memory-intelligence-local-baseline | cut -f1)" = "$GITHUB_SHA"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$path" tests/test_memory_intelligence_local_baseline.py
-          git commit -m 'test(eval): preserve original measured baseline and exact fixture assertions'
+          git add benches/memory_intelligence/README.md meta/todos/build-local-memory-intelligence-eval-harness.md meta/todos/wire-lfm25-production-ingestion.md .github/workflows/baseline-authoring.yml .github/workflows/baseline-probe-diagnosis.yml
+          git commit -m 'docs(eval): complete measured P0 boundary and remove authoring helpers'
           git push origin HEAD:refs/heads/agent/memory-intelligence-local-baseline
