@@ -1,0 +1,42 @@
+name: Baseline probe diagnosis
+on:
+  push:
+    branches: [agent/memory-intelligence-local-baseline]
+    paths: [.github/workflows/baseline-probe-diagnosis.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Measure fixture-only helper and expose its actual failure
+        run: |
+          python3 - <<'PY'
+          import subprocess, sys, time
+          from pathlib import Path
+          from unittest import mock
+          sys.path.insert(0, str(Path('tests').absolute()))
+          import test_memory_intelligence_local_baseline as tests
+          from benches.memory_intelligence import local_baseline as baseline, evaluate
+          def probe(url, timeout):
+              started = time.monotonic()
+              result = subprocess.run([sys.executable, '-S', '-c', baseline._PROBE, url], capture_output=True, timeout=10)
+              print('fixture helper:', round(time.monotonic()-started, 3), 'budget:', timeout, 'exit:', result.returncode, 'stderr:', result.stderr.decode())
+              if result.returncode: raise ValueError('fixture helper failed')
+              return evaluate.parse_json(result.stdout.decode())
+          case = tests.LocalBaselineTests()
+          case.setUp()
+          try:
+              with mock.patch.object(baseline, '_local_json', side_effect=probe):
+                  run = case.run_baseline(startup_timeout=20)
+              print('fixture attempts:', len(run['results']))
+          finally:
+              case.doCleanups()
+          PY
