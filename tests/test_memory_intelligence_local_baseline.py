@@ -171,7 +171,7 @@ class LocalBaselineTests(unittest.TestCase):
         profile = run["model_profile"]
         self.assertEqual(profile["producer"]["verification"], "configured_not_authenticated")
         self.assertIsNone(profile["producer"]["revision"])
-        self.assertTrue(profile["producer"]["producer"] if "producer" in profile["producer"] else profile["producer"]["test_fixture"])
+        self.assertTrue(profile["producer"]["test_fixture"])
         self.assertEqual(profile["local_artifact"]["sha256"], self.pin["model"]["sha256"])
         self.assertEqual(profile["local_artifact"]["verification"], "sha256_verified_private_copy")
         self.assertEqual(profile["local_artifact"]["size_bytes"], self.model.stat().st_size)
