@@ -79,7 +79,7 @@ def _invoke(
     output = bytearray()
     counts = {"stdout": 0, "stderr": 0}
     pending = memoryview(request)
-    group_stopped = False
+    cleanup_attempted = False
     try:
         with selectors.DefaultSelector() as selector:
             for stream, name, event in (
@@ -95,9 +95,9 @@ def _invoke(
                     raise ProducerFailure("producer timeout")
                 # Descendants may retain inherited pipes after the parent exits.
                 # Stop them before waiting for EOF, then drain buffered output.
-                if not group_stopped and process.poll() is not None:
+                if not cleanup_attempted and process.poll() is not None:
+                    cleanup_attempted = True
                     _stop_group(process)
-                    group_stopped = True
                 for key, _ in selector.select(min(remaining, 0.05)):
                     stream, name = key.fileobj, key.data
                     if name == "stdin":
@@ -133,7 +133,7 @@ def _invoke(
         return bytes(output)
     finally:
         try:
-            if not group_stopped:
+            if not cleanup_attempted:
                 _stop_group(process)
         finally:
             for stream in (process.stdin, process.stdout, process.stderr):

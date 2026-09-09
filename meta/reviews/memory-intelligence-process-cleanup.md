@@ -49,16 +49,35 @@ paths raised EPERM, the expected second denial was never attempted, and the
 real-process injected-denial case left pipes open. The fixture independently
 cleans up its own real child after the injected error.
 
-After the fix, all six pass. They also prove that a live-child denial does not
+After the fix, all six passed. They also prove that a live-child denial does not
 wait, a repeated denial is not swallowed, existing success/missing-group behavior
 still waits, and remaining descendants are signalled after reaping the leader.
-The available local suites total 23 tests: 22 passed, one explicit real-binary
-skip. This is the focused local subset, not a full-repository test claim.
+At that stage the local suites totaled 23 tests: 22 passed, one explicit
+real-binary skip. This was the focused subset, not a full-repository test claim.
 
-Python compilation passes. The pushed capture and test blobs match the executed
-local files: `7a687d344295a4ff5b55fdc2282b9097ccb92e5d` and
-`6df70e385f7fb7db44200d168983c36569ecb963` respectively. The final PR head still
-requires the full Linux/macOS matrix, Rust CLI and repository/Cairn checks.
+That head, `9483ba5daecab3ef011064e04e0285b41fd53f30`, then passed all remote
+workflows: evaluation `34375011362`, repository CI `34375011353` and Cairn
+`34375011373`. Its actual-CLI artifact `10113537910` was independently checked:
+all 14 request bodies match the preserved original byte-for-byte. The synthetic
+checkout `b6ae45ba3bb3e07ca51ec7df89d07fb3d4b675b9` has the exact head tree.
+
+## Review finding: do not re-enter denied cleanup
+
+Codex comment `3970622870` identified that a denial in the parent-exit branch
+left the old group_stopped flag false. The outer finally then re-entered cleanup,
+resulting in four signals instead of one initial attempt plus one retry.
+
+A deterministic invocation-level regression reproduced four calls before the
+fix. The supervisor now marks cleanup_attempted before calling the helper. That
+name describes an attempt, not successful termination. The regression verifies
+exactly two signals, propagation of the original second denial, no blocking wait,
+and closure of every pipe. The outer finally does not restart failed cleanup.
+
+After this review fix, local verification runs 24 tests: 23 passed, one explicit
+real-binary skip. Python compilation passes. Current source/test Git blobs match
+the executed files: `fdbfb11845147a36d7d95e365bb3ebf96edbfcb2` and
+`208f207db282dd1a342d1648382a107525e01f65`. This later head requires its own
+complete CI and review; the earlier green runs are not substituted for it.
 
 ## Scope
 

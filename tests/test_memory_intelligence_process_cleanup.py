@@ -68,6 +68,27 @@ class ProcessCleanupTests(unittest.TestCase):
                 process.wait.assert_called_once_with()
                 process.poll.assert_not_called()
 
+    def test_invoke_does_not_repeat_denied_parent_exit_cleanup(self):
+        process = mock.Mock(pid=43210)
+        process.poll.return_value = 0
+        selector = mock.MagicMock()
+        selector.__enter__.return_value = selector
+        selector.get_map.return_value = {"open pipe": object()}
+        errors = [PermissionError(errno.EPERM, f"denial {index}") for index in range(4)]
+        with mock.patch.object(capture.subprocess, "Popen", return_value=process), mock.patch.object(
+            capture.selectors, "DefaultSelector", return_value=selector,
+        ), mock.patch.object(capture.os, "set_blocking"), mock.patch.object(
+            capture.os, "killpg", side_effect=errors,
+        ) as killpg:
+            with self.assertRaises(PermissionError) as raised:
+                capture._invoke(["unused"], b"", ".", 1, 1024)
+        self.assertEqual(killpg.call_count, 2)
+        self.assertIs(raised.exception, errors[1])
+        process.wait.assert_not_called()
+        selector.select.assert_not_called()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close.assert_called_once_with()
+
     def test_invoke_closes_pipes_even_when_group_cleanup_is_denied(self):
         started = []
         popen = subprocess.Popen
