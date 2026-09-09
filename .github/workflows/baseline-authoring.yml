@@ -14,6 +14,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Install Cairn 0.9.0
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
@@ -35,9 +36,19 @@ jobs:
           the producer's configured profile into an authentication claim.'''
           assert source.count(before) == 1
           path.write_text(source.replace(before, after))
+          review = Path('meta/reviews/memory-intelligence-local-baseline.md')
+          with review.open('a') as stream:
+              stream.write('\n## Cairn CLI filename compatibility\n\nCairn 0.9.0 `todo set` looked for `meta/todos/todo.<slug>.md`, while these\nexisting repo artifacts use `<slug>.md`. Finalization temporarily moved each\nfile to the CLI-expected name, changed status through Cairn, and restored its\ncanonical path before scan/hook verification. No duplicate todo or persistent\nrename was introduced. The failed initial finalization made no repository write.\n')
           PY
-          cairn todo set build-local-memory-intelligence-eval-harness done
-          cairn todo set wire-lfm25-production-ingestion open
+          for pair in 'build-local-memory-intelligence-eval-harness done' 'wire-lfm25-production-ingestion open'; do
+            read -r slug status <<< "$pair"
+            source="meta/todos/$slug.md"
+            cli_path="meta/todos/todo.$slug.md"
+            test ! -e "$cli_path"
+            mv "$source" "$cli_path"
+            cairn todo set "$slug" "$status"
+            mv "$cli_path" "$source"
+          done
           rm .github/workflows/baseline-authoring.yml .github/workflows/baseline-probe-diagnosis.yml
           python3 -m unittest discover -s tests -p 'test_memory_intelligence_*.py' -v
           cairn scan
@@ -45,6 +56,6 @@ jobs:
           test "$(git ls-remote origin refs/heads/agent/memory-intelligence-local-baseline | cut -f1)" = "$GITHUB_SHA"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add benches/memory_intelligence/README.md meta/todos/build-local-memory-intelligence-eval-harness.md meta/todos/wire-lfm25-production-ingestion.md .github/workflows/baseline-authoring.yml .github/workflows/baseline-probe-diagnosis.yml
+          git add benches/memory_intelligence/README.md meta/todos/build-local-memory-intelligence-eval-harness.md meta/todos/wire-lfm25-production-ingestion.md meta/reviews/memory-intelligence-local-baseline.md .github/workflows/baseline-authoring.yml .github/workflows/baseline-probe-diagnosis.yml
           git commit -m 'docs(eval): complete measured P0 boundary and remove authoring helpers'
           git push origin HEAD:refs/heads/agent/memory-intelligence-local-baseline
