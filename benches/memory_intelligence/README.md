@@ -182,13 +182,21 @@ artifact is produced, even if every attempt failed. Configuration or file errors
 exit 2. Dataset/metadata output aliases are rejected before execution. A failed
 validation or write does not replace an existing output with a partial run.
 
-## Remaining harness work
+## Recorded baseline and remaining qualification
 
-Capture authenticated model profiles and actual resource observations through
-the selected CLI-first runtime producer, then record a reproducible local-model
-baseline. Do not add separate Python or MCP memory semantics. Model promotion
-also needs a larger, held-out evaluation and broader task-success evidence.
-The parent Cairn todo remains in progress.
+P0's selected-runtime capture and local-model baseline are complete. The
+[original baseline](baselines/2026-09-09-lfm25-1.2b-q4km-cpu/) records verified
+model-file bytes, disclosed configured producer settings and actual resource
+observations: 3/14 exact successes, all negative controls, with zero positive
+matches. The [rejected prompt-v2 experiment](baselines/2026-09-09-lfm25-1.2b-q4km-cpu-prompt-v2/)
+scored 2/14 with zero positive matches; its artifact and reconstructable source
+are preserved, and prompt v1 remains active. Neither result qualifies production
+ingestion. Same source pins do not establish byte-identical server builds.
+
+The existing P1 `wire-lfm25-production-ingestion` todo stays open for
+request/chat-template diagnosis and output-schema investigation, followed by
+held-out and rule-only comparisons before promotion. Do not add separate Python
+or MCP memory semantics, replace failed evidence, or weaken the scorer.
 
 ## Selected-runtime producer
 
