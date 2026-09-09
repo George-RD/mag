@@ -1,0 +1,29 @@
+name: Temporary template diagnostic authoring
+on:
+  push:
+    branches: [agent/memory-intelligence-template-diagnostic]
+    paths: [.github/workflows/template-diagnostic-authoring.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export source history without checkout credentials
+        run: |
+          set -euo pipefail
+          git bundle create "$RUNNER_TEMP/mag-source.bundle" --all
+          git for-each-ref --format='%(refname) %(objectname)' > "$RUNNER_TEMP/mag-refs.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: template-diagnostic-source
+          path: |
+            ${{ runner.temp }}/mag-source.bundle
+            ${{ runner.temp }}/mag-refs.txt
+          if-no-files-found: error
+          retention-days: 1
