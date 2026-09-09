@@ -5,6 +5,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if mode == 'unready':
             self.send_response(503); self.end_headers(); return
+        if (mode == 'slow-health' and self.path == '/health') or (mode == 'slow-models' and self.path == '/v1/models'):
+            import time
+            time.sleep(0.75)
         self.send_response(200); self.end_headers()
         if mode == 'drip':
             Path(os.environ['TEST_SERVER_PID']).with_suffix('.drip').write_text('response started')
@@ -193,6 +197,7 @@ class LocalBaselineTests(unittest.TestCase):
         self.assert_server_stopped()
 
     def test_wrong_server_identity_and_early_exit_are_rejected(self):
+        """Reject an unexpected model alias or a server that exits before readiness."""
         for mode, message in (("wrong", "model alias"), ("exit", "exited before readiness")):
             with self.subTest(mode=mode), mock.patch.dict(os.environ, {"TEST_SERVER_MODE": mode}):
                 with self.assertRaisesRegex(ValueError, message): self.run_baseline()
@@ -200,10 +205,12 @@ class LocalBaselineTests(unittest.TestCase):
         self.assertFalse(self.calls.exists())
 
     def test_startup_deadline_cleans_up(self):
+        """Reject an unready server within the startup budget and stop its process."""
         started = time.monotonic()
         processes = []
         popen = subprocess.Popen
         def tracked(*args, **kwargs):
+            """Retain every spawned process so cleanup can be checked independently."""
             process = popen(*args, **kwargs)
             processes.append(process)
             return process
@@ -218,7 +225,38 @@ class LocalBaselineTests(unittest.TestCase):
             with self.assertRaises(ProcessLookupError): os.kill(process.pid, 0)
         self.assertFalse(self.calls.exists())
 
+    def test_slow_healthy_server_is_not_rejected_by_per_probe_budget(self):
+        """Both readiness endpoints may need more than half a second to respond."""
+        for mode in ("slow-health", "slow-models"):
+            with self.subTest(mode=mode), mock.patch.dict(os.environ, {"TEST_SERVER_MODE": mode}):
+                run = self.run_baseline(startup_timeout=5)
+                self.assertEqual(len(run["results"]), 2)
+                self.assertEqual(evaluate.evaluate(fixture_dataset(), run)["overall"]["task_success"]["rate"], 1)
+                self.assert_server_stopped()
+
+    def test_readiness_endpoints_share_one_startup_deadline(self):
+        """The model probe gets only the budget left after the health probe."""
+        now = [100.0]
+        budgets = []
+        process = mock.Mock()
+        process.poll.return_value = None
+
+        def reply(url, timeout):
+            """Advance simulated health latency and record each endpoint budget."""
+            budgets.append(timeout)
+            if url.endswith("/health"):
+                now[0] += 0.75
+                return {"status": "ok"}
+            return {"data": [{"id": "fixture-alias"}]}
+
+        with mock.patch.object(runner().time, "monotonic", side_effect=lambda: now[0]), mock.patch.object(
+            runner(), "_local_json", side_effect=reply,
+        ):
+            runner()._await_ready(process, "http://127.0.0.1:1", "fixture-alias", 1)
+        self.assertEqual(budgets, [1, 0.25])
+
     def test_dripping_health_body_cannot_extend_startup_deadline(self):
+        """Bound the whole HTTP response, even while bytes continue to arrive."""
         started = time.monotonic()
         with mock.patch.dict(os.environ, {"TEST_SERVER_MODE": "drip"}):
             with self.assertRaisesRegex(ValueError, "readiness timeout"):
@@ -281,12 +319,14 @@ class LocalBaselineTests(unittest.TestCase):
         self.assert_server_stopped()
 
     def test_capture_exception_still_cleans_up_server(self):
+        """Stop the owned server even when capture raises an unexpected exception."""
         with mock.patch.object(runner().capture, "capture_run", side_effect=OSError("fixture failure")):
             with self.assertRaisesRegex(OSError, "fixture failure"):
                 self.run_baseline()
         self.assert_server_stopped()
 
     def test_cli_rejects_output_alias_before_launch(self):
+        """Preserve model bytes when the CLI output is a hard link to an input."""
         output = self.root / "alias.gguf"
         os.link(self.model, output)
         result = self.cli(output)
@@ -295,6 +335,17 @@ class LocalBaselineTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertEqual(self.model.read_bytes(), b"fixture model bytes")
         self.assertFalse(self.pid.exists())
+
+
+class LocalBaselineWorkflowTests(unittest.TestCase):
+    def test_baseline_workflow_uses_only_immutable_action_references(self):
+        """Keep the opt-in evidence workflow's remote action code reproducible."""
+        workflow = ROOT / ".github/workflows/memory-intelligence-local-baseline.yml"
+        references = re.findall(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", workflow.read_text(), re.MULTILINE)
+        self.assertTrue(references, "baseline workflow must declare its action dependencies")
+        for reference in references:
+            with self.subTest(reference=reference):
+                self.assertRegex(reference, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 
 
 if __name__ == "__main__":

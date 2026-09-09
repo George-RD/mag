@@ -34,6 +34,9 @@ else:
     import evaluate
 
 MAX_BYTES = 1024 * 1024
+# Cover the probe's five-second socket timeout plus interpreter startup, while
+# _await_ready still caps each request to the remaining overall startup budget.
+PROBE_TIMEOUT = 6.0
 RSS_INTERVAL = 0.05
 
 
@@ -90,6 +93,7 @@ def _local_json(url: str, timeout: float) -> Any:
 
 
 def _await_ready(process: subprocess.Popen, base: str, alias: str, timeout: float) -> None:
+    """Validate both owned endpoints within one shared startup deadline."""
     deadline = time.monotonic() + timeout
     while True:
         if process.poll() is not None:
@@ -98,13 +102,13 @@ def _await_ready(process: subprocess.Popen, base: str, alias: str, timeout: floa
         if remaining <= 0:
             raise ValueError("local server readiness timeout")
         try:
-            health = _local_json(base + "/health", min(remaining, 0.5))
+            health = _local_json(base + "/health", min(remaining, PROBE_TIMEOUT))
             if not isinstance(health, dict) or health.get("status") != "ok":
                 raise ValueError("local server returned invalid health status")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ValueError("local server readiness timeout")
-            models = _local_json(base + "/v1/models", min(remaining, 0.5))
+            models = _local_json(base + "/v1/models", min(remaining, PROBE_TIMEOUT))
             if not isinstance(models, dict) or not isinstance(models.get("data"), list) or not any(
                 isinstance(model, dict) and model.get("id") == alias for model in models["data"]
             ):

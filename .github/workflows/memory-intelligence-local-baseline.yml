@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: memory-intelligence-producer
       - name: Validate pinned inputs
@@ -39,7 +39,7 @@ jobs:
               output.write('runtime_revision=' + pin['runtime']['revision'] + '\n')
               output.write('model_url=' + url + '\n')
           PY
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ggml-org/llama.cpp
           ref: ${{ steps.pin.outputs.runtime_revision }}
@@ -86,7 +86,7 @@ jobs:
           { git rev-parse HEAD; rustc --version; cmake --version; c++ --version; } \
             > "$RUNNER_TEMP/baseline-evidence/toolchain.txt"
           cp benches/memory_intelligence/local-baseline.pin.json "$RUNNER_TEMP/baseline-evidence/pin.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: local-memory-intelligence-${{ github.sha }}

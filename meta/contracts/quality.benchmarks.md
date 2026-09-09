@@ -66,10 +66,14 @@ load time or a cold-cache measurement. Observed Linux server VmHWM excludes the
 producer, child processes, GPU, and total host RAM. Missing observations remain
 null. Readiness probes and producer execution have bounded whole-process
 deadlines; every case attempt is retained and owned process groups are cleaned
-up on success and failure. Output must not alias any input.
+up on success and failure. Both readiness endpoints share one startup deadline;
+the per-probe allowance covers interpreter startup and the HTTP exchange. Output
+must not alias any input.
 
-The opt-in workflow pins the model revision, checksum, and server source commit.
-It records producing code revision, raw attempts, separate scorecard, build
+The opt-in workflow pins the model revision, checksum, server source commit,
+and every remote action to an immutable commit SHA. Existing weekly Dependabot
+updates maintain the action pins. This is not a hermetic-build guarantee: runner
+images and the stable Rust toolchain can still change. It records producing code revision, raw attempts, separate scorecard, build
 context, and hardware. Ordinary PR CI uses only fixtures, without downloading a
 model. A successful workflow or a development-seed score does not promote a
 model or establish held-out quality.
