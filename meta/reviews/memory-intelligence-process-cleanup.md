@@ -73,11 +73,29 @@ name describes an attempt, not successful termination. The regression verifies
 exactly two signals, propagation of the original second denial, no blocking wait,
 and closure of every pipe. The outer finally does not restart failed cleanup.
 
-After this review fix, local verification runs 24 tests: 23 passed, one explicit
-real-binary skip. Python compilation passes. Current source/test Git blobs match
-the executed files: `fdbfb11845147a36d7d95e365bb3ebf96edbfcb2` and
-`208f207db282dd1a342d1648382a107525e01f65`. This later head requires its own
-complete CI and review; the earlier green runs are not substituted for it.
+After this review fix, local verification ran 24 tests: 23 passed, one explicit
+real-binary skip. Source/test blobs match the executed files:
+`fdbfb11845147a36d7d95e365bb3ebf96edbfcb2` and
+`208f207db282dd1a342d1648382a107525e01f65`. An additional 15 real Linux process
+attempts retained their expected stdout/stderr quota or timeout failures.
+
+## Review finding: preserve the revision lookup failure
+
+CodeRabbit comment `3970639267` noted that combining export with command
+substitution masks git rev-parse's failure status. The workflow now assigns the
+revision separately before exporting it, so its existing set -e stops immediately.
+
+A test executes the checked-in step body with git returning seven and a harmless
+python3 invocation marker. Before the fix, it returned zero and reached the
+marker. After the fix, it returns seven without invoking the diagnostic. No real
+Git operation, model or external service is invoked by this regression. The
+Python matrix runs it on Linux and macOS without an added dependency.
+
+Current local verification: 25 tests, 24 passed, one explicit real-binary skip.
+The workflow and new test match local Git blobs
+`2e291b9296dec996ef19c717cc950da5cf5b88a9` and
+`4dea4c8dc1962acc6ca9b77f164c69861a2fae97`. Final exact-head CI and review are
+still required; earlier green runs are not substituted for the final revision.
 
 ## Scope
 
