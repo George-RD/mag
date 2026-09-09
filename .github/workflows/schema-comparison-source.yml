@@ -1,0 +1,36 @@
+name: Schema comparison source snapshot
+on:
+  push:
+    branches: [agent/memory-intelligence-schema-comparison]
+    paths: [.github/workflows/schema-comparison-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Archive checked source without credentials
+        run: |
+          mkdir -p "$RUNNER_TEMP/source"
+          git archive HEAD > "$RUNNER_TEMP/source/source.tar"
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/source/identity.txt"
+          git cat-file commit HEAD > "$RUNNER_TEMP/source/commit.txt"
+      - name: Read current Cairn boundary
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cairn status > "$RUNNER_TEMP/source/cairn-status.txt"
+          cairn next > "$RUNNER_TEMP/source/cairn-next.txt"
+          cairn brief todo.wire-lfm25-production-ingestion > "$RUNNER_TEMP/source/cairn-brief.txt"
+          cairn bundle mag.runtime.memory.models > "$RUNNER_TEMP/source/cairn-models.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: schema-comparison-source-${{ github.sha }}
+          path: ${{ runner.temp }}/source/
+          if-no-files-found: error
+          retention-days: 7
