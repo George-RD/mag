@@ -1,6 +1,6 @@
 ---
 node: mag.runtime.memory.models
-status: blocked
+status: open
 created: 2026-07-28
 ---
 # Wire LFM2.5 Production Ingestion

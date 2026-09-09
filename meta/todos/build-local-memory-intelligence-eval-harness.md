@@ -1,6 +1,6 @@
 ---
 node: mag.quality.benchmarks
-status: in_progress
+status: done
 created: 2026-07-28
 ---
 # Build Local Memory Intelligence Eval Harness

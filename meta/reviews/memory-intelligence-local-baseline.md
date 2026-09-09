@@ -89,3 +89,11 @@ The final head must pass ordinary repository CI, the Linux 3.10/3.13 and macOS
 3.13 evaluation matrix, opt-in release-producer tests, and Cairn `scan`/`hook all`.
 Rust and Cairn are executed remotely, not claimed locally. PR #444 records their
 exact-head run IDs and merge result; no pending check is treated as green.
+
+## Cairn CLI filename compatibility
+
+Cairn 0.9.0 `todo set` looked for `meta/todos/todo.<slug>.md`, while these
+existing repo artifacts use `<slug>.md`. Finalization temporarily moved each
+file to the CLI-expected name, changed status through Cairn, and restored its
+canonical path before scan/hook verification. No duplicate todo or persistent
+rename was introduced. The failed initial finalization made no repository write.
