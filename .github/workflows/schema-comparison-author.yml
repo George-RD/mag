@@ -5,6 +5,9 @@ on:
     paths: [.github/workflows/schema-comparison-author.yml]
 permissions:
   contents: write
+defaults:
+  run:
+    shell: bash
 jobs:
   candidate:
     runs-on: ubuntu-24.04
@@ -23,6 +26,7 @@ jobs:
           python3 .github/schema-implementation.py
           python3 .github/schema-tests-runner.py
           python3 .github/schema-docs.py
+          sed -i '/^node: mag.runtime.memory.models$/a review_type: agent_introspective\ndate: 2026-09-09\nreviewer: ChatGPT' meta/reviews/memory-intelligence-schema-comparison.md
           sha256sum --check <<'SUMS'
           b784fde407475dfd5f6e8ddce1b277ccdc6feff562554f5b8f288d8640ca656e  .github/workflows/memory-intelligence-eval.yml
           97a7c334bf6236a5ea37186c68652f401b583d4535a33ebbfa3b01077a082e3f  benches/memory_intelligence/local_baseline.py
