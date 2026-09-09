@@ -1,0 +1,39 @@
+name: Preserve schema comparison evidence
+on:
+  push:
+    branches: [agent/schema-measurement-449]
+    paths: [.github/workflows/schema-evidence-export-449.yml]
+permissions:
+  actions: read
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  preserve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify and preserve original artifact without changing refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10119587157/zip" > evidence.zip
+          echo '436b4c1c23d653164f35f94e25b3ed83e6d6574119a51af5fffad7861064b88e  evidence.zip' | sha256sum --check
+          python3 - <<'PY'
+          import base64, hashlib, json
+          from pathlib import Path
+          raw = Path('evidence.zip').read_bytes()
+          assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == 'e13d7f83d5eefb4f613a05c2090c4466864e9fdd'
+          Path('blob.json').write_text(json.dumps({'content': base64.b64encode(raw).decode(), 'encoding': 'base64'}))
+          PY
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input blob.json > blob-result.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('blob-result.json').read_text())
+          assert result['sha'] == 'e13d7f83d5eefb4f613a05c2090c4466864e9fdd'
+          print(json.dumps({'artifact_id': 10119587157, 'blob_sha': result['sha'], 'ref_updated': False}))
+          PY
