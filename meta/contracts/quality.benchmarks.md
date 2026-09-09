@@ -48,6 +48,28 @@ it is not model-only inference latency. Tokens, model load time, and peak RAM
 are not measured by this bridge. Missing observations remain null. Externally
 supplied profile/resource metadata remains explicitly unauthenticated.
 
-A future MAG producer must call the selected CLI-first runtime; it must not add
-independent Python or MCP memory semantics. This bridge and its fixture tests do
-not satisfy the live-runtime adapter or measured local-model baseline gates.
+The MAG producer calls the selected CLI-first `LocalMemoryRuntime` through
+`mag intelligence-produce`; it must not add independent Python or MCP memory
+semantics. Fixture tests do not constitute a measured local-model baseline.
+
+## Owned local-model baseline
+
+`local_baseline.py` supervises a trusted caller-supplied local server and invokes
+that MAG CLI through the existing answer-blind bridge. A private model copy must
+match the pinned SHA-256 before any executable starts. The original producer
+snapshot remains unchanged alongside separate verified-file evidence. Observed
+binary hashes and declared source revisions are not source-to-binary attestation
+or proof against a hostile server. Inherited `LLAMA_*` settings are excluded.
+
+Server readiness includes initialization and warmup; it is not isolated model
+load time or a cold-cache measurement. Observed Linux server VmHWM excludes the
+producer, child processes, GPU, and total host RAM. Missing observations remain
+null. Readiness probes and producer execution have bounded whole-process
+deadlines; every case attempt is retained and owned process groups are cleaned
+up on success and failure. Output must not alias any input.
+
+The opt-in workflow pins the model revision, checksum, and server source commit.
+It records producing code revision, raw attempts, separate scorecard, build
+context, and hardware. Ordinary PR CI uses only fixtures, without downloading a
+model. A successful workflow or a development-seed score does not promote a
+model or establish held-out quality.

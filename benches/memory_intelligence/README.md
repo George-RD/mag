@@ -3,9 +3,11 @@
 This implements bounded slices of
 `todo.build-local-memory-intelligence-eval-harness`: versioned dataset validation,
 recorded-output scoring, and capture from a trusted external CLI producer.
-The harness does not own model loading or memory semantics. The opt-in MAG
-runtime producer is available through `mag intelligence-produce`; a measured
-local-model baseline and authenticated generation artifacts remain outstanding.
+The scorer and capture bridge do not own memory semantics. The opt-in MAG
+runtime producer is available through `mag intelligence-produce`. The
+[local baseline runner](LOCAL_BASELINE.md) supervises a pinned local server,
+verifies the model file, and records observed resource use without changing
+the producer's configured profile into an authentication claim.
 Python 3.10 or newer and the standard library are sufficient; capture requires
 POSIX process groups (Linux or macOS).
 

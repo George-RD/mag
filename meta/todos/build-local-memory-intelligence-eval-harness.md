@@ -1,118 +1,84 @@
 ---
 node: mag.quality.benchmarks
-status: in_progress
+status: done
 created: 2026-07-28
 ---
 # Build Local Memory Intelligence Eval Harness
 
-The production composition root and role-aware model-profile prerequisite are
-complete. Continue this existing P0 todo rather than opening a duplicate roadmap
-item. `docs/specs/local-first-roadmap.md` remains the sequencing reference.
+P0's runtime, capture, scoring, and reproducible local-scorecard boundary is
+implemented through PRs #441–#444. Completion means a usable measurement
+foundation, not a passing production model. Sequencing remains in
+`docs/specs/local-first-roadmap.md`; do not create a duplicate harness todo.
 
-## Recorded-output foundation
+## Delivered boundary
 
-`benches/memory_intelligence/` now contains a versioned 14-case synthetic
-development dataset and a standard-library Python scoring CLI. All ten planned
-task categories are represented, with negative controls, multi-source provenance,
-and an Arabic-to-English fact case.
+The versioned 14-case synthetic development dataset covers facts, entities,
+temporal references, relationships, decisions, questions, status, grouping,
+contradictions, and provenance, with negative controls, multi-source support,
+and Arabic-to-English extraction. It is not held out.
 
-The scorecard records the supplied exact profile snapshot and its digest,
-embedding-space identity (explicitly null when no embedding space participated),
-dataset digest, producing code revision, and measurement context. It reports
-schema validity, exact content and grounded precision/recall/F1, task success,
-p50/p95 observed latency, observed tokens, load time, and peak RAM. Missing
-measurements are null and aggregates include sample counts. Missing cases remain
-failures; malformed output and incorrect provenance cannot earn task success.
+The strict recorded-output scorer distinguishes content and complete provenance
+sets, keeps missing/invalid cases in the denominator, preserves exact supplied
+profile/dataset/code identity, and discloses performance sample counts. Missing
+measurements remain null. Exact labels are not a factual-entailment judgment.
 
-The scorer consumes recorded outputs only. It neither loads models nor adds
-production ingestion or MCP semantics. Metadata snapshots are recorded rather
-than validated by a competing model-profile implementation. Canonical-label and
-exact-source-set scoring is deliberately strict and is not a factual-entailment
-judge or a broad model-quality claim.
+The answer-blind capture bridge sends only protocol version, task, instruction,
+and immutable source memories. Neither expected annotations nor case IDs are
+sent. Each case has one attempt, including errors, without retries or repair.
+Fresh working directories and bounded POSIX process groups are not a sandbox.
 
-## Recorded-output verification evidence
+`mag intelligence-produce` calls the selected typed `LocalMemoryRuntime` through
+one plain generation request. The opt-in `llm` command is non-persisting and does
+not open storage or embeddings. No Python extraction, alternative production
+runtime, or MCP memory semantics were added.
 
-- TDD started at the missing-case boundary: one of two cases omitted must yield
-  50% task success and one false negative. The new scorer's initial unimplemented
-  boundary failed; the implemented boundary passes.
-- Review found JSON exponent overflow (`1e9999`) bypassing rejection of nonfinite
-  constants. A failing regression was added before fixing numeric decoding.
-- Dataset review found an expected contradiction attribute absent from the
-  producer instruction. A failing assertion now requires that canonical label
-  vocabulary to be disclosed for both positive and negative contradiction cases.
-- PR #441 review identified responsibility being labeled as ownership in the
-  Arabic seed. The source now states ownership explicitly, with an observed
-  failing fixture regression before the correction.
-- PR #441 review also found deeply nested JSON escaping the CLI error path.
-  A regression reproduced tracebacks for both dataset and run input before
-  recursion failures were included in controlled exit-2 handling.
-- PR #441 local Python 3.13 verification passed 29 hermetic tests, including CLI
-  execution, all annotations round-tripping as reference outputs, invalid
-  artifacts, incomplete runs, fabricated citations, and unmeasured performance.
-- Four local behavioral mutations were rejected by assertions: removing missing
-  cases from the denominator, accepting content without correct provenance,
-  accepting duplicate output values, and fabricating zero latency.
+The local baseline runner owns a trusted llama.cpp process, checks a private
+read-only GGUF copy before launching any executable, and records binary hashes,
+server readiness, and observed Linux server RAM. It preserves the producer's
+configured profile verbatim alongside verified-file evidence. This does not
+claim cryptographic execution attestation or authenticate a hostile process.
+Source revisions are declared; observed binary hashes are separate evidence.
+Isolated load duration, tokens, and unavailable RAM remain null.
 
-## Answer-blind producer capture
+## Measured local baseline
 
-`benches/memory_intelligence/capture.py` adds a bounded trusted CLI bridge.
-Requests allowlist task, instruction, and immutable source memories with a
-protocol version. Neither expected annotations nor label-bearing case IDs enter
-the request. The parent associates each response with its case and retains
-failed attempts without retries or repair. Each producer has a fresh working
-directory; POSIX group cleanup terminates same-group descendants on success,
-failure, and timeout. This is explicitly not a security sandbox.
+PR #444 recorded the actual LFM2.5-1.2B-Instruct Q4_K_M CPU run at commit
+`6a3c3d46b83c73a0a2ce12ba136c41b4b0811824`, Actions run `34308189840`.
+The original archive and methodology are preserved at
+`benches/memory_intelligence/baselines/2026-09-09-lfm25-1.2b-q4km-cpu/`.
+Independent local rescoring exactly matches its archived scorecard.
 
-The capture bridge reuses the scorer's strict JSON, validation, and atomic-write
-helpers. It preserves supplied metadata and observes per-case process wall time,
-not isolated model latency. It does not invent tokens, model load time, or RAM.
-No MAG runtime producer or model-quality baseline is claimed by this slice.
+All 14 attempts were recorded: 11 valid outputs, 3 task successes (all negative
+controls), and zero positive matches. Eight positive cases returned empty items;
+grouping violated the unique-value contract and two cases failed JSON capture.
+Observed wall latency p50/p95 was 2.976/4.464 seconds; server VmHWM was
+1,372,626,944 bytes. This is one hosted CPU run, not model-promotion evidence.
 
-Local Python 3.13 verification passed 23 new tests, including real subprocesses,
-CLI artifacts, quota/deadlock cases, malformed responses, input-alias protection,
-virtual-environment executable symlinks, and descendant cleanup. TDD reproduced
-answer/case-ID leakage and the symlink-resolution failure before correction.
-PR #442 review additionally reproduced false timeouts when a successful parent's
-child retained inherited pipes; cleanup now observes parent exit before EOF and
-preserves buffered output. Five behavioral mutations were killed by assertions:
-leaking annotations, dropping failed attempts, disabling stream quotas, inventing
-zero latency, and leaving descendants after a successful parent exit. Durable
-scope and evidence are in `meta/reviews/memory-intelligence-producer-capture.md`.
+The P0 reproducible-scorecard gate is met. The separate P1 usefulness gate is
+not. Continue `todo.wire-lfm25-production-ingestion` by diagnosing the selected
+request/chat-template/output behavior before enabling ingestion. Do not conflate
+a completed measurement harness with production-quality extraction.
 
-The evaluation workflow runs both suites and dataset validation on Linux with
-Python 3.10/3.13 and macOS with Python 3.13. Full repository CI and the pinned
-Cairn gate remain required at the exact PR head before merge.
+## Verification and ownership
 
-Source ownership is already covered by `mag.quality.benchmarks` (`benches/`) and
-`mag.quality.tests` (`tests/`); no new production dependency edge is introduced.
-Authoring used direct Cairn artefact inspection because this environment lacks a
-runnable Cairn/Rust checkout; the repository's architecture gate is not waived.
+- PR #441 established scorer/dataset regressions, 29 hermetic tests, and four
+  rejected scoring mutations. Its review record retains the JSON overflow,
+  recursion handling, annotation vocabulary, and Arabic ownership corrections.
+- PR #442 added 23 capture tests and five rejected mutations, including bounded
+  pipes/quotas, failed-attempt retention, executable symlinks, and descendants.
+- PR #443 added runtime and real-process mock-HTTP tests for the selected CLI.
+- PR #444's test-only `df1a742e6aef2e2d71babef55ff3dd295c94656c` failed at the
+  missing runner before implementation. A slow-drip response regression exposed
+  per-read timeouts; the existing process supervisor now bounds whole probes.
+  The macOS fixture's reverse-DNS stall was traced on-runner and removed without
+  relaxing production deadlines. Additional tests cover atomic artifacts,
+  cleanup, unavailable RSS, wrong aliases, and post-run binary mutation.
+- Local Python 3.13 passes 53 existing tests and 14 orchestration tests. The
+  historical evidence replay is an additional consistency test, not model
+  success. Three local mutations were rejected by assertions: skipping the
+  prelaunch checksum, fabricating zero RSS, and ignoring changed binaries.
 
-## Remaining before completion
-
-The selected CLI-first runtime producer is implemented in PR #443. Capture its
-actual authenticated profile/resource observations and record a real local-model
-baseline before completing this todo. Do not introduce a parallel Python or MCP memory implementation. Do
-not feed expected annotations to the producer or count fixture success as model
-evaluation. Preserve facts, entities, temporal references, relationships,
-decisions, questions, status, grouping, contradictions, and provenance coverage.
-Keep this todo in progress until the end-to-end runtime harness and baseline exist.
-
-## Selected-runtime producer slice (PR #443)
-
-`mag intelligence-produce` exposes the typed, non-persisting runtime workflow
-without storage or embedding initialization. Strict answer-blind requests call
-the existing plain generation backend once; malformed responses are not repaired.
-`--describe` reports configured, unauthenticated settings with absent provenance
-explicitly null. Runtime and real-process mock-HTTP tests cover this boundary.
-
-The test-only commit preceded implementation and requires the missing CLI
-command. Exact red/green CI and review evidence belongs in the PR and its review
-record. Source ownership is extended under `mag.runtime.entrypoints`; generation
-wiring updates the existing model dependency rather than introducing a parallel
-runtime. Authoring uses remote Rust verification because no local Rust/Cairn
-execution is available. The ordinary exact-head CI and Cairn gates remain
-mandatory; this section is not itself a claim that those gates have passed.
-
-The parent remains in progress. This slice does not measure a real local model,
-authenticate server-side model artifacts, or enable generation during ingestion.
+Ownership remains `mag.quality.benchmarks` (`benches/`) and `mag.quality.tests`
+(`tests/`). Durable methodology, review, and exact-head evidence are recorded in
+`meta/reviews/memory-intelligence-local-baseline.md` and PR #444. Local authoring
+cannot execute Rust/Cairn; their remote gates are mandatory, not waived.
