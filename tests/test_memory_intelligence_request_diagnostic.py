@@ -223,12 +223,27 @@ with opener.open(urllib.request.Request(base + '/chat/completions', data=b'{}'))
         self.assertEqual(result.returncode, 2)
         self.assertEqual(dataset_path.read_text(), original)
 
+    def test_real_cli_opt_in_reports_missing_revision_before_running(self):
+        output = self.root / "missing-revision.json"
+        env = dict(os.environ, MAG_DIAGNOSTIC_BINARY=str(self.mag),
+                   MAG_DIAGNOSTIC_OUTPUT=str(output))
+        env.pop("MAG_DIAGNOSTIC_REVISION", None)
+        command = [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+                   "-p", Path(__file__).name, "-k", "actual_selected_runtime_cli_wire_contract", "-v"]
+        result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Set MAG_DIAGNOSTIC_REVISION when enabling the real-CLI test", result.stderr)
+        self.assertNotIn("KeyError", result.stderr)
+        self.assertFalse(output.exists())
+
     @unittest.skipUnless(os.environ.get("MAG_DIAGNOSTIC_BINARY"), "release MAG supplied by CI")
     def test_actual_selected_runtime_cli_wire_contract(self):
+        revision = os.environ.get("MAG_DIAGNOSTIC_REVISION")
+        self.assertTrue(revision, "Set MAG_DIAGNOSTIC_REVISION when enabling the real-CLI test")
         dataset_path = ROOT / "benches/memory_intelligence/dataset.v1.json"
         dataset = evaluate.load_json(dataset_path)
         report = diagnostic.inspect_requests(dataset, mag=Path(os.environ["MAG_DIAGNOSTIC_BINARY"]),
-                                             code_revision=os.environ["MAG_DIAGNOSTIC_REVISION"])
+                                             code_revision=revision)
         output = os.environ.get("MAG_DIAGNOSTIC_OUTPUT")
         if output:
             evaluate.write_report(Path(output), json.dumps(report, ensure_ascii=False, indent=2) + "\n",

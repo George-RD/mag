@@ -78,8 +78,20 @@ The helper now accepts only EPIPE, ECONNRESET and ENOTCONN as expected peer-clos
 outcomes; the regression also proves that unrelated EBADF still propagates.
 Recorder code, deadlines, size limits and rejection assertions are unchanged.
 The resulting local suite ran 16 tests: 15 passed and one explicit real-binary
-skip. Final exact-head CI must rerun rather than treating the earlier failure
-as a passing check.
+skip. The real socket rejection case then passed 40 consecutive local runs.
+Run `34373097753` passed the complete evaluation matrix on head `dd6e9d86b0fd141d39e28cd14cf0bbc33ad25720`.
+
+## Review finding: incomplete real-CLI opt-in
+
+Codex comment `3970411904` identified that supplying MAG_DIAGNOSTIC_BINARY
+without MAG_DIAGNOSTIC_REVISION enabled the live test but produced a KeyError.
+A subprocess regression reproduced that failure before the fix. The live test
+now explicitly requires the revision before loading inputs or invoking MAG,
+with an actionable assertion rather than silently skipping a requested check.
+The regression checks the message, absence of KeyError and absence of an output
+artifact. After this fix, local verification ran 17 tests: 16 passed and one
+explicit real-binary skip. This later head still requires its own complete CI;
+the earlier green run is not substituted for final exact-head verification.
 
 ## Review and limitations
 
