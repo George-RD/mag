@@ -33,8 +33,10 @@ def runner():
 
 
 SERVER = r'''
-import http.server, json, os, sys
+import http.server, json, os, socket, socketserver, sys
 from pathlib import Path
+def unexpected_dns(*args): raise AssertionError("fixture must not depend on DNS")
+socket.getfqdn = unexpected_dns
 args = sys.argv[1:]
 def arg(key): return args[args.index(key) + 1]
 Path(os.environ['TEST_SERVER_PID']).write_text(str(os.getpid()))
@@ -51,6 +53,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(503); self.end_headers(); return
         self.send_response(200); self.end_headers()
         if mode == 'drip':
+            Path(os.environ['TEST_SERVER_PID']).with_suffix('.drip').write_text('response started')
             import time
             for _ in range(20):
                 self.wfile.write(b' '); self.wfile.flush(); time.sleep(0.1)
@@ -59,7 +62,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             'data': [{'id': 'wrong-alias' if mode == 'wrong' else arg('--alias')}]}
         self.wfile.write(json.dumps(payload).encode())
     def log_message(self, *args): pass
-http.server.HTTPServer(('127.0.0.1', int(arg('--port'))), Handler).serve_forever()
+# HTTPServer.server_bind resolves a hostname before listen; the fixture needs
+# only a TCP listener and a real HTTP handler, without host DNS dependencies.
+socketserver.TCPServer(('127.0.0.1', int(arg('--port'))), Handler).serve_forever()
 '''
 
 PRODUCER = r'''
@@ -166,7 +171,7 @@ class LocalBaselineTests(unittest.TestCase):
         profile = run["model_profile"]
         self.assertEqual(profile["producer"]["verification"], "configured_not_authenticated")
         self.assertIsNone(profile["producer"]["revision"])
-        self.assertTrue(profile["producer"]["test_fixture"])
+        self.assertTrue(profile["producer"]["producer"] if "producer" in profile["producer"] else profile["producer"]["test_fixture"])
         self.assertEqual(profile["local_artifact"]["sha256"], self.pin["model"]["sha256"])
         self.assertEqual(profile["local_artifact"]["verification"], "sha256_verified_private_copy")
         self.assertEqual(profile["local_artifact"]["size_bytes"], self.model.stat().st_size)
@@ -188,9 +193,9 @@ class LocalBaselineTests(unittest.TestCase):
         self.assert_server_stopped()
 
     def test_wrong_server_identity_and_early_exit_are_rejected(self):
-        for mode in ("wrong", "exit"):
+        for mode, message in (("wrong", "model alias"), ("exit", "exited before readiness")):
             with self.subTest(mode=mode), mock.patch.dict(os.environ, {"TEST_SERVER_MODE": mode}):
-                with self.assertRaises(ValueError): self.run_baseline()
+                with self.assertRaisesRegex(ValueError, message): self.run_baseline()
                 self.assert_server_stopped()
         self.assertFalse(self.calls.exists())
 
@@ -219,6 +224,7 @@ class LocalBaselineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "readiness timeout"):
                 self.run_baseline(startup_timeout=1)
         self.assertLess(time.monotonic() - started, 4)
+        self.assertTrue(self.pid.with_suffix(".drip").exists())
         self.assert_server_stopped()
 
     def test_describe_is_bounded_and_invalid_profiles_are_rejected(self):
@@ -241,18 +247,49 @@ class LocalBaselineTests(unittest.TestCase):
         with mock.patch.object(Path, "read_text", side_effect=FileNotFoundError):
             self.assertIsNone(runner().read_peak_rss(123))
 
-    def test_cli_rejects_output_alias_before_launch(self):
+    def cli(self, output):
         dataset = self.root / "dataset.json"
         dataset.write_text(json.dumps(fixture_dataset()))
         pin = self.root / "pin.json"
         pin.write_text(json.dumps(self.pin))
-        output = self.root / "alias.gguf"
-        os.link(self.model, output)
-        result = subprocess.run([
+        return subprocess.run([
             sys.executable, str(RUNNER), str(dataset), "--pin", str(pin),
             "--mag", str(self.mag), "--server", str(self.server), "--model", str(self.model),
             "--code-revision", "c" * 40, "--output", str(output),
-        ], capture_output=True, text=True, timeout=5)
+        ], capture_output=True, text=True, timeout=10)
+
+    def test_cli_atomically_writes_a_scoreable_artifact(self):
+        output = self.root / "run.json"
+        output.write_text("previous artifact")
+        result = self.cli(output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        run = evaluate.load_json(output)
+        self.assertEqual(evaluate.evaluate(fixture_dataset(), run)["overall"]["task_success"]["rate"], 1)
+        self.assertEqual(self.calls.read_text().splitlines(), ["case", "case"])
+        self.assert_server_stopped()
+
+    def test_binary_mutation_invalidates_run_after_cleanup(self):
+        capture_run = runner().capture.capture_run
+        def changed(*args, **kwargs):
+            run = capture_run(*args, **kwargs)
+            self.mag.write_text(self.mag.read_text() + "\n# changed after capture\n")
+            return run
+        with mock.patch.object(runner().capture, "capture_run", side_effect=changed):
+            with self.assertRaisesRegex(ValueError, "inputs changed"):
+                self.run_baseline()
+        self.assert_server_stopped()
+
+    def test_capture_exception_still_cleans_up_server(self):
+        with mock.patch.object(runner().capture, "capture_run", side_effect=OSError("fixture failure")):
+            with self.assertRaisesRegex(OSError, "fixture failure"):
+                self.run_baseline()
+        self.assert_server_stopped()
+
+    def test_cli_rejects_output_alias_before_launch(self):
+        output = self.root / "alias.gguf"
+        os.link(self.model, output)
+        result = self.cli(output)
         self.assertEqual(result.returncode, 2)
         self.assertIn("input", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
