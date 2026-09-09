@@ -99,6 +99,17 @@ artifact, checked both its ZIP SHA-256 and Git blob identity, and used a normal
 fast-forward push to the expected feature branch. All temporary workflows are
 excluded from the final diff.
 
+## Review follow-up: configured HTTP deadline
+
+Codex identified that the worker's fixed five-second socket timeout could abort
+an otherwise valid response before the caller's configured exchange deadline.
+A new regression uses real loopback HTTP with headers delayed 5.25 seconds and
+an eight-second budget. It failed on the fixed timeout (producer exit one), then
+passed when the configured timeout was passed to the worker. The outer shared
+supervisor still bounds the entire exchange, including slow-drip progress.
+All eleven diagnostic tests pass after the fix. This does not rewrite or rerun
+the earlier successful observation archive.
+
 ## Cairn and environment
 
 Cairn 0.9.0 ran locally from an exported release binary. `scan` and `hook all`

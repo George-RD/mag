@@ -96,7 +96,11 @@ class TemplateDiagnosticTests(unittest.TestCase):
                     "oversized": (b'x' * 8192, 200),
                     "ok": (json.dumps({"prompt": "<start>\nArabic: \u0645\u0631\u062d\u0628\u0627\n<assistant>"}, ensure_ascii=False).encode(), 200),
                 }
-                self.respond(*replies[outer.mode])
+                mode = outer.mode
+                if mode == "slow-headers":
+                    time.sleep(5.25)
+                    mode = "ok"
+                self.respond(*replies[mode])
 
         self.server = TCPServer(("127.0.0.1", 0), Handler)
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -213,6 +217,16 @@ class TemplateDiagnosticTests(unittest.TestCase):
         attempt = self.run_diagnostic(timeout=0.3)["templates"][0]
         self.assertLess(time.monotonic() - started, 1.5)
         self.assertIn("timeout", attempt["error"])
+        self.assertEqual([path for path, _ in self.calls], ["/props", "/apply-template"])
+
+    def test_configured_timeout_accepts_headers_after_five_seconds(self):
+        """A longer configured exchange deadline must not be cut to five seconds."""
+        self.mode = "slow-headers"
+        report = self.run_diagnostic(timeout=8)
+        self.assertNotIn("server_properties_error", report)
+        attempt = report["templates"][0]
+        self.assertNotIn("error", attempt)
+        self.assertEqual(attempt["response"]["status"], 200)
         self.assertEqual([path for path, _ in self.calls], ["/props", "/apply-template"])
 
     def test_only_literal_loopback_endpoints_and_bounded_limits(self):

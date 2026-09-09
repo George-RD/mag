@@ -39,7 +39,7 @@ data = sys.stdin.buffer.read() if method == "POST" else None
 request = urllib.request.Request(url, data=data, method=method,
                                  headers={"Content-Type": "application/json"})
 try:
-    response = opener.open(request, timeout=5)
+    response = opener.open(request, timeout=float(sys.argv[4]))
 except urllib.error.HTTPError as error:
     response = error
 with response:
@@ -110,7 +110,7 @@ def _observe(url: str, method: str, body: bytes, timeout: float, maximum: int) -
     """Retain a bounded response and safe failure reason from one HTTP attempt."""
     try:
         with tempfile.TemporaryDirectory(prefix="mag-template-http-") as cwd:
-            result = capture._invoke([sys.executable, "-S", "-c", _HTTP, url, method, str(maximum)],
+            result = capture._invoke([sys.executable, "-S", "-c", _HTTP, url, method, str(maximum), str(timeout)],
                                      body, cwd, timeout, maximum * 2 + 1024)
         response = evaluate.parse_json(result.decode("utf-8"))
     except capture.ProducerFailure as exc:
