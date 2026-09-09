@@ -11,6 +11,12 @@ production profile: 3/14 exact successes, all negative controls, and zero positi
 matches. Its original attempts and measurements are preserved in
 `benches/memory_intelligence/baselines/2026-09-09-lfm25-1.2b-q4km-cpu/`.
 
+PR #445 addresses the post-merge baseline review findings: slower healthy
+readiness responses retain the overall startup deadline, and all baseline
+workflow actions use immutable commit pins. See
+`meta/reviews/local-baseline-readiness-followup.md`. These are diagnostic-tool
+fixes, not improved model-quality evidence; the original baseline is unchanged.
+
 The next slice belongs to this todo. Diagnose rendered requests/chat templates,
 structured-output handling, and empty positive extractions using the selected
 CLI/runtime. Model limitations are an alternative explanation, not an established
