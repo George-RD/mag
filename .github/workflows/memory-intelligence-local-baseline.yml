@@ -1,0 +1,95 @@
+name: Local memory intelligence baseline
+
+# Deliberately opt-in: ordinary PR CI never downloads a generation model.
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  local-baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: memory-intelligence-producer
+      - name: Validate pinned inputs
+        id: pin
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from urllib.parse import quote
+          from benches.memory_intelligence import evaluate, local_baseline
+          pin = evaluate.load_json(Path('benches/memory_intelligence/local-baseline.pin.json'))
+          local_baseline.validate_pin(pin)
+          assert pin['runtime']['repository'] == 'ggml-org/llama.cpp'
+          assert pin['model']['repository'] == 'LiquidAI/LFM2.5-1.2B-Instruct-GGUF'
+          model = pin['model']
+          url = 'https://huggingface.co/' + model['repository'] + '/resolve/' + model['revision'] + '/' + quote(model['filename'], safe='')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('runtime_revision=' + pin['runtime']['revision'] + '\n')
+              output.write('model_url=' + url + '\n')
+          PY
+      - uses: actions/checkout@v7
+        with:
+          repository: ggml-org/llama.cpp
+          ref: ${{ steps.pin.outputs.runtime_revision }}
+          path: .baseline/llama.cpp
+          persist-credentials: false
+      - name: Build the opt-in MAG producer and pinned CPU server
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --features llm
+          cmake -S .baseline/llama.cpp -B .baseline/llama.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_SERVER=ON \
+            -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_OPENSSL=OFF
+          cmake --build .baseline/llama.cpp/build --parallel 4 --target llama-server
+      - name: Download the pinned model
+        env:
+          MODEL_URL: ${{ steps.pin.outputs.model_url }}
+        run: |
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --connect-timeout 20 --max-time 600 --retry 2 \
+            "$MODEL_URL" --output "$RUNNER_TEMP/model.gguf"
+      - name: Capture all development cases once and score independently
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/baseline-evidence"
+          python3 benches/memory_intelligence/local_baseline.py \
+            benches/memory_intelligence/dataset.v1.json \
+            --pin benches/memory_intelligence/local-baseline.pin.json \
+            --mag "$PWD/target/release/mag" \
+            --server "$PWD/.baseline/llama.cpp/build/bin/llama-server" \
+            --model "$RUNNER_TEMP/model.gguf" --code-revision "$(git rev-parse HEAD)" \
+            --startup-timeout 180 --case-timeout 90 --threads 2 \
+            --output "$RUNNER_TEMP/baseline-evidence/run.json"
+          python3 benches/memory_intelligence/evaluate.py score \
+            benches/memory_intelligence/dataset.v1.json \
+            "$RUNNER_TEMP/baseline-evidence/run.json" \
+            --output "$RUNNER_TEMP/baseline-evidence/scorecard.json"
+      - name: Record hardware and build context
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/baseline-evidence"
+          lscpu --json > "$RUNNER_TEMP/baseline-evidence/cpu.json"
+          { git rev-parse HEAD; rustc --version; cmake --version; c++ --version; } \
+            > "$RUNNER_TEMP/baseline-evidence/toolchain.txt"
+          cp benches/memory_intelligence/local-baseline.pin.json "$RUNNER_TEMP/baseline-evidence/pin.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-memory-intelligence-${{ github.sha }}
+          path: ${{ runner.temp }}/baseline-evidence/
+          if-no-files-found: error
+          retention-days: 30

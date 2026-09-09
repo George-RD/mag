@@ -50,6 +50,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if mode == 'unready':
             self.send_response(503); self.end_headers(); return
         self.send_response(200); self.end_headers()
+        if mode == 'drip':
+            import time
+            for _ in range(20):
+                self.wfile.write(b' '); self.wfile.flush(); time.sleep(0.1)
+            return
         payload = {'status': 'ok'} if self.path == '/health' else {
             'data': [{'id': 'wrong-alias' if mode == 'wrong' else arg('--alias')}]}
         self.wfile.write(json.dumps(payload).encode())
@@ -191,12 +196,30 @@ class LocalBaselineTests(unittest.TestCase):
 
     def test_startup_deadline_cleans_up(self):
         started = time.monotonic()
-        with mock.patch.dict(os.environ, {"TEST_SERVER_MODE": "unready"}):
+        processes = []
+        popen = subprocess.Popen
+        def tracked(*args, **kwargs):
+            process = popen(*args, **kwargs)
+            processes.append(process)
+            return process
+        with mock.patch.dict(os.environ, {"TEST_SERVER_MODE": "unready"}), mock.patch.object(
+            runner().subprocess, "Popen", side_effect=tracked,
+        ):
             with self.assertRaisesRegex(ValueError, "readiness timeout"):
                 self.run_baseline(startup_timeout=0.4)
         self.assertLess(time.monotonic() - started, 3)
-        self.assert_server_stopped()
+        self.assertTrue(processes)
+        for process in processes:
+            with self.assertRaises(ProcessLookupError): os.kill(process.pid, 0)
         self.assertFalse(self.calls.exists())
+
+    def test_dripping_health_body_cannot_extend_startup_deadline(self):
+        started = time.monotonic()
+        with mock.patch.dict(os.environ, {"TEST_SERVER_MODE": "drip"}):
+            with self.assertRaisesRegex(ValueError, "readiness timeout"):
+                self.run_baseline(startup_timeout=1)
+        self.assertLess(time.monotonic() - started, 4)
+        self.assert_server_stopped()
 
     def test_describe_is_bounded_and_invalid_profiles_are_rejected(self):
         for mode in ("wrong", "invalid", "flood"):

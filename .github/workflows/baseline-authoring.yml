@@ -6,22 +6,5 @@ on:
 permissions:
   contents: read
 jobs:
-  source:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Export tracked source for offline authoring
-        run: |
-          git archive HEAD -o source.tar
-          git log -8 --format='%H %s' > history.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: baseline-authoring-source
-          path: |
-            source.tar
-            history.txt
-          retention-days: 1
+  measure:
+    uses: ./.github/workflows/memory-intelligence-local-baseline.yml
