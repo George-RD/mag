@@ -36,7 +36,7 @@ initially ran 14 tests: 13 passed and the actual-Rust integration test was
 explicitly skipped because this container has no Rust toolchain or release binary.
 An archive-replay test then failed on the missing evidence file before its import
 (a missing-evidence RED, not a production behavior assertion). With the original
-archive imported, the final local suite ran 15 tests: 14 passed and one skipped.
+archive imported, that local suite ran 15 tests: 14 passed and one skipped.
 
 Tests cover exact body bytes/hash, annotation canaries, excluded authorization
 headers, malformed/duplicate JSON, malformed HTTP, oversized headers/bodies,
@@ -63,6 +63,23 @@ Observed requests contain system/user messages, `max_tokens=512`, temperature
 about 0.1 and no `response_format`. This supports checking the next server-side
 boundary; it does not establish the cause of poor extraction. Final exact-head
 CI and review remain separate from this initial measurement.
+
+## CI-discovered fixture shutdown race
+
+At head `5e816760d7a0860cdafe06f370f68be6e77fd291`, run `34372347247` passed
+the real release CLI, archive replay, Linux Python 3.13 and macOS Python 3.13.
+Linux Python 3.10 job `102536436709` failed in the oversized-header fixture:
+`connection.shutdown(SHUT_WR)` raised `ENOTCONN` after the recorder had already
+rejected the request and closed the connection. The traceback identifies a test
+client cleanup race, not a relaxed recorder limit or corrupted evidence archive.
+
+A deterministic regression reproduced that exact error before the helper fix.
+The helper now accepts only EPIPE, ECONNRESET and ENOTCONN as expected peer-close
+outcomes; the regression also proves that unrelated EBADF still propagates.
+Recorder code, deadlines, size limits and rejection assertions are unchanged.
+The resulting local suite ran 16 tests: 15 passed and one explicit real-binary
+skip. Final exact-head CI must rerun rather than treating the earlier failure
+as a passing check.
 
 ## Review and limitations
 

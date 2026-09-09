@@ -1,6 +1,7 @@
 """Wire observations must stay separate from generated-output evaluations."""
 import base64
 import copy
+import errno
 import hashlib
 import json
 import os
@@ -138,9 +139,21 @@ with opener.open(urllib.request.Request(base + '/chat/completions', data=b'{}'))
                     connection.shutdown(socket.SHUT_WR)
                     while connection.recv(4096):
                         pass
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
+                except OSError as exc:
+                    if exc.errno not in (errno.EPIPE, errno.ECONNRESET, errno.ENOTCONN):
+                        raise
         return recorder
+
+    def test_fixture_shutdown_handles_closed_peer_but_not_unrelated_io_errors(self):
+        # Oversized input may already have been rejected before SHUT_WR.
+        with mock.patch.object(socket, "create_connection") as connect:
+            connection = connect.return_value.__enter__.return_value
+            connection.shutdown.side_effect = OSError(errno.ENOTCONN, "peer closed")
+            self.exchange(b"unused")
+            connection.shutdown.side_effect = OSError(errno.EBADF, "bad descriptor")
+            with self.assertRaises(OSError) as raised:
+                self.exchange(b"unused")
+            self.assertEqual(raised.exception.errno, errno.EBADF)
 
     def test_malformed_and_oversized_http_are_visible_and_redacted(self):
         for headers, body in [
