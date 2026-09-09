@@ -77,3 +77,24 @@ images and the stable Rust toolchain can still change. It records producing code
 context, and hardware. Ordinary PR CI uses only fixtures, without downloading a
 model. A successful workflow or a development-seed score does not promote a
 model or establish held-out quality.
+
+## HTTP request diagnostics
+
+`request_diagnostic.py` observes the selected CLI's actual HTTP bodies against
+an owned, bounded loopback recorder. It does not forward, infer, reconstruct
+prompts in Python, or score the labelled placeholder response. The existing
+answer-blind request helper, subprocess supervisor and artifact helpers are
+shared. Header values are excluded; source text in bodies is intentionally
+retained and requires an appropriate dataset-handling decision.
+
+Each case retains its first complete body's exact bytes, digest and strict JSON
+interpretation, including failures after capture. Missing, malformed, duplicate
+or timed-out requests remain visible. Header/body reads have an absolute deadline
+and size limits; input/output aliases are refused. Trusted binaries and an
+isolated home are not a hostile-process sandbox. Observed binary hashes do not
+attest the caller-declared source revision.
+
+The diagnostic artifact must remain distinct from generated-output scorecards.
+Server-rendered templates are null until actually observed and linked to server
+provenance. A passing wire-contract fixture or real-CLI inspection is not model
+quality evidence and cannot qualify production ingestion.

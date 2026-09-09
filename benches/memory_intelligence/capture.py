@@ -54,6 +54,17 @@ def _stop_group(process: subprocess.Popen) -> None:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # Darwin can report EPERM for a group containing only an unreaped
+        # zombie. Reap our exited child, then retry the group once so live
+        # descendants are not mistaken for successful cleanup. A live leader
+        # or a second denial remains a real, visible cleanup failure.
+        if process.poll() is None:
+            raise
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     process.wait()
 
 
@@ -68,7 +79,7 @@ def _invoke(
     output = bytearray()
     counts = {"stdout": 0, "stderr": 0}
     pending = memoryview(request)
-    group_stopped = False
+    cleanup_attempted = False
     try:
         with selectors.DefaultSelector() as selector:
             for stream, name, event in (
@@ -84,9 +95,9 @@ def _invoke(
                     raise ProducerFailure("producer timeout")
                 # Descendants may retain inherited pipes after the parent exits.
                 # Stop them before waiting for EOF, then drain buffered output.
-                if not group_stopped and process.poll() is not None:
+                if not cleanup_attempted and process.poll() is not None:
+                    cleanup_attempted = True
                     _stop_group(process)
-                    group_stopped = True
                 for key, _ in selector.select(min(remaining, 0.05)):
                     stream, name = key.fileobj, key.data
                     if name == "stdin":
@@ -121,10 +132,12 @@ def _invoke(
                 raise ProducerFailure(f"producer exited with code {process.returncode}")
         return bytes(output)
     finally:
-        if not group_stopped:
-            _stop_group(process)
-        for stream in (process.stdin, process.stdout, process.stderr):
-            stream.close()
+        try:
+            if not cleanup_attempted:
+                _stop_group(process)
+        finally:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                stream.close()
 
 
 def capture_run(

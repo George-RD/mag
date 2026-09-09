@@ -1,6 +1,6 @@
 ---
 node: mag.runtime.memory.models
-status: open
+status: in_progress
 created: 2026-07-28
 ---
 # Wire LFM2.5 Production Ingestion
@@ -25,14 +25,21 @@ are retained under the dated `-prompt-v2` baseline directory. The common pins do
 not establish identical server binaries; both observed hashes remain disclosed.
 See `meta/reviews/memory-intelligence-prompt-v2.md`.
 
-The next slice belongs to this todo. Inspect the actual answer-blind HTTP request
-and server-rendered chat template through the selected CLI/runtime before another
-prompt change. Then consider a non-repairing schema-constrained comparison that
-separates output-shape compliance from extraction quality and discloses its
-request semantics. Model limitations are an alternative explanation, not an established
-cause. Preserve the baseline and negative controls; do not tune or weaken the
-scorer until results look favorable. Qualify improvements on additional held-out
-cases before production promotion.
+The HTTP-observation slice now has a bounded loopback recorder through the actual
+selected CLI, with exact body bytes and failed attempts retained. It returns a
+labelled placeholder, not model output, and never runs a scorer. See
+`benches/memory_intelligence/REQUEST_DIAGNOSTIC.md` and
+`meta/reviews/memory-intelligence-request-diagnostic.md`. P1 remains in progress;
+this is diagnostic tooling, not evidence of improved model quality.
+
+Next inspect the pinned server's actual chat-template rendering for the captured
+messages before another prompt change. The diagnostic's server-rendered-template
+field is deliberately null. Then consider a non-repairing schema-constrained
+comparison that separates output-shape compliance from extraction quality and
+discloses its request semantics. Model limitations are an alternative explanation,
+not an established cause. Preserve the baseline and negative controls; do not
+tune or weaken the scorer until results look favorable. Qualify improvements on
+additional held-out cases before production promotion.
 
 Then wire LFM2.5 1.2B into the chosen production write path behind explicit
 enable/disable configuration, observable health, bounded structured output,
