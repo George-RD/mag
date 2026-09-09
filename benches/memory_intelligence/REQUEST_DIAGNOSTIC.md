@@ -61,11 +61,12 @@ and absence of `response_format`; it does not reconstruct the prompt in Python.
 
 ## Next diagnostic boundary
 
-Inspect these messages against the pinned inference server's actual chat-template
-renderer. Capture server/model provenance, rendering inputs and outputs, and
-show that the inspected rendering corresponds to generation requests. Do not
-label an independent template replay as the actual generated prompt without
-that evidence. Then consider a separate, non-repairing constrained-output run.
+Use the [server-template replay client](TEMPLATE_DIAGNOSTIC.md) to inspect these
+exact bodies against a trusted pinned server's actual renderer. It records
+server/model context and rendered outputs without generating answers. The dated
+observation archive and source audit link that renderer to the chat-completion
+parser, not to a witnessed historical generation prompt. Then consider a
+separate, non-repairing constrained-output run.
 Keep the original failed baselines, scorer and negative controls unchanged.
 Neither wire inspection nor schema compliance replaces held-out, rule-only and
 resource-budget comparisons before enabling production ingestion.
