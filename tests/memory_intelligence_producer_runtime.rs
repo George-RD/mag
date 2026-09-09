@@ -28,6 +28,16 @@ impl LlmBackend for Backend {
         Ok(self.completion.clone())
     }
 
+    async fn complete_constrained(
+        &self,
+        prompt: &str,
+        system: Option<&str>,
+        schema: &serde_json::Value,
+    ) -> Result<String> {
+        assert_eq!(*schema, mag::intelligence_output_schema());
+        self.complete(prompt, system).await
+    }
+
     async fn complete_structured(
         &self,
         _: &str,
@@ -154,4 +164,62 @@ fn request_contract_accepts_all_tasks_and_rejects_duplicate_or_unknown_fields() 
         let input = format!("{{\"{field}\":{},{}", value[field], &value.to_string()[1..]);
         assert!(serde_json::from_str::<IntelligenceRequest>(&input).is_err());
     }
+}
+
+#[tokio::test]
+async fn constrained_runtime_preserves_raw_output_validation_limits_and_redaction() {
+    for text in [
+        "",
+        "not json",
+        "```json\n{\"items\":[]}\n```",
+        " {\"items\":[]}\n",
+    ] {
+        let backend = backend(text);
+        let actual = LocalMemoryRuntime::produce_intelligence_with_schema(&backend, &request())
+            .await
+            .unwrap();
+        assert_eq!(actual, text);
+        assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+    }
+    let mut invalid = request();
+    invalid.instruction.clear();
+    let untouched = backend("unused");
+    assert!(
+        LocalMemoryRuntime::produce_intelligence_with_schema(&untouched, &invalid)
+            .await
+            .is_err()
+    );
+    assert_eq!(untouched.calls.load(Ordering::SeqCst), 0);
+    let oversized = backend(&"x".repeat(MAX_INTELLIGENCE_BYTES + 1));
+    let error = LocalMemoryRuntime::produce_intelligence_with_schema(&oversized, &request())
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("completion exceeds byte limit"));
+    assert_eq!(oversized.calls.load(Ordering::SeqCst), 1);
+    let mut failing = backend("unused");
+    failing.fail = true;
+    let error = LocalMemoryRuntime::produce_intelligence_with_schema(&failing, &request())
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("backend failed"));
+    assert!(!format!("{error:#}").contains("secret"));
+    assert_eq!(failing.calls.load(Ordering::SeqCst), 1);
+}
+
+struct UnsupportedBackend;
+
+#[async_trait]
+impl LlmBackend for UnsupportedBackend {
+    async fn complete(&self, _: &str, _: Option<&str>) -> Result<String> {
+        panic!("unsupported native constraints must not silently fall back");
+    }
+}
+
+#[tokio::test]
+async fn unsupported_constraints_fail_without_calling_plain_completion() {
+    let error =
+        LocalMemoryRuntime::produce_intelligence_with_schema(&UnsupportedBackend, &request())
+            .await
+            .unwrap_err();
+    assert!(error.to_string().contains("backend failed"));
 }

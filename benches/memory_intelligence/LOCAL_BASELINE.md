@@ -110,3 +110,10 @@ and source-set scores are not factual-entailment judgments or broad evidence of
 quality. Preserve all raw attempts and report per-task failures before using this
 experiment to choose the next improvement. Neither a green workflow nor high
 seed accuracy justifies changing the production model by itself.
+
+## Explicit native output constraints
+
+Add `--json-schema` to select the non-repairing comparison arm. The default
+remains unconstrained. Use different output paths and preserve both attempts;
+see [SCHEMA_COMPARISON.md](SCHEMA_COMPARISON.md) for changed request semantics,
+interpretation limits and production qualification gates.

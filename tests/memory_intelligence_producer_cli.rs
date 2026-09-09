@@ -291,3 +291,79 @@ fn producer_describes_configuration_without_claiming_model_verification() {
     assert!(server.request.lock().unwrap().is_none());
     assert!(!root.path().join("must-not-exist").exists());
 }
+
+#[test]
+fn constrained_request_changes_only_response_format_and_keeps_raw_output() {
+    for text in [
+        "not JSON",
+        "```json\n{\"items\":[]}\n```",
+        "{\"wrong_shape\":true}",
+    ] {
+        let plain = Server::completion(text);
+        let constrained = Server::completion(text);
+        let input = request().to_string();
+        let (plain_output, _) = invoke(&plain.url, input.as_bytes(), &[]);
+        let (output, root) = invoke(&constrained.url, input.as_bytes(), &["--json-schema"]);
+        assert!(plain_output.status.success());
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, text.as_bytes());
+        assert_eq!(output.stdout, plain_output.stdout);
+        assert!(!root.path().join("must-not-exist").exists());
+        let mut body = constrained.body();
+        let format = body
+            .as_object_mut()
+            .unwrap()
+            .remove("response_format")
+            .unwrap();
+        assert_eq!(format["type"], "json_schema");
+        assert_eq!(format["json_schema"]["strict"], true);
+        assert_eq!(
+            format["json_schema"]["schema"],
+            mag::intelligence_output_schema()
+        );
+        assert_eq!(
+            body,
+            plain.body(),
+            "schema must not change messages, temperature or tokens"
+        );
+    }
+}
+
+#[test]
+fn constrained_http_failure_is_not_retried_repaired_or_fallen_back() {
+    let server = Server::new(400, "unsupported-schema-secret".to_owned());
+    let (output, _) = invoke(
+        &server.url,
+        request().to_string().as_bytes(),
+        &["--json-schema"],
+    );
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("backend failed"));
+    assert!(!stderr.contains("unsupported-schema-secret"));
+    assert_eq!(server.body()["response_format"]["type"], "json_schema");
+}
+
+#[tokio::test]
+async fn legacy_structured_provider_keeps_temperature_and_fence_repair() {
+    use mag::memory_core::llm::{LlmBackend, LlmConfig, OpenAiProvider};
+    let server = Server::completion("```json\n{\"items\":[]}\n```");
+    let mut config = LlmConfig::ollama("legacy-fixture", &server.url);
+    config.temperature = 0.37;
+    let provider = OpenAiProvider::new(config).unwrap();
+    let schema = json!({"type": "object"});
+    let result = provider
+        .complete_structured("legacy prompt", Some("legacy system"), &schema)
+        .await
+        .unwrap();
+    assert_eq!(result, json!({"items": []}));
+    let body = server.body();
+    assert_eq!(body["temperature"], 0.0);
+    assert_eq!(body["messages"][1]["content"], "legacy prompt");
+    assert_eq!(body["response_format"]["json_schema"]["schema"], schema);
+}

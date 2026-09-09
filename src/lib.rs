@@ -19,5 +19,5 @@ pub mod test_helpers;
 #[cfg(feature = "llm")]
 pub use local_memory_runtime::intelligence::{
     INTELLIGENCE_PROMPT_VERSION, IntelligenceRequest, IntelligenceSource, IntelligenceTask,
-    MAX_INTELLIGENCE_BYTES,
+    MAX_INTELLIGENCE_BYTES, intelligence_output_schema,
 };

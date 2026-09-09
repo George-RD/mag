@@ -158,11 +158,13 @@ class _RssObserver:
 def run_baseline(
     dataset: dict[str, Any], pin: dict[str, Any], *, mag: Path, server: Path,
     model: Path, code_revision: str, startup_timeout: float = 120,
-    case_timeout: int = 60, threads: int = 2,
+    case_timeout: int = 60, threads: int = 2, json_schema: bool = False,
 ) -> dict[str, Any]:
     """Verify bytes, own one local server, and reuse answer-blind capture/scoring."""
     if os.name != "posix":
         raise ValueError("local baseline requires POSIX process groups")
+    if type(json_schema) is not bool:
+        raise ValueError("json_schema must be a boolean")
     validate_pin(pin)
     evaluate.validate_dataset(dataset)
     _hex(code_revision, 40, "code revision")
@@ -199,6 +201,8 @@ def run_baseline(
         producer = [env_program, "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost",
                     str(mag), "intelligence-produce", "--base-url", base + "/v1", "--model", alias,
                     "--timeout-seconds", str(case_timeout), "--max-tokens", "512"]
+        if json_schema:
+            producer.append("--json-schema")
         with tempfile.TemporaryDirectory(prefix="mag-describe-") as cwd:
             try:
                 raw = capture._invoke([*producer, "--describe"], b"", cwd, 10, MAX_BYTES)
@@ -207,6 +211,11 @@ def run_baseline(
                 profile = description["model_profile"]
                 if not isinstance(profile, dict) or profile.get("role") != "generation" or profile.get("model") != alias or profile.get("base_url") != base + "/v1" or description["embedding_space_identity"] is not None:
                     raise ValueError("producer description did not match the configured generation command")
+                mode = profile.get("output_mode")
+                if json_schema and (mode != "json_schema" or not isinstance(profile.get("output_schema"), dict)):
+                    raise ValueError("producer description did not match requested schema mode")
+                if not json_schema and mode not in (None, "unconstrained"):
+                    raise ValueError("producer description did not match unconstrained mode")
             except (capture.ProducerFailure, ValueError, TypeError, RecursionError) as exc:
                 raise ValueError("could not obtain a matching bounded MAG producer description") from exc
         server_command = [str(server), "--model", str(staged), "--host", "127.0.0.1", "--port", str(port),
@@ -277,13 +286,15 @@ def main() -> None:
     parser.add_argument("--startup-timeout", type=float, default=120)
     parser.add_argument("--case-timeout", type=int, default=60)
     parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--json-schema", action="store_true", help="request native output constraints without repair or fallback")
     args = parser.parse_args()
     try:
         inputs = (args.dataset, args.pin, args.mag, args.server, args.model)
         evaluate.check_output_path(args.output, inputs)
         run = run_baseline(evaluate.load_json(args.dataset), evaluate.load_json(args.pin),
                            mag=args.mag, server=args.server, model=args.model, code_revision=args.code_revision,
-                           startup_timeout=args.startup_timeout, case_timeout=args.case_timeout, threads=args.threads)
+                           startup_timeout=args.startup_timeout, case_timeout=args.case_timeout, threads=args.threads,
+                           json_schema=args.json_schema)
         evaluate.write_report(args.output, json.dumps(run, ensure_ascii=False, indent=2, allow_nan=False) + "\n", inputs)
     except (OSError, ValueError, TypeError, RecursionError) as exc:
         parser.exit(2, f"error: {exc}\n")

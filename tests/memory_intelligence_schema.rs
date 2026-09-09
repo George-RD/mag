@@ -8,7 +8,10 @@ fn describe(constrained: bool) -> Value {
     let root = tempfile::tempdir().unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_mag"));
     command.args([
-        "intelligence-produce", "--describe", "--base-url", "http://127.0.0.1:1/v1",
+        "intelligence-produce",
+        "--describe",
+        "--base-url",
+        "http://127.0.0.1:1/v1",
     ]);
     if constrained {
         command.arg("--json-schema");
@@ -20,7 +23,11 @@ fn describe(constrained: bool) -> Value {
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(!root.path().join("must-not-exist").exists());
     serde_json::from_slice(&output.stdout).unwrap()
 }
@@ -41,7 +48,10 @@ fn schema_mode_is_explicit_and_described_without_model_access() {
     assert_eq!(item["additionalProperties"], false);
     assert_eq!(item["properties"]["value"]["type"], "string");
     assert_eq!(item["properties"]["source_ids"]["type"], "array");
-    assert!(!schema.to_string().contains("enum"), "schema must not encode answers");
+    assert!(
+        !schema.to_string().contains("enum"),
+        "schema must not encode answers"
+    );
 }
 
 #[test]

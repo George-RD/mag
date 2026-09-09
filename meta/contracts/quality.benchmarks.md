@@ -117,3 +117,11 @@ hash and source linkage are separate from actual generation evidence;
 not attest a historical generation prompt or binary equivalence. Header exclusion
 does not redact source/template text or supplied context. Input/output aliases
 are refused and prior request/model archives remain unchanged.
+
+The local baseline runner accepts an explicit `--json-schema` comparison arm.
+It passes that mode to both CLI description and every answer-blind attempt,
+rejects a contradictory description before server launch, and preserves the
+configured schema beside existing verified-artifact evidence. Request semantics
+change only by adding native output constraints; prompt, scorer and dataset do
+not change. See `benches/memory_intelligence/SCHEMA_COMPARISON.md`. A schema-valid
+completion is not evidence of correct extraction or production readiness.

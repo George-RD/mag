@@ -28,7 +28,10 @@ request carries only task, instruction, and immutable source IDs/text; unknown
 and duplicate JSON fields, invalid versions/tasks, blank inputs, duplicate
 source IDs, and oversized requests fail before inference.
 
-The runtime owns validation and one plain completion attempt. It does not
+The runtime owns validation and one completion attempt. Plain mode remains the
+default; `--json-schema` selects `produce_intelligence_with_schema`, adding only
+the fixed native output constraint. `--describe` records the requested mode and
+exact schema without claiming server enforcement. It does not
 persist, repair, parse the output schema, retry, or supply expected annotations.
 The independent evaluation scorer owns output validity and quality judgment.
 `--describe` reads neither stdin nor a model and labels its settings

@@ -6,6 +6,7 @@ use anyhow::{Result, ensure};
 use mag::memory_core::llm::{LlmConfig, build_llm_backend};
 use mag::{
     INTELLIGENCE_PROMPT_VERSION, IntelligenceRequest, LocalMemoryRuntime, MAX_INTELLIGENCE_BYTES,
+    intelligence_output_schema,
 };
 use serde_json::json;
 
@@ -50,6 +51,8 @@ pub async fn run(args: &IntelligenceProducerArgs) -> Result<()> {
                 "timeout_secs": config.timeout_secs,
                 "concurrency_limit": 1,
                 "prompt_version": INTELLIGENCE_PROMPT_VERSION,
+                "output_mode": if args.json_schema { "json_schema" } else { "unconstrained" },
+                "output_schema": args.json_schema.then(intelligence_output_schema),
                 "verification": "configured_not_authenticated",
                 "revision": null,
                 "checksums": null,
@@ -75,7 +78,11 @@ pub async fn run(args: &IntelligenceProducerArgs) -> Result<()> {
     })?;
     let backend = build_llm_backend(config)
         .map_err(|_| anyhow::anyhow!("could not initialize intelligence backend"))?;
-    let completion = LocalMemoryRuntime::produce_intelligence(backend.as_ref(), &request).await?;
+    let completion = if args.json_schema {
+        LocalMemoryRuntime::produce_intelligence_with_schema(backend.as_ref(), &request).await?
+    } else {
+        LocalMemoryRuntime::produce_intelligence(backend.as_ref(), &request).await?
+    };
     std::io::stdout().lock().write_all(completion.as_bytes())?;
     Ok(())
 }

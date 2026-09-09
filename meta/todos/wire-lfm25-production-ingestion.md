@@ -42,9 +42,16 @@ message loss in that replay, not against every possible integration failure.
 The original recorder's server-template field and each replay's generation-prompt
 field remain null: no historical generation prompt or token IDs were observed.
 
-Next consider a non-repairing schema-constrained comparison that separates
-output-shape compliance from extraction quality and discloses its changed
-request semantics. Do not rewrite the prompt based on an assumed template fault.
+PR #449 implements an explicit, non-repairing `--json-schema` diagnostic through
+this same CLI/runtime. It requests the fixed output-shape schema while keeping
+prompt v1 and decoding settings, and preserves malformed output and failures.
+The local baseline runner forwards the flag to description and every attempt;
+unsupported constraints do not silently fall back. See
+`benches/memory_intelligence/SCHEMA_COMPARISON.md` and
+`meta/reviews/memory-intelligence-schema-comparison.md`.
+
+Next measure the disclosed schema-constrained comparison, separating
+output-shape compliance from extraction quality. Do not rewrite the prompt based on an assumed template fault.
 Model limitations remain an alternative explanation, not an established cause.
 Preserve the baseline and negative controls; do not tune or weaken the scorer
 until results look favorable. Qualify improvements on additional held-out cases
