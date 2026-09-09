@@ -6,130 +6,41 @@ on:
 permissions:
   contents: read
 jobs:
-  template-observation:
+  preserve-evidence:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Verify diagnostic fixtures
-        run: python3 -m unittest discover -s tests -p test_memory_intelligence_template_diagnostic.py -v
-      - name: Validate pinned model and runtime inputs
-        id: pin
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          from urllib.parse import quote
-          from benches.memory_intelligence import evaluate, local_baseline
-          pin = evaluate.load_json(Path('benches/memory_intelligence/local-baseline.pin.json'))
-          local_baseline.validate_pin(pin)
-          assert pin['runtime']['repository'] == 'ggml-org/llama.cpp'
-          assert pin['model']['repository'] == 'LiquidAI/LFM2.5-1.2B-Instruct-GGUF'
-          model = pin['model']
-          url = 'https://huggingface.co/' + model['repository'] + '/resolve/' + model['revision'] + '/' + quote(model['filename'], safe='')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write('runtime_revision=' + pin['runtime']['revision'] + '\n')
-              output.write('model_url=' + url + '\n')
-          PY
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: ggml-org/llama.cpp
-          ref: ${{ steps.pin.outputs.runtime_revision }}
-          path: .template/llama.cpp
-          persist-credentials: false
-      - name: Build pinned CPU template server
-        run: |
-          set -euo pipefail
-          cmake -S .template/llama.cpp -B .template/llama.cpp/build \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-            -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_SERVER=ON \
-            -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_OPENSSL=OFF
-          cmake --build .template/llama.cpp/build --parallel 4 --target llama-server
-      - name: Download pinned model
+      - name: Preserve only the verified original artifact on the expected branch
         env:
-          MODEL_URL: ${{ steps.pin.outputs.model_url }}
-        run: |
-          curl --fail --location --proto '=https' --proto-redir '=https' \
-            --connect-timeout 20 --max-time 600 --retry 2 \
-            "$MODEL_URL" --output "$RUNNER_TEMP/template-model.gguf"
-      - name: Replay original requests once without generation
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, os, shutil, socket, subprocess, tempfile, zipfile
-          from pathlib import Path
-          from benches.memory_intelligence import capture, evaluate, local_baseline, template_diagnostic
-          root = Path.cwd()
-          output = Path(os.environ['RUNNER_TEMP']) / 'template-evidence'
-          output.mkdir(exist_ok=True)
-          pin = evaluate.load_json(root / 'benches/memory_intelligence/local-baseline.pin.json')
-          local_baseline.validate_pin(pin)
-          archive = root / 'benches/memory_intelligence/diagnostics/2026-09-09-http-request-v1/evidence.zip'
-          archive_sha = local_baseline.file_sha256(archive)
-          assert archive_sha == 'bdd8447213a0bda23385feeb98426ba9aae017e8363029685ec80a58616eb040'
-          source = output / 'intelligence-request-diagnostic.json'
-          with zipfile.ZipFile(archive) as evidence:
-              source.write_bytes(evidence.read('intelligence-request-diagnostic.json'))
-          server = root / '.template/llama.cpp/build/bin/llama-server'
-          server_sha = local_baseline.file_sha256(server)
-          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          runtime_revision = subprocess.check_output(['git', '-C', str(root / '.template/llama.cpp'), 'rev-parse', 'HEAD'], text=True).strip()
-          assert runtime_revision == pin['runtime']['revision']
-          with tempfile.TemporaryDirectory(prefix='mag-template-model-') as temporary:
-              staged = Path(temporary) / 'model.gguf'
-              shutil.copyfile(Path(os.environ['RUNNER_TEMP']) / 'template-model.gguf', staged)
-              assert local_baseline.file_sha256(staged) == pin['model']['sha256']
-              staged.chmod(0o400)
-              with socket.socket() as reservation:
-                  reservation.bind(('127.0.0.1', 0))
-                  port = reservation.getsockname()[1]
-              alias = 'mag-request-diagnostic'
-              base = f'http://127.0.0.1:{port}'
-              command = [str(server), '--model', str(staged), '--host', '127.0.0.1', '--port', str(port),
-                         '--alias', alias, '--ctx-size', '4096', '--parallel', '1', '--threads', '2',
-                         '--n-gpu-layers', '0', '--seed', '42', '--temp', '0.1', '--top-k', '50', '--repeat-penalty', '1.05']
-              context = {'diagnostic_code_revision': revision, 'runtime_source_checkout': runtime_revision,
-                         'runtime_build_claim': pin['runtime'], 'server_binary_sha256': server_sha,
-                         'model_artifact': {**pin['model'], 'size_bytes': staged.stat().st_size,
-                                            'verification': 'sha256_verified_private_copy'},
-                         'source_archive_sha256': archive_sha, 'server_command': command,
-                         'server_environment': 'inherited except all LLAMA_* settings removed',
-                         'limits': {'startup_timeout_seconds': 180, 'exchange_timeout_seconds': 10},
-                         'scope': 'no MAG rebuild or generation; exact original recorder bodies; alias preserved',
-                         'build_limit': 'observed checkout and binary hashes, not hermetic/source-to-binary attestation'}
-              (output / 'server-context.json').write_text(json.dumps(context, indent=2) + '\n')
-              env = {key: value for key, value in os.environ.items() if not key.startswith('LLAMA_')}
-              process = subprocess.Popen(command, cwd=temporary, env=env, stdin=subprocess.DEVNULL,
-                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-              try:
-                  local_baseline._await_ready(process, base, alias, 180)
-                  report = template_diagnostic.inspect_templates(source, base_url=base, server_context=context)
-                  evaluate.write_report(output / 'templates.json', json.dumps(report, ensure_ascii=False, indent=2) + '\n', (source,))
-              finally:
-                  capture._stop_group(process)
-              assert local_baseline.file_sha256(staged) == pin['model']['sha256']
-              assert local_baseline.file_sha256(server) == server_sha
-          # Persist attempts before treating any failed observation as a failing run.
-          assert 'server_properties_error' not in report
-          assert len(report['templates']) == 14
-          assert all('error' not in item and item['generation_prompt'] is None for item in report['templates'])
-          print('Observed all 14 exact request bodies through /apply-template; no generation or scoring.')
-          PY
-      - name: Preserve build context and exact acquisition workflow
-        if: always()
-        run: |
-          mkdir -p "$RUNNER_TEMP/template-evidence"
-          { git rev-parse HEAD; cmake --version; c++ --version; python3 --version; } > "$RUNNER_TEMP/template-evidence/toolchain.txt"
-          cp benches/memory_intelligence/local-baseline.pin.json "$RUNNER_TEMP/template-evidence/pin.json"
-          cp .github/workflows/template-diagnostic-authoring.yml "$RUNNER_TEMP/template-evidence/acquisition-workflow.yml"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: memory-intelligence-template-observation
-          path: ${{ runner.temp }}/template-evidence/
-          if-no-files-found: error
-          retention-days: 30
+          branch=agent/memory-intelligence-template-diagnostic
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$EXPECTED_HEAD"
+          archive="$RUNNER_TEMP/template-observation.zip"
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --connect-timeout 20 --max-time 60 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/George-RD/mag/actions/artifacts/10115793367/zip \
+            --output "$archive"
+          echo "77603b39db8538420c61355a6726f28ac84a0b38cd1c23a088492062240592dc  $archive" | sha256sum --check
+          test "$(git hash-object "$archive")" = 81c189111f6cf43106fbf1d0c54b5f90a84a27f8
+          path=benches/memory_intelligence/diagnostics/2026-09-09-template-v1/evidence.zip
+          test ! -e "$path"
+          mkdir -p "$(dirname "$path")"
+          cp "$archive" "$path"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$path"
+          git diff --cached --check
+          git commit -m 'test(eval): archive original pinned-server template observations'
+          git push origin "HEAD:refs/heads/$branch"
