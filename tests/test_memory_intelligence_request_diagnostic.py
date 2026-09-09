@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from unittest import mock
 
 from benches.memory_intelligence import capture, evaluate, request_diagnostic as diagnostic
@@ -219,16 +220,40 @@ with opener.open(urllib.request.Request(base + '/chat/completions', data=b'{}'))
         if output:
             evaluate.write_report(Path(output), json.dumps(report, ensure_ascii=False, indent=2) + "\n",
                                   (dataset_path, Path(os.environ["MAG_DIAGNOSTIC_BINARY"])))
+        self.assert_wire_requests(dataset, report)
+
+    def assert_wire_requests(self, dataset, report):
+        self.assertEqual(report["dataset_sha256"], evaluate.dataset_sha256(dataset))
+        self.assertEqual(report["kind"], "http-request-diagnostic-no-generation")
+        self.assertIsNone(report["server_rendered_template"])
+        self.assertNotIn("results", report)
         self.assertEqual(len(report["requests"]), len(dataset["cases"]))
         for case, attempt in zip(dataset["cases"], report["requests"]):
+            self.assertEqual(attempt["case_id"], case["id"])
             self.assertNotIn("error", attempt)
             body = attempt["http"]["body"]
+            raw = base64.b64decode(attempt["http"]["body_base64"], validate=True)
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), attempt["http"]["body_sha256"])
+            self.assertEqual(evaluate.parse_json(raw.decode("utf-8")), body)
             self.assertEqual(body["model"], "mag-request-diagnostic")
             self.assertEqual(body["max_tokens"], 512)
             self.assertAlmostEqual(body["temperature"], 0.1, places=6)
             self.assertNotIn("response_format", body)
             self.assertEqual([message["role"] for message in body["messages"]], ["system", "user"])
             self.assertEqual(json.loads(body["messages"][1]["content"]), capture.producer_request(case))
+
+    def test_original_wire_artifact_retains_all_actual_requests(self):
+        path = ROOT / "benches/memory_intelligence/diagnostics/2026-09-09-http-request-v1/evidence.zip"
+        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
+                         "bdd8447213a0bda23385feeb98426ba9aae017e8363029685ec80a58616eb040")
+        with zipfile.ZipFile(path) as archive:
+            self.assertEqual(archive.namelist(), ["intelligence-request-diagnostic.json"])
+            report = evaluate.parse_json(archive.read(archive.namelist()[0]).decode("utf-8"))
+        self.assertEqual(report["code_revision"], "0b856597af19235a926de46d657aed86f6da4fc8")
+        self.assertEqual(report["mag_binary_sha256"],
+                         "2a18e4dc4e814c271869b2eb6dd6cab666cfd0c84cdaf9711d83172b5a783f19")
+        dataset = evaluate.load_json(ROOT / "benches/memory_intelligence/dataset.v1.json")
+        self.assert_wire_requests(dataset, report)
 
 
 if __name__ == "__main__":

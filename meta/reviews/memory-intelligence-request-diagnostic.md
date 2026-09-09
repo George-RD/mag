@@ -32,8 +32,11 @@ output, held-out and rule-only comparisons before production wiring.
 The new test module was written before the diagnostic existed. Its first run
 failed importing the absent module. This is a missing-implementation RED boundary,
 not a claimed behavioral regression in production code. The completed local suite
-then ran 14 tests: 13 passed and the actual-Rust integration test was explicitly
-skipped because this container has no Rust toolchain or release binary.
+initially ran 14 tests: 13 passed and the actual-Rust integration test was
+explicitly skipped because this container has no Rust toolchain or release binary.
+An archive-replay test then failed on the missing evidence file before its import
+(a missing-evidence RED, not a production behavior assertion). With the original
+archive imported, the final local suite ran 15 tests: 14 passed and one skipped.
 
 Tests cover exact body bytes/hash, annotation canaries, excluded authorization
 headers, malformed/duplicate JSON, malformed HTTP, oversized headers/bodies,
@@ -46,6 +49,20 @@ macOS Python 3.13. The release `llm` job separately supplies the real CLI and
 checks all development cases. It writes evidence before assertions so failures
 are retained. Exact-head CI, actual request observations, external review and
 merge results are recorded on the linked PR, not presumed in this document.
+
+## Actual CLI observation
+
+Evaluation run `34370777755` passed the real release-CLI check for all 14 cases.
+The original artifact `10111864753` is retained byte-for-byte under
+`benches/memory_intelligence/diagnostics/2026-09-09-http-request-v1/`. Its README
+records the verified synthetic-merge/head tree identity, hashes and limitations.
+Independent local replay checks every body digest and answer-blind user message;
+the archive and new real-CLI path share one assertion helper.
+
+Observed requests contain system/user messages, `max_tokens=512`, temperature
+about 0.1 and no `response_format`. This supports checking the next server-side
+boundary; it does not establish the cause of poor extraction. Final exact-head
+CI and review remain separate from this initial measurement.
 
 ## Review and limitations
 
