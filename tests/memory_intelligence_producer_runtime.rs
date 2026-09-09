@@ -5,9 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::Result;
 use async_trait::async_trait;
 use mag::memory_core::llm::LlmBackend;
-use mag::{
-    INTELLIGENCE_PROMPT_VERSION, IntelligenceRequest, LocalMemoryRuntime, MAX_INTELLIGENCE_BYTES,
-};
+use mag::{IntelligenceRequest, LocalMemoryRuntime, MAX_INTELLIGENCE_BYTES};
 use serde_json::json;
 
 struct Backend {
@@ -20,16 +18,10 @@ struct Backend {
 impl LlmBackend for Backend {
     async fn complete(&self, prompt: &str, system: Option<&str>) -> Result<String> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        let system = system.unwrap();
-        assert!(system.contains("source_ids"));
-        assert!(system.contains("schema"));
-        assert!(system.contains("Do not default to an empty items array"));
-        assert!(prompt.contains("Task: facts"));
-        assert!(prompt.contains("Instruction: Extract owner=NAME."));
-        assert!(prompt.contains("Sources:"));
-        assert!(prompt.contains("[m1] Iris owns Atlas."));
-        assert!(!prompt.contains("expected"));
-        assert!(!prompt.contains("case_id"));
+        assert!(system.unwrap().contains("source_ids"));
+        let prompt: serde_json::Value = serde_json::from_str(prompt)?;
+        assert!(prompt.get("expected").is_none());
+        assert!(prompt.get("case_id").is_none());
         if self.fail {
             anyhow::bail!("secret backend response");
         }
@@ -60,11 +52,6 @@ fn request() -> IntelligenceRequest {
         "sources": [{"id": "m1", "text": "Iris owns Atlas."}]
     }))
     .unwrap()
-}
-
-#[test]
-fn prompt_contract_is_version_two() {
-    assert_eq!(INTELLIGENCE_PROMPT_VERSION, 2);
 }
 
 #[tokio::test]

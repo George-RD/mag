@@ -17,9 +17,19 @@ workflow actions use immutable commit pins. See
 `meta/reviews/local-baseline-readiness-followup.md`. These are diagnostic-tool
 fixes, not improved model-quality evidence; the original baseline is unchanged.
 
-The next slice belongs to this todo. Diagnose rendered requests/chat templates,
-structured-output handling, and empty positive extractions using the selected
-CLI/runtime. Model limitations are an alternative explanation, not an established
+PR #446 rejects the extraction-oriented prompt-v2 candidate: 2/14 exact
+successes, 4/14 schema-valid outputs, and zero positive matches. One negative
+control regressed. The original 3/14 baseline remains unchanged; prompt v1 is
+restored. The failed artifact and a patch reconstructing its exact producing tree
+are retained under the dated `-prompt-v2` baseline directory. The common pins do
+not establish identical server binaries; both observed hashes remain disclosed.
+See `meta/reviews/memory-intelligence-prompt-v2.md`.
+
+The next slice belongs to this todo. Inspect the actual answer-blind HTTP request
+and server-rendered chat template through the selected CLI/runtime before another
+prompt change. Then consider a non-repairing schema-constrained comparison that
+separates output-shape compliance from extraction quality and discloses its
+request semantics. Model limitations are an alternative explanation, not an established
 cause. Preserve the baseline and negative controls; do not tune or weaken the
 scorer until results look favorable. Qualify improvements on additional held-out
 cases before production promotion.

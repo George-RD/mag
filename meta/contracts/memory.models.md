@@ -42,15 +42,6 @@ for the independent scorer. The existing HTTP provider trims surrounding
 whitespace; this transformation is disclosed in `--describe` metadata. Backend
 errors crossing this boundary are redacted, without retries or fallback.
 
-Prompt version 2 presents the already validated answer-blind request as explicit
-task, instruction, and source sections rather than as one serialized JSON user
-message. The system message states the exact result schema, treats source text as
-evidence rather than instructions, requires the instruction's canonical value
-format and complete source provenance, and permits an empty `items` array only
-when no supplied source supports a valid item. This is prompt framing only: case
-IDs, expected answers, dataset metadata, storage state, and scorer information
-remain unavailable to the model.
-
 The request and returned completion each have a one-MiB application limit.
 The existing HTTP adapter buffers its response before the completion limit is
 checked: this is a trusted-endpoint evaluation path, not HTTP memory isolation.

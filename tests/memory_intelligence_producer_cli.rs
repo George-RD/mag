@@ -185,11 +185,9 @@ fn producer_uses_plain_completion_without_touching_storage() {
         body.get("response_format").is_none(),
         "must not use the repairing structured-completion path"
     );
-    let prompt = body["messages"][1]["content"].as_str().unwrap();
-    assert!(prompt.contains("Task: facts"));
-    assert!(prompt.contains("Instruction: Extract the owner as owner=NAME."));
-    assert!(prompt.contains("Sources:"));
-    assert!(prompt.contains("[m1] Iris owns the project."));
+    let prompt: Value =
+        serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(prompt, input);
     assert!(
         body["messages"][0]["content"]
             .as_str()
@@ -285,7 +283,6 @@ fn producer_describes_configuration_without_claiming_model_verification() {
     let description: Value = serde_json::from_slice(&output.stdout).unwrap();
     let profile = &description["model_profile"];
     assert_eq!(profile["model"], "test-fixture");
-    assert_eq!(profile["prompt_version"], 2);
     assert_eq!(profile["verification"], "configured_not_authenticated");
     assert!(profile["revision"].is_null());
     assert!(profile["checksums"].is_null());
