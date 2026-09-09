@@ -59,3 +59,17 @@ jobs:
           assert description["model_profile"]["revision"] is None
           assert description["embedding_space_identity"] is None
           PY
+      - name: Inspect actual CLI HTTP requests without running a model
+        run: |
+          set -euo pipefail
+          export MAG_DIAGNOSTIC_BINARY="$PWD/target/release/mag"
+          export MAG_DIAGNOSTIC_REVISION="$(git rev-parse HEAD)"
+          export MAG_DIAGNOSTIC_OUTPUT="$RUNNER_TEMP/intelligence-request-diagnostic.json"
+          python3 -m unittest discover -s tests -p test_memory_intelligence_request_diagnostic.py -v
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: memory-intelligence-request-diagnostic-${{ github.sha }}
+          path: ${{ runner.temp }}/intelligence-request-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 7
