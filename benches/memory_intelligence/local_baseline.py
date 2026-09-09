@@ -93,6 +93,7 @@ def _local_json(url: str, timeout: float) -> Any:
 
 
 def _await_ready(process: subprocess.Popen, base: str, alias: str, timeout: float) -> None:
+    """Validate both owned endpoints within one shared startup deadline."""
     deadline = time.monotonic() + timeout
     while True:
         if process.poll() is not None:
