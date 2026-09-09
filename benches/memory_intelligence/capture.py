@@ -54,6 +54,17 @@ def _stop_group(process: subprocess.Popen) -> None:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # Darwin can report EPERM for a group containing only an unreaped
+        # zombie. Reap our exited child, then retry the group once so live
+        # descendants are not mistaken for successful cleanup. A live leader
+        # or a second denial remains a real, visible cleanup failure.
+        if process.poll() is None:
+            raise
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     process.wait()
 
 
@@ -121,10 +132,12 @@ def _invoke(
                 raise ProducerFailure(f"producer exited with code {process.returncode}")
         return bytes(output)
     finally:
-        if not group_stopped:
-            _stop_group(process)
-        for stream in (process.stdin, process.stdout, process.stderr):
-            stream.close()
+        try:
+            if not group_stopped:
+                _stop_group(process)
+        finally:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                stream.close()
 
 
 def capture_run(
