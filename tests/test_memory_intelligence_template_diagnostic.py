@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from http.server import BaseHTTPRequestHandler
 from socketserver import TCPServer
 
@@ -246,6 +247,55 @@ class TemplateDiagnosticTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertNotIn(b"Traceback", result.stderr)
             self.assertEqual(path.read_bytes(), before)
+
+
+class ArchivedTemplateObservationTests(unittest.TestCase):
+    def test_archived_templates_preserve_original_requests_without_quality_claims(self):
+        """Replay archived evidence integrity without starting a model or an HTTP server."""
+        folder = ROOT / "benches/memory_intelligence/diagnostics"
+        with zipfile.ZipFile(folder / "2026-09-09-http-request-v1/evidence.zip") as original:
+            source_bytes = original.read("intelligence-request-diagnostic.json")
+            source = json.loads(source_bytes)
+        archive_path = folder / "2026-09-09-template-v1/evidence.zip"
+        self.assertEqual(digest(archive_path.read_bytes()),
+                         "77603b39db8538420c61355a6726f28ac84a0b38cd1c23a088492062240592dc")
+        with zipfile.ZipFile(archive_path) as archive:
+            self.assertEqual(archive.read("intelligence-request-diagnostic.json"), source_bytes)
+            report = json.loads(archive.read("templates.json"))
+            context = json.loads(archive.read("server-context.json"))
+            pin = json.loads(archive.read("pin.json"))
+        self.assertEqual(report["kind"], "server-template-replay-no-generation")
+        self.assertEqual(report["source_request_artifact"]["sha256"], digest(source_bytes))
+        self.assertEqual(report["server_context"], context)
+        self.assertEqual(context["runtime_source_checkout"], pin["runtime"]["revision"])
+        self.assertEqual(context["model_artifact"]["sha256"], pin["model"]["sha256"])
+        self.assertEqual(context["model_artifact"]["verification"], "sha256_verified_private_copy")
+        self.assertNotIn("server_properties_error", report)
+        self.assertEqual(len(report["templates"]), len(source["requests"]))
+        self.assertEqual(len(report["templates"]), 14)
+        self.assertNotIn("results", report)
+        self.assertNotIn("model_profile", report)
+        for observed, request in zip(report["templates"], source["requests"]):
+            with self.subTest(case_id=request["case_id"]):
+                self.assertEqual(observed["case_id"], request["case_id"])
+                self.assertEqual(observed["request"], request["http"])
+                self.assertNotIn("error", observed)
+                self.assertIsNone(observed["generation_prompt"])
+                self.assertTrue(observed["prompt"].startswith("<|im_start|>system\n"))
+                self.assertTrue(observed["prompt"].endswith("<|im_start|>assistant\n"))
+                self.assertEqual(observed["prompt_sha256"], digest(observed["prompt"].encode()))
+                response = observed["response"]
+                raw = base64.b64decode(response["body_base64"], validate=True)
+                self.assertEqual(response["body_sha256"], digest(raw))
+                self.assertEqual(json.loads(raw), response["body"])
+                self.assertEqual(response["status"], 200)
+                self.assertFalse(response["truncated"])
+                self.assertEqual(response["body"]["prompt"], observed["prompt"])
+                previous = -1
+                for message in request["http"]["body"]["messages"]:
+                    position = observed["prompt"].find(message["content"])
+                    self.assertGreater(position, previous)
+                    previous = position
 
 
 if __name__ == "__main__":

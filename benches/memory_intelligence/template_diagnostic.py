@@ -55,11 +55,6 @@ def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _canonical(value: Any) -> str:
-    """Compare parsed representations without equating JSON booleans and numbers."""
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
 def _source_requests(report: Any) -> list[tuple[dict[str, Any], bytes | None]]:
     """Validate the entire capture and every available body before contacting HTTP."""
     if not isinstance(report, dict):
@@ -105,7 +100,7 @@ def _source_requests(report: Any) -> list[tuple[dict[str, Any], bytes | None]]:
                 parsed = evaluate.parse_json(raw.decode("utf-8"))
                 if not isinstance(parsed, dict) or not isinstance(parsed.get("messages"), list):
                     raise ValueError("source body must contain chat messages")
-                if _canonical(parsed) != _canonical(http.get("body")):
+                if evaluate._canonical(parsed) != evaluate._canonical(http.get("body")):
                     raise ValueError("source parsed body does not match recorded bytes")
         rows.append((attempt, raw))
     return rows
@@ -128,7 +123,7 @@ def _observe(url: str, method: str, body: bytes, timeout: float, maximum: int) -
         return response, "HTTP response exceeded byte limit; retained bytes are a prefix"
     try:
         parsed = evaluate.parse_json(raw.decode("utf-8"))
-        _canonical(parsed).encode("utf-8")
+        evaluate._canonical(parsed)
         response["body"] = parsed
     except (ValueError, TypeError, RecursionError):
         return response, "HTTP response is not strict UTF-8 JSON"
@@ -151,7 +146,7 @@ def inspect_templates(request_artifact: Path, *, base_url: str, server_context: 
         raise ValueError("max_bytes must be an integer from 1 to 16777216")
     if not isinstance(server_context, dict):
         raise ValueError("caller-supplied server context must be an object")
-    _canonical(server_context).encode("utf-8")
+    evaluate._canonical(server_context)
     source_path = Path(request_artifact)
     source_bytes = source_path.read_bytes()
     source = evaluate.parse_json(source_bytes.decode("utf-8"))

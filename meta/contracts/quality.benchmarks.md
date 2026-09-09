@@ -98,3 +98,22 @@ The diagnostic artifact must remain distinct from generated-output scorecards.
 Server-rendered templates are null until actually observed and linked to server
 provenance. A passing wire-contract fixture or real-CLI inspection is not model
 quality evidence and cannot qualify production ingestion.
+
+## Server-template replay
+
+`template_diagnostic.py` consumes the separate HTTP request artifact. It validates
+all source identities and available body digests before HTTP, then sends each
+successful request's exact bytes once to `/apply-template` on a trusted literal
+loopback server. No message reconstruction, generation, retry, output repair or
+scoring occurs. Failed source attempts and server/property failures remain
+visible. Redirects and environment proxies are disabled; complete responses or
+explicitly truncated prefixes retain byte digests. Whole-exchange deadlines use
+the existing process supervisor, not only per-read socket timeouts.
+
+The caller owns server lifecycle and verification. Supplied server context is
+preserved but not authenticated by this client. Observed template text, its
+hash and source linkage are separate from actual generation evidence;
+`generation_prompt` stays null. A source audit showing shared server parsing does
+not attest a historical generation prompt or binary equivalence. Header exclusion
+does not redact source/template text or supplied context. Input/output aliases
+are refused and prior request/model archives remain unchanged.

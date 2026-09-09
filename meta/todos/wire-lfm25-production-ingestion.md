@@ -32,14 +32,23 @@ labelled placeholder, not model output, and never runs a scorer. See
 `meta/reviews/memory-intelligence-request-diagnostic.md`. P1 remains in progress;
 this is diagnostic tooling, not evidence of improved model quality.
 
-Next inspect the pinned server's actual chat-template rendering for the captured
-messages before another prompt change. The diagnostic's server-rendered-template
-field is deliberately null. Then consider a non-repairing schema-constrained
-comparison that separates output-shape compliance from extraction quality and
-discloses its request semantics. Model limitations are an alternative explanation,
-not an established cause. Preserve the baseline and negative controls; do not
-tune or weaken the scorer until results look favorable. Qualify improvements on
-additional held-out cases before production promotion.
+PR #448 adds the server-template replay diagnostic. All 14 original #447 request
+bodies were rendered once by the pinned server; system/user content, Arabic text
+and the assistant prefix are retained. The original observation ZIP, source audit
+and limitations are preserved under
+`benches/memory_intelligence/diagnostics/2026-09-09-template-v1/` and
+`meta/reviews/memory-intelligence-template-diagnostic.md`. This weighs against
+message loss in that replay, not against every possible integration failure.
+The original recorder's server-template field and each replay's generation-prompt
+field remain null: no historical generation prompt or token IDs were observed.
+
+Next consider a non-repairing schema-constrained comparison that separates
+output-shape compliance from extraction quality and discloses its changed
+request semantics. Do not rewrite the prompt based on an assumed template fault.
+Model limitations remain an alternative explanation, not an established cause.
+Preserve the baseline and negative controls; do not tune or weaken the scorer
+until results look favorable. Qualify improvements on additional held-out cases
+before production promotion.
 
 Then wire LFM2.5 1.2B into the chosen production write path behind explicit
 enable/disable configuration, observable health, bounded structured output,
