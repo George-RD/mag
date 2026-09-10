@@ -1,10 +1,10 @@
 ---
 id: src.mag-agents-guide
 file: AGENTS.md
-sha256: a760a4d3586b91b4d13ed4286325f9e10a4b6e799c223686159c3f5a8f18427d
+sha256: 96945202a8e9c35087ce2ba62bac2af989c33dbd0b657e55d977ebdf598979b6
 verification: verified
 type: repository-guide
-date: 2026-08-07
+date: 2026-09-10
 ---
 
 Progressive-disclosure repository router, invariants, and Cairn context entrypoints.

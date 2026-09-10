@@ -203,3 +203,5 @@ Issues and pull requests are welcome. Retrieval, scoring and storage changes mus
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+Recorded CLI walkthroughs: [retrieval, handoff and abstention](https://george-rd.github.io/mag/demos/). These are recorded examples, not live browser execution.
