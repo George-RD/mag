@@ -5,25 +5,42 @@ on:
 permissions:
   contents: read
 jobs:
-  snapshot:
+  tools:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 0
+          ref: 09c863459cfb5943a58ecde306d303244df69b12
           persist-credentials: false
-      - name: Export exact source histories
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Install existing pinned Cairn
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Record architecture context
+        run: |
+          cairn context --scope mag.quality
+          cairn brief todo.build-local-memory-intelligence-eval-harness
+          cairn brief todo.calibrate-retrieval-and-reranking
+          cairn brief todo.review-and-split-oversized-modules
+      - name: Build main CLI and verify model artifacts
+        env:
+          MAG_DATA_ROOT: ${{ runner.temp }}/recovery-tools/data
+          RUST_LOG: warn
         run: |
           set -euo pipefail
-          git update-ref refs/heads/snapshot-main 09c863459cfb5943a58ecde306d303244df69b12
-          git update-ref refs/heads/snapshot-claude a2bbb71c05be39272b7efff77197bd8a080f2574
-          git bundle create "$RUNNER_TEMP/mag-recovery.bundle" snapshot-main snapshot-claude
-          git bundle verify "$RUNNER_TEMP/mag-recovery.bundle"
-          sha256sum "$RUNNER_TEMP/mag-recovery.bundle"
+          cargo build --locked --release --bin mag
+          mkdir -p "$RUNNER_TEMP/recovery-tools"
+          target/release/mag ingest 'Recovery tool verification memory'
+          cp target/release/mag "$RUNNER_TEMP/recovery-tools/mag"
+          cp "$HOME/.cargo/bin/cairn" "$RUNNER_TEMP/recovery-tools/cairn"
+          { git rev-parse HEAD; git rev-parse HEAD^{tree}; rustc --version; ldd target/release/mag; } > "$RUNNER_TEMP/recovery-tools/build.txt"
+          find "$RUNNER_TEMP/recovery-tools" -type f -exec sha256sum {} \;
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: mag-recovery-source
-          path: ${{ runner.temp }}/mag-recovery.bundle
+          name: mag-recovery-tools
+          path: ${{ runner.temp }}/recovery-tools/
           if-no-files-found: error
           retention-days: 7
