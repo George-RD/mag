@@ -1,0 +1,85 @@
+name: Recovery object export
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-object-export.yml]
+permissions:
+  contents: read
+jobs:
+  site:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reconstruct reviewed source without generated files
+        run: |
+          set -euo pipefail
+          cp .recovery-review/site.py "$RUNNER_TEMP/site.py"
+          git checkout --detach e63da1fb6d5d3ab57454843944aa71e433a53794
+          python3 -m pip install --quiet playwright==1.57.0
+          python3 "$RUNNER_TEMP/site.py"
+          python3 -c "from pathlib import Path; p=Path('docs/architecture.md'); p.write_text(p.read_text().rstrip()+'\n')"
+          git add .github/workflows/pages.yml docs/architecture.md meta/reviews/claude-branch-recovery.md site/demos/cross-tool-handoff.html site/demos/retrieval-pipeline.html tests/test_demo_player_lifecycle.py
+          git diff --cached --check
+          mkdir -p "$RUNNER_TEMP/site-objects"
+          git write-tree > "$RUNNER_TEMP/site-objects/clean-tree.txt"
+      - name: Store non-workflow objects without moving any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, urllib.request
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          paths = git('diff', '--cached', '--name-only').splitlines()
+          assert len(paths) == 6 and not any('__pycache__' in p for p in paths)
+          entries = [{'path': p, 'mode': '100644', 'type': 'blob', 'content': Path(p).read_text()} for p in paths if not p.startswith('.github/')]
+          data = {'base_tree': git('rev-parse', 'HEAD^{tree}'), 'tree': entries}
+          request = urllib.request.Request('https://api.github.com/repos/George-RD/mag/git/trees', data=json.dumps(data).encode(), headers={'Authorization': 'Bearer '+os.environ['GH_TOKEN'], 'Accept':'application/vnd.github+json'}, method='POST')
+          with urllib.request.urlopen(request, timeout=60) as response:
+              result = json.load(response)
+          output = {'non_workflow_tree': result['sha'], 'clean_tree': git('write-tree'), 'paths':paths}
+          Path(os.environ['RUNNER_TEMP'], 'site-objects', 'objects.json').write_text(json.dumps(output, indent=2))
+          print(json.dumps(output))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: recovery-site-objects
+          path: ${{ runner.temp }}/site-objects/
+          retention-days: 7
+  runtime-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c347eb3235f0ada35891ed46d1b554423cfff6b9
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Capture exact failure with bounded output
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/runtime-diagnostic"
+          cargo fmt --all -- --check > "$RUNNER_TEMP/runtime-diagnostic/fmt.log" 2>&1
+          echo "fmt=$?" | tee "$RUNNER_TEMP/runtime-diagnostic/status.txt"
+          cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/runtime-diagnostic/test.log" 2>&1
+          result=$?
+          echo "test=$result" | tee -a "$RUNNER_TEMP/runtime-diagnostic/status.txt"
+          tail -100 "$RUNNER_TEMP/runtime-diagnostic/test.log"
+          exit "$result"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: recovery-runtime-diagnostic
+          path: ${{ runner.temp }}/runtime-diagnostic/
+          retention-days: 7
