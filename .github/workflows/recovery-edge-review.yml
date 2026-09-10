@@ -26,6 +26,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/edge-review"
           cp .recovery-review/supersession.py "$RUNNER_TEMP/supersession.py"
+          sed -i 's/MemoryInput::new()/MemoryInput::default()/g' "$RUNNER_TEMP/supersession.py"
           git switch -c agent/recovery-edge-reviewed 0abdc38c1eaa7d5734847f07650391aab510abcc
           python3 "$RUNNER_TEMP/supersession.py" > "$RUNNER_TEMP/edge-review/red.log" 2>&1 || { tail -100 "$RUNNER_TEMP/edge-review/red.log"; exit 1; }
           cargo fmt --all
