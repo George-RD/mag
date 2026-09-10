@@ -70,3 +70,14 @@ under `benches/runtime_behaviour/baselines/2026-09-10-bge-small/`, with
 source/tree, byte digest and limitations. The evidence-integrity test
 fails on the missing file before copying original verified bytes.
 All eight families are measured; known failures remain visible.
+
+## Supersession observer correction
+
+An introspective source check found the inherited family reversing `SUPERSEDES`:
+production `crud.rs` calls `add_relationship(old_id, new_id, ...)`, whereas the
+old observer required new-to-old. Two tests store actual rows through
+`LocalMemoryRuntime`, add each directed edge without a version-chain mutation,
+and fail before the comparison is corrected. This isolates the edge signal
+rather than letting the existing OR with version-chain evidence hide the error.
+The original archived run remains byte-identical, with its invalid edge-detail
+booleans explicitly qualified beside it. No production or dataset change.

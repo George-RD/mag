@@ -26,3 +26,13 @@ The build command and declared source are recorded, not cryptographically
 attested source-to-binary identity. No producing binary digest was captured.
 The regression protects artifact integrity, not independent rescoring or
 future runtime quality. No favorable rerun replaced this observation.
+
+## Inherited observation defect
+
+The preserved producing revision checked `SUPERSEDES` edges backwards. Thus its
+`detected_via_supersedes_edge` booleans are not reliable: the executable production
+contract links the retired row to its replacement. The lexical case still scored
+through its independently observed version chain. The recovered evaluator now has
+two runtime-backed direction regressions and checks the correct orientation.
+Original JSON bytes remain unchanged; this is a disclosed measurement correction,
+not a production change or a favorable replacement run.

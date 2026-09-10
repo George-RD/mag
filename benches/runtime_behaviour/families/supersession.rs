@@ -59,8 +59,8 @@ pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcom
             let edges = pair.group.runtime.get_relationships(new_id).await?;
             edge_seen = edges.iter().any(|edge| {
                 edge.rel_type == "SUPERSEDES"
-                    && edge.source_id == *new_id
-                    && edge.target_id == *old_id
+                    && edge.source_id == *old_id
+                    && edge.target_id == *new_id
             });
             detected = chain_seen || edge_seen;
         }
@@ -153,4 +153,92 @@ pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcom
         detail,
         lines,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mag::LocalMemoryRuntime;
+    use mag::memory_core::MemoryInput;
+    use mag::memory_core::embedder::PlaceholderEmbedder;
+    use std::sync::Arc;
+
+    async fn assert_edge_direction(reversed: bool, expected: bool) {
+        let directory = tempfile::TempDir::new().unwrap();
+        let runtime = LocalMemoryRuntime::new_with_path(
+            directory.path().join("edge.db"),
+            Arc::new(PlaceholderEmbedder),
+        )
+        .unwrap();
+        let older = uuid::Uuid::new_v4().to_string();
+        let newer = uuid::Uuid::new_v4().to_string();
+        runtime
+            .store_raw(
+                &older,
+                "Amber telescope calibration",
+                &MemoryInput::default(),
+            )
+            .await
+            .unwrap();
+        runtime
+            .store_raw(&newer, "Cobalt orchard irrigation", &MemoryInput::default())
+            .await
+            .unwrap();
+        let (source, target) = if reversed {
+            (&newer, &older)
+        } else {
+            (&older, &newer)
+        };
+        runtime
+            .add_relationship(source, target, "SUPERSEDES", 1.0, &json!({}))
+            .await
+            .unwrap();
+        let group = SeededGroup {
+            runtime,
+            key_to_id: BTreeMap::from([
+                ("old".into(), older.clone()),
+                ("new".into(), newer.clone()),
+            ]),
+            id_to_key: BTreeMap::from([
+                (older.clone(), "old".into()),
+                (newer.clone(), "new".into()),
+            ]),
+            content_to_key: BTreeMap::new(),
+            seeded: 2,
+            retained: 2,
+            retained_ids: [older, newer].into_iter().collect(),
+        };
+        let case = SupersessionCase {
+            old: "old".into(),
+            new: "new".into(),
+            expect_supersession: expected,
+            kind: "edge_only".into(),
+            note: None,
+        };
+        let result = supersession(&[SupersessionPair {
+            case: &case,
+            group: &group,
+        }])
+        .await
+        .unwrap();
+        assert_eq!(
+            result.detail["cases"][0]["detected_via_version_chain"],
+            false
+        );
+        assert_eq!(
+            result.detail["cases"][0]["detected_via_supersedes_edge"],
+            expected
+        );
+        assert_eq!(result.detail["cases"][0]["detected"], expected);
+    }
+
+    #[tokio::test]
+    async fn retired_to_current_edge_is_recognized_without_a_version_chain() {
+        assert_edge_direction(false, true).await;
+    }
+
+    #[tokio::test]
+    async fn current_to_retired_edge_does_not_count_as_supersession() {
+        assert_edge_direction(true, false).await;
+    }
 }
