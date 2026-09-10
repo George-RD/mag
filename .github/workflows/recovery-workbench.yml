@@ -1,0 +1,29 @@
+name: Recovery workbench
+on:
+  push:
+    branches: [agent/recovery-workbench-20260910]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact source histories
+        run: |
+          set -euo pipefail
+          git update-ref refs/heads/snapshot-main 09c863459cfb5943a58ecde306d303244df69b12
+          git update-ref refs/heads/snapshot-claude a2bbb71c05be39272b7efff77197bd8a080f2574
+          git bundle create "$RUNNER_TEMP/mag-recovery.bundle" snapshot-main snapshot-claude
+          git bundle verify "$RUNNER_TEMP/mag-recovery.bundle"
+          sha256sum "$RUNNER_TEMP/mag-recovery.bundle"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mag-recovery-source
+          path: ${{ runner.temp }}/mag-recovery.bundle
+          if-no-files-found: error
+          retention-days: 7
