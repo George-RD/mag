@@ -27,6 +27,32 @@ jobs:
           mkdir -p "$RUNNER_TEMP/final-runtime"
           cp .recovery-review/final-runtime.py "$RUNNER_TEMP/final-runtime.py"
           git switch -c agent/recovery-final-reviewed 47a33b6033d670c4d40bf0f62fc6b6a3671a618c
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          runner=Path('benches/runtime_behaviour/runner.rs').read_text()
+          a=runner.index('    let note_space = ')
+          b=runner.index('\n\n    let needs_corpus', a)
+          closure=runner[a:b]+'\n'
+          helper=Path(os.environ['RUNNER_TEMP'])/'final-runtime.py'
+          text=helper.read_text()
+          a=text.index("old='''    let note_space")
+          b=text.index('assert old in s',a)
+          text=text[:a]+'old='+repr(closure)+'\n'+text[b:]
+          old='''    if space.is_none() {
+                  *space = Some(persisted_embedding_space(path).await?);
+              }'''.replace('          ', '')
+          # Reuse the original comparison body, changing only the await boundary.
+          body=closure.split('-> Result<()> {\n',1)[1].rsplit('\n    };',1)[0]
+          body='\n'.join(line[4:] for line in body.splitlines())
+          body=body.replace('persisted_embedding_space(path)?','persisted_embedding_space(path).await?')
+          start=text.index('async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {')
+          end=text.index('\n}\n\n#[cfg(test)]',start)+2
+          replacement='async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {\n'+body+'\n}'
+          text=text[:start]+replacement+text[end:]
+          compile(text,str(helper),'exec')
+          helper.write_text(text)
+          PY
           python3 "$RUNNER_TEMP/final-runtime.py" > "$RUNNER_TEMP/final-runtime/red.log" 2>&1 || { tail -120 "$RUNNER_TEMP/final-runtime/red.log"; exit 1; }
           cargo fmt --all
           cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/final-runtime/placeholder.log" 2>&1 || { tail -100 "$RUNNER_TEMP/final-runtime/placeholder.log"; exit 1; }
