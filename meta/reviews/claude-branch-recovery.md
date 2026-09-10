@@ -92,3 +92,18 @@ No historical capture values or production algorithms changed.
 
 Initial exact-head CI 34455870583, Pages 34455870618, evaluation 34455870625 and
 Cairn 34455870562 passed. The amended head requires its own checks and review.
+
+## Final review corrections
+
+Codex comments 3977365164, 3977365170 and 3977365173 identified a missing
+workflow path, incorrect raw/canonical hash labels and a partial-schema claim.
+Three added regressions failed before the minimal fixes; the existing token
+Jaccard assertion remained a passing control. Both Pages path filters now include
+the lifecycle test module. The no-script grammar finding is corrected.
+
+CodeRabbit comment 3977299422 conflicts with executable code:
+`pipeline/fusion.rs:137-139` computes `max(dual_match_boost, 1.0) +
+0.5 / (1 + fts_rank)`. The default base is 1.5, so rank 0 receives 2.0.
+The old 1.3–1.8 comment is stale, not a separate adaptive/fallback path.
+The documentation retains the actual formula and now includes its base clamp.
+No scoring code is changed.

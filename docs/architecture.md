@@ -111,7 +111,7 @@ Phase 3: RRF fusion
   |  - Base weights vec=1.0, fts=1.0, then scaled by intent: a conceptual
   |    query makes them 1.5 and 0.85, a factual one 1.0 and 1.1
   |  - Dual-match boost: candidates in BOTH lists are multiplied by
-  |    dual_match_boost + 0.5 / (1 + fts_rank) -- 2.0 at FTS rank 0,
+  |    max(dual_match_boost, 1.0) + 0.5 / (1 + fts_rank) -- 2.0 at FTS rank 0,
   |    1.75 at rank 1, tending to 1.5 further down the list
   |
   v
@@ -278,3 +278,8 @@ The recovered corrections were checked against `scoring.rs`, SQLite `crud.rs`,
 `entities.rs`, `search.rs`, `conn_pool.rs` and `pipeline/`, plus the release
 feature configuration at `09c8634`. Embedding profiles and migration safeguards
 added since the original capture remain in force; see [re-embedding](re-embedding.md).
+
+`pipeline/fusion.rs` computes the dual-match multiplier from the configured
+base (clamped to at least 1.0) plus the inverse-rank term. Its inherited 1.3–1.8
+comment is stale: the default base is 1.5, making the top-FTS multiplier 2.0.
+The formula above describes executable behaviour, not that comment.

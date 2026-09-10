@@ -78,5 +78,26 @@ class DemoAlgorithmCopyTests(unittest.TestCase):
         self.assertIn('stemmed, stopword-filtered token Jaccard', markup)
 
 
+    def test_hash_labels_distinguish_stored_raw_hash_from_dedup(self):
+        markup = (ROOT / 'site/demos/cross-tool-handoff.html').read_text()
+        self.assertIn('raw-content checksum; not queried by deduplication', markup)
+        self.assertIn('exact equality after canonicalisation', markup)
+        self.assertNotIn('near-duplicate detection after normalising', markup)
+
+    def test_schema_walkthrough_is_explicitly_partial(self):
+        markup = (ROOT / 'site/demos/cross-tool-handoff.html').read_text()
+        self.assertIn('Selected column groups', markup)
+        self.assertNotIn('This is the whole record', markup)
+        self.assertNotIn('embedding is a tenth column', markup)
+
+    def test_pages_triggers_for_lifecycle_regressions(self):
+        workflow = (ROOT / '.github/workflows/pages.yml').read_text()
+        for event in ('push', 'pull_request'):
+            section = workflow.split('  ' + event + ':', 1)[1].split('  workflow_dispatch:', 1)[0]
+            if event == 'push':
+                section = section.split('  pull_request:', 1)[0]
+            self.assertIn('"tests/test_demo_player_lifecycle.py"', section)
+
+
 if __name__ == '__main__':
     unittest.main()

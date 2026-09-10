@@ -9,6 +9,7 @@ on:
       - "scripts/validate_site.py"
       - "tests/test_validate_site.py"
       - "tests/test_site_demos.py"
+      - "tests/test_demo_player_lifecycle.py"
       - "tests/test_demo_observation.py"
       - "scripts/capture_demo_cli.py"
   pull_request:
@@ -19,6 +20,7 @@ on:
       - "scripts/validate_site.py"
       - "tests/test_validate_site.py"
       - "tests/test_site_demos.py"
+      - "tests/test_demo_player_lifecycle.py"
       - "tests/test_demo_observation.py"
       - "scripts/capture_demo_cli.py"
   workflow_dispatch:

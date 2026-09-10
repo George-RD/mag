@@ -216,19 +216,19 @@ var STATES = [
 {
   id:"row", name:"What SQLite now holds", who:"~/.mag/memory.db · table memories",
   status:"Stored", statusClass:"t-on",
-  say:"The row is plain SQLite with no encryption layer. Every column below is readable with the sqlite3 shell or any client. This is the whole record; there is no second store holding the interesting half.",
-  setLabel:"Columns of the stored row", rows:[
+  say:"The row is plain SQLite with no encryption layer. Every column below is readable with the sqlite3 shell or any client. These are selected column groups, not the complete schema; tags are shown in the next state.",
+  setLabel:"Selected column groups", rows:[
     {key:"c1", title:"id", meta:"12619cc2-2872-418f-b4f6-a33afef57f2e", sig:[["Type","UUID v4, TEXT primary key"]]},
     {key:"c2", title:"content", meta:"processed: Retries use exponential backoff with jitter, capped at 30 seconds", sig:[["Note","the processed: prefix is a defect, see below"]]},
     {key:"c3", title:"event_type · importance · priority", meta:"decision · 0.85 · 3", sig:[["type_weight","2.0"],["priority_factor","0.7 + 3 × 0.08 = 0.94"]]},
     {key:"c4", title:"session_id · source_type", meta:"claude-code-01 · cli_input", sig:[["Used for","PRECEDED_BY edges and provenance"]]},
     {key:"c5", title:"created_at · event_at · last_accessed_at", meta:"2026-09-04T02:53:43.334Z", sig:[["access_count","0"]]},
-    {key:"c6", title:"content_hash", meta:"d18dcca9efa656c7b52fdf99ff7c8b72e818dba7599f5a684f97d08a7bfa40e7", sig:[["Purpose","exact-duplicate detection"]]},
-    {key:"c7", title:"canonical_hash", meta:"033c5ca24fb91c137e6b54103491001520d6ac2188de5d73d0dab5c9ffb7d978", sig:[["Purpose","near-duplicate detection after normalising"]]},
+    {key:"c6", title:"content_hash", meta:"d18dcca9efa656c7b52fdf99ff7c8b72e818dba7599f5a684f97d08a7bfa40e7", sig:[["Purpose","raw-content checksum; not queried by deduplication"]]},
+    {key:"c7", title:"canonical_hash", meta:"033c5ca24fb91c137e6b54103491001520d6ac2188de5d73d0dab5c9ffb7d978", sig:[["Purpose","exact equality after canonicalisation"]]},
     {key:"c8", title:"ttl_seconds", meta:"1209600", sig:[["Meaning","14 days, the default for this event type"]]},
     {key:"c9", title:"superseded_by_id · superseded_at · version_chain_id", meta:"null · null · null", sig:[["Meaning","nothing has replaced this decision yet"]]}
   ],
-  delta:"Nine of the row's columns carry the record. The embedding is a tenth column on the same row: a BLOB of 384 floats, not a separate table. The optional sqlite-vec feature adds an index over it, and is not in the default build."
+  delta:"The groups above show selected fields. The embedding is another column on the same row: a BLOB of 384 floats, not a separate table. Other schema fields are omitted here. The optional sqlite-vec feature adds an index over it, and is not in the default build."
 },
 {
   id:"tags", name:"Tags: two given, one generated", who:"column tags · JSON array",
