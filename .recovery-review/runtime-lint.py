@@ -6,7 +6,7 @@ p=Path('benches/runtime_behaviour/dataset/validation.rs'); s=p.read_text(); old=
                 .is_none()
             {
                 failures.push(format!(
-                    "seed {} has an unrepresentable day_offset {offset}",
+                    "seed {} has an unrepresentable day offset",
                     seed.key
                 ));
             }
@@ -16,7 +16,7 @@ p=Path('benches/runtime_behaviour/dataset/validation.rs'); s=p.read_text(); old=
                 .is_none()
         {
             failures.push(format!(
-                "seed {} has an unrepresentable day_offset {offset}",
+                "seed {} has an unrepresentable day offset",
                 seed.key
             ));
         }'''; assert old in s; p.write_text(s.replace(old,new))
