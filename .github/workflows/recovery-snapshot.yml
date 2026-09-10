@@ -1,0 +1,29 @@
+name: Recovery PR snapshot
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export current work without rewriting any branch
+        run: |
+          set -euo pipefail
+          git branch snapshot-site origin/agent/recover-claude-demos-docs
+          git branch snapshot-runtime origin/agent/recovery-runtime-built
+          git branch snapshot-runtime-pr origin/agent/recover-runtime-behaviour
+          git bundle create "$RUNNER_TEMP/recovery-prs.bundle" snapshot-site snapshot-runtime snapshot-runtime-pr
+          git bundle verify "$RUNNER_TEMP/recovery-prs.bundle"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovery-pr-sources
+          path: ${{ runner.temp }}/recovery-prs.bundle
+          retention-days: 7
