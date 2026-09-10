@@ -1,3 +1,9 @@
+---
+node: mag.quality.benchmarks
+review_type: agent_introspective
+date: 2026-09-10
+reviewer: OpenAI coding assistant
+---
 # Runtime-behaviour recovery
 
 ## Scope and source
@@ -29,7 +35,7 @@ implementation. CI 34456165799, Test job 102802935573 failed at
 absent. A separate rustfmt failure is not counted as the behavioral RED.
 
 Nine process contracts cover original identity, unsupported schema, filename,
-partition, date overflow, changed bytes, actual custom path, placeholder
+partition, date overflow, changed bytes, sanitized custom-source identity, placeholder
 reporting and family selection. Unit coverage includes recovered metric cases,
 dataset validation, private workspace cleanup, missing RAM, sample-aware
 percentiles, checked dates and the shared BGE profile identity.
@@ -39,3 +45,18 @@ full exact-head CI are required; source reconstruction is not a test pass.
 Model-output measurements, when run, must retain their original per-case
 results instead of selecting a favorable rerun. No production-quality claim
 follows from a passing regression suite.
+
+## Metadata regression diagnosis
+
+Run 34462869362 reproduces two test-contract failures at c347eb3: the shared
+benchmark metadata helper intentionally reduces dataset paths to their filename.
+Preserve that privacy behavior instead of overriding it. Corrected tests retain
+the original digest assertion and add a custom-source/no-local-path check. That
+new assertion fails first because custom data is incorrectly labelled repo-local;
+the diagnostic now distinguishes user-supplied directories. No shared production
+helper, extraction scorer or dataset byte is changed.
+
+Run 34463306071 passes the recovered unit and nine process tests under both
+no-default-features and the production embedding feature. Its strict Clippy
+gate then identifies a nested date check and an allocated comparison path. Both
+are simplified without suppressing lint or changing the checked date bounds.

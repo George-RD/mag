@@ -292,16 +292,15 @@ fn validate_supported_contract(data: &Dataset, manifest: &Manifest) -> Vec<Valid
         if seed.group != "provenance" && !covered.contains(&seed.key) {
             failures.push(format!("seed {} has no observing family", seed.key));
         }
-        if let Some(offset) = seed.day_offset {
-            if chrono::Duration::try_days(offset)
+        if let Some(offset) = seed.day_offset
+            && chrono::Duration::try_days(offset)
                 .and_then(|d| today.checked_add_signed(d))
                 .is_none()
-            {
-                failures.push(format!(
-                    "seed {} has an unrepresentable day offset",
-                    seed.key
-                ));
-            }
+        {
+            failures.push(format!(
+                "seed {} has an unrepresentable day offset",
+                seed.key
+            ));
         }
     }
     for c in &data.provenance {

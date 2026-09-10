@@ -18,6 +18,7 @@ mod stats;
 use backend::EmbedderChoice;
 use report::{EvalSummary, FamilySummary, ValidationSummary};
 use resources::PeakRss;
+const DEFAULT_DATASET_DIR: &str = "data/runtime_behaviour_eval/v1";
 const ALL_FAMILIES: [&str; 8] = [
     "entities",
     "temporal",
@@ -34,7 +35,7 @@ const ALL_FAMILIES: [&str; 8] = [
     about = "Non-generative MAG runtime behaviour diagnostic"
 )]
 struct Args {
-    #[arg(long, default_value = "data/runtime_behaviour_eval/v1")]
+    #[arg(long, default_value = DEFAULT_DATASET_DIR)]
     dataset: PathBuf,
     #[arg(long, value_enum, default_value_t = EmbedderChoice::default())]
     embedder: EmbedderChoice,
@@ -61,7 +62,11 @@ fn main() -> Result<()> {
 
     let metadata = benchmarking::benchmark_metadata_from_parts(
         "memory_runtime_eval",
-        "repo-local",
+        if args.dataset.as_path() == std::path::Path::new(DEFAULT_DATASET_DIR) {
+            "repo-local"
+        } else {
+            "user-supplied"
+        },
         &args.dataset.join("dataset.json").to_string_lossy(),
     );
 

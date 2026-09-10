@@ -41,7 +41,9 @@ family and is repeatable. `--json` emits one scorecard on stdout. Without it,
 Annotations, rather than current MAG output, define expected results. SHA-256,
 version/count checks, references, family partitions, supported operations and
 representable dates are validated before opening any database. Invalid input
-fails the process. Metadata records the actual supplied dataset path and hash.
+fails the process. Metadata retains the shared path sanitization, records the dataset hash, and
+distinguishes the default repository corpus from user-supplied directories.
+Local directory names are not disclosed in the dataset-path field.
 Missing measurements remain null. Each latency reports its sample count; p95
 is null for fewer than five observations. There is no average of unlike family
 scores and no letter grade. Linux RAM is process VmHWM; macOS is a sampled RSS

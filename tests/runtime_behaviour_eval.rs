@@ -42,7 +42,7 @@ fn edited_dataset(edit: impl FnOnce(&mut Value, &mut Value)) -> tempfile::TempDi
 }
 
 #[test]
-fn preserves_original_dataset_identity_and_declared_path() {
+fn preserves_original_dataset_identity_and_sanitized_path() {
     let output = document(run(&["--validate-only", "--json"]));
     assert_eq!(output["dataset_version"], "v1");
     assert_eq!(output["schema_validity_percentage"], 100.0);
@@ -52,12 +52,8 @@ fn preserves_original_dataset_identity_and_declared_path() {
             .unwrap()
             .starts_with("3260e0a00beb")
     );
-    assert!(
-        output["metadata"]["dataset_path"]
-            .as_str()
-            .unwrap()
-            .ends_with("data/runtime_behaviour_eval/v1/dataset.json")
-    );
+    assert_eq!(output["metadata"]["dataset_path"], "dataset.json");
+    assert_eq!(output["metadata"]["dataset_source"], "repo-local");
 }
 
 #[test]
@@ -136,7 +132,7 @@ fn rejects_changed_dataset_bytes() {
 }
 
 #[test]
-fn reports_actual_custom_dataset_path() {
+fn reports_custom_dataset_source_without_disclosing_local_path() {
     let temp = edited_dataset(|_, _| {});
     let result = document(run(&[
         "--dataset",
@@ -144,10 +140,9 @@ fn reports_actual_custom_dataset_path() {
         "--validate-only",
         "--json",
     ]));
-    assert_eq!(
-        result["metadata"]["dataset_path"],
-        temp.path().join("dataset.json").to_str().unwrap()
-    );
+    assert_eq!(result["metadata"]["dataset_path"], "dataset.json");
+    assert_eq!(result["metadata"]["dataset_source"], "user-supplied");
+    assert!(!result.to_string().contains(temp.path().to_str().unwrap()));
 }
 
 #[test]
