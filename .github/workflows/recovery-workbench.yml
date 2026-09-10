@@ -5,31 +5,66 @@ on:
 permissions:
   contents: read
 jobs:
-  prepare-demo-review:
+  verify-runtime-recovery:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 25
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - name: Publish bounded source-only review fixes to staging
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Reconstruct and format the reviewed source
         run: |
           set -euo pipefail
-          cp .recovery/fix-demo.py "$RUNNER_TEMP/fix-demo.py"
-          cp .recovery/test-demo.py "$RUNNER_TEMP/test-demo.py"
-          git checkout --detach e03e6db77ba4522fa90b7a5fd5f8e0fd6f78c96e
-          python3 "$RUNNER_TEMP/fix-demo.py"
-          cp "$RUNNER_TEMP/test-demo.py" tests/test_demo_player_lifecycle.py
-          git add site/assets/demo-player.js site/demos/cross-tool-handoff.html tests/test_site_demos.py tests/test_demo_player_lifecycle.py meta/reviews/claude-branch-recovery.md
-          test "$(git write-tree)" = 377ab4e6b0c2ad7831396f99059f021019483a5b
+          mkdir -p "$RUNNER_TEMP/runtime-recovery"
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os
+          from pathlib import Path
+          source = lzma.decompress(base64.b64decode(''.join(Path(f'.recovery/runtime-{i}').read_text() for i in range(2)), validate=True))
+          assert hashlib.sha256(source).hexdigest() == '23257cdd894c32c84cc682bd8c65367e6be58d1b3ee9882984025d9e807488c9'
+          Path(os.environ['RUNNER_TEMP'], 'adapt-runtime.py').write_bytes(source)
+          PY
+          git checkout --detach f4e1c2d1556e8159bf9364bf433e40354cfc1cba
+          python3 "$RUNNER_TEMP/adapt-runtime.py"
+          git add Cargo.toml .gitignore benches/runtime_behaviour data/runtime_behaviour_eval meta/contracts/quality.benchmarks.md meta/todos/calibrate-retrieval-and-reranking.md meta/reviews/runtime-behaviour-recovery.md
+          test "$(git write-tree)" = f817296434bc980d95493240e2c08e06b09b7485
+          cargo fmt --all
+          git add Cargo.toml .gitignore benches/runtime_behaviour data/runtime_behaviour_eval tests/runtime_behaviour_eval.rs meta/contracts/quality.benchmarks.md meta/todos/calibrate-retrieval-and-reranking.md meta/reviews/runtime-behaviour-recovery.md
+          test -z "$(git diff --name-only)"
           git diff --cached --check
-          test -z "$(git diff --cached --name-only -- .github/workflows)"
-          python3 scripts/validate_site.py
-          python3 -m unittest tests.test_validate_site tests.test_demo_observation -v
+          test -z "$(git diff --cached --name-only -- src .github/workflows benches/memory_intelligence)"
           git config user.name 'George'
           git config user.email '180932462+George-RD@users.noreply.github.com'
-          git commit -m 'fix(site): restore suspended playback and correct token dedup explanation'
-          git push origin HEAD:refs/heads/agent/recovery-demo-reviewed
-          echo "Published $(git rev-parse HEAD) tree $(git rev-parse HEAD^{tree})"
+          git commit -m 'feat(eval): recover separate runtime behaviour diagnostic'
+          git branch recovered-runtime
+          git bundle create "$RUNNER_TEMP/runtime-recovery/source.bundle" recovered-runtime
+          { git rev-parse HEAD; git rev-parse HEAD^{tree}; rustc --version; } > "$RUNNER_TEMP/runtime-recovery/source.txt"
+          git push origin HEAD:refs/heads/agent/recovery-runtime-built
+      - name: Run feature-free process and unit regressions
+        run: cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval
+      - name: Verify shared production profile and strict lint
+        run: |
+          cargo test --locked --bin memory_runtime_eval --test runtime_behaviour_eval
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Record one production-shaped BGE diagnostic
+        env:
+          MAG_DATA_ROOT: ${{ runner.temp }}/runtime-recovery/data
+          RUST_LOG: warn
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --bin memory_runtime_eval
+          cp target/release/memory_runtime_eval "$RUNNER_TEMP/runtime-recovery/memory_runtime_eval"
+          target/release/memory_runtime_eval --json > "$RUNNER_TEMP/runtime-recovery/bge.json" 2> "$RUNNER_TEMP/runtime-recovery/bge.stderr"
+          sha256sum "$RUNNER_TEMP/runtime-recovery/memory_runtime_eval" "$RUNNER_TEMP/runtime-recovery/bge.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-recovery-verification
+          path: ${{ runner.temp }}/runtime-recovery/
+          if-no-files-found: error
+          retention-days: 7
