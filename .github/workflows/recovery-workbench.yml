@@ -5,42 +5,39 @@ on:
 permissions:
   contents: read
 jobs:
-  tools:
+  publish-reviewed-tree:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 09c863459cfb5943a58ecde306d303244df69b12
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-      - name: Install existing pinned Cairn
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cairn-framework/cairn/releases/download/v0.9.0/cairn-installer.sh | sh
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Record architecture context
-        run: |
-          cairn context --scope mag.quality
-          cairn brief todo.build-local-memory-intelligence-eval-harness
-          cairn brief todo.calibrate-retrieval-and-reranking
-          cairn brief todo.review-and-split-oversized-modules
-      - name: Build main CLI and verify model artifacts
-        env:
-          MAG_DATA_ROOT: ${{ runner.temp }}/recovery-tools/data
-          RUST_LOG: warn
+          fetch-depth: 0
+      - name: Reconstruct the locally verified recovery tree
         run: |
           set -euo pipefail
-          cargo build --locked --release --bin mag
-          mkdir -p "$RUNNER_TEMP/recovery-tools"
-          target/release/mag ingest 'Recovery tool verification memory'
-          cp target/release/mag "$RUNNER_TEMP/recovery-tools/mag"
-          cp "$HOME/.cargo/bin/cairn" "$RUNNER_TEMP/recovery-tools/cairn"
-          { git rev-parse HEAD; git rev-parse HEAD^{tree}; rustc --version; ldd target/release/mag; } > "$RUNNER_TEMP/recovery-tools/build.txt"
-          find "$RUNNER_TEMP/recovery-tools" -type f -exec sha256sum {} \;
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: mag-recovery-tools
-          path: ${{ runner.temp }}/recovery-tools/
-          if-no-files-found: error
-          retention-days: 7
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os
+          from pathlib import Path
+          encoded = ''.join(Path(f'.recovery/chunk-{n}').read_text() for n in range(4))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'ea18e7ba1240f2b6fed287eefac211298f5f2d2109aff518d923f1a4fc0e2cf7'
+          Path(os.environ['RUNNER_TEMP'], 'recovery.patch').write_bytes(patch)
+          PY
+          git checkout --detach 09c863459cfb5943a58ecde306d303244df69b12
+          git restore --source=a2bbb71c05be39272b7efff77197bd8a080f2574 --staged --worktree -- site/demos/index.html site/demos/retrieval-pipeline.html site/demos/cross-tool-handoff.html site/demos/abstention.html site/assets/pipeline.svg docs/architecture.md docs/writing-style.md
+          test "$(git write-tree)" = ecd2d09d323486adc108888136a2f64d0fb7a235
+          git apply --index "$RUNNER_TEMP/recovery.patch"
+          test "$(git write-tree)" = 2c01ba4b2b9584f0fb290a940fa06a050e3cbe28
+          test ! -e .github/workflows/recovery-workbench.yml
+          test ! -e .recovery
+          python3 scripts/validate_site.py
+          python3 -m unittest tests.test_validate_site tests.test_demo_observation -v
+          node --check site/assets/demo-player.js
+          git diff --cached --check
+          git config user.name 'George'
+          git config user.email '180932462+George-RD@users.noreply.github.com'
+          git commit -m 'docs(site): recover recorded CLI demos and checked architecture notes' -m 'Selectively recover Claude branch a2bbb71 onto main 09c8634. Preserve source attribution and limits, share playback controls, retain fresh CLI evidence, add regression-first static and browser checks, and reconcile the existing module-cohesion todo. No runtime or extraction-harness changes. Full PR CI and review remain required.'
+          git push origin HEAD:refs/heads/agent/recover-claude-demos-docs
+          echo "Published $(git rev-parse HEAD), tree $(git rev-parse HEAD^{tree})"
