@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="620" viewBox="0 0 1400 620" role="img" aria-labelledby="title desc">
+  <title id="title">How MAG carries one decision from one AI tool to another</title>
+  <desc id="desc">Claude Code stores a retry decision in MAG's local SQLite memory. Later, Cursor asks the same question in different words. MAG uses full-text, semantic, and relationship signals to return the earlier decision with its source.</desc>
+
+  <rect width="1400" height="620" fill="#F8FAFC"/>
+  <rect width="1400" height="62" fill="#0B1B35"/>
+  <text x="38" y="40" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800">ONE DECISION. AVAILABLE IN THE NEXT TOOL.</text>
+  <text x="1110" y="40" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">LOCAL CONTEXT RELAY</text>
+
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="58" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">01 · CAPTURE</text>
+    <text x="472" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">02 · KEEP</text>
+    <text x="966" y="112" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">03 · RECALL</text>
+
+    <g transform="translate(58 138)">
+      <rect width="316" height="292" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="316" height="52" fill="#0B1B35"/>
+      <text x="20" y="33" fill="#FFFFFF" font-size="17" font-weight="800">Claude Code</text>
+      <text x="219" y="32" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">MON 09:42</text>
+
+      <text x="22" y="92" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700">DECISION</text>
+      <text x="22" y="132" fill="#0B1B35" font-size="22" font-weight="800">Use exponential</text>
+      <text x="22" y="163" fill="#0B1B35" font-size="22" font-weight="800">backoff with jitter.</text>
+      <rect x="22" y="190" width="173" height="28" fill="#165DFF"/>
+      <text x="34" y="209" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">decision · api-gateway</text>
+      <line x1="22" y1="244" x2="294" y2="244" stroke="#BAC8D8" stroke-width="1"/>
+      <text x="22" y="270" fill="#44566F" font-size="14">Saved once.</text>
+    </g>
+
+    <path d="M374 284H447" stroke="#FFB703" stroke-width="4"/>
+    <path d="M437 273L450 284L437 295" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <text x="390" y="264" fill="#8B3E16" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">STORE</text>
+
+    <g transform="translate(466 126)">
+      <rect width="420" height="362" fill="#165DFF"/>
+      <rect x="22" y="22" width="376" height="70" fill="#0B41BD"/>
+      <text x="42" y="54" fill="#FFFFFF" font-size="24" font-weight="900">MAG</text>
+      <text x="42" y="76" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13">one local memory for your tools</text>
+      <rect x="300" y="41" width="76" height="28" fill="none" stroke="#FFB703" stroke-width="2"/>
+      <text x="315" y="60" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">LOCAL</text>
+
+      <rect x="22" y="112" width="376" height="120" fill="#F8FAFC"/>
+      <text x="42" y="144" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700">SOURCE RECORD</text>
+      <text x="42" y="177" fill="#0B1B35" font-size="18" font-weight="800">Content, tags, time and links</text>
+      <text x="42" y="207" fill="#44566F" font-size="14">The source stays visible.</text>
+
+      <rect x="22" y="252" width="376" height="48" fill="#0B1B35"/>
+      <text x="42" y="282" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="14" font-weight="700">~/.mag/memory.db</text>
+
+      <g transform="translate(22 318)" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">
+        <rect width="112" height="24" fill="#FFFFFF"/>
+        <text x="18" y="16" fill="#0B41BD">FULL-TEXT</text>
+        <rect x="122" width="112" height="24" fill="#FFFFFF"/>
+        <text x="145" y="16" fill="#0B41BD">SEMANTIC</text>
+        <rect x="244" width="132" height="24" fill="#FFF0B8"/>
+        <text x="257" y="16" fill="#8B3E16">RELATIONSHIPS</text>
+      </g>
+    </g>
+
+    <g transform="translate(966 138)">
+      <rect width="376" height="132" fill="#FFFFFF" stroke="#0B1B35" stroke-width="2"/>
+      <rect width="376" height="44" fill="#0B1B35"/>
+      <text x="18" y="29" fill="#FFFFFF" font-size="16" font-weight="800">Cursor</text>
+      <text x="282" y="28" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">FRI 14:18</text>
+      <text x="18" y="76" fill="#44566F" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">QUERY</text>
+      <text x="18" y="108" fill="#0B1B35" font-size="19" font-weight="800">How should failed requests retry?</text>
+    </g>
+
+    <path d="M966 224H905" stroke="#0B41BD" stroke-width="4"/>
+    <path d="M916 213L902 224L916 235" fill="none" stroke="#0B41BD" stroke-width="4"/>
+    <text x="914" y="204" fill="#0B41BD" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">SEARCH</text>
+
+    <path d="M886 392H947" stroke="#FFB703" stroke-width="4"/>
+    <path d="M937 381L951 392L937 403" fill="none" stroke="#FFB703" stroke-width="4"/>
+    <text x="905" y="372" fill="#8B3E16" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">RETURN</text>
+
+    <g transform="translate(966 300)">
+      <rect width="376" height="188" fill="#0B1B35"/>
+      <text x="20" y="34" fill="#FFB703" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">04 · RESUME</text>
+      <text x="20" y="74" fill="#FFFFFF" font-size="20" font-weight="800">Use exponential backoff</text>
+      <text x="20" y="102" fill="#FFFFFF" font-size="20" font-weight="800">with jitter.</text>
+      <rect x="20" y="124" width="118" height="25" fill="#FFB703"/>
+      <text x="30" y="141" fill="#0B1B35" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">SOURCE FOUND</text>
+      <text x="157" y="141" fill="#DCE8FF" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11">Claude Code · Mon 09:42</text>
+      <text x="20" y="171" fill="#DCE8FF" font-size="13">Codex and other MCP clients can use it too.</text>
+    </g>
+
+    <text x="700" y="554" text-anchor="middle" fill="#44566F" font-size="17" font-weight="800">Different words. Same source record.</text>
+  </g>
+</svg>
