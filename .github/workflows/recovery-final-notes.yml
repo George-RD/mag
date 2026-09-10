@@ -1,0 +1,67 @@
+name: Recover final demo notes
+on:
+  push:
+    branches: [agent/recovery-demo-final]
+permissions:
+  contents: read
+jobs:
+  reconstruct:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e63da1fb6d5d3ab57454843944aa71e433a53794
+          persist-credentials: false
+      - name: Apply reviewed notes and validate the exact tree
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          for p in Path('site/demos').glob('*.html'):
+              s=p.read_text()
+              if 'recorded values is' in s: p.write_text(s.replace('recorded values is','recorded values are'))
+          p=Path('docs/architecture.md');s=p.read_text();s=s.replace('dual_match_boost + 0.5 / (1 + fts_rank) -- 2.0 at FTS rank 0,','max(dual_match_boost, 1.0) + 0.5 / (1 + fts_rank) -- with defaults,')
+          s=s.replace('1.75 at rank 1, tending to 1.5 further down the list','2.0 at FTS rank 0, 1.75 at rank 1, tending to 1.5 further down')
+          p.write_text(s)
+          p=Path('.github/workflows/pages.yml');s=p.read_text().replace('      - "tests/test_site_demos.py"','      - "tests/test_site_demos.py"\n      - "tests/test_demo_player_lifecycle.py"')
+          s=s.replace('uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n\n      - name: Publish','uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n        with:\n          persist-credentials: false\n\n      - name: Publish')
+          p.write_text(s)
+          p=Path('meta/reviews/claude-branch-recovery.md');p.write_text(p.read_text()+'''
+          ## Additional review disposition
+
+          CodeRabbit 3977299422 cites stale comments rather than the executable fusion
+          loop. At `09c8634`, `src/memory_core/storage/sqlite/pipeline/fusion.rs:132-143`
+          calculates `max(dual_match_boost, 1.0) + 0.5 / (1 + fts_rank)` for every dual
+          match; it has no unavailable-rank fallback. The default base is 1.5. The fresh
+          CLI observation also records an adaptive multiplier of 2.0. Retain the correct
+          2.0-to-1.5 default range and add the omitted base clamp to the documentation.
+          Do not reintroduce the incorrect 1.3-to-1.8 range from the old source comments.
+          Those production comment corrections can accompany the next gated retrieval
+          change; this recovery does not modify scoring code.
+
+          The no-script grammar finding 3977299433 is corrected across all three demos.
+          The publishing checkout no longer persists credentials; only the explicit
+          publication step receives its scoped token. Pages path filters now include the
+          new lifecycle test file so an isolated regression change triggers the suite.
+          CodeRabbit's unrelated docstring-coverage metric is not reported as a pass.
+          ''')
+          PY
+          git add docs/architecture.md site/demos .github/workflows/pages.yml meta/reviews/claude-branch-recovery.md
+          test "$(git write-tree)" = 2b1b5fc58241d6f469570ce0321b976c3b6ec70a
+          test ! -e .github/workflows/recovery-final-notes.yml
+          git diff --cached --check
+          python3 scripts/validate_site.py
+          python3 -m unittest tests.test_validate_site tests.test_demo_observation -v
+          git config user.name George
+          git config user.email 180932462+George-RD@users.noreply.github.com
+          git commit -m 'docs(site): reconcile review notes and scope publishing credentials'
+          git branch recovered-demo
+          git bundle create "$RUNNER_TEMP/source.bundle" recovered-demo
+          echo "$(git rev-parse HEAD) $(git rev-parse HEAD^{tree})"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovered-demo-final
+          path: ${{ runner.temp }}/source.bundle
+          if-no-files-found: error
+          retention-days: 7
