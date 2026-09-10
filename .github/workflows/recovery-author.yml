@@ -1,0 +1,65 @@
+name: Isolated recovery author
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-author.yml, .recovery/**]
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare isolated recovery branch and browser
+        run: |
+          cp .recovery/site.py "$RUNNER_TEMP/site.py"
+          git switch -c agent/recover-claude-demos-docs 09c863459cfb5943a58ecde306d303244df69b12
+          git config user.name George
+          git config user.email 180932462+George-RD@users.noreply.github.com
+          python3 -m pip install playwright==1.57.0
+          python3 -m playwright install --with-deps chromium
+          mkdir -p "$RUNNER_TEMP/evidence"
+      - name: Record test-first failure and recover source
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/site.py" tests
+          git add tests/test_site_recovery.py
+          git commit -m 'test(site): define recorded walkthrough contract'
+          if python3 -m unittest tests.test_site_recovery -v > "$RUNNER_TEMP/evidence/red.txt" 2>&1; then
+            echo 'Expected missing-demo regression did not fail'; exit 1
+          fi
+          grep -F 'demo index is missing' "$RUNNER_TEMP/evidence/red.txt"
+          python3 "$RUNNER_TEMP/site.py" implement
+          python3 scripts/validate_site.py
+          node --check site/assets/demo-player.js
+          git add README.md docs site scripts/validate_site.py tests/test_site_recovery.py meta/reviews/claude-branch-recovery.md meta/todos/review-and-split-oversized-modules.md .github/workflows/pages.yml
+          git commit -m 'docs(site): recover recorded CLI demos and source-checked documentation'
+      - name: Verify browser and preserve inspectable head
+        env:
+          MAG_TEST_BROWSER: '1'
+          MAG_SCREENSHOTS: ${{ runner.temp }}/evidence/screenshots
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          python3 -m unittest tests.test_site_recovery -v 2>&1 | tee "$RUNNER_TEMP/evidence/browser.txt"
+          result=${PIPESTATUS[0]}
+          git rev-parse HEAD > "$RUNNER_TEMP/evidence/head.txt"
+          git rev-parse HEAD^{tree} >> "$RUNNER_TEMP/evidence/head.txt"
+          git diff --stat 09c8634 HEAD > "$RUNNER_TEMP/evidence/diffstat.txt"
+          git bundle create "$RUNNER_TEMP/evidence/recovered-site.bundle" agent/recover-claude-demos-docs
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/agent/recover-claude-demos-docs || exit 1
+          exit "$result"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: recovered-site-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+          if-no-files-found: error
