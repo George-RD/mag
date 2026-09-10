@@ -1,0 +1,137 @@
+name: Preserve runtime recovery evidence
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-runtime-archive.yml]
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      CARGO_TERM_COLOR: never
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 66796b3995766ead2429e56ccdc3d4ba2568a1be
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Download original observation archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/archived-runtime"
+          curl --fail --location --max-time 120 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' https://api.github.com/repos/George-RD/mag/actions/artifacts/10146906915/zip -o "$RUNNER_TEMP/original.zip"
+      - name: Define and demonstrate the missing-evidence regression
+        run: |
+          cat >> tests/runtime_behaviour_eval.rs <<'RS'
+          
+          #[test]
+          fn archived_runtime_observation_retains_exact_source_and_dataset() {
+              let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+              let bytes = std::fs::read(root.join("benches/runtime_behaviour/baselines/2026-09-10-bge-small/run.json"))
+                  .expect("recorded runtime observation must be retained");
+              assert_eq!(format!("{:x}", Sha256::digest(&bytes)), "3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6");
+              let observation: Value = serde_json::from_slice(&bytes).unwrap();
+              let dataset = std::fs::read(root.join("data/runtime_behaviour_eval/v1/dataset.json")).unwrap();
+              assert_eq!(observation["dataset_sha256"], format!("{:x}", Sha256::digest(dataset)));
+              assert_eq!(observation["metadata"]["commit"], "66796b3995766ead2429e56ccdc3d4ba2568a1be");
+              assert_eq!(observation["families"].as_object().unwrap().len(), 8);
+              assert_eq!(observation["seeded_memories"], 36);
+              assert_eq!(observation["retained_memories"], 34);
+              assert_eq!(observation["model_profile"]["output_dimensions"], 384);
+              assert!(observation["tokens"].is_null());
+              assert!(observation.get("overall_percentage").is_none());
+          }
+          RS
+          if cargo test --locked --no-default-features --test runtime_behaviour_eval archived_runtime_observation_retains_exact_source_and_dataset -- --exact > "$RUNNER_TEMP/archived-runtime/red.log" 2>&1; then
+            echo 'Missing observation did not fail'; exit 1
+          fi
+          grep -F 'recorded runtime observation must be retained' "$RUNNER_TEMP/archived-runtime/red.log"
+      - name: Preserve exact bytes and producing-source limitations
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, zipfile
+          from pathlib import Path
+          archive = Path(os.environ['RUNNER_TEMP']) / 'original.zip'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == '430a1376e9c25bfb7a524139c11d642938236e957003418e587abc0caa2bbeb0'
+          with zipfile.ZipFile(archive) as source:
+              data = source.read('run.json')
+          assert hashlib.sha256(data).hexdigest() == '3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6'
+          target = Path('benches/runtime_behaviour/baselines/2026-09-10-bge-small')
+          target.mkdir(parents=True)
+          (target / 'run.json').write_bytes(data)
+          (target / 'README.md').write_text('''# Runtime observation, 10 September 2026
+
+          Original run: 34464045279, artifact 10146906915.
+          Producing source: `66796b3995766ead2429e56ccdc3d4ba2568a1be`.
+          Producing tree: `3d7c3323587374f9b151fbdf16b465f60bb619dd`.
+          Command: `cargo run --locked --release --bin memory_runtime_eval -- --json`.
+          Linux x86_64 hosted runner, four CPUs, shared checksum-verified BGE profile.
+
+          `run.json` is copied byte-for-byte from the original artifact. SHA-256:
+          `3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6`.
+          The original artifact ZIP digest is
+          `430a1376e9c25bfb7a524139c11d642938236e957003418e587abc0caa2bbeb0`.
+
+          All eight families were observed; 36 seeds produced 34 retained memories.
+          Entity micro F1 is 7.4%, grouping coverage 0%, supersession F1 50%,
+          temporal recall 75%, relationship recall 66.7% and question recall 90%.
+          Lifecycle accuracy and observed source-link integrity are 100% on tiny
+          denominators. These metrics measure different things and are not averaged.
+
+          This is a development corpus, not held-out qualification or generative
+          extraction. It confirms historical failure examples still deserve work;
+          it does not compare directly with the separate 14-case extraction scorer.
+          Model startup includes warmup, not isolated loading; tokens remain null.
+          Linux VmHWM is a process high-water mark, not total host or GPU memory.
+          The build command and declared source are recorded, not cryptographically
+          attested source-to-binary identity. No producing binary digest was captured.
+          The regression protects artifact integrity, not independent rescoring or
+          future runtime quality. No favorable rerun replaced this observation.
+          '''.replace('          ', ''))
+          review = Path('meta/reviews/runtime-behaviour-recovery.md')
+          review.write_text(review.read_text() + '''
+          ## Verified recovery observation
+
+          Run 34464045279 passes 32 no-feature unit tests plus nine process tests,
+          33 default-feature unit tests plus nine process tests, and strict
+          all-target/all-feature Clippy. Its original BGE observation is retained
+          under `benches/runtime_behaviour/baselines/2026-09-10-bge-small/`, with
+          source/tree, byte digest and limitations. The evidence-integrity test
+          fails on the missing file before copying original verified bytes.
+          All eight families are measured; known failures remain visible.
+          '''.replace('          ', ''))
+          PY
+          cargo fmt --all
+          cargo test --locked --no-default-features --test runtime_behaviour_eval > "$RUNNER_TEMP/archived-runtime/green.log" 2>&1 || { tail -80 "$RUNNER_TEMP/archived-runtime/green.log"; exit 1; }
+      - name: Publish clean evidence head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name George
+          git config user.email 180932462+George-RD@users.noreply.github.com
+          git add benches/runtime_behaviour/baselines/2026-09-10-bge-small tests/runtime_behaviour_eval.rs meta/reviews/runtime-behaviour-recovery.md
+          git diff --cached --check
+          git commit -m 'test(eval): preserve the original recovered-runtime observation'
+          git branch agent/recovery-runtime-evidence-built
+          git rev-parse HEAD > "$RUNNER_TEMP/archived-runtime/source.txt"
+          git rev-parse HEAD^{tree} >> "$RUNNER_TEMP/archived-runtime/source.txt"
+          git bundle create "$RUNNER_TEMP/archived-runtime/evidence.bundle" agent/recovery-runtime-evidence-built
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/agent/recovery-runtime-evidence-built
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: archived-runtime-evidence
+          path: ${{ runner.temp }}/archived-runtime/
+          retention-days: 14
+          if-no-files-found: error
