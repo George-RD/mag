@@ -21,11 +21,11 @@ jobs:
           set -euo pipefail
           cp .recovery-review/site.py "$RUNNER_TEMP/site.py"
           git switch -c agent/recovery-site-review-built e63da1fb6d5d3ab57454843944aa71e433a53794
+          python3 -m pip install playwright==1.57.0
+          python3 -m playwright install --with-deps chromium
           python3 "$RUNNER_TEMP/site.py"
           python3 scripts/validate_site.py
           python3 -m unittest tests.test_validate_site tests.test_demo_observation -v
-          python3 -m pip install playwright==1.57.0
-          python3 -m playwright install --with-deps chromium
           python3 -m unittest tests.test_site_demos -v
           git config user.name George
           git config user.email 180932462+George-RD@users.noreply.github.com
