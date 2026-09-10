@@ -1,0 +1,74 @@
+name: Verify runtime recovery
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-runtime-review.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Apply privacy-aware regression fix
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/runtime-reviewed"
+          cp .recovery-review/runtime.py "$RUNNER_TEMP/runtime.py"
+          git switch -c agent/recovery-runtime-review-built c347eb3235f0ada35891ed46d1b554423cfff6b9
+          python3 "$RUNNER_TEMP/runtime.py" > "$RUNNER_TEMP/runtime-reviewed/red.log" 2>&1 || { tail -80 "$RUNNER_TEMP/runtime-reviewed/red.log"; exit 1; }
+          cargo fmt --all
+          git config user.name George
+          git config user.email 180932462+George-RD@users.noreply.github.com
+          git add benches/runtime_behaviour/main.rs benches/runtime_behaviour/README.md tests/runtime_behaviour_eval.rs meta/reviews/runtime-behaviour-recovery.md
+          git diff --cached --check
+          git commit -m 'fix(eval): preserve sanitized paths and identify custom runtime datasets'
+          git rev-parse HEAD > "$RUNNER_TEMP/runtime-reviewed/source.txt"
+          git rev-parse HEAD^{tree} >> "$RUNNER_TEMP/runtime-reviewed/source.txt"
+      - name: Test the placeholder diagnostic and shared model adapter
+        run: |
+          set -euo pipefail
+          cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/runtime-reviewed/placeholder.log" 2>&1 || { tail -80 "$RUNNER_TEMP/runtime-reviewed/placeholder.log"; exit 1; }
+          cargo test --locked --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/runtime-reviewed/default.log" 2>&1 || { tail -80 "$RUNNER_TEMP/runtime-reviewed/default.log"; exit 1; }
+          cargo clippy --quiet --all-targets --all-features -- -D warnings > "$RUNNER_TEMP/runtime-reviewed/clippy.log" 2>&1 || { tail -100 "$RUNNER_TEMP/runtime-reviewed/clippy.log"; exit 1; }
+      - name: Observe one current production-profile run
+        env:
+          MAG_DATA_ROOT: ${{ runner.temp }}/runtime-models
+        run: |
+          set -euo pipefail
+          cargo run --locked --release --bin memory_runtime_eval -- --json > "$RUNNER_TEMP/runtime-reviewed/run.json" 2> "$RUNNER_TEMP/runtime-reviewed/run.log" || { tail -80 "$RUNNER_TEMP/runtime-reviewed/run.log"; exit 1; }
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads(Path(os.environ['RUNNER_TEMP'],'runtime-reviewed','run.json').read_text())
+          assert len(data['families']) == 8
+          assert data['model_profile'] is not None
+          assert data['tokens'] is None
+          print('Observed eight runtime families with shared BGE profile; no generative quality claim.')
+          PY
+      - name: Publish verified implementation staging ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git bundle create "$RUNNER_TEMP/runtime-reviewed/runtime-reviewed.bundle" agent/recovery-runtime-review-built
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/agent/recovery-runtime-review-built
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-reviewed-evidence
+          path: ${{ runner.temp }}/runtime-reviewed/
+          retention-days: 14
+          if-no-files-found: error
