@@ -1,13 +1,14 @@
 ---
 node: mag.runtime.memory.retrieval
-status: blocked
+status: in_progress
 created: 2026-07-28
 ---
 # Calibrate Retrieval And Reranking
 
-Blocked by `todo.build-local-memory-intelligence-eval-harness`,
-`todo.define-role-aware-retriever-profiles`, and
-`todo.implement-embedding-space-migration`.
+Unblocked: the local evaluation harness, role-aware retriever profiles and
+embedding-space migration todos are done on main. Recovery of the historical
+runtime-behaviour diagnostic supplies additional calibration inputs; it does
+not complete the retrieval matrix or justify changed thresholds.
 
 Replace provisional global cutoffs with calibrated confidence from semantic
 score, score margin, lexical agreement, reranker score, query intent, and
@@ -30,3 +31,13 @@ success within the local footprint and licence budget. Treat a full ColBERT
 multi-vector index as a separate decision after bounded reranking identifies
 first-stage recall as the remaining bottleneck. Add dynamic result count and
 token budget only from the same calibrated evidence.
+
+## Selective recovery
+
+PR #451 recovers the Claude branch's eight-family stored-memory diagnostic
+under `benches/runtime_behaviour/`, separate from the current generation scorer.
+Preserve the original dataset, use the shared BGE adapter, expose missing
+measurements, and re-run rather than importing old scores. See
+`meta/reviews/runtime-behaviour-recovery.md`. The original branch remains until
+all useful work has been accounted for. Next work is measured retrieval/model
+calibration and held-out coverage, not tuning this seed to improve its score.

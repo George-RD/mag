@@ -28,3 +28,6 @@ data/*
 
 # Oh My Pi harness working artifacts
 .omp/
+
+# Small versioned runtime diagnostic, not a downloaded corpus.
+!data/runtime_behaviour_eval/
