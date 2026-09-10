@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  publish-reviewed-tree:
+  prepare-demo-review:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -14,30 +14,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - name: Reconstruct the locally verified recovery tree
+      - name: Publish bounded source-only review fixes to staging
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import base64, hashlib, lzma, os
-          from pathlib import Path
-          encoded = ''.join(Path(f'.recovery/chunk-{n}').read_text() for n in range(4))
-          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
-          assert hashlib.sha256(patch).hexdigest() == 'ea18e7ba1240f2b6fed287eefac211298f5f2d2109aff518d923f1a4fc0e2cf7'
-          Path(os.environ['RUNNER_TEMP'], 'recovery.patch').write_bytes(patch)
-          PY
-          git checkout --detach 09c863459cfb5943a58ecde306d303244df69b12
-          git restore --source=a2bbb71c05be39272b7efff77197bd8a080f2574 --staged --worktree -- site/demos/index.html site/demos/retrieval-pipeline.html site/demos/cross-tool-handoff.html site/demos/abstention.html site/assets/pipeline.svg docs/architecture.md docs/writing-style.md
-          test "$(git write-tree)" = ecd2d09d323486adc108888136a2f64d0fb7a235
-          git apply --index "$RUNNER_TEMP/recovery.patch"
-          test "$(git write-tree)" = 2c01ba4b2b9584f0fb290a940fa06a050e3cbe28
-          test ! -e .github/workflows/recovery-workbench.yml
-          test ! -e .recovery
+          cp .recovery/fix-demo.py "$RUNNER_TEMP/fix-demo.py"
+          cp .recovery/test-demo.py "$RUNNER_TEMP/test-demo.py"
+          git checkout --detach e03e6db77ba4522fa90b7a5fd5f8e0fd6f78c96e
+          python3 "$RUNNER_TEMP/fix-demo.py"
+          cp "$RUNNER_TEMP/test-demo.py" tests/test_demo_player_lifecycle.py
+          git add site/assets/demo-player.js site/demos/cross-tool-handoff.html tests/test_site_demos.py tests/test_demo_player_lifecycle.py meta/reviews/claude-branch-recovery.md
+          test "$(git write-tree)" = 377ab4e6b0c2ad7831396f99059f021019483a5b
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
           python3 scripts/validate_site.py
           python3 -m unittest tests.test_validate_site tests.test_demo_observation -v
-          node --check site/assets/demo-player.js
-          git diff --cached --check
           git config user.name 'George'
           git config user.email '180932462+George-RD@users.noreply.github.com'
-          git commit -m 'docs(site): recover recorded CLI demos and checked architecture notes' -m 'Selectively recover Claude branch a2bbb71 onto main 09c8634. Preserve source attribution and limits, share playback controls, retain fresh CLI evidence, add regression-first static and browser checks, and reconcile the existing module-cohesion todo. No runtime or extraction-harness changes. Full PR CI and review remain required.'
-          git push origin HEAD:refs/heads/agent/recover-claude-demos-docs
-          echo "Published $(git rev-parse HEAD), tree $(git rev-parse HEAD^{tree})"
+          git commit -m 'fix(site): restore suspended playback and correct token dedup explanation'
+          git push origin HEAD:refs/heads/agent/recovery-demo-reviewed
+          echo "Published $(git rev-parse HEAD) tree $(git rev-parse HEAD^{tree})"
