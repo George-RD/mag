@@ -9,7 +9,7 @@
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
   function mount(states, render) {
-    var current = 0, timer = null;
+    var current = 0, timer = null, resumeOnShow = false;
     var el = {};
     ["steps", "scrubber", "scrubval", "play", "prev", "next", "first", "last"].forEach(function (key) {
       el[key] = document.getElementById(key);
@@ -21,10 +21,13 @@
     function saved() {
       try { return global.localStorage.getItem(storageKey) === "1"; } catch (_) { return false; }
     }
-    function stop() {
+    function stopTimer() {
       if (timer !== null) { global.clearInterval(timer); timer = null; }
       el.play.setAttribute("aria-pressed", "false");
       el.play.textContent = "\u25b6 Play";
+    }
+    function stop() {
+      stopTimer();
       save(false);
     }
     function go(index, keepHash) {
@@ -79,7 +82,14 @@
       if (index >= 0 && index !== current) { stop(); go(index, true); }
     });
     global.addEventListener("pagehide", function () {
-      if (timer !== null) { global.clearInterval(timer); timer = null; }
+      resumeOnShow = timer !== null;
+      stopTimer(); // Preserve the explicit preference across reloads.
+    });
+    global.addEventListener("pageshow", function (event) {
+      if (event.persisted) {
+        if (resumeOnShow && !reduced()) { start(); }
+        resumeOnShow = false;
+      }
     });
     var index = hashIndex();
     go(index >= 0 ? index : 0, index >= 0);

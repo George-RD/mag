@@ -126,5 +126,11 @@ class DemoBrowserTests(unittest.TestCase):
             self.assertEqual(page.locator('script[src="../assets/demo-player.js"]').count(), 1)
 
 
+def load_tests(loader, tests, pattern):
+    from tests import test_demo_player_lifecycle
+    tests.addTests(loader.loadTestsFromModule(test_demo_player_lifecycle))
+    return tests
+
+
 if __name__ == '__main__':
     unittest.main()

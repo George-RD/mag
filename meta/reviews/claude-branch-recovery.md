@@ -72,3 +72,23 @@ failed/not-measurable outcomes, and remeasure rather than import the old score.
 Do not reopen the completed P0 extraction foundation or alter #449's baseline.
 The old generated Cairn state, stale todo rewrites, duplicate profile adapter and
 blanket large-file exemptions are excluded from recovery.
+
+## Review follow-up
+
+Codex review 5164832533 on `e03e6db` found a suspended playback timer after
+back-forward-cache restoration (3977195151) and a stale character-3-gram
+explanation in the handoff demo (3977195164). Four new tests were run before
+the fixes: active restoration, reduced-motion state, and algorithm wording
+failed; the paused-state control passed. After the fix, all four pass locally
+with Chromium. Lifecycle tests dispatch persisted page transition events so
+they do not depend on Chromium choosing to admit a particular page to bfcache.
+The five separate served-page browser tests remain in Pages CI.
+
+Suspension now clears the timer and visible Pause state while remembering
+whether playback was active. A persisted restore resumes once unless reduced
+motion is requested; an explicit pause stays paused. The handoff explanation
+now matches the stemmed, stopword-filtered token-set comparison in production.
+No historical capture values or production algorithms changed.
+
+Initial exact-head CI 34455870583, Pages 34455870618, evaluation 34455870625 and
+Cairn 34455870562 passed. The amended head requires its own checks and review.

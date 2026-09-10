@@ -204,7 +204,7 @@ var STATES = [
   term:[["mag ingest \"Retries use exponential backoff with jitter, capped at 30 seconds\" \\\n    --tags \"project:api,decision\" --event-type decision --importance 0.85 \\\n    --session-id claude-code-01 --priority 3",
          "{\"id\":\"12619cc2-2872-418f-b4f6-a33afef57f2e\"}"]],
   setLabel:"Behind that one line", rows:[
-    {key:"p1", title:"1 · Deduplicate", meta:"canonical SHA-256 plus 3-gram Jaccard against the 5 most recent memories of the same type", sig:[["On a hit","bump access_count, skip embedding"]]},
+    {key:"p1", title:"1 · Deduplicate", meta:"canonical SHA-256 plus stemmed, stopword-filtered token Jaccard against the 5 most recent memories of the same type", sig:[["On a hit","bump access_count, skip embedding"]]},
     {key:"p2", title:"2 · Embed", meta:"bge-small-en-v1.5 int8, 384 dimensions, about 7 ms on CPU", sig:[["Stored in","memories.embedding, a BLOB column"]]},
     {key:"p3", title:"3 · Check supersession", meta:"decision is one of the 5 supersession types; needs cosine at or above 0.70 and Jaccard at or above 0.30", sig:[["Result here","no earlier decision to supersede"]]},
     {key:"p4", title:"4 · Insert and index", meta:"one row in memories, one row in the memories_fts FTS5 index", sig:[["source_type","cli_input"]]},
