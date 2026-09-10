@@ -60,3 +60,13 @@ Run 34463306071 passes the recovered unit and nine process tests under both
 no-default-features and the production embedding feature. Its strict Clippy
 gate then identifies a nested date check and an allocated comparison path. Both
 are simplified without suppressing lint or changing the checked date bounds.
+
+## Verified recovery observation
+
+Run 34464045279 passes 32 no-feature unit tests plus nine process tests,
+33 default-feature unit tests plus nine process tests, and strict
+all-target/all-feature Clippy. Its original BGE observation is retained
+under `benches/runtime_behaviour/baselines/2026-09-10-bge-small/`, with
+source/tree, byte digest and limitations. The evidence-integrity test
+fails on the missing file before copying original verified bytes.
+All eight families are measured; known failures remain visible.

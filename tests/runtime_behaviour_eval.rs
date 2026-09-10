@@ -195,3 +195,32 @@ fn family_selection_and_unknown_names_are_explicit() {
             .success()
     );
 }
+
+#[test]
+fn archived_runtime_observation_retains_exact_source_and_dataset() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let bytes = std::fs::read(
+        root.join("benches/runtime_behaviour/baselines/2026-09-10-bge-small/run.json"),
+    )
+    .expect("recorded runtime observation must be retained");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        "3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6"
+    );
+    let observation: Value = serde_json::from_slice(&bytes).unwrap();
+    let dataset = std::fs::read(root.join("data/runtime_behaviour_eval/v1/dataset.json")).unwrap();
+    assert_eq!(
+        observation["dataset_sha256"],
+        format!("{:x}", Sha256::digest(dataset))
+    );
+    assert_eq!(
+        observation["metadata"]["commit"],
+        "66796b3995766ead2429e56ccdc3d4ba2568a1be"
+    );
+    assert_eq!(observation["families"].as_object().unwrap().len(), 8);
+    assert_eq!(observation["seeded_memories"], 36);
+    assert_eq!(observation["retained_memories"], 34);
+    assert_eq!(observation["model_profile"]["output_dimensions"], 384);
+    assert!(observation["tokens"].is_null());
+    assert!(observation.get("overall_percentage").is_none());
+}
