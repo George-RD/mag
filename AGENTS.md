@@ -111,6 +111,8 @@ cairn feedback "what you expected, what happened instead"
 
 ## Engineering gates
 
+For documentation and user-facing prose, follow `docs/writing-style.md`.
+
 Run the smallest focused tests during development. Before merge:
 
 ```bash

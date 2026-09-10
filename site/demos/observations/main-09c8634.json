@@ -1,0 +1,124 @@
+{
+  "kind": "recorded-cli-walkthrough-observation",
+  "schema_version": 1,
+  "observed_at": "2026-09-10T08:12:48.930170+00:00",
+  "declared_code_revision": "09c863459cfb5943a58ecde306d303244df69b12",
+  "binary_sha256": "1df4f80bc2af058b8309902c1dab110d8a48887665b3bfb63cfecc182b3b6777",
+  "model_sha256": {
+    "bge-small-en-v1.5-int8/model.onnx": "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197",
+    "bge-small-en-v1.5-int8/tokenizer.json": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+  },
+  "attempts": [
+    {
+      "argv": [
+        "--version"
+      ],
+      "exit_code": 0,
+      "stdout": "mag 0.1.10-dev\n",
+      "wall_seconds": 0.0036046310000301673,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_bytes": 0
+    },
+    {
+      "argv": [
+        "ingest",
+        "Retries use exponential backoff with jitter, capped at 30 seconds",
+        "--tags",
+        "project:api,decision",
+        "--event-type",
+        "decision",
+        "--importance",
+        "0.85",
+        "--priority",
+        "3",
+        "--session-id",
+        "claude-code-01"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"id\":\"77240aee-25b9-49e9-8b61-8447f5e76170\"}\n",
+      "wall_seconds": 0.30972495399998934,
+      "stderr_sha256": "43ca1956bc0fb7be02b0f2bde6f26288b64363672d991e171cc64a3eb7cfb7e1",
+      "stderr_bytes": 26672
+    },
+    {
+      "argv": [
+        "ingest",
+        "The payments worker leaked a socket when a task was cancelled mid-flight",
+        "--tags",
+        "project:worker,bugfix",
+        "--event-type",
+        "error_pattern",
+        "--importance",
+        "0.7",
+        "--priority",
+        "4",
+        "--session-id",
+        "claude-code-01"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"id\":\"4d44264b-e800-46c7-bc43-0f0a3b8bd604\"}\n",
+      "wall_seconds": 0.17338205500004733,
+      "stderr_sha256": "d556e2b3bc5f49259a32f8a5d888831783a5470add230dd55764009759118f7e",
+      "stderr_bytes": 26410
+    },
+    {
+      "argv": [
+        "ingest",
+        "Schema changes must be verified against the fixture set before merge",
+        "--tags",
+        "project:migration,handoff",
+        "--event-type",
+        "lesson_learned",
+        "--importance",
+        "0.6",
+        "--priority",
+        "4",
+        "--session-id",
+        "claude-code-01"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"id\":\"12f58aee-5780-4c75-bd1e-8ddc2bc780e2\"}\n",
+      "wall_seconds": 0.18303581599991503,
+      "stderr_sha256": "a5002344682d1ea2d6cf3fc4bca06f63e0f6b9240dcd37c3bd0f1ef25b4cefc3",
+      "stderr_bytes": 26410
+    },
+    {
+      "argv": [
+        "list",
+        "--limit",
+        "10"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"results\":[{\"agent_type\":null,\"content\":\"processed: Schema changes must be verified against the fixture set before merge\",\"entity_id\":null,\"event_type\":\"lesson_learned\",\"id\":\"12f58aee-5780-4c75-bd1e-8ddc2bc780e2\",\"importance\":0.6,\"metadata\":{},\"project\":null,\"session_id\":\"claude-code-01\",\"tags\":[\"project:migration\",\"handoff\",\"entity:people:schema\"]},{\"agent_type\":null,\"content\":\"processed: The payments worker leaked a socket when a task was cancelled mid-flight\",\"entity_id\":null,\"event_type\":\"error_pattern\",\"id\":\"4d44264b-e800-46c7-bc43-0f0a3b8bd604\",\"importance\":0.7,\"metadata\":{},\"project\":null,\"session_id\":\"claude-code-01\",\"tags\":[\"project:worker\",\"bugfix\"]},{\"agent_type\":null,\"content\":\"processed: Retries use exponential backoff with jitter, capped at 30 seconds\",\"entity_id\":null,\"event_type\":\"decision\",\"id\":\"77240aee-25b9-49e9-8b61-8447f5e76170\",\"importance\":0.85,\"metadata\":{},\"project\":null,\"session_id\":\"claude-code-01\",\"tags\":[\"project:api\",\"decision\",\"entity:people:retries\"]}],\"total\":3}\n",
+      "wall_seconds": 0.005265162999990025,
+      "stderr_sha256": "3e766ccd1608db5f569b6ea8541368823a8a62a1877adb44d2346753b3f37dc3",
+      "stderr_bytes": 295
+    },
+    {
+      "argv": [
+        "advanced-search",
+        "how should retries work?",
+        "--explain"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"results\":[{\"agent_type\":null,\"content\":\"processed: Retries use exponential backoff with jitter, capped at 30 seconds\",\"entity_id\":null,\"event_type\":\"decision\",\"id\":\"77240aee-25b9-49e9-8b61-8447f5e76170\",\"importance\":0.85,\"metadata\":{\"_explain\":{\"adaptive_dual_boost\":2.0,\"dual_match\":true,\"feedback_factor\":1.0,\"final_score\":1.0,\"fts_bm25\":-0.5344627991587616,\"fts_rank\":0,\"fts_text_rel\":1.0,\"importance_factor\":0.725,\"priority_factor\":0.94,\"query_coverage_boost\":1.038888888888889,\"rrf_score\":0.038524590163934426,\"text_overlap\":0.3333333333333333,\"time_decay\":1.0,\"type_weight\":2.0,\"vec_sim\":0.6371260285377502,\"word_overlap\":0.3333333333333333},\"_text_overlap\":0.3333333333333333},\"project\":null,\"score\":1.0,\"session_id\":\"claude-code-01\",\"tags\":[\"project:api\",\"decision\",\"entity:people:retries\"]},{\"agent_type\":null,\"content\":\"processed: The payments worker leaked a socket when a task was cancelled mid-flight\",\"entity_id\":null,\"event_type\":\"error_pattern\",\"id\":\"4d44264b-e800-46c7-bc43-0f0a3b8bd604\",\"importance\":0.7,\"metadata\":{\"_explain\":{\"dual_match\":false,\"feedback_factor\":1.0,\"final_score\":0.30345000000000005,\"fts_rank\":null,\"graph_edge_weight\":1.0,\"graph_injected\":true,\"graph_seed_id\":\"77240aee-25b9-49e9-8b61-8447f5e76170\",\"importance_factor\":0.6499999999999999,\"priority_factor\":1.02,\"query_coverage_boost\":1.038888888888889,\"rrf_score\":0.023809523809523808,\"text_overlap\":0.3333333333333333,\"time_decay\":1.0,\"type_weight\":2.0,\"vec_sim\":0.42443814873695374,\"word_overlap\":0.3333333333333333},\"_text_overlap\":0.3333333333333333},\"project\":null,\"score\":0.30344998836517334,\"session_id\":\"claude-code-01\",\"tags\":[\"project:worker\",\"bugfix\"]},{\"agent_type\":null,\"content\":\"processed: Schema changes must be verified against the fixture set before merge\",\"entity_id\":null,\"event_type\":\"lesson_learned\",\"id\":\"12f58aee-5780-4c75-bd1e-8ddc2bc780e2\",\"importance\":0.6,\"metadata\":{\"_explain\":{\"dual_match\":false,\"feedback_factor\":1.0,\"final_score\":0.22783465151007512,\"fts_rank\":null,\"importance_factor\":0.6,\"priority_factor\":1.02,\"query_coverage_boost\":1.0,\"rrf_score\":0.024193548387096774,\"text_overlap\":0.0,\"time_decay\":1.0,\"type_weight\":2.0,\"vec_sim\":0.5341115593910217,\"word_overlap\":0.0},\"_text_overlap\":0.0},\"project\":null,\"score\":0.22783465683460236,\"session_id\":\"claude-code-01\",\"tags\":[\"project:migration\",\"handoff\",\"entity:people:schema\"]}]}\n",
+      "wall_seconds": 0.28812502800008133,
+      "stderr_sha256": "de8cfea7b8e20fb0f372b651a2daa03e626ab92340dccefa69d34593069ba2dd",
+      "stderr_bytes": 26212
+    },
+    {
+      "argv": [
+        "advanced-search",
+        "what is our policy when a request fails and we try again",
+        "--limit",
+        "3"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"results\":[]}\n",
+      "wall_seconds": 0.16558752800006005,
+      "stderr_sha256": "e6520aeeae1042bf738a781065d65e72f83f9ed74e0ace82d6fc852921eff214",
+      "stderr_bytes": 26212
+    }
+  ],
+  "limits": "Trusted binary and installed models; isolated synthetic data. Not execution attestation, held-out quality, or authentication of the 4 September capture. Stderr is represented by byte count and SHA-256, not retained as text."
+}

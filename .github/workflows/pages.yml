@@ -6,15 +6,25 @@ on:
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"
+      - "scripts/validate_site.py"
+      - "tests/test_validate_site.py"
+      - "tests/test_site_demos.py"
+      - "tests/test_demo_observation.py"
+      - "scripts/capture_demo_cli.py"
   pull_request:
     branches: [main]
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"
+      - "scripts/validate_site.py"
+      - "tests/test_validate_site.py"
+      - "tests/test_site_demos.py"
+      - "tests/test_demo_observation.py"
+      - "scripts/capture_demo_cli.py"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: pages-${{ github.ref }}
@@ -22,83 +32,34 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Validate static site
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate static site and evidence
         run: |
-          python3 - <<'PY'
-          from html.parser import HTMLParser
-          from pathlib import Path
-          import struct
-          import xml.etree.ElementTree as ET
-
-          site = Path("site")
-          html = site / "index.html"
-          required = [
-              html,
-              site / "assets" / "benchmark.svg",
-              site / "assets" / "context-flow.svg",
-              site / "assets" / "favicon.svg",
-              site / "assets" / "readme-header.svg",
-              site / "assets" / "og-card.png",
-          ]
-          missing = [str(path) for path in required if not path.exists()]
-          if missing:
-              raise SystemExit("Missing site files: " + ", ".join(missing))
-
-          class Parser(HTMLParser):
-              def __init__(self):
-                  super().__init__()
-                  self.lang = False
-                  self.title = False
-                  self.description = False
-                  self._in_title = False
-
-              def handle_starttag(self, tag, attrs):
-                  values = dict(attrs)
-                  if tag == "html" and values.get("lang"):
-                      self.lang = True
-                  if tag == "title":
-                      self._in_title = True
-                  if tag == "meta" and values.get("name") == "description" and values.get("content"):
-                      self.description = True
-
-              def handle_endtag(self, tag):
-                  if tag == "title":
-                      self._in_title = False
-
-              def handle_data(self, data):
-                  if self._in_title and data.strip():
-                      self.title = True
-
-          parser = Parser()
-          parser.feed(html.read_text(encoding="utf-8"))
-          if not all((parser.lang, parser.title, parser.description)):
-              raise SystemExit("index.html is missing lang, title, or description metadata")
-
-          for svg in (site / "assets").glob("*.svg"):
-              ET.parse(svg)
-
-          png = (site / "assets" / "og-card.png").read_bytes()
-          if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 2_000:
-              raise SystemExit("Open Graph image is not a valid PNG payload")
-          width, height = struct.unpack(">II", png[16:24])
-          if (width, height) != (1200, 630):
-              raise SystemExit(f"Open Graph image must be 1200x630, got {width}x{height}")
-
-          print("Static site validation passed")
-          PY
+          python3 scripts/validate_site.py
+          python3 -m unittest tests.test_validate_site tests.test_demo_observation -v
+          node --check site/assets/demo-player.js
+      - name: Test walkthroughs in Chromium
+        run: |
+          python3 -m venv "$RUNNER_TEMP/site-venv"
+          . "$RUNNER_TEMP/site-venv/bin/activate"
+          python -m pip install --disable-pip-version-check playwright==1.57.0
+          python -m playwright install --with-deps chromium
+          python -m unittest tests.test_site_demos -v
 
   publish:
+    permissions:
+      contents: write
     if: github.event_name != 'pull_request'
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Publish site to gh-pages
         env:
