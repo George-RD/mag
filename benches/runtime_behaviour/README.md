@@ -91,3 +91,5 @@ tasks. Report command metadata is a canonical representation of typed options,
 not exact argv; dataset directories are redacted even for bare relative names
 and equals-form arguments. An answerable question must have relevant keys, and
 an abstention question must have none. Contradictions fail before model startup.
+
+Annotation validation also rejects a temporal key required both present and absent, and repeated grouping membership. These are invalid expectations, not runtime-quality failures. The question, temporal and grouping consistency checks share one validation boundary; scoring and the original corpus are unchanged.

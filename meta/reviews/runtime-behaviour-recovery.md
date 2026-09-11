@@ -102,3 +102,7 @@ byte-identical. The earlier edge-direction finding was independently fixed in
 47a33b6 with two runtime-backed RED/GREEN tests.
 
 Verification continuation: run 34558793292 reproduced both executor failures and all four privacy/annotation failures before applying fixes. The same tree then passed feature-free and default-feature diagnostic unit/process tests, strict all-target/all-feature Clippy, and formatting. Previous workbench runs stopped on missing/stale patch helpers, not successful verification; this run reuses edited_dataset to recompute valid manifest digests. Exact-head CI and fresh independent review remain required before merge.
+
+## Fresh review: impossible annotations
+
+Codex review of d57ba88 identified intersecting temporal present/absent keys and overlapping grouping membership (comments 3985717669 and 3985717674). Run 34559563024 first reproduces both process failures with valid manifest digests, then passes the complete default and feature-free evaluator tests, strict all-target/all-feature Clippy and formatting. A shared annotation-consistency helper preserves the question invariant and adds these two guards. No scorer, production code, original dataset or archived observation changes. Full exact-head CI and renewed independent review remain the merge boundary; the run artifact also records a once-only release BGE smoke at the resulting commit.

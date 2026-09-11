@@ -328,3 +328,35 @@ fn review_rejects_answerable_question_without_references() {
         "answerable question with no reference was accepted"
     );
 }
+
+#[test]
+fn annotation_review_rejects_conflicting_temporal_keys() {
+    let out = mutated_validation(|data| {
+        let key = data["temporal"][0]["expect_keys"][0].clone();
+        data["temporal"][0]["expect_absent_keys"]
+            .as_array_mut()
+            .unwrap()
+            .push(key);
+    });
+    assert!(
+        !out.status.success(),
+        "contradictory temporal expectations were accepted"
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("contradictory temporal expectations"));
+}
+
+#[test]
+fn annotation_review_rejects_overlapping_grouping_memberships() {
+    let out = mutated_validation(|data| {
+        let key = data["grouping"][0]["members"][0].clone();
+        data["grouping"][1]["members"]
+            .as_array_mut()
+            .unwrap()
+            .push(key);
+    });
+    assert!(
+        !out.status.success(),
+        "overlapping grouping annotations were accepted"
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("overlapping grouping annotations"));
+}

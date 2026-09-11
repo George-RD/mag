@@ -9,6 +9,7 @@ pub fn validate(
     dataset_sha256: &str,
 ) -> Vec<ValidationCheck> {
     let mut extra = validate_supported_contract(dataset, manifest);
+    extra.push(validate_annotation_consistency(dataset));
     let keys: BTreeSet<&str> = dataset.seed.iter().map(|s| s.key.as_str()).collect();
     let mut checks = Vec::new();
 
@@ -265,14 +266,6 @@ fn validate_supported_contract(data: &Dataset, manifest: &Manifest) -> Vec<Valid
             partition(k, "grouping");
         }
     }
-    for c in &data.questions {
-        if c.expect_abstain != c.relevant_keys.is_empty() {
-            failures.push(format!(
-                "question {} has inconsistent abstention and relevant_keys",
-                c.id
-            ));
-        }
-    }
     let mut supersession_keys = BTreeSet::new();
     for c in &data.supersession {
         if let (Some(old), Some(new)) = (by_key.get(c.old.as_str()), by_key.get(c.new.as_str())) {
@@ -334,4 +327,38 @@ fn validate_supported_contract(data: &Dataset, manifest: &Manifest) -> Vec<Valid
         "supported_observation_contract",
         failures,
     )]
+}
+
+fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
+    let mut failures = Vec::new();
+    for c in &data.questions {
+        if c.expect_abstain != c.relevant_keys.is_empty() {
+            failures.push(format!(
+                "question {} has inconsistent abstention and relevant_keys",
+                c.id
+            ));
+        }
+    }
+    for case in &data.temporal {
+        let expected: BTreeSet<&str> = case.expect_keys.iter().map(String::as_str).collect();
+        if case
+            .expect_absent_keys
+            .iter()
+            .any(|key| expected.contains(key.as_str()))
+        {
+            failures.push(format!(
+                "temporal {} has contradictory temporal expectations",
+                case.id
+            ));
+        }
+    }
+    let mut grouping_members = BTreeSet::new();
+    for case in &data.grouping {
+        for key in &case.members {
+            if !grouping_members.insert(key) {
+                failures.push(format!("seed {key} has overlapping grouping annotations"));
+            }
+        }
+    }
+    ValidationCheck::from_failures("annotation_expectations_consistent", failures)
 }
