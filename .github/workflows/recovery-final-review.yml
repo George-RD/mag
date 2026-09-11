@@ -8,7 +8,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: write
     env:
@@ -20,6 +20,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
       - name: Reproduce and fix the independent findings
         run: |
@@ -30,43 +32,72 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-          runner=Path('benches/runtime_behaviour/runner.rs').read_text()
-          a=runner.index('    let note_space = ')
-          b=runner.index('\n\n    let needs_corpus', a)
-          closure=runner[a:b]+'\n'
-          helper=Path(os.environ['RUNNER_TEMP'])/'final-runtime.py'
-          text=helper.read_text()
-          a=text.index("old='''    let note_space")
-          b=text.index('assert old in s',a)
-          text=text[:a]+'old='+repr(closure)+'\n'+text[b:]
-          old='''    if space.is_none() {
-                  *space = Some(persisted_embedding_space(path).await?);
-              }'''.replace('          ', '')
-          # Reuse the original comparison body, changing only the await boundary.
-          body=closure.split('-> Result<()> {\n',1)[1].rsplit('\n    };',1)[0]
-          body='\n'.join(line[4:] for line in body.splitlines())
-          body=body.replace('persisted_embedding_space(path)?','persisted_embedding_space(path).await?')
-          start=text.index('async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {')
-          end=text.index('\n}\n\n#[cfg(test)]',start)+2
-          replacement='async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {\n'+body+'\n}'
-          text=text[:start]+replacement+text[end:]
-          compile(text,str(helper),'exec')
+          runner = Path('benches/runtime_behaviour/runner.rs').read_text()
+          a = runner.index('    let note_space = ')
+          b = runner.index('\n\n    let needs_corpus', a)
+          closure = runner[a:b] + '\n'
+          helper = Path(os.environ['RUNNER_TEMP']) / 'final-runtime.py'
+          text = helper.read_text()
+          a = text.index("old='''    let note_space")
+          b = text.index('assert old in s', a)
+          text = text[:a] + 'old=' + repr(closure) + '\n' + text[b:]
+          # Preserve every group's identity comparison, not only the first read.
+          body = closure.split('-> Result<()> {\n', 1)[1].rsplit('\n    };', 1)[0]
+          body = '\n'.join(line[4:] for line in body.splitlines())
+          body = body.replace('persisted_embedding_space(path)?', 'persisted_embedding_space(path).await?')
+          start = text.index('async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {')
+          end = text.index('\n}\n\n#[cfg(test)]', start) + 2
+          replacement = 'async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {\n' + body + '\n}'
+          text = text[:start] + replacement + text[end:]
+          compile(text, str(helper), 'exec')
           helper.write_text(text)
+          # Reuse the existing fixture so mutations get a valid manifest digest.
+          tests = Path('tests/runtime_behaviour_eval.rs')
+          text = tests.read_text()
+          helper_code = '''
+          fn mutated_validation(edit: impl FnOnce(&mut Value)) -> Output {
+              let temporary = edited_dataset(|data, _| edit(data));
+              run(&["--dataset", temporary.path().to_str().unwrap(), "--validate-only"])
+          }
+          '''
+          boundary = text.index('\n#[test]')
+          tests.write_text(text[:boundary] + '\n' + helper_code + text[boundary:])
           PY
           python3 "$RUNNER_TEMP/final-runtime.py" > "$RUNNER_TEMP/final-runtime/red.log" 2>&1 || { tail -120 "$RUNNER_TEMP/final-runtime/red.log"; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          # Keep non-test helpers before test modules.
+          p = Path('benches/runtime_behaviour/runner.rs')
+          text = p.read_text()
+          start = text.index('\nasync fn note_space(')
+          end = text.index('\n#[cfg(test)]\nmod review_tests', start)
+          helper = text[start:end]
+          text = text[:start] + text[end:]
+          boundary = text.index('\n#[cfg(test)]')
+          p.write_text(text[:boundary] + helper + '\n' + text[boundary:])
+          PY
           cargo fmt --all
           cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/final-runtime/placeholder.log" 2>&1 || { tail -100 "$RUNNER_TEMP/final-runtime/placeholder.log"; exit 1; }
           cargo test --locked --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/final-runtime/default.log" 2>&1 || { tail -100 "$RUNNER_TEMP/final-runtime/default.log"; exit 1; }
-          cargo clippy --quiet --all-targets --all-features -- -D warnings > "$RUNNER_TEMP/final-runtime/clippy.log" 2>&1 || { tail -100 "$RUNNER_TEMP/final-runtime/clippy.log"; exit 1; }
+          cargo clippy --locked --all-targets --all-features -- -D warnings > "$RUNNER_TEMP/final-runtime/clippy.log" 2>&1 || { tail -100 "$RUNNER_TEMP/final-runtime/clippy.log"; exit 1; }
+          cargo fmt --all -- --check
       - name: Publish verified review changes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path('meta/reviews/runtime-behaviour-recovery.md')
+          p.write_text(p.read_text() + '\nVerification continuation: run ' + os.environ['GITHUB_RUN_ID'] + ' reproduced both executor failures and all four privacy/annotation failures before applying fixes. The same tree then passed feature-free and default-feature diagnostic unit/process tests, strict all-target/all-feature Clippy, and formatting. The previous workbench stopped on a missing test helper, not a successful verification; this run reuses edited_dataset to recompute valid manifest digests. Exact-head CI and fresh independent review remain required before merge.\n')
+          PY
+          git diff --exit-code -- src data/runtime_behaviour_eval/v1 benches/runtime_behaviour/baselines
           git config user.name George
           git config user.email 180932462+George-RD@users.noreply.github.com
           git add benches/runtime_behaviour/runner.rs benches/runtime_behaviour/backend.rs benches/runtime_behaviour/main.rs benches/runtime_behaviour/dataset/validation.rs benches/runtime_behaviour/README.md tests/runtime_behaviour_eval.rs meta/reviews/runtime-behaviour-recovery.md
           git diff --cached --check
+          test -z "$(git diff --name-only)"
           git commit -m 'fix(eval): isolate SQLite work and reject misleading evaluation metadata'
           git rev-parse HEAD > "$RUNNER_TEMP/final-runtime/source.txt"
           git rev-parse HEAD^{tree} >> "$RUNNER_TEMP/final-runtime/source.txt"
