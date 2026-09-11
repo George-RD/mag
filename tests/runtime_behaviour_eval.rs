@@ -41,6 +41,15 @@ fn edited_dataset(edit: impl FnOnce(&mut Value, &mut Value)) -> tempfile::TempDi
     temp
 }
 
+fn mutated_validation(edit: impl FnOnce(&mut Value)) -> Output {
+    let temporary = edited_dataset(|data, _| edit(data));
+    run(&[
+        "--dataset",
+        temporary.path().to_str().unwrap(),
+        "--validate-only",
+    ])
+}
+
 #[test]
 fn preserves_original_dataset_identity_and_sanitized_path() {
     let output = document(run(&["--validate-only", "--json"]));
@@ -223,4 +232,99 @@ fn archived_runtime_observation_retains_exact_source_and_dataset() {
     assert_eq!(observation["model_profile"]["output_dimensions"], 384);
     assert!(observation["tokens"].is_null());
     assert!(observation.get("overall_percentage").is_none());
+}
+
+fn review_private_relative_command(equals_form: bool) {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let temporary = tempfile::tempdir().unwrap();
+    let private = temporary.path().join("customer_secret_case_7391");
+    std::fs::create_dir(&private).unwrap();
+    for filename in ["dataset.json", "manifest.json"] {
+        std::fs::copy(
+            root.join("data/runtime_behaviour_eval/v1").join(filename),
+            private.join(filename),
+        )
+        .unwrap();
+    }
+    let mut command = Command::new(env!("CARGO_BIN_EXE_memory_runtime_eval"));
+    command
+        .current_dir(temporary.path())
+        .args(["--validate-only", "--json"]);
+    if equals_form {
+        command.arg("--dataset=customer_secret_case_7391");
+    } else {
+        command.args(["--dataset", "customer_secret_case_7391"]);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !text.contains("customer_secret_case_7391"),
+        "metadata leaked a private relative dataset directory"
+    );
+    let result: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(result["metadata"]["dataset_source"], "user-supplied");
+    assert!(
+        result["metadata"]["command"]
+            .as_str()
+            .unwrap()
+            .contains("--validate-only")
+    );
+}
+
+#[test]
+fn review_redacts_relative_dataset_split_option() {
+    review_private_relative_command(false);
+}
+
+#[test]
+fn review_redacts_relative_dataset_equals_option() {
+    review_private_relative_command(true);
+}
+
+#[test]
+fn review_rejects_abstention_with_positive_references() {
+    let data = serde_json::from_slice::<Value>(include_bytes!(
+        "../data/runtime_behaviour_eval/v1/dataset.json"
+    ))
+    .unwrap();
+    let id = data["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| !c["relevant_keys"].as_array().unwrap().is_empty())
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let out = mutated_validation(|data| {
+        let case = data["questions"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|c| c["id"] == id)
+            .unwrap();
+        case["expect_abstain"] = Value::Bool(true);
+    });
+    assert!(
+        !out.status.success(),
+        "contradictory abstention annotation was accepted"
+    );
+}
+
+#[test]
+fn review_rejects_answerable_question_without_references() {
+    let out = mutated_validation(|data| {
+        let case = &mut data["questions"][0];
+        case["expect_abstain"] = Value::Bool(false);
+        case["relevant_keys"] = serde_json::json!([]);
+    });
+    assert!(
+        !out.status.success(),
+        "answerable question with no reference was accepted"
+    );
 }

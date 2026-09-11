@@ -15,6 +15,7 @@ pub enum EmbedderChoice {
     BgeSmall,
 }
 
+#[derive(Clone)]
 pub enum Backend {
     Placeholder(Arc<dyn Embedder>),
     #[cfg(feature = "real-embeddings")]

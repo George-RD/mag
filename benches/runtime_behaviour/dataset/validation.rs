@@ -265,6 +265,14 @@ fn validate_supported_contract(data: &Dataset, manifest: &Manifest) -> Vec<Valid
             partition(k, "grouping");
         }
     }
+    for c in &data.questions {
+        if c.expect_abstain != c.relevant_keys.is_empty() {
+            failures.push(format!(
+                "question {} has inconsistent abstention and relevant_keys",
+                c.id
+            ));
+        }
+    }
     let mut supersession_keys = BTreeSet::new();
     for c in &data.supersession {
         if let (Some(old), Some(new)) = (by_key.get(c.old.as_str()), by_key.get(c.new.as_str())) {

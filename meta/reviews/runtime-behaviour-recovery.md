@@ -81,3 +81,24 @@ and fail before the comparison is corrected. This isolates the edge signal
 rather than letting the existing OR with version-chain evidence hide the error.
 The original archived run remains byte-identical, with its invalid edge-detail
 booleans explicitly qualified beside it. No production or dataset change.
+
+## Independent review follow-up
+
+Codex 3978075206 identified SQLite initialization inside async seeding. Two
+current-thread regressions cover actual initialization and a locked metadata
+read; the latter lets executor progress release a real SQLite transaction.
+Both fail before moving initialization and metadata reads to spawn_blocking.
+Join errors retain context. The runtime itself is unchanged.
+
+Codex 3978075227 found a bare-relative-path hole in generic command metadata.
+Split and equals-form process regressions fail before this diagnostic records
+canonical typed options with the dataset redacted. Shared provenance fields and
+the dataset digest remain; no production helper is changed.
+
+Codex 3978075232 found contradictory question annotations. Two process tests
+fail before validation requires references for answerable questions and none for
+abstention controls. The original dataset and historical observation stay
+byte-identical. The earlier edge-direction finding was independently fixed in
+47a33b6 with two runtime-backed RED/GREEN tests.
+
+Verification continuation: run 34558793292 reproduced both executor failures and all four privacy/annotation failures before applying fixes. The same tree then passed feature-free and default-feature diagnostic unit/process tests, strict all-target/all-feature Clippy, and formatting. Previous workbench runs stopped on missing/stale patch helpers, not successful verification; this run reuses edited_dataset to recompute valid manifest digests. Exact-head CI and fresh independent review remain required before merge.

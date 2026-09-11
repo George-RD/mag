@@ -19,16 +19,23 @@ const LIFECYCLE_TTL_WAIT_SECONDS: u64 = 2;
 /// This is a metadata read for the run header, not a behavioural observation:
 /// no public runtime method exposes `runtime_metadata`, and reconstructing the
 /// string in the harness would duplicate production logic.
-fn persisted_embedding_space(db_path: &Path) -> Result<String> {
-    let conn =
-        rusqlite::Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .with_context(|| format!("failed to open {}", db_path.display()))?;
-    conn.query_row(
-        "SELECT value FROM runtime_metadata WHERE key = 'embedding_space_identity'",
-        [],
-        |row| row.get::<_, String>(0),
-    )
-    .context("database has no persisted embedding-space identity")
+async fn persisted_embedding_space(db_path: &Path) -> Result<String> {
+    let db_path = db_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .with_context(|| format!("failed to open {}", db_path.display()))?;
+        conn.query_row(
+            "SELECT value FROM runtime_metadata WHERE key = 'embedding_space_identity'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .context("database has no persisted embedding-space identity")
+    })
+    .await
+    .context("embedding-space metadata task failed")?
 }
 
 /// Converts a `day_offset` into the ISO 8601 string `MemoryInput::referenced_date`
@@ -46,7 +53,10 @@ async fn seed_group(
     seeds: &[&dataset::Seed],
     today: NaiveDate,
 ) -> Result<SeededGroup> {
-    let runtime = backend.open(db_path)?;
+    let owned_backend = backend.clone();
+    let runtime = tokio::task::spawn_blocking(move || owned_backend.open(db_path))
+        .await
+        .context("runtime initialization task failed")??;
     let mut key_to_id = BTreeMap::new();
     let mut id_to_key = BTreeMap::new();
 
@@ -115,19 +125,6 @@ pub async fn run(
     let mut retained = 0usize;
     let mut embedding_space: Option<String> = None;
 
-    let note_space = |path: &Path, space: &mut Option<String>| -> Result<()> {
-        let identity = persisted_embedding_space(path)?;
-        if let Some(expected) = space.as_ref() {
-            anyhow::ensure!(
-                expected == &identity,
-                "seed groups have different embedding identities"
-            );
-        } else {
-            *space = Some(identity);
-        }
-        Ok(())
-    };
-
     let needs_corpus = ["entities", "temporal", "relationships", "questions"]
         .iter()
         .any(|name| selected.contains(*name));
@@ -141,7 +138,7 @@ pub async fn run(
             today,
         )
         .await?;
-        note_space(&path, &mut embedding_space)?;
+        note_space(&path, &mut embedding_space).await?;
         seeded += group.seeded;
         retained += group.retained;
         rss.sample();
@@ -170,7 +167,7 @@ pub async fn run(
             today,
         )
         .await?;
-        note_space(&path, &mut embedding_space)?;
+        note_space(&path, &mut embedding_space).await?;
         seeded += group.seeded;
         retained += group.retained;
         tokio::time::sleep(std::time::Duration::from_secs(LIFECYCLE_TTL_WAIT_SECONDS)).await;
@@ -188,7 +185,7 @@ pub async fn run(
                 .collect();
             let path = db_dir.join(format!("supersession-{index}.db"));
             let group = seed_group(backend, path.clone(), &seeds, today).await?;
-            note_space(&path, &mut embedding_space)?;
+            note_space(&path, &mut embedding_space).await?;
             seeded += group.seeded;
             retained += group.retained;
             groups.push(group);
@@ -212,7 +209,7 @@ pub async fn run(
             today,
         )
         .await?;
-        note_space(&path, &mut embedding_space)?;
+        note_space(&path, &mut embedding_space).await?;
         seeded += group.seeded;
         retained += group.retained;
         outcomes.push(families::grouping(&group, &data.grouping).await?);
@@ -232,7 +229,7 @@ pub async fn run(
             today,
         )
         .await?;
-        note_space(&path, &mut embedding_space)?;
+        note_space(&path, &mut embedding_space).await?;
         seeded += group.seeded;
         retained += group.retained;
         outcomes.push(families::provenance(&group, &data.provenance).await?);
@@ -254,6 +251,19 @@ pub async fn run(
     })
 }
 
+async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {
+    let identity = persisted_embedding_space(path).await?;
+    if let Some(expected) = space.as_ref() {
+        anyhow::ensure!(
+            expected == &identity,
+            "seed groups have different embedding identities"
+        );
+    } else {
+        *space = Some(identity);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,5 +276,66 @@ mod tests {
         );
         assert!(referenced_date(None, today).is_none());
         assert!(referenced_date(Some(i64::MAX), today).is_none());
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    use mag::memory_core::embedder::{Embedder, PlaceholderEmbedder};
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    struct ExecutorGuard(std::thread::ThreadId);
+    impl Embedder for ExecutorGuard {
+        fn dimension(&self) -> usize {
+            assert_ne!(
+                std::thread::current().id(),
+                self.0,
+                "SQLite setup must not run on the async executor"
+            );
+            PlaceholderEmbedder.dimension()
+        }
+        fn embed(&self, text: &str) -> Result<Vec<f32>> {
+            PlaceholderEmbedder.embed(text)
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn review_sqlite_setup_leaves_the_executor() {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Backend::Placeholder(Arc::new(ExecutorGuard(std::thread::current().id())));
+        let group = seed_group(
+            &backend,
+            directory.path().join("setup.db"),
+            &[],
+            NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(group.retained, 0);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn review_locked_metadata_read_does_not_park_executor() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("metadata.db");
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer.execute_batch("CREATE TABLE runtime_metadata (key TEXT PRIMARY KEY, value TEXT); INSERT INTO runtime_metadata VALUES ('embedding_space_identity', 'test-space'); BEGIN EXCLUSIVE;").unwrap();
+        let (send_tick, receive_tick) = mpsc::channel();
+        let release = std::thread::spawn(move || {
+            let progressed = receive_tick.recv_timeout(Duration::from_secs(2)).is_ok();
+            writer.execute_batch("COMMIT").unwrap();
+            progressed
+        });
+        let (result, ()) = tokio::join!(persisted_embedding_space(&path), async move {
+            tokio::task::yield_now().await;
+            let _ = send_tick.send(());
+        });
+        assert!(
+            release.join().unwrap(),
+            "metadata read parked the async executor until the watchdog released SQLite"
+        );
+        assert_eq!(result.unwrap(), "test-space");
     }
 }

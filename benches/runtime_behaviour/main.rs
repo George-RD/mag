@@ -60,7 +60,7 @@ fn main() -> Result<()> {
     let validity = dataset::validity_percentage(&checks);
     let valid = checks.iter().all(|check| check.passed);
 
-    let metadata = benchmarking::benchmark_metadata_from_parts(
+    let mut metadata = benchmarking::benchmark_metadata_from_parts(
         "memory_runtime_eval",
         if args.dataset.as_path() == std::path::Path::new(DEFAULT_DATASET_DIR) {
             "repo-local"
@@ -69,6 +69,9 @@ fn main() -> Result<()> {
         },
         &args.dataset.join("dataset.json").to_string_lossy(),
     );
+    // Record typed options rather than the original argv: a bare relative path
+    // has no slash and is not recognized by the shared generic sanitizer.
+    metadata.command = recorded_command(&args)?;
 
     if args.validate_only || !valid {
         if args.json {
@@ -160,4 +163,29 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Canonical option representation, not the original argv or a replay script.
+fn recorded_command(args: &Args) -> Result<String> {
+    let embedder = match args.embedder {
+        EmbedderChoice::Placeholder => "placeholder",
+        EmbedderChoice::BgeSmall => "bge-small",
+    };
+    let mut command =
+        format!("memory_runtime_eval --dataset '<redacted_path>' --embedder {embedder}");
+    for family in &args.family {
+        command.push_str(" --family ");
+        command.push_str(&serde_json::to_string(family)?);
+    }
+    for (enabled, flag) in [
+        (args.json, "--json"),
+        (args.validate_only, "--validate-only"),
+        (args.quiet, "--quiet"),
+    ] {
+        if enabled {
+            command.push(' ');
+            command.push_str(flag);
+        }
+    }
+    Ok(command)
 }

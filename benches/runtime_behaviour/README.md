@@ -85,3 +85,9 @@ minimum token length. That explanatory note is not scored and is retained to
 preserve the dataset bytes. Likewise `historical_unimplemented_annotations`
 reports the source dataset's omissions, not automatic current-capability detection.
 No old 61.1% aggregate or CSV history is imported as a current result.
+
+Database initialization and persisted-identity reads are isolated in Tokio blocking
+tasks. Report command metadata is a canonical representation of typed options,
+not exact argv; dataset directories are redacted even for bare relative names
+and equals-form arguments. An answerable question must have relevant keys, and
+an abstention question must have none. Contradictions fail before model startup.
