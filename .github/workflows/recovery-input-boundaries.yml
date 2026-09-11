@@ -1,0 +1,102 @@
+name: Verify runtime input observation boundaries
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-input-boundaries.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      CARGO_TERM_COLOR: never
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Reproduce six invalid-input regressions
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/input-boundaries"
+          mkdir -p "$out"
+          cp .recovery-review/input-boundaries.py "$RUNNER_TEMP/input-boundaries.py"
+          git switch -c agent/recovery-input-reviewed 0a053e4a8d3cc5210fdeb5a0b9b6de395cdff9b2
+          python3 "$RUNNER_TEMP/input-boundaries.py" tests
+          cargo fmt --all
+          git diff > "$out/tests.patch"
+          if cargo test --locked --no-default-features --test runtime_behaviour_eval input_boundary_ > "$out/red.log" 2>&1; then
+            echo 'Expected six invalid-input failures before guards'; exit 1
+          fi
+          grep -F 'test result: FAILED. 0 passed; 6 failed;' "$out/red.log"
+      - name: Apply guards and verify
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/input-boundaries"
+          python3 "$RUNNER_TEMP/input-boundaries.py" apply
+          cargo fmt --all
+          cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$out/placeholder.log" 2>&1 || { tail -100 "$out/placeholder.log"; exit 1; }
+          cargo test --locked --bin memory_runtime_eval --test runtime_behaviour_eval > "$out/default.log" 2>&1 || { tail -100 "$out/default.log"; exit 1; }
+          cargo clippy --locked --all-targets --all-features -- -D warnings > "$out/clippy.log" 2>&1 || { tail -100 "$out/clippy.log"; exit 1; }
+          cargo fmt --all -- --check
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path('meta/reviews/runtime-behaviour-recovery.md')
+          p.write_text(p.read_text() + '\n## Falsifiable custom-input boundaries\n\nCodex review of 2bda7c2 identified vacuous temporal cases, relationship thresholds outside the production range, and duplicate grouping content (comments 3985841829, 3985841836, 3985841838). Run ' + os.environ['GITHUB_RUN_ID'] + ' first reproduces six valid-digest process failures: empty temporal expectations, both invalid weight directions, and duplicate, padded or separator-containing grouping content. All are rejected before model startup. A positive test retains both valid weight endpoints, 0 and 1. Grouping reconstruction is intentionally one-to-one and therefore requires nonempty unique trimmed content without the compact separator; this boundary is documented instead of changing production compaction. Full default and feature-free evaluator tests, strict Clippy and formatting pass. The original corpus and archived observation are unchanged. Final-head CI and fresh independent review remain required.\n')
+          PY
+          git diff --exit-code -- src data/runtime_behaviour_eval/v1 benches/runtime_behaviour/baselines
+          git config user.name George
+          git config user.email 180932462+George-RD@users.noreply.github.com
+          git add benches/runtime_behaviour/dataset/validation.rs benches/runtime_behaviour/README.md tests/runtime_behaviour_eval.rs meta/reviews/runtime-behaviour-recovery.md
+          git diff --cached --check
+          test -z "$(git diff --name-only)"
+          git commit -m 'fix(eval): reject impossible and ambiguous observation inputs'
+          git rev-parse HEAD HEAD^{tree} > "$out/source.txt"
+          git bundle create "$out/input-boundaries.bundle" agent/recovery-input-reviewed
+      - name: Run exact committed BGE diagnostic once
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/input-boundaries"
+          cargo build --locked --release --bin memory_runtime_eval > "$out/build.log" 2>&1 || { tail -100 "$out/build.log"; exit 1; }
+          export MAG_DATA_ROOT="$RUNNER_TEMP/input-boundaries-model-data"
+          timeout 300 ./target/release/memory_runtime_eval --embedder bge-small --json > "$out/bge-run.json" 2> "$out/bge-stderr.log"
+          sha256sum target/release/memory_runtime_eval > "$out/binary.sha256"
+          python3 - "$out" <<'PY'
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+          out = Path(sys.argv[1])
+          result = json.loads((out / 'bge-run.json').read_text())
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert result['metadata']['commit'] == head
+          assert result['schema_validity_percentage'] == 100 and result['embedding_dimension'] == 384
+          assert result['seeded_memories'] == 36 and len(result['families']) == 8
+          assert result['tokens'] is None and 'overall_percentage' not in result
+          archive = Path('benches/runtime_behaviour/baselines/2026-09-10-bge-small/run.json')
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == '3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6'
+          (out / 'README.txt').write_text('One release diagnostic at the exact recorded source. No threshold, favorable-result rerun, controlled comparison, held-out qualification or source-to-binary attestation. Original corpus and archived observation are unchanged.\n')
+          print('Exact source:', head, 'seeded:', result['seeded_memories'], 'retained:', result['retained_memories'])
+          PY
+      - name: Publish verified candidate only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/agent/recovery-input-reviewed
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-input-boundaries
+          path: ${{ runner.temp }}/input-boundaries/
+          retention-days: 14
+          if-no-files-found: error
