@@ -24,7 +24,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-      - name: Reject silently ignored annotations test first
+      - name: Reproduce ignored fields and lost historical notes
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/schema"
@@ -77,6 +77,22 @@ jobs:
           reject_unknown_annotation!(closed_schema_review_questions, "questions");
           reject_unknown_annotation!(closed_schema_review_unimplemented, "unimplemented");
           ''')
+          p = Path('benches/runtime_behaviour/families/tests.rs')
+          p.write_text(p.read_text() + '''
+          #[tokio::test]
+          async fn closed_schema_preserves_historical_temporal_note() {
+              let (_directory, group) = discarded_seed_group().await;
+              let case: crate::dataset::TemporalCase = serde_json::from_value(serde_json::json!({
+                  "id": "annotated-window",
+                  "query": "Amber telescope",
+                  "expect_keys": ["kept"],
+                  "expect_absent_keys": [],
+                  "note": "Historical temporal limitation must remain visible"
+              })).unwrap();
+              let outcome = temporal(&group, &[case]).await.unwrap();
+              assert_eq!(outcome.detail["cases"][0]["note"], "Historical temporal limitation must remain visible");
+          }
+          ''')
           PY
           cargo fmt --all
           git diff > "$out/tests.patch"
@@ -84,22 +100,41 @@ jobs:
             echo 'Expected all unknown-field regressions before implementation'; exit 1
           fi
           grep -F 'test result: FAILED. 0 passed; 12 failed;' "$out/red.log"
-      - name: Close the versioned schema and verify
+          if cargo test --locked --no-default-features --bin memory_runtime_eval closed_schema_preserves_historical_temporal_note > "$out/note-red.log" 2>&1; then
+            echo 'Expected historical note to be lost before implementation'; exit 1
+          fi
+          grep -F 'test result: FAILED. 0 passed; 1 failed;' "$out/note-red.log"
+      - name: Close the complete historical schema and verify
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/schema"
           python3 - <<'PY'
+          import json, re
           from pathlib import Path
           p = Path('benches/runtime_behaviour/dataset.rs')
           text = p.read_text()
-          names = ['Seed', 'EntityCase', 'TemporalCase', 'RelationshipCase', 'LifecycleCase', 'SupersessionCase', 'GroupingCase', 'ProvenanceCase', 'QuestionCase', 'UnimplementedFamily', 'Dataset', 'Manifest']
-          for name in names:
+          needle = '    pub expect_absent_keys: Vec<String>,\n'
+          assert text.count(needle) == 1
+          text = text.replace(needle, needle + '    #[serde(default)]\n    pub note: Option<String>,\n')
+          mapping = {'seed': 'Seed', 'entities': 'EntityCase', 'temporal': 'TemporalCase', 'relationships': 'RelationshipCase', 'lifecycle': 'LifecycleCase', 'supersession': 'SupersessionCase', 'grouping': 'GroupingCase', 'provenance': 'ProvenanceCase', 'questions': 'QuestionCase', 'unimplemented': 'UnimplementedFamily', 'dataset': 'Dataset', 'manifest': 'Manifest'}
+          data = json.loads(Path('data/runtime_behaviour_eval/v1/dataset.json').read_text())
+          manifest = json.loads(Path('data/runtime_behaviour_eval/v1/manifest.json').read_text())
+          for key, name in mapping.items():
+              body = re.search(r'pub struct ' + name + r' \{(.*?)\n\}', text, re.S).group(1)
+              fields = set(re.findall(r'pub (\w+):', body))
+              rows = [data] if key == 'dataset' else [manifest] if key == 'manifest' else data[key]
+              assert all(set(row) <= fields for row in rows), name + ' omits historical fields'
               needle = 'pub struct ' + name + ' {'
               assert text.count(needle) == 1
               text = text.replace(needle, '#[serde(deny_unknown_fields)]\n' + needle)
           p.write_text(text)
+          p = Path('benches/runtime_behaviour/families/read.rs')
+          text = p.read_text()
+          needle = '            "false_inclusions": leaked,\n'
+          assert text.count(needle) == 1
+          p.write_text(text.replace(needle, needle + '            "note": case.note,\n'))
           p = Path('benches/runtime_behaviour/README.md')
-          p.write_text(p.read_text() + '\nVersion-1 input structs are closed: dataset, manifest, seed, every annotation family and historical-unimplemented entries reject unknown fields. An added or misspelled annotation cannot be silently accepted with 100% schema validity. Optional documented fields remain optional; extensions require an explicit supported schema change.\n')
+          p.write_text(p.read_text() + '\nVersion-1 input structs are closed: dataset, manifest, seed, every annotation family and historical-unimplemented entries reject unknown fields. An added or misspelled annotation cannot be silently accepted with 100% schema validity. The original temporal notes are explicitly typed and included in per-case output, not discarded. Optional documented fields remain optional; extensions require an explicit supported schema change.\n')
           PY
           cargo fmt --all
           cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$out/placeholder.log" 2>&1 || { tail -100 "$out/placeholder.log"; exit 1; }
@@ -110,15 +145,15 @@ jobs:
           import os
           from pathlib import Path
           p = Path('meta/reviews/runtime-behaviour-recovery.md')
-          p.write_text(p.read_text() + '\n## Closed versioned input\n\nCodex comment 3985784432 identified Serde silently discarding unknown fields. Run ' + os.environ['GITHUB_RUN_ID'] + ' first reproduces twelve independent process failures (dataset, manifest and every nested input struct) using checksum-valid mutated fixtures. All input structs now use deny_unknown_fields; the original valid corpus still passes the full default and feature-free diagnostic tests, strict Clippy and formatting. This affects only the diagnostic input contract, not production parsing or model behaviour. Final-head CI and renewed independent review remain required before merge.\n')
+          p.write_text(p.read_text() + '\n## Closed versioned input\n\nCodex comment 3985784432 identified Serde silently discarding unknown fields. Run ' + os.environ['GITHUB_RUN_ID'] + ' first reproduces twelve independent process failures (dataset, manifest and every nested input struct) using checksum-valid mutations, plus a runtime regression for lost temporal notes. All input structs now use deny_unknown_fields. The first attempt, run 34560986734, exposed an existing unmodeled TemporalCase.note field and failed against the original corpus; it was not a successful verification. A systematic comparison of every original input key with the typed fields found only that omission. The legitimate optional note is now modeled and included in per-case temporal output, with original bytes unchanged. The complete default and feature-free diagnostic tests, strict Clippy and formatting pass. This affects only the diagnostic input contract, not production parsing or model behaviour. Final-head CI and renewed independent review remain required before merge.\n')
           PY
           git diff --exit-code -- src data/runtime_behaviour_eval/v1 benches/runtime_behaviour/baselines
           git config user.name George
           git config user.email 180932462+George-RD@users.noreply.github.com
-          git add benches/runtime_behaviour/dataset.rs benches/runtime_behaviour/README.md tests/runtime_behaviour_eval.rs meta/reviews/runtime-behaviour-recovery.md
+          git add benches/runtime_behaviour/dataset.rs benches/runtime_behaviour/families/read.rs benches/runtime_behaviour/families/tests.rs benches/runtime_behaviour/README.md tests/runtime_behaviour_eval.rs meta/reviews/runtime-behaviour-recovery.md
           git diff --cached --check
           test -z "$(git diff --name-only)"
-          git commit -m 'fix(eval): reject unknown fields in versioned diagnostic inputs'
+          git commit -m 'fix(eval): close diagnostic inputs while preserving historical notes'
           git rev-parse HEAD HEAD^{tree} > "$out/source.txt"
           git bundle create "$out/schema.bundle" agent/recovery-schema-reviewed
       - name: Run exact committed BGE diagnostic once
