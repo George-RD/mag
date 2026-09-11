@@ -112,3 +112,7 @@ required-features = ["substrate"]
 name = "phase2_bench"
 path = "benches/phase2_bench.rs"
 required-features = ["llm", "substrate"]
+
+[[bin]]
+name = "memory_runtime_eval"
+path = "benches/runtime_behaviour/main.rs"
