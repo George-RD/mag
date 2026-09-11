@@ -1,0 +1,103 @@
+name: Verify runtime scoring observations
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-scoring.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      CARGO_TERM_COLOR: never
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Reproduce five observation failures
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/scoring"
+          mkdir -p "$out"
+          cp .recovery-review/scoring-audit.py "$RUNNER_TEMP/scoring-audit.py"
+          git switch -c agent/recovery-scoring-reviewed 191f70627857d4dc3c18b299de9142d437f91ccc
+          python3 "$RUNNER_TEMP/scoring-audit.py" tests
+          cargo fmt --all
+          git diff > "$out/tests.patch"
+          cp benches/runtime_behaviour/families/tests.rs "$out/tests.rs"
+          if cargo test --locked --no-default-features --bin memory_runtime_eval families::tests::review_ > "$out/red.log" 2>&1; then
+            echo 'Expected observation regressions before implementation'; exit 1
+          fi
+          grep -F 'test result: FAILED. 0 passed; 5 failed;' "$out/red.log"
+      - name: Apply and verify the scoped corrections
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/scoring"
+          python3 "$RUNNER_TEMP/scoring-audit.py" apply
+          cargo fmt --all
+          cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$out/placeholder.log" 2>&1 || { tail -100 "$out/placeholder.log"; exit 1; }
+          cargo test --locked --bin memory_runtime_eval --test runtime_behaviour_eval > "$out/default.log" 2>&1 || { tail -100 "$out/default.log"; exit 1; }
+          cargo clippy --locked --all-targets --all-features -- -D warnings > "$out/clippy.log" 2>&1 || { tail -100 "$out/clippy.log"; exit 1; }
+          cargo fmt --all -- --check
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path('meta/reviews/runtime-behaviour-recovery.md')
+          p.write_text(p.read_text() + '\n## Scoring-observation audit\n\nCodeRabbit identified a redundant provenance condition, incomplete full-table observations, and missing distinction between discarded inputs and downstream failures. Codex independently identified truncation and direction-insensitive typed-edge matching. Run ' + os.environ['GITHUB_RUN_ID'] + ' reproduces five failing regressions first, then verifies the full diagnostic suite with and without default features, strict Clippy and formatting. The tests use an actual discarded store_raw duplicate, real directed relationships, and 1000/1001-row SQLite fixtures.\n\nA shared complete-listing helper rejects partial results at all four full-table observation sites. Explicit relationship types require the annotated direction; any retains the original direction-agnostic contract. Provenance now names three falsifiable conditions, removing source readability as an independent scored claim. The original corpus uses any relationships, and original archive bytes remain unchanged.\n\nDecision: retain every annotated entity/relationship case in the end-to-end denominator, rather than adopting the review suggestion to exclude discarded inputs. Conditioning these scores on successful retention would hide an ingestion loss and silently redefine the recovered metric. Per-case retention flags and aggregate discarded-case counts now separate these losses from errors on retained rows; README and source comments state that these are not isolated extractor/graph accuracy. Lifecycle remains conditional because a never-stored row cannot prove successful expiry. No production behaviour or model default changes. Full final-head CI and fresh independent review remain required.\n')
+          PY
+          git diff --exit-code -- src data/runtime_behaviour_eval/v1 benches/runtime_behaviour/baselines
+          git config user.name George
+          git config user.email 180932462+George-RD@users.noreply.github.com
+          git add benches/runtime_behaviour/families benches/runtime_behaviour/README.md meta/reviews/runtime-behaviour-recovery.md
+          git diff --cached --check
+          test -z "$(git diff --name-only)"
+          git commit -m 'fix(eval): validate complete observations and preserve scoring boundaries'
+          git rev-parse HEAD HEAD^{tree} > "$out/source.txt"
+          git bundle create "$out/scoring.bundle" agent/recovery-scoring-reviewed
+      - name: Run the exact committed production-adapter smoke once
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/scoring"
+          cargo build --locked --release --bin memory_runtime_eval > "$out/build.log" 2>&1 || { tail -100 "$out/build.log"; exit 1; }
+          export MAG_DATA_ROOT="$RUNNER_TEMP/scoring-model-data"
+          timeout 300 ./target/release/memory_runtime_eval --embedder bge-small --json > "$out/bge-run.json" 2> "$out/bge-stderr.log"
+          sha256sum target/release/memory_runtime_eval > "$out/binary.sha256"
+          python3 - "$out" <<'PY'
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+          out = Path(sys.argv[1])
+          result = json.loads((out / 'bge-run.json').read_text())
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert result['metadata']['commit'] == head
+          assert result['schema_validity_percentage'] == 100 and result['embedding_dimension'] == 384
+          assert result['seeded_memories'] == 36 and len(result['families']) == 8
+          assert result['tokens'] is None and 'overall_percentage' not in result
+          archive = Path('benches/runtime_behaviour/baselines/2026-09-10-bge-small/run.json')
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == '3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6'
+          (out / 'README.txt').write_text('One exact-source release BGE smoke, not a controlled comparison, held-out qualification or source-to-binary attestation. No score threshold or favorable rerun. The original archived observation is unchanged; current output explicitly reports end-to-end retention losses and three provenance conditions.\n')
+          print('Exact source:', head, 'seeded:', result['seeded_memories'], 'retained:', result['retained_memories'])
+          PY
+      - name: Publish verified candidate only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/agent/recovery-scoring-reviewed
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-scoring-review
+          path: ${{ runner.temp }}/scoring/
+          retention-days: 14
+          if-no-files-found: error
