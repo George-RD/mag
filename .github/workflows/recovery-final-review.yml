@@ -49,6 +49,19 @@ jobs:
           end = text.index('\n}\n\n#[cfg(test)]', start) + 2
           replacement = 'async fn note_space(path: &Path, space: &mut Option<String>) -> Result<()> {\n' + body + '\n}'
           text = text[:start] + replacement + text[end:]
+          # Add the annotation invariant after the partition closure's last use.
+          start = text.index("p=Path('benches/runtime_behaviour/dataset/validation.rs')")
+          end = text.index("p=Path('benches/runtime_behaviour/README.md')", start)
+          guard = '''    for c in &data.questions {
+              if c.expect_abstain != c.relevant_keys.is_empty() {
+                  failures.push(format!("question {} has inconsistent abstention and relevant_keys", c.id));
+              }
+          }
+          '''
+          replacement = "p=Path('benches/runtime_behaviour/dataset/validation.rs'); s=p.read_text()\n"
+          replacement += "needle='    let mut supersession_keys = BTreeSet::new();'\nassert s.count(needle) == 1\n"
+          replacement += 's=s.replace(needle, ' + repr(guard) + ' + needle)\np.write_text(s)\n'
+          text = text[:start] + replacement + text[end:]
           compile(text, str(helper), 'exec')
           helper.write_text(text)
           # Reuse the existing fixture so mutations get a valid manifest digest.
@@ -66,7 +79,6 @@ jobs:
           python3 "$RUNNER_TEMP/final-runtime.py" > "$RUNNER_TEMP/final-runtime/red.log" 2>&1 || { tail -120 "$RUNNER_TEMP/final-runtime/red.log"; exit 1; }
           python3 - <<'PY'
           from pathlib import Path
-          # Keep non-test helpers before test modules.
           p = Path('benches/runtime_behaviour/runner.rs')
           text = p.read_text()
           start = text.index('\nasync fn note_space(')
@@ -90,7 +102,8 @@ jobs:
           import os
           from pathlib import Path
           p = Path('meta/reviews/runtime-behaviour-recovery.md')
-          p.write_text(p.read_text() + '\nVerification continuation: run ' + os.environ['GITHUB_RUN_ID'] + ' reproduced both executor failures and all four privacy/annotation failures before applying fixes. The same tree then passed feature-free and default-feature diagnostic unit/process tests, strict all-target/all-feature Clippy, and formatting. The previous workbench stopped on a missing test helper, not a successful verification; this run reuses edited_dataset to recompute valid manifest digests. Exact-head CI and fresh independent review remain required before merge.\n')
+          text = p.read_text().replace('3977722805', '3978075206').replace('3977722810', '3978075227').replace('3977722814', '3978075232')
+          p.write_text(text + '\nVerification continuation: run ' + os.environ['GITHUB_RUN_ID'] + ' reproduced both executor failures and all four privacy/annotation failures before applying fixes. The same tree then passed feature-free and default-feature diagnostic unit/process tests, strict all-target/all-feature Clippy, and formatting. Previous workbench runs stopped on missing/stale patch helpers, not successful verification; this run reuses edited_dataset to recompute valid manifest digests. Exact-head CI and fresh independent review remain required before merge.\n')
           PY
           git diff --exit-code -- src data/runtime_behaviour_eval/v1 benches/runtime_behaviour/baselines
           git config user.name George
