@@ -95,6 +95,9 @@ pub struct IntelligenceProducerArgs {
     /// Maximum completion tokens requested from the server.
     #[arg(long, default_value_t = 512, value_parser = clap::value_parser!(u32).range(1..=16384))]
     pub max_tokens: u32,
+    /// Request native JSON-schema constraints; never repair output or fall back.
+    #[arg(long)]
+    pub json_schema: bool,
     /// Describe configured, unverified settings without stdin or model access.
     #[arg(long)]
     pub describe: bool,

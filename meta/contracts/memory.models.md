@@ -36,8 +36,11 @@ default.
 
 ## Evaluation generation boundary
 
-The selected runtime calls plain `LlmBackend::complete` once per request, never
-the repairing structured-completion path. Malformed output remains an attempt
+The selected runtime calls `LlmBackend::complete` once per request by default.
+Explicit schema diagnostics use `complete_constrained` with the fixed runtime
+output-shape schema. Neither evaluation mode uses the repairing
+structured-completion path. Native constraints retain the same prompt and
+decoding configuration; unsupported backends fail without silent fallback. Malformed output remains an attempt
 for the independent scorer. The existing HTTP provider trims surrounding
 whitespace; this transformation is disclosed in `--describe` metadata. Backend
 errors crossing this boundary are redacted, without retries or fallback.

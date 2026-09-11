@@ -44,7 +44,7 @@ jobs:
         with:
           shared-key: memory-intelligence-producer
       - name: Test the documented feature profile, not all-features
-        run: cargo test --locked --release --features llm --test memory_intelligence_producer_cli --test memory_intelligence_producer_runtime
+        run: cargo test --locked --release --features llm --test memory_intelligence_producer_cli --test memory_intelligence_producer_runtime --test memory_intelligence_schema
       - name: Smoke-test configured profile without a model
         run: |
           set -euo pipefail

@@ -87,6 +87,8 @@ if '--describe' in args:
         'base_url': arg('--base-url'), 'verification': 'configured_not_authenticated',
         'revision': None, 'checksums': None, 'quantization': None, 'licence': None,
         'test_fixture': True,
+        'output_mode': 'json_schema' if '--json-schema' in args else 'unconstrained',
+        'output_schema': {'type': 'object'} if '--json-schema' in args else None,
     }, 'embedding_space_identity': None})); sys.exit()
 request = json.load(sys.stdin)
 assert set(request) == {'schema_version', 'task', 'instruction', 'sources'}
@@ -141,6 +143,34 @@ class LocalBaselineTests(unittest.TestCase):
         pid = int(self.pid.read_text())
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
+
+    def test_schema_flag_is_explicit_for_description_and_every_attempt(self):
+        """The same requested mode reaches describe and both answer-blind cases."""
+        guarded = PRODUCER.replace("assert args[0] == 'intelligence-produce'",
+            "assert args[0] == 'intelligence-produce'\nassert '--json-schema' in args")
+        self.mag = self.executable("schema-fixture", guarded)
+        run = self.run_baseline(json_schema=True)
+        self.assertEqual(run["model_profile"]["producer"]["output_mode"], "json_schema")
+        self.assertEqual(self.calls.read_text().splitlines(), ["case", "case"])
+        self.assert_server_stopped()
+
+    def test_schema_description_mismatch_fails_before_server_launch(self):
+        """Do not silently report constrained execution from an old/ignoring CLI."""
+        wrong = PRODUCER.replace("'json_schema' if '--json-schema' in args else 'unconstrained'",
+                                 "'unconstrained'")
+        self.mag = self.executable("wrong-schema-fixture", wrong)
+        with self.assertRaisesRegex(ValueError, "matching bounded MAG producer description"):
+            self.run_baseline(json_schema=True)
+        self.assertFalse(self.pid.exists())
+        self.assertFalse(self.calls.exists())
+
+    def test_schema_mode_requires_a_boolean_before_any_execution(self):
+        """Truthiness must not silently switch experimental request semantics."""
+        for invalid in ("true", 1, None):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "json_schema must be a boolean"):
+                self.run_baseline(json_schema=invalid)
+        self.assertFalse(self.pid.exists())
+        self.assertFalse(self.calls.exists())
 
     def test_checksum_mismatch_fails_before_any_executable(self):
         self.pin["model"]["sha256"] = "0" * 64

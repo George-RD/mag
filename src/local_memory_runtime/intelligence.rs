@@ -84,6 +84,35 @@ impl IntelligenceRequest {
     }
 }
 
+/// Fixed output-shape schema. It contains no case labels, source IDs or answers.
+///
+/// This is only a requested decoding constraint: the independent scorer still
+/// checks nonblank values, uniqueness, source support and task correctness.
+pub fn intelligence_output_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["value", "source_ids"],
+                    "properties": {
+                        "value": {"type": "string", "minLength": 1},
+                        "source_ids": {
+                            "type": "array", "minItems": 1,
+                            "items": {"type": "string", "minLength": 1}
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
 impl LocalMemoryRuntime {
     /// Runs one non-persisting intelligence attempt through the selected model boundary.
     ///
@@ -95,8 +124,34 @@ impl LocalMemoryRuntime {
         backend: &dyn LlmBackend,
         request: &IntelligenceRequest,
     ) -> Result<String> {
+        Self::produce_intelligence_output(backend, request, None).await
+    }
+
+    /// Requests the fixed native output schema once, without repair or fallback.
+    /// Validation, prompt, bounds and error redaction are shared with plain mode.
+    pub async fn produce_intelligence_with_schema(
+        backend: &dyn LlmBackend,
+        request: &IntelligenceRequest,
+    ) -> Result<String> {
+        let schema = intelligence_output_schema();
+        Self::produce_intelligence_output(backend, request, Some(&schema)).await
+    }
+
+    async fn produce_intelligence_output(
+        backend: &dyn LlmBackend,
+        request: &IntelligenceRequest,
+        schema: Option<&serde_json::Value>,
+    ) -> Result<String> {
         let prompt = request.prompt()?;
-        let completion = backend.complete(&prompt, Some(SYSTEM_PROMPT)).await.map_err(|_| {
+        let result = match schema {
+            Some(schema) => {
+                backend
+                    .complete_constrained(&prompt, Some(SYSTEM_PROMPT), schema)
+                    .await
+            }
+            None => backend.complete(&prompt, Some(SYSTEM_PROMPT)).await,
+        };
+        let completion = result.map_err(|_| {
             anyhow::anyhow!("memory intelligence backend failed; check the configured endpoint, model and timeout")
         })?;
         ensure!(

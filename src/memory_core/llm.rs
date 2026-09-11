@@ -185,6 +185,20 @@ impl Default for LlmConfig {
 pub trait LlmBackend: Send + Sync {
     /// Generate a text completion for the given prompt.
     async fn complete(&self, prompt: &str, system: Option<&str>) -> Result<String>;
+    /// Request native schema constraints while preserving the raw completion.
+    ///
+    /// Unlike `complete_structured`, this must not alter the prompt, override
+    /// decoding settings, parse or repair output, retry, or fall back silently.
+    /// Unsupported providers fail explicitly before making a request.
+    async fn complete_constrained(
+        &self,
+        _prompt: &str,
+        _system: Option<&str>,
+        _schema: &serde_json::Value,
+    ) -> Result<String> {
+        anyhow::bail!("LLM backend does not support raw schema-constrained completion")
+    }
+
     /// Generate a structured completion as JSON.
     ///
     /// The default implementation asks the model to emit JSON and then
@@ -269,11 +283,15 @@ impl OpenAiProvider {
         let client = LlmClient::new(config)?;
         Ok(Self { client })
     }
-}
 
-#[async_trait]
-impl LlmBackend for OpenAiProvider {
-    async fn complete(&self, prompt: &str, system: Option<&str>) -> Result<String> {
+    /// One shared HTTP exchange; callers explicitly own any output transformation.
+    async fn request_completion(
+        &self,
+        prompt: &str,
+        system: Option<&str>,
+        temperature: f32,
+        schema: Option<&serde_json::Value>,
+    ) -> Result<String> {
         let _permit = self
             .client
             .semaphore
@@ -286,26 +304,32 @@ impl LlmBackend for OpenAiProvider {
             messages.push(serde_json::json!({"role": "system", "content": sys}));
         }
         messages.push(serde_json::json!({"role": "user", "content": prompt}));
-
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.client.config.model,
             "messages": messages,
-            "temperature": self.client.config.temperature,
+            "temperature": temperature,
             "max_tokens": self.client.config.max_tokens,
         });
-
+        if let Some(schema) = schema {
+            body["response_format"] = serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_response",
+                    "schema": schema,
+                    "strict": true
+                }
+            });
+        }
         let mut request = self.client.http.post(&url).json(&body);
         if let Some(key) = &self.client.config.api_key {
             request = request.bearer_auth(key);
         }
-
         let response = request.send().await.context("LLM request failed")?;
         let status = response.status();
         let text = response.text().await.context("LLM response read failed")?;
         if !status.is_success() {
             anyhow::bail!("LLM API error ({}): {}", status, text);
         }
-
         let parsed: serde_json::Value =
             serde_json::from_str(&text).context("LLM response JSON parse failed")?;
         parsed
@@ -315,8 +339,28 @@ impl LlmBackend for OpenAiProvider {
             .and_then(|choice| choice.get("message"))
             .and_then(|msg| msg.get("content"))
             .and_then(|content| content.as_str())
-            .map(|s| s.trim().to_string())
+            .map(str::to_owned)
             .ok_or_else(|| anyhow::anyhow!("LLM response missing content: {}", text))
+    }
+}
+
+#[async_trait]
+impl LlmBackend for OpenAiProvider {
+    async fn complete(&self, prompt: &str, system: Option<&str>) -> Result<String> {
+        self.request_completion(prompt, system, self.client.config.temperature, None)
+            .await
+            .map(|text| text.trim().to_owned())
+    }
+
+    async fn complete_constrained(
+        &self,
+        prompt: &str,
+        system: Option<&str>,
+        schema: &serde_json::Value,
+    ) -> Result<String> {
+        self.request_completion(prompt, system, self.client.config.temperature, Some(schema))
+            .await
+            .map(|text| text.trim().to_owned())
     }
 
     async fn complete_structured(
@@ -325,68 +369,17 @@ impl LlmBackend for OpenAiProvider {
         system: Option<&str>,
         schema: &serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let _permit = self
-            .client
-            .semaphore
-            .acquire()
-            .await
-            .context("LLM concurrency limit reached")?;
-        let url = format!("{}/chat/completions", self.client.base_url());
-        let mut messages = Vec::new();
-        if let Some(sys) = system {
-            messages.push(serde_json::json!({"role": "system", "content": sys}));
-        }
-        messages.push(serde_json::json!({"role": "user", "content": prompt}));
-        let body = serde_json::json!({
-            "model": self.client.config.model,
-            "messages": messages,
-            "temperature": 0.0,
-            "max_tokens": self.client.config.max_tokens,
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_response",
-                    "schema": schema,
-                    "strict": true
-                }
-            }
-        });
-
-        let mut request = self.client.http.post(&url).json(&body);
-        if let Some(key) = &self.client.config.api_key {
-            request = request.bearer_auth(key);
-        }
-
-        let response = request
-            .send()
-            .await
-            .context("LLM structured request failed")?;
-        let status = response.status();
-        let text = response
-            .text()
-            .await
-            .context("LLM structured response read failed")?;
-        if !status.is_success() {
-            anyhow::bail!("LLM API error ({}): {}", status, text);
-        }
-
-        let parsed: serde_json::Value =
-            serde_json::from_str(&text).context("LLM structured response JSON parse failed")?;
-        let content = parsed
-            .get("choices")
-            .and_then(|c| c.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|msg| msg.get("content"))
-            .and_then(|content| content.as_str())
-            .ok_or_else(|| anyhow::anyhow!("LLM structured response missing content: {}", text))?;
-
+        // Preserve the existing repairing API's temperature and fence handling.
+        // Evaluation deliberately uses complete_constrained instead.
+        let content = self
+            .request_completion(prompt, system, 0.0, Some(schema))
+            .await?;
         let cleaned = content
             .trim()
             .strip_prefix("```json")
             .or_else(|| content.trim().strip_prefix("```"))
             .map(|s| s.strip_suffix("```").unwrap_or(s).trim())
-            .unwrap_or(content);
+            .unwrap_or(&content);
         serde_json::from_str(cleaned).context("LLM structured response content parse error")
     }
 }
