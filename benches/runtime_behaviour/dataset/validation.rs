@@ -340,6 +340,12 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
         }
     }
     for case in &data.temporal {
+        if case.expect_keys.is_empty() && case.expect_absent_keys.is_empty() {
+            failures.push(format!(
+                "temporal {} has no falsifiable temporal expectations",
+                case.id
+            ));
+        }
         let expected: BTreeSet<&str> = case.expect_keys.iter().map(String::as_str).collect();
         if case
             .expect_absent_keys
@@ -350,6 +356,26 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
                 "temporal {} has contradictory temporal expectations",
                 case.id
             ));
+        }
+    }
+    for case in &data.relationships {
+        if !(0.0..=1.0).contains(&case.min_weight) {
+            failures.push(format!(
+                "{} -> {}: relationship weight must be between 0 and 1",
+                case.from, case.to
+            ));
+        }
+    }
+    let mut grouping_content = BTreeSet::new();
+    for seed in data.seed.iter().filter(|seed| seed.group == "grouping") {
+        if seed.content.trim().is_empty()
+            || seed.content != seed.content.trim()
+            || seed.content.contains("\n---\n")
+        {
+            failures.push(format!("seed {} has ambiguous grouping content", seed.key));
+        }
+        if !grouping_content.insert(seed.content.as_str()) {
+            failures.push(format!("seed {} has duplicate grouping content", seed.key));
         }
     }
     let mut grouping_members = BTreeSet::new();
