@@ -3,7 +3,7 @@ use crate::dataset::Seed;
 use crate::metrics;
 use anyhow::Result;
 use mag::LocalMemoryRuntime;
-use mag::memory_core::{SearchOptions, SemanticResult};
+use mag::memory_core::{ListResult, SearchOptions, SemanticResult};
 use std::collections::{BTreeMap, BTreeSet};
 mod grouping;
 mod lifecycle;
@@ -25,6 +25,9 @@ pub const COMPACT_MIN_CLUSTER_SIZE: usize = 3;
 pub const AUTO_COMPACT_COUNT_THRESHOLD: usize = 1;
 /// Result depth requested from `advanced_search`.
 pub const SEARCH_LIMIT: usize = 10;
+
+/// Maximum rows accepted by a full-table diagnostic observation.
+const LIST_PAGE_SIZE: usize = 1000;
 
 /// Whether a family produced a score.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -131,6 +134,13 @@ impl SeededGroup {
         self.id_to_key.get(id).map(String::as_str)
     }
 
+    /// The generated id only if this seed actually became a stored row.
+    fn retained_id(&self, key: &str) -> Option<&String> {
+        self.key_to_id
+            .get(key)
+            .filter(|id| self.retained_ids.contains(*id))
+    }
+
     /// Maps a ranked result list to dataset seed keys, dropping unknown ids.
     fn ranked_keys(&self, results: &[SemanticResult]) -> Vec<String> {
         results
@@ -140,13 +150,28 @@ impl SeededGroup {
     }
 }
 
+/// Reject a partial snapshot rather than score a silently truncated database.
+async fn complete_listing(
+    runtime: &LocalMemoryRuntime,
+    options: &SearchOptions,
+) -> Result<ListResult> {
+    let listed = runtime.list(0, LIST_PAGE_SIZE, options).await?;
+    anyhow::ensure!(
+        listed.total == listed.memories.len(),
+        "incomplete full-table observation: received {} of {} rows (limit {LIST_PAGE_SIZE})",
+        listed.memories.len(),
+        listed.total,
+    );
+    Ok(listed)
+}
+
 /// Every stored id in a database, superseded rows included.
 pub async fn stored_ids(runtime: &LocalMemoryRuntime) -> Result<BTreeSet<String>> {
     let options = SearchOptions {
         include_superseded: Some(true),
         ..SearchOptions::default()
     };
-    let listed = runtime.list(0, 1000, &options).await?;
+    let listed = complete_listing(runtime, &options).await?;
     Ok(listed.memories.into_iter().map(|m| m.id).collect())
 }
 
@@ -157,3 +182,6 @@ pub fn content_index(seeds: &[&Seed]) -> BTreeMap<String, String> {
         .map(|seed| (seed.content.clone(), seed.key.clone()))
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

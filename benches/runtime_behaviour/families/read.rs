@@ -1,3 +1,4 @@
+use super::complete_listing;
 use super::{FamilyOutcome, SEARCH_LIMIT, SeededGroup};
 use crate::dataset::{EntityCase, QuestionCase, RelationshipCase, TemporalCase};
 use crate::metrics::{self, Counts};
@@ -10,14 +11,15 @@ use std::time::Instant;
 // ── entities ──────────────────────────────────────────────────────────────
 
 /// Reads `entity:*` tags off every stored memory and scores them against the
-/// annotated entity sets.
+/// annotated entity sets. This is end-to-end storage/retrieval evidence, not
+/// isolated extractor accuracy: discarded inputs remain in the denominator.
 pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<FamilyOutcome> {
     let options = SearchOptions {
         include_superseded: Some(true),
         ..SearchOptions::default()
     };
     let started = Instant::now();
-    let listed = group.runtime.list(0, 1000, &options).await?;
+    let listed = complete_listing(&group.runtime, &options).await?;
     let latency = vec![started.elapsed().as_micros()];
 
     let mut observed: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
@@ -39,7 +41,16 @@ pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<Famil
     let mut lines = Vec::new();
     let mut case_details = Vec::new();
 
+    let mut unretained = 0usize;
     for case in cases {
+        let seed_retained = group.retained_id(&case.seed).is_some();
+        if !seed_retained {
+            unretained += 1;
+            lines.push(format!(
+                "{}: seed not retained; kept in end-to-end denominator",
+                case.seed
+            ));
+        }
         let expected = metrics::set_of(case.expected.clone());
         let predicted = observed
             .get(case.seed.as_str())
@@ -62,6 +73,7 @@ pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<Famil
         }
         case_details.push(json!({
             "seed": case.seed,
+            "seed_retained": seed_retained,
             "expected": expected.iter().collect::<Vec<_>>(),
             "observed": predicted.iter().collect::<Vec<_>>(),
             "f1": prf.f1,
@@ -72,6 +84,8 @@ pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<Famil
     let micro_prf = micro.prf();
     let macro_f1 = metrics::mean(&per_case_f1);
     let detail = json!({
+        "scoring_scope": "end_to_end",
+        "cases_with_unretained_seed": unretained,
         "micro_precision": micro_prf.precision,
         "micro_recall": micro_prf.recall,
         "micro_f1": micro_prf.f1,
@@ -191,7 +205,8 @@ pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<Fam
 // ── relationships ─────────────────────────────────────────────────────────
 
 /// Checks each annotated edge against `get_relationships` and records the
-/// observed edge-type histogram.
+/// observed edge-type histogram. A discarded endpoint remains a failed
+/// end-to-end case, with its retention failure identified separately.
 ///
 /// Precision is not reported: the dataset annotates the edges a correct system
 /// must create, not every pair that must stay unlinked, so an unannotated edge
@@ -206,17 +221,23 @@ pub async fn relationships(
     let mut case_details = Vec::new();
     let mut histogram: BTreeMap<String, usize> = BTreeMap::new();
     let mut seen_edges: BTreeSet<String> = BTreeSet::new();
+    let mut unretained = 0usize;
 
     for case in cases {
-        let (Some(from_id), Some(to_id)) = (
-            group.key_to_id.get(&case.from),
-            group.key_to_id.get(&case.to),
-        ) else {
+        let (Some(from_id), Some(to_id)) =
+            (group.retained_id(&case.from), group.retained_id(&case.to))
+        else {
+            unretained += 1;
+            lines.push(format!(
+                "{} -> {}: endpoint not retained; kept in end-to-end denominator",
+                case.from, case.to
+            ));
             case_details.push(json!({
+                "endpoints_retained": false,
                 "from": case.from,
                 "to": case.to,
                 "found": false,
-                "note": "seed was not stored",
+                "note": "endpoint not retained after seeding",
             }));
             continue;
         };
@@ -233,7 +254,9 @@ pub async fn relationships(
 
         let matched = edges.iter().find(|edge| {
             let connects = (edge.source_id == *from_id && edge.target_id == *to_id)
-                || (edge.source_id == *to_id && edge.target_id == *from_id);
+                || (case.rel_type == "any"
+                    && edge.source_id == *to_id
+                    && edge.target_id == *from_id);
             let typed = case.rel_type == "any" || edge.rel_type == case.rel_type;
             connects && typed && edge.weight >= case.min_weight
         });
@@ -253,6 +276,7 @@ pub async fn relationships(
         case_details.push(json!({
             "from": case.from,
             "to": case.to,
+            "endpoints_retained": true,
             "found": matched.is_some(),
             "rel_type": matched.map(|edge| edge.rel_type.clone()),
             "weight": matched.map(|edge| edge.weight),
@@ -263,6 +287,8 @@ pub async fn relationships(
     let recall = metrics::ratio(found, cases.len());
     let detail = json!({
         "recall": recall,
+        "scoring_scope": "end_to_end",
+        "cases_with_unretained_endpoint": unretained,
         "annotated_edges": cases.len(),
         "annotated_edges_found": found,
         "precision": serde_json::Value::Null,

@@ -1,3 +1,4 @@
+use super::complete_listing;
 use super::{COMPACT_MIN_CLUSTER_SIZE, COMPACT_SIMILARITY_THRESHOLD, FamilyOutcome, SeededGroup};
 use crate::dataset::GroupingCase;
 use crate::metrics;
@@ -51,10 +52,7 @@ pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<Fam
         .await?;
     let apply_micros = apply_started.elapsed().as_micros();
 
-    let listed = group
-        .runtime
-        .list(0, 1000, &SearchOptions::default())
-        .await?;
+    let listed = complete_listing(&group.runtime, &SearchOptions::default()).await?;
     let mut predicted: Vec<BTreeSet<String>> = Vec::new();
     let mut unmapped = 0usize;
     for memory in &listed.memories {

@@ -1,3 +1,4 @@
+use super::complete_listing;
 use super::{AUTO_COMPACT_COUNT_THRESHOLD, FamilyOutcome, SeededGroup, stored_ids};
 use crate::dataset::ProvenanceCase;
 use crate::metrics;
@@ -37,9 +38,10 @@ async fn source_links(
 /// `auto_compact` increments its retired count inside the same statement that
 /// writes that column, so the two can only ever agree. What is falsifiable is
 /// whether the link is usable afterwards. For every row whose link appeared
-/// during the call this scores four conditions: the target row exists, the
+/// during the call this scores three conditions: the target row exists, the
 /// target was not itself retired, the retired row is hidden from a default
-/// `list()`, and the retired row is still readable with `include_superseded`.
+/// `list()`. Source readability is how links are discovered, not an independent
+/// scored condition. Links on deleted source rows cannot enter this observation.
 ///
 /// Links present before the call are excluded from both sides of the ratio.
 /// `store_raw` also writes `superseded_by_id` for the event types in
@@ -68,9 +70,7 @@ pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result
 
     let after_ids = stored_ids(&group.runtime).await?;
     let links_after = source_links(group, &after_ids).await?;
-    let visible: BTreeSet<String> = group
-        .runtime
-        .list(0, 1000, &SearchOptions::default())
+    let visible: BTreeSet<String> = complete_listing(&group.runtime, &SearchOptions::default())
         .await?
         .memories
         .into_iter()
@@ -104,13 +104,12 @@ pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result
         let target_exists = after_ids.contains(*target);
         let target_survived = target_exists && !links_after.contains_key(*target);
         let hidden_by_default = !visible.contains(*id);
-        let readable_when_included = after_ids.contains(*id);
-        let ok = target_survived && hidden_by_default && readable_when_included;
+        let ok = target_survived && hidden_by_default;
         if ok {
             intact += 1;
         } else {
             failures.push(format!(
-                "{}: target_exists={target_exists} target_survived={target_survived} hidden_by_default={hidden_by_default} readable_with_include_superseded={readable_when_included}",
+                "{}: target_exists={target_exists} target_survived={target_survived} hidden_by_default={hidden_by_default}",
                 group.key(id).unwrap_or(id.as_str())
             ));
         }
@@ -120,12 +119,12 @@ pub async fn provenance(group: &SeededGroup, cases: &[ProvenanceCase]) -> Result
             "target_exists": target_exists,
             "target_survived": target_survived,
             "hidden_by_default_list": hidden_by_default,
-            "readable_with_include_superseded": readable_when_included,
             "link_intact": ok,
         }));
     }
 
     let mut detail = json!({
+        "verification_conditions": ["target_exists", "target_not_retired", "source_hidden_by_default"],
         "link_integrity": serde_json::Value::Null,
         "links_written_by_auto_compact": new_links.len(),
         "links_intact": intact,

@@ -93,3 +93,25 @@ and equals-form arguments. An answerable question must have relevant keys, and
 an abstention question must have none. Contradictions fail before model startup.
 
 Annotation validation also rejects a temporal key required both present and absent, and repeated grouping membership. These are invalid expectations, not runtime-quality failures. The question, temporal and grouping consistency checks share one validation boundary; scoring and the original corpus are unchanged.
+
+
+## Scoring boundaries
+
+Entity and relationship scores remain end-to-end observations over every annotated
+case. A discarded input is not silently removed from either denominator. Per-case
+retention flags and discarded-case counts distinguish ingestion loss from missing
+entity tags or links on retained rows; these are not isolated extractor or graph
+algorithm accuracy scores. Lifecycle is different: it conditions expiry on an
+actually stored row, so an absent write cannot become evidence of successful expiry.
+
+Every full-table observation checks the runtime's total against the returned rows.
+More than 1000 rows, or any other partial listing, aborts the diagnostic rather than
+publishing a truncated score. This bound applies after compaction too.
+
+Provenance verifies three conditions on discoverable new links: target existence,
+target survival and default-list source hiding. Source readability is a discovery
+precondition, not a fourth independently verified property. Deleted source rows
+are outside this link-only measure. This correction removes the redundant detail
+field without changing the link-integrity value or the preserved historical JSON.
+Explicit relationship types require the annotated from-to direction; only `any`
+allows either direction. This does not change production relationship semantics.
