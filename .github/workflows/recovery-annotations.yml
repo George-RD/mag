@@ -1,0 +1,166 @@
+name: Verify runtime annotation consistency
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-annotations.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      CARGO_TERM_COLOR: never
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d57ba8809a991e39d5d7fb65c01ff0fdb073594f
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Reproduce the two fresh review findings
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/annotations"
+          git switch -c agent/recovery-annotations-reviewed
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tests/runtime_behaviour_eval.rs')
+          p.write_text(p.read_text() + '''
+          #[test]
+          fn annotation_review_rejects_conflicting_temporal_keys() {
+              let out = mutated_validation(|data| {
+                  let key = data["temporal"][0]["expect_keys"][0].clone();
+                  data["temporal"][0]["expect_absent_keys"].as_array_mut().unwrap().push(key);
+              });
+              assert!(!out.status.success(), "contradictory temporal expectations were accepted");
+              assert!(String::from_utf8_lossy(&out.stdout).contains("contradictory temporal expectations"));
+          }
+
+          #[test]
+          fn annotation_review_rejects_overlapping_grouping_memberships() {
+              let out = mutated_validation(|data| {
+                  let key = data["grouping"][0]["members"][0].clone();
+                  data["grouping"][1]["members"].as_array_mut().unwrap().push(key);
+              });
+              assert!(!out.status.success(), "overlapping grouping annotations were accepted");
+              assert!(String::from_utf8_lossy(&out.stdout).contains("overlapping grouping annotations"));
+          }
+          ''')
+          PY
+          cargo fmt --all
+          git diff > "$RUNNER_TEMP/annotations/tests.patch"
+          if cargo test --locked --no-default-features --test runtime_behaviour_eval annotation_review_ > "$RUNNER_TEMP/annotations/red.log" 2>&1; then
+            echo 'Expected both regressions to fail before implementation'; exit 1
+          fi
+          grep -F 'test result: FAILED. 0 passed; 2 failed;' "$RUNNER_TEMP/annotations/red.log"
+      - name: Apply the invariant and verify the evaluator
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('benches/runtime_behaviour/dataset/validation.rs')
+          text = p.read_text()
+          old = '''    for c in &data.questions {
+              if c.expect_abstain != c.relevant_keys.is_empty() {
+                  failures.push(format!(
+                      "question {} has inconsistent abstention and relevant_keys",
+                      c.id
+                  ));
+              }
+          }
+          '''
+          assert text.count(old) == 1
+          text = text.replace(old, '')
+          needle = '    let mut extra = validate_supported_contract(dataset, manifest);'
+          assert text.count(needle) == 1
+          text = text.replace(needle, needle + '\n    extra.push(validate_annotation_consistency(dataset));')
+          helper = '''
+          fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
+              let mut failures = Vec::new();
+          ''' + old + '''    for case in &data.temporal {
+                  let expected: BTreeSet<&str> = case.expect_keys.iter().map(String::as_str).collect();
+                  if case.expect_absent_keys.iter().any(|key| expected.contains(key.as_str())) {
+                      failures.push(format!("temporal {} has contradictory temporal expectations", case.id));
+                  }
+              }
+              let mut grouping_members = BTreeSet::new();
+              for case in &data.grouping {
+                  for key in &case.members {
+                      if !grouping_members.insert(key) {
+                          failures.push(format!("seed {key} has overlapping grouping annotations"));
+                      }
+                  }
+              }
+              ValidationCheck::from_failures("annotation_expectations_consistent", failures)
+          }
+          '''
+          p.write_text(text + helper)
+          p = Path('benches/runtime_behaviour/README.md')
+          p.write_text(p.read_text() + '\nAnnotation validation also rejects a temporal key required both present and absent, and repeated grouping membership. These are invalid expectations, not runtime-quality failures. The question, temporal and grouping consistency checks share one validation boundary; scoring and the original corpus are unchanged.\n')
+          PY
+          cargo fmt --all
+          cargo test --locked --no-default-features --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/annotations/placeholder.log" 2>&1 || { tail -100 "$RUNNER_TEMP/annotations/placeholder.log"; exit 1; }
+          cargo test --locked --bin memory_runtime_eval --test runtime_behaviour_eval > "$RUNNER_TEMP/annotations/default.log" 2>&1 || { tail -100 "$RUNNER_TEMP/annotations/default.log"; exit 1; }
+          cargo clippy --locked --all-targets --all-features -- -D warnings > "$RUNNER_TEMP/annotations/clippy.log" 2>&1 || { tail -100 "$RUNNER_TEMP/annotations/clippy.log"; exit 1; }
+          cargo fmt --all -- --check
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path('meta/reviews/runtime-behaviour-recovery.md')
+          p.write_text(p.read_text() + '\n## Fresh review: impossible annotations\n\nCodex review of d57ba88 identified intersecting temporal present/absent keys and overlapping grouping membership (comments 3985717669 and 3985717674). Run ' + os.environ['GITHUB_RUN_ID'] + ' first reproduces both process failures with valid manifest digests, then passes the complete default and feature-free evaluator tests, strict all-target/all-feature Clippy and formatting. A shared annotation-consistency helper preserves the question invariant and adds these two guards. No scorer, production code, original dataset or archived observation changes. Full exact-head CI and renewed independent review remain the merge boundary; the run artifact also records a once-only release BGE smoke at the resulting commit.\n')
+          PY
+          git diff --exit-code -- src data/runtime_behaviour_eval/v1 benches/runtime_behaviour/baselines
+          git config user.name George
+          git config user.email 180932462+George-RD@users.noreply.github.com
+          git add benches/runtime_behaviour/dataset/validation.rs benches/runtime_behaviour/README.md tests/runtime_behaviour_eval.rs meta/reviews/runtime-behaviour-recovery.md
+          git diff --cached --check
+          test -z "$(git diff --name-only)"
+          git commit -m 'fix(eval): reject contradictory temporal and grouping annotations'
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/annotations/source.txt"
+          git bundle create "$RUNNER_TEMP/annotations/annotations.bundle" agent/recovery-annotations-reviewed
+      - name: Exercise the exact committed BGE diagnostic once
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/annotations"
+          cargo build --locked --release --bin memory_runtime_eval > "$out/build.log" 2>&1 || { tail -100 "$out/build.log"; exit 1; }
+          export MAG_DATA_ROOT="$RUNNER_TEMP/annotation-model-data"
+          timeout 300 ./target/release/memory_runtime_eval --embedder bge-small --json > "$out/bge-run.json" 2> "$out/bge-stderr.log"
+          sha256sum target/release/memory_runtime_eval > "$out/binary.sha256"
+          python3 - "$out" <<'PY'
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+          out = Path(sys.argv[1])
+          result = json.loads((out / 'bge-run.json').read_text())
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert result['metadata']['commit'] == head
+          assert result['schema_validity_percentage'] == 100
+          assert result['embedding_dimension'] == 384
+          assert result['seeded_memories'] == 36 and len(result['families']) == 8
+          assert result['tokens'] is None and 'overall_percentage' not in result
+          archive = Path('benches/runtime_behaviour/baselines/2026-09-10-bge-small/run.json')
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == '3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6'
+          (out / 'README.txt').write_text('The original historical observation remains unchanged. This is one release smoke at the exact corrected source, with no score threshold or favorable-result selection. It is not a controlled before/after benchmark, held-out model qualification, or source-to-binary attestation.\n')
+          print('Exact source:', head, 'seeded:', result['seeded_memories'], 'retained:', result['retained_memories'])
+          PY
+      - name: Publish the verified candidate only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/agent/recovery-annotations-reviewed
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-annotation-review
+          path: ${{ runner.temp }}/annotations/
+          retention-days: 14
+          if-no-files-found: error
