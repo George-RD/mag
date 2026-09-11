@@ -1,0 +1,64 @@
+name: Verify recovered evaluator exact head
+on:
+  push:
+    branches: [agent/recovery-author-20260910]
+    paths: [.github/workflows/recovery-exact-head.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_TERM_COLOR: never
+      PYTHONDONTWRITEBYTECODE: '1'
+      SOURCE_HEAD: d57ba8809a991e39d5d7fb65c01ff0fdb073594f
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d57ba8809a991e39d5d7fb65c01ff0fdb073594f
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Build and exercise the exact source once
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/exact-head"
+          mkdir -p "$out"
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          git rev-parse HEAD HEAD^{tree} > "$out/source.txt"
+          cargo build --locked --release --bin memory_runtime_eval > "$out/build.log" 2>&1 || { tail -100 "$out/build.log"; exit 1; }
+          export MAG_DATA_ROOT="$RUNNER_TEMP/exact-head-model-data"
+          timeout 300 ./target/release/memory_runtime_eval --embedder bge-small --json > "$out/bge-run.json" 2> "$out/bge-stderr.log"
+          sha256sum target/release/memory_runtime_eval > "$out/binary.sha256"
+          python3 - "$out" <<'PY'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          out = Path(sys.argv[1])
+          result = json.loads((out / 'bge-run.json').read_text())
+          assert result['metadata']['commit'] == os.environ['SOURCE_HEAD']
+          assert result['schema_validity_percentage'] == 100
+          assert result['embedding_dimension'] == 384
+          assert result['model_profile']['output_dimensions'] == 384
+          assert result['seeded_memories'] == 36
+          assert len(result['families']) == 8
+          assert result['selected_families'] == result['total_families'] == 8
+          assert result['tokens'] is None
+          assert 'overall_percentage' not in result and 'overall_grade' not in result
+          data = Path('data/runtime_behaviour_eval/v1/dataset.json').read_bytes()
+          assert result['dataset_sha256'] == hashlib.sha256(data).hexdigest()
+          archive = Path('benches/runtime_behaviour/baselines/2026-09-10-bge-small/run.json')
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == '3f21b208374e6543287723ca90a1ce9b3e31d316e06a7d3540d002da35a3e7c6'
+          subprocess.run(['git', 'diff', '--exit-code', '--', 'src', 'data/runtime_behaviour_eval/v1', 'benches/runtime_behaviour/baselines'], check=True)
+          (out / 'README.txt').write_text('One release-build smoke observation at the exact PR head. No score threshold, repair, favorable rerun, or model qualification. The original archived observation is unchanged. Host/toolchain may differ from the historical run; scores and timings are not a controlled before/after comparison. Binary hash and source revision are observed context, not independent source-to-binary attestation.\n')
+          print('Exact-head production-adapter smoke and archive-integrity checks passed.')
+          print('Seeded:', result['seeded_memories'], 'Retained:', result['retained_memories'])
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-exact-head-d57ba88
+          path: ${{ runner.temp }}/exact-head/
+          retention-days: 14
+          if-no-files-found: error
