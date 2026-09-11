@@ -67,17 +67,10 @@ jobs:
           from pathlib import Path
           p = Path('benches/runtime_behaviour/dataset/validation.rs')
           text = p.read_text()
-          old = '''    for c in &data.questions {
-              if c.expect_abstain != c.relevant_keys.is_empty() {
-                  failures.push(format!(
-                      "question {} has inconsistent abstention and relevant_keys",
-                      c.id
-                  ));
-              }
-          }
-          '''
-          assert text.count(old) == 1
-          text = text.replace(old, '')
+          start = text.index('    for c in &data.questions {\n        if c.expect_abstain')
+          end = text.index('    let mut supersession_keys', start)
+          old = text[start:end]
+          text = text[:start] + text[end:]
           needle = '    let mut extra = validate_supported_contract(dataset, manifest);'
           assert text.count(needle) == 1
           text = text.replace(needle, needle + '\n    extra.push(validate_annotation_consistency(dataset));')
