@@ -202,3 +202,21 @@ async fn typed_relationship_credits_forward_edge() {
 async fn any_relationship_allows_either_direction() {
     assert_relationship_direction(true, "any", 1.0).await;
 }
+
+#[tokio::test]
+async fn closed_schema_preserves_historical_temporal_note() {
+    let (_directory, group) = discarded_seed_group().await;
+    let case: crate::dataset::TemporalCase = serde_json::from_value(serde_json::json!({
+        "id": "annotated-window",
+        "query": "Amber telescope",
+        "expect_keys": ["kept"],
+        "expect_absent_keys": [],
+        "note": "Historical temporal limitation must remain visible"
+    }))
+    .unwrap();
+    let outcome = temporal(&group, &[case]).await.unwrap();
+    assert_eq!(
+        outcome.detail["cases"][0]["note"],
+        "Historical temporal limitation must remain visible"
+    );
+}

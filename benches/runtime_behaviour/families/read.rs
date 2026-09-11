@@ -169,6 +169,7 @@ pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<Fam
             "returned": results.len(),
             "missed": missed,
             "false_inclusions": leaked,
+            "note": case.note,
         }));
     }
 

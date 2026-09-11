@@ -115,3 +115,5 @@ are outside this link-only measure. This correction removes the redundant detail
 field without changing the link-integrity value or the preserved historical JSON.
 Explicit relationship types require the annotated from-to direction; only `any`
 allows either direction. This does not change production relationship semantics.
+
+Version-1 input structs are closed: dataset, manifest, seed, every annotation family and historical-unimplemented entries reject unknown fields. An added or misspelled annotation cannot be silently accepted with 100% schema validity. The original temporal notes are explicitly typed and included in per-case output, not discarded. Optional documented fields remain optional; extensions require an explicit supported schema change.

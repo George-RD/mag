@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 /// One memory to seed before scoring.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Seed {
     /// Stable slug, unique across the dataset. Mapped to a generated uuid at run time.
     pub key: String,
@@ -29,6 +30,7 @@ pub struct Seed {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EntityCase {
     pub seed: String,
     /// `"<category>:<slug>"` entries; categories are `people`, `tools`, `projects`.
@@ -38,14 +40,18 @@ pub struct EntityCase {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TemporalCase {
     pub id: String,
     pub query: String,
     pub expect_keys: Vec<String>,
     pub expect_absent_keys: Vec<String>,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelationshipCase {
     pub from: String,
     pub to: String,
@@ -57,12 +63,14 @@ pub struct RelationshipCase {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LifecycleCase {
     pub seed: String,
     pub expect_expired_after_sweep: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SupersessionCase {
     pub old: String,
     pub new: String,
@@ -73,12 +81,14 @@ pub struct SupersessionCase {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GroupingCase {
     pub cluster_id: String,
     pub members: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProvenanceCase {
     pub operation: String,
     pub expect_source_link_field: String,
@@ -87,6 +97,7 @@ pub struct ProvenanceCase {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QuestionCase {
     pub id: String,
     pub query: String,
@@ -97,6 +108,7 @@ pub struct QuestionCase {
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct UnimplementedFamily {
     pub family: String,
     pub reason: String,
@@ -104,6 +116,7 @@ pub struct UnimplementedFamily {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Dataset {
     pub schema_version: u32,
     pub dataset_version: String,
@@ -122,6 +135,7 @@ pub struct Dataset {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub schema_version: u32,
     pub dataset_version: String,

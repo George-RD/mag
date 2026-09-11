@@ -360,3 +360,51 @@ fn annotation_review_rejects_overlapping_grouping_memberships() {
     );
     assert!(String::from_utf8_lossy(&out.stdout).contains("overlapping grouping annotations"));
 }
+
+fn assert_unknown_field_rejected(output: Output) {
+    assert!(
+        !output.status.success(),
+        "unknown annotation field was silently accepted"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
+fn closed_schema_review_dataset() {
+    assert_unknown_field_rejected(mutated_validation(|data| {
+        data["extra_negative_controls"] = json!([]);
+    }));
+}
+
+#[test]
+fn closed_schema_review_manifest() {
+    let directory = edited_dataset(|_, manifest| {
+        manifest["unknown_review_metadata"] = json!("not interpreted");
+    });
+    assert_unknown_field_rejected(run(&[
+        "--dataset",
+        directory.path().to_str().unwrap(),
+        "--validate-only",
+    ]));
+}
+
+macro_rules! reject_unknown_annotation {
+    ($name:ident, $field:literal) => {
+        #[test]
+        fn $name() {
+            assert_unknown_field_rejected(mutated_validation(|data| {
+                data[$field][0]["unknown_review_annotation"] = json!([]);
+            }));
+        }
+    };
+}
+reject_unknown_annotation!(closed_schema_review_seed, "seed");
+reject_unknown_annotation!(closed_schema_review_entities, "entities");
+reject_unknown_annotation!(closed_schema_review_temporal, "temporal");
+reject_unknown_annotation!(closed_schema_review_relationships, "relationships");
+reject_unknown_annotation!(closed_schema_review_lifecycle, "lifecycle");
+reject_unknown_annotation!(closed_schema_review_supersession, "supersession");
+reject_unknown_annotation!(closed_schema_review_grouping, "grouping");
+reject_unknown_annotation!(closed_schema_review_provenance, "provenance");
+reject_unknown_annotation!(closed_schema_review_questions, "questions");
+reject_unknown_annotation!(closed_schema_review_unimplemented, "unimplemented");
