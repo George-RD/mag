@@ -507,7 +507,6 @@ fn relationship_weight_boundary_values_are_supported() {
     }
 }
 
-
 #[test]
 fn review_rejects_pre_authored_entity_result_tags() {
     assert_boundary_rejected(
