@@ -388,16 +388,18 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
         }
     }
 
-    let by_key: BTreeMap<&str, &Seed> =
-        data.seed.iter().map(|seed| (seed.key.as_str(), seed)).collect();
-    let wait_seconds = i64::try_from(LIFECYCLE_TTL_WAIT_SECONDS)
-        .expect("lifecycle wait must fit in i64");
+    let by_key: BTreeMap<&str, &Seed> = data
+        .seed
+        .iter()
+        .map(|seed| (seed.key.as_str(), seed))
+        .collect();
+    let wait_seconds =
+        i64::try_from(LIFECYCLE_TTL_WAIT_SECONDS).expect("lifecycle wait must fit in i64");
     for case in &data.lifecycle {
         let Some(seed) = by_key.get(case.seed.as_str()) else {
             continue;
         };
-        let should_expire =
-            effective_ttl_seconds(seed).is_some_and(|ttl| ttl < wait_seconds);
+        let should_expire = effective_ttl_seconds(seed).is_some_and(|ttl| ttl < wait_seconds);
         if case.expect_expired_after_sweep != should_expire {
             failures.push(format!(
                 "lifecycle {} expectation contradicts effective ttl {:?} and {}s sweep wait",
