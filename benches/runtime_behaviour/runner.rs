@@ -12,7 +12,6 @@ const GROUP_CORPUS: &str = "corpus";
 const GROUP_GROUPING: &str = "grouping";
 const GROUP_LIFECYCLE: &str = "lifecycle";
 const GROUP_PROVENANCE: &str = "provenance";
-const LIFECYCLE_TTL_WAIT_SECONDS: u64 = 2;
 
 /// Reads the embedding-space identity MAG persisted for a database.
 ///
@@ -170,7 +169,7 @@ pub async fn run(
         note_space(&path, &mut embedding_space).await?;
         seeded += group.seeded;
         retained += group.retained;
-        tokio::time::sleep(std::time::Duration::from_secs(LIFECYCLE_TTL_WAIT_SECONDS)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(dataset::LIFECYCLE_TTL_WAIT_SECONDS)).await;
         outcomes.push(families::lifecycle(&group, &data.lifecycle).await?);
         rss.sample();
     }
