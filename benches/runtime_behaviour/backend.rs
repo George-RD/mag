@@ -50,7 +50,11 @@ impl Backend {
             Self::Placeholder(e) => LocalMemoryRuntime::new_with_path(path, e.clone()),
             #[cfg(feature = "real-embeddings")]
             Self::Profile(m) => Ok(LocalMemoryRuntime::from_storage(
-                mag::memory_core::storage::sqlite::SqliteStorage::new_with_path_and_embedding_model(path, m.clone())?)),
+                mag::memory_core::storage::sqlite::SqliteStorage::new_with_path_and_embedding_model(
+                    path,
+                    m.clone(),
+                )?,
+            )),
         }
     }
 }
