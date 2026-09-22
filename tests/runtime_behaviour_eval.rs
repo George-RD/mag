@@ -576,3 +576,40 @@ fn review_rejects_lifecycle_label_that_cannot_expire() {
         "expectation contradicts effective ttl",
     );
 }
+
+
+#[test]
+fn review_rejects_nonpositive_lifecycle_ttl() {
+    assert_boundary_rejected(
+        mutated_validation(|data| {
+            let key = data["lifecycle"][0]["seed"].as_str().unwrap().to_string();
+            let seed = data["seed"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|seed| seed["key"] == key)
+                .unwrap();
+            seed["ttl_seconds"] = json!(0);
+            data["lifecycle"][0]["expect_expired_after_sweep"] = json!(true);
+        }),
+        "effective ttl must be positive",
+    );
+}
+
+#[test]
+fn review_rejects_lifecycle_ttl_equal_to_sweep_wait() {
+    assert_boundary_rejected(
+        mutated_validation(|data| {
+            let key = data["lifecycle"][0]["seed"].as_str().unwrap().to_string();
+            let seed = data["seed"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|seed| seed["key"] == key)
+                .unwrap();
+            seed["ttl_seconds"] = json!(2);
+            data["lifecycle"][0]["expect_expired_after_sweep"] = json!(true);
+        }),
+        "is a timing boundary",
+    );
+}
