@@ -515,6 +515,16 @@ fn relationship_weight_boundary_values_are_supported() {
 }
 
 #[test]
+fn review_rejects_empty_entity_annotation_slug() {
+    assert_boundary_rejected(
+        mutated_validation(|data| {
+            data["entities"][0]["expected"][0] = json!("people:");
+        }),
+        "non-empty slug",
+    );
+}
+
+#[test]
 fn review_rejects_pre_authored_entity_result_tags() {
     assert_boundary_rejected(
         mutated_validation(|data| {
