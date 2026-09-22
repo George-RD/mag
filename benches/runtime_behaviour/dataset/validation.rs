@@ -400,13 +400,26 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
         let Some(seed) = by_key.get(case.seed.as_str()) else {
             continue;
         };
-        let should_expire = effective_ttl_seconds(seed).is_some_and(|ttl| ttl < wait_seconds);
+        let effective_ttl = effective_ttl_seconds(seed);
+        if effective_ttl.is_some_and(|ttl| ttl <= 0) {
+            failures.push(format!(
+                "lifecycle {} effective ttl must be positive so the seed is observable before sweep",
+                case.seed
+            ));
+            continue;
+        }
+        if effective_ttl == Some(wait_seconds) {
+            failures.push(format!(
+                "lifecycle {} effective ttl equals the {}s sweep wait and is a timing boundary",
+                case.seed, LIFECYCLE_TTL_WAIT_SECONDS
+            ));
+            continue;
+        }
+        let should_expire = effective_ttl.is_some_and(|ttl| ttl < wait_seconds);
         if case.expect_expired_after_sweep != should_expire {
             failures.push(format!(
                 "lifecycle {} expectation contradicts effective ttl {:?} and {}s sweep wait",
-                case.seed,
-                effective_ttl_seconds(seed),
-                LIFECYCLE_TTL_WAIT_SECONDS
+                case.seed, effective_ttl, LIFECYCLE_TTL_WAIT_SECONDS
             ));
         }
     }
