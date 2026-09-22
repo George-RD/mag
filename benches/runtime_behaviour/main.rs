@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use mag::benchmarking;
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 mod backend;
 mod dataset;
@@ -62,11 +62,7 @@ fn main() -> Result<()> {
 
     let mut metadata = benchmarking::benchmark_metadata_from_parts(
         "memory_runtime_eval",
-        if args.dataset.as_path() == std::path::Path::new(DEFAULT_DATASET_DIR) {
-            "repo-local"
-        } else {
-            "user-supplied"
-        },
+        dataset_source(&args.dataset),
         &args.dataset.join("dataset.json").to_string_lossy(),
     );
     // Record typed options rather than the original argv: a bare relative path
@@ -163,6 +159,17 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn dataset_source(path: &Path) -> &'static str {
+    let repository_dataset = Path::new(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_DATASET_DIR);
+    match (
+        std::fs::canonicalize(path),
+        std::fs::canonicalize(repository_dataset),
+    ) {
+        (Ok(actual), Ok(expected)) if actual == expected => "repo-local",
+        _ => "user-supplied",
+    }
 }
 
 /// Canonical option representation, not the original argv or a replay script.
