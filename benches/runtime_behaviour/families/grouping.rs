@@ -80,10 +80,23 @@ pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<Fam
         .collect();
     let singletons: Vec<&BTreeSet<String>> =
         gold.iter().filter(|cluster| cluster.len() == 1).collect();
-    let singletons_left_alone = singletons
-        .iter()
-        .filter(|reference| predicted.contains(**reference))
-        .count();
+    let mut singleton_retained = 0usize;
+    let mut singletons_left_alone = 0usize;
+    let mut singleton_unretained = 0usize;
+    for reference in &singletons {
+        let key = reference
+            .iter()
+            .next()
+            .expect("singleton reference must contain one key");
+        if group.retained_id(key).is_none() {
+            singleton_unretained += 1;
+            continue;
+        }
+        singleton_retained += 1;
+        if predicted.contains(*reference) {
+            singletons_left_alone += 1;
+        }
+    }
 
     let purity = metrics::cluster_purity(&predicted, &gold);
     let coverage = metrics::cluster_coverage(&predicted, &multi_member);
@@ -99,11 +112,12 @@ pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<Fam
 
     let mut lines = vec![
         format!(
-            "coverage {:.1}% over {} multi-member labelled cluster(s); {}/{} singleton(s) left alone",
+            "coverage {:.1}% over {} multi-member labelled cluster(s); {}/{} retained singleton(s) left alone; {} not retained before compaction",
             coverage * 100.0,
             multi_member.len(),
             singletons_left_alone,
-            singletons.len()
+            singleton_retained,
+            singleton_unretained
         ),
         format!(
             "purity {:.1}%   clusters found {clusters_found}   memories compacted {memories_compacted}",
@@ -126,11 +140,16 @@ pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<Fam
     for case in cases {
         let reference = metrics::set_of(case.members.clone());
         let recovered = predicted.contains(&reference);
-        let verdict = match (case.members.len(), recovered) {
-            (1, true) => "left alone (not scored)",
-            (1, false) => "MERGED AWAY (not scored)",
-            (_, true) => "recovered",
-            (_, false) => "SPLIT",
+        let singleton_retained = case
+            .members
+            .first()
+            .is_none_or(|key| group.retained_id(key).is_some());
+        let verdict = match (case.members.len(), singleton_retained, recovered) {
+            (1, false, _) => "NOT RETAINED BEFORE COMPACTION (not scored)",
+            (1, true, true) => "left alone (not scored)",
+            (1, true, false) => "MERGED AWAY (not scored)",
+            (_, _, true) => "recovered",
+            (_, _, false) => "SPLIT",
         };
         lines.push(format!(
             "{:<16} members {:<2} {verdict}",
@@ -150,6 +169,8 @@ pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<Fam
         "coverage_denominator": multi_member.len(),
         "coverage_denominator_rule": "labelled clusters of two or more members; a one-member cluster is recovered by the memory merely existing",
         "singleton_clusters": singletons.len(),
+        "singleton_clusters_retained": singleton_retained,
+        "singleton_clusters_not_retained": singleton_unretained,
         "singleton_clusters_left_alone": singletons_left_alone,
         "similarity_threshold": COMPACT_SIMILARITY_THRESHOLD,
         "min_cluster_size": COMPACT_MIN_CLUSTER_SIZE,
