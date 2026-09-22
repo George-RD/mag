@@ -10,6 +10,11 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+/// Event type the grouping diagnostic passes to production compaction.
+pub const GROUPING_COMPACT_EVENT_TYPE: &str = "task_completion";
+/// Delay before the lifecycle diagnostic sweeps expired rows.
+pub const LIFECYCLE_TTL_WAIT_SECONDS: u64 = 2;
+
 /// One memory to seed before scoring.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
