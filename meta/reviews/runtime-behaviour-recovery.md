@@ -122,3 +122,22 @@ Codex comment 3985784432 identified Serde silently discarding unknown fields. Ru
 ## Falsifiable custom-input boundaries
 
 Codex review of 2bda7c2 identified vacuous temporal cases, relationship thresholds outside the production range, and duplicate grouping content (comments 3985841829, 3985841836, 3985841838). Run 34561621967 first reproduces six valid-digest process failures: empty temporal expectations, both invalid weight directions, and duplicate, padded or separator-containing grouping content. All are rejected before model startup. A positive test retains both valid weight endpoints, 0 and 1. Grouping reconstruction is intentionally one-to-one and therefore requires nonempty unique trimmed content without the compact separator; this boundary is documented instead of changing production compaction. Full default and feature-free evaluator tests, strict Clippy and formatting pass. The original corpus and archived observation are unchanged. Final-head CI and fresh independent review remain required.
+
+
+## Final custom-score semantics review
+
+Codex review of 2097190 identified six remaining diagnostic-contract gaps:
+negative-only temporal cases entered recall, all-abstention question sets
+fabricated a 0% retrieval headline, caller-provided entity result tags could
+pre-seed entity credit, empty grouping annotations disappeared from scoring,
+grouping could use an event type excluded by the compact call, and lifecycle
+labels could contradict effective TTL defaults.
+
+The follow-up keeps the shipped corpus and production runtime unchanged.
+Retrieval means are optional when their denominator is absent; temporal negative
+controls and question abstention have explicit fallback headlines. Validation
+rejects supplied entity results, empty or misconfigured grouping cases, and
+lifecycle labels inconsistent with the same event defaults and sweep wait used
+at execution. Unit/process regressions cover each boundary. Exact-head CI,
+Cairn, the existing intelligence evaluation, and fresh independent review remain
+the merge gate.
