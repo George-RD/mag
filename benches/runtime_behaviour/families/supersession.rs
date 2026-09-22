@@ -45,7 +45,6 @@ pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcom
         {
             let started = Instant::now();
             let chain = pair.group.runtime.version_chain(new_id).await?;
-            latency.push(started.elapsed().as_micros());
 
             chain_seen = chain.iter().any(|entry| {
                 entry.id == *old_id
@@ -62,6 +61,7 @@ pub async fn supersession(pairs: &[SupersessionPair<'_>]) -> Result<FamilyOutcom
                     && edge.source_id == *old_id
                     && edge.target_id == *new_id
             });
+            latency.push(started.elapsed().as_micros());
             detected = chain_seen || edge_seen;
         }
 
@@ -235,6 +235,78 @@ mod tests {
     #[tokio::test]
     async fn retired_to_current_edge_is_recognized_without_a_version_chain() {
         assert_edge_direction(false, true).await;
+    }
+
+    #[tokio::test]
+    async fn version_chain_detects_supersession_without_an_edge() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let path = directory.path().join("chain.db");
+        let runtime =
+            LocalMemoryRuntime::new_with_path(path.clone(), Arc::new(PlaceholderEmbedder)).unwrap();
+        let older = uuid::Uuid::new_v4().to_string();
+        let newer = uuid::Uuid::new_v4().to_string();
+        runtime
+            .store_raw(
+                &older,
+                "Amber telescope calibration",
+                &MemoryInput::default(),
+            )
+            .await
+            .unwrap();
+        runtime
+            .store_raw(&newer, "Cobalt orchard irrigation", &MemoryInput::default())
+            .await
+            .unwrap();
+
+        let connection = rusqlite::Connection::open(path).unwrap();
+        connection
+            .execute(
+                "UPDATE memories SET superseded_by_id = ?1 WHERE id = ?2",
+                rusqlite::params![&newer, &older],
+            )
+            .unwrap();
+        drop(connection);
+
+        let group = SeededGroup {
+            runtime,
+            key_to_id: BTreeMap::from([
+                ("old".into(), older.clone()),
+                ("new".into(), newer.clone()),
+            ]),
+            id_to_key: BTreeMap::from([
+                (older.clone(), "old".into()),
+                (newer.clone(), "new".into()),
+            ]),
+            content_to_key: BTreeMap::new(),
+            seeded: 2,
+            retained: 2,
+            retained_ids: [older, newer].into_iter().collect(),
+        };
+        let case = SupersessionCase {
+            old: "old".into(),
+            new: "new".into(),
+            expect_supersession: true,
+            kind: "chain_only".into(),
+            note: None,
+        };
+
+        let result = supersession(&[SupersessionPair {
+            case: &case,
+            group: &group,
+        }])
+        .await
+        .unwrap();
+
+        assert_eq!(
+            result.detail["cases"][0]["detected_via_version_chain"],
+            true
+        );
+        assert_eq!(
+            result.detail["cases"][0]["detected_via_supersedes_edge"],
+            false
+        );
+        assert_eq!(result.detail["cases"][0]["detected"], true);
+        assert_eq!(result.latency_micros.len(), 1);
     }
 
     #[tokio::test]
