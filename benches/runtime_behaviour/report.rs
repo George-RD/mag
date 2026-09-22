@@ -1,5 +1,6 @@
 //! Per-family scorecard. No aggregate grade or fabricated missing measurements.
 use crate::dataset::{UnimplementedFamily, ValidationCheck};
+use anyhow::{Result, ensure};
 use crate::families::{FamilyOutcome, Status};
 use mag::benchmarking::BenchmarkMetadata;
 use mag::memory_core::embedding_model::RetrieverModelProfile;
@@ -87,9 +88,19 @@ pub struct ValidationSummary {
     pub schema_validity_percentage: f64,
     pub schema_checks: Vec<ValidationCheck>,
 }
-pub fn profile_summary(profile: &RetrieverModelProfile) -> ModelProfileSummary {
+pub fn profile_summary(profile: &RetrieverModelProfile) -> Result<ModelProfileSummary> {
     let spec = profile.metadata();
-    ModelProfileSummary {
+    let mut checksums = BTreeMap::new();
+    for checksum in spec.checksums {
+        ensure!(
+            checksums
+                .insert(checksum.artifact.to_string(), checksum.sha256.to_string())
+                .is_none(),
+            "retriever profile contains duplicate checksum artifact {}",
+            checksum.artifact
+        );
+    }
+    Ok(ModelProfileSummary {
         model_id: spec.model_id.to_string(),
         revision: spec.revision.to_string(),
         role: spec.role.to_string(),
@@ -101,14 +112,10 @@ pub fn profile_summary(profile: &RetrieverModelProfile) -> ModelProfileSummary {
         document_transform: spec.document_transform.to_string(),
         max_input_tokens: spec.max_input_tokens,
         licence: spec.licence.to_string(),
-        checksums: spec
-            .checksums
-            .iter()
-            .map(|checksum| (checksum.artifact.to_string(), checksum.sha256.to_string()))
-            .collect(),
+        checksums,
         expected_model_disk_bytes: spec.local_resources.model_disk_bytes,
         expected_peak_ram_bytes: spec.local_resources.peak_ram_bytes,
-    }
+    })
 }
 
 pub fn print_report(summary: &EvalSummary, outcomes: &[FamilyOutcome], quiet: bool) {
@@ -149,6 +156,42 @@ pub fn print_report(summary: &EvalSummary, outcomes: &[FamilyOutcome], quiet: bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mag::memory_core::embedding_model::{
+        LocalResourceExpectations, RetrieverArtifactChecksum, RetrieverModelProfileSpec,
+    };
+
+    const DUPLICATE_CHECKSUMS: [RetrieverArtifactChecksum; 2] = [
+        RetrieverArtifactChecksum {
+            artifact: "model.onnx",
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        },
+        RetrieverArtifactChecksum {
+            artifact: "model.onnx",
+            sha256: "1111111111111111111111111111111111111111111111111111111111111111",
+        },
+    ];
+
+    fn duplicate_checksum_profile() -> RetrieverModelProfile {
+        RetrieverModelProfile::new(RetrieverModelProfileSpec {
+            model_id: "test/profile",
+            revision: "rev-1",
+            checksums: &DUPLICATE_CHECKSUMS,
+            role: "dense-embedding",
+            runtime: "test",
+            quantization: "none",
+            output_dimensions: 2,
+            pooling: "mean",
+            query_transform: "identity",
+            document_transform: "identity",
+            max_input_tokens: 32,
+            licence: "test",
+            local_resources: LocalResourceExpectations {
+                model_disk_bytes: 1,
+                peak_ram_bytes: 1,
+            },
+        })
+        .unwrap()
+    }
     fn outcome(status: Status, latency: Vec<u128>) -> FamilyOutcome {
         FamilyOutcome {
             name: "test",
@@ -162,6 +205,16 @@ mod tests {
             lines: vec![],
         }
     }
+    #[test]
+    fn profile_summary_rejects_duplicate_artifact_names() {
+        let error = profile_summary(&duplicate_checksum_profile()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("duplicate checksum artifact model.onnx")
+        );
+    }
+
     #[test]
     fn missing_measurement_serializes_as_null() {
         let value =
