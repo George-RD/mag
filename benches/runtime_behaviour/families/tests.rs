@@ -1,7 +1,7 @@
 use super::*;
 use crate::dataset::{EntityCase, ProvenanceCase, QuestionCase, RelationshipCase, TemporalCase};
 use mag::memory_core::MemoryInput;
-use mag::memory_core::embedder::PlaceholderEmbedder;
+use mag::memory_core::embedder::{Embedder, PlaceholderEmbedder};
 use std::sync::Arc;
 
 async fn fixture(rows: usize) -> (tempfile::TempDir, LocalMemoryRuntime) {
@@ -22,6 +22,68 @@ async fn fixture(rows: usize) -> (tempfile::TempDir, LocalMemoryRuntime) {
         runtime
     }).await.unwrap();
     (directory, runtime)
+}
+
+#[derive(Debug)]
+struct ConstantEmbedder;
+
+impl Embedder for ConstantEmbedder {
+    fn dimension(&self) -> usize {
+        2
+    }
+
+    fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+        Ok(vec![1.0, 0.0])
+    }
+}
+
+async fn provenance_group() -> (tempfile::TempDir, SeededGroup) {
+    let directory = tempfile::TempDir::new().unwrap();
+    let path = directory.path().join("provenance.db");
+    let runtime = LocalMemoryRuntime::new_with_path(path, Arc::new(ConstantEmbedder)).unwrap();
+
+    let rows = [
+        (
+            "prov-a",
+            "Nightly export wrote manifest for alpha archive",
+        ),
+        (
+            "prov-b",
+            "Nightly export completed manifest for beta backup",
+        ),
+    ];
+    let mut key_to_id = BTreeMap::new();
+    let mut id_to_key = BTreeMap::new();
+    let mut content_to_key = BTreeMap::new();
+
+    for (key, content) in rows {
+        let mut input = MemoryInput::default();
+        input.apply_event_type_defaults(Some("task_completion"));
+        runtime.store_raw(key, content, &input).await.unwrap();
+        key_to_id.insert(key.to_string(), key.to_string());
+        id_to_key.insert(key.to_string(), key.to_string());
+        content_to_key.insert(content.to_string(), key.to_string());
+    }
+
+    let retained_ids = stored_ids(&runtime).await.unwrap();
+    assert_eq!(
+        retained_ids.len(),
+        2,
+        "fixture inputs must survive write-time Jaccard dedup"
+    );
+
+    (
+        directory,
+        SeededGroup {
+            runtime,
+            key_to_id,
+            id_to_key,
+            content_to_key,
+            seeded: 2,
+            retained: retained_ids.len(),
+            retained_ids,
+        },
+    )
 }
 
 async fn discarded_seed_group() -> (tempfile::TempDir, SeededGroup) {
@@ -121,7 +183,7 @@ async fn review_relationships_disclose_discards_without_dropping_denominator() {
 
 #[tokio::test]
 async fn review_provenance_declares_only_falsifiable_conditions() {
-    let (_directory, group) = discarded_seed_group().await;
+    let (_directory, group) = provenance_group().await;
     let outcome = provenance(
         &group,
         &[ProvenanceCase {
@@ -140,9 +202,15 @@ async fn review_provenance_declares_only_falsifiable_conditions() {
             "source_hidden_by_default"
         ])
     );
-    for row in outcome.detail["retired_rows"].as_array().unwrap() {
-        assert!(row.get("readable_with_include_superseded").is_none());
-    }
+    let retired_rows = outcome.detail["retired_rows"].as_array().unwrap();
+    assert_eq!(
+        retired_rows.len(),
+        1,
+        "fixture must exercise an actual auto_compact retirement"
+    );
+    assert_eq!(outcome.detail["links_written_by_auto_compact"], 1);
+    assert_eq!(retired_rows[0]["hidden_by_default_list"], true);
+    assert!(retired_rows[0].get("readable_with_include_superseded").is_none());
 }
 
 async fn assert_relationship_direction(reverse: bool, annotation: &str, expected: f64) {
