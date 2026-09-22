@@ -128,5 +128,7 @@ not introduce a second production profile, storage semantics, or runtime.
 Per-family outcomes, source identity and actual performance sample counts are
 reported; absent measurements are null and unlike scores are not averaged.
 Its different corpus/scorer is not a matched rule-only comparator for the
-14-case generation suite. This recovery is an input to the existing calibration
-todo, not a P1 qualification or a replacement of the completed P0 harness.
+14-case generation suite. This recovery feeds the retrieval-calibration work
+recorded in `meta/reviews/runtime-behaviour-recovery.md`; it is not a
+production-model qualification or a replacement for the 14-case generation
+harness.
