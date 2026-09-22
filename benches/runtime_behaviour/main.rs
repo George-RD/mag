@@ -73,6 +73,23 @@ fn main() -> Result<()> {
     // has no slash and is not recognized by the shared generic sanitizer.
     metadata.command = recorded_command(&args)?;
 
+    let selected: BTreeSet<String> = if args.family.is_empty() {
+        ALL_FAMILIES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect()
+    } else {
+        for name in &args.family {
+            if !ALL_FAMILIES.contains(&name.as_str()) {
+                bail!(
+                    "unknown family: {name} (expected one of {})",
+                    ALL_FAMILIES.join(", ")
+                );
+            }
+        }
+        args.family.iter().cloned().collect()
+    };
+
     if args.validate_only || !valid {
         if args.json {
             let summary = ValidationSummary {
@@ -93,23 +110,6 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
-
-    let selected: BTreeSet<String> = if args.family.is_empty() {
-        ALL_FAMILIES
-            .iter()
-            .map(|name| (*name).to_string())
-            .collect()
-    } else {
-        for name in &args.family {
-            if !ALL_FAMILIES.contains(&name.as_str()) {
-                bail!(
-                    "unknown family: {name} (expected one of {})",
-                    ALL_FAMILIES.join(", ")
-                );
-            }
-        }
-        args.family.iter().cloned().collect()
-    };
 
     let load_started = Instant::now();
     let (backend, embedder_name) = backend::build(args.embedder)?;
@@ -132,7 +132,7 @@ fn main() -> Result<()> {
         embedder_name,
         embedding_dimension: backend.dimension(),
         embedding_space_identity: output.embedding_space,
-        model_profile: profile.as_ref().map(report::profile_summary),
+        model_profile: profile.as_ref().map(report::profile_summary).transpose()?,
         model_profile_reason: if profile.is_some() {
             None
         } else {
