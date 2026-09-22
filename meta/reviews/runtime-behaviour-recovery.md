@@ -101,11 +101,11 @@ abstention controls. The original dataset and historical observation stay
 byte-identical. The earlier edge-direction finding was independently fixed in
 47a33b6 with two runtime-backed RED/GREEN tests.
 
-Verification continuation: run 34558793292 reproduced both executor failures and all four privacy/annotation failures before applying fixes. The same tree then passed feature-free and default-feature diagnostic unit/process tests, strict all-target/all-feature Clippy, and formatting. Previous workbench runs stopped on missing/stale patch helpers, not successful verification; this run reuses edited_dataset to recompute valid manifest digests. Exact-head CI and fresh independent review remain required before merge.
+Verification continuation: run 34558793292 reproduced both executor failures and all four privacy/annotation failures before applying fixes. The same tree then passed feature-free and default-feature diagnostic unit/process tests, strict all-target/all-feature Clippy, and formatting. Previous workbench runs stopped on missing/stale patch helpers, not successful verification; this run reuses edited_dataset to recompute valid manifest digests.
 
 ## Fresh review: impossible annotations
 
-Codex review of d57ba88 identified intersecting temporal present/absent keys and overlapping grouping membership (comments 3985717669 and 3985717674). Run 34559563024 first reproduces both process failures with valid manifest digests, then passes the complete default and feature-free evaluator tests, strict all-target/all-feature Clippy and formatting. A shared annotation-consistency helper preserves the question invariant and adds these two guards. No scorer, production code, original dataset or archived observation changes. Full exact-head CI and renewed independent review remain the merge boundary; the run artifact also records a once-only release BGE smoke at the resulting commit.
+Codex review of d57ba88 identified intersecting temporal present/absent keys and overlapping grouping membership (comments 3985717669 and 3985717674). Run 34559563024 first reproduces both process failures with valid manifest digests, then passes the complete default and feature-free evaluator tests, strict all-target/all-feature Clippy and formatting. A shared annotation-consistency helper preserves the question invariant and adds these two guards. No scorer, production code, original dataset or archived observation changes. The run artifact also records a once-only release BGE smoke at the resulting commit.
 
 ## Scoring-observation audit
 
@@ -113,15 +113,15 @@ CodeRabbit identified a redundant provenance condition, incomplete full-table ob
 
 A shared complete-listing helper rejects partial results at all four full-table observation sites. Explicit relationship types require the annotated direction; any retains the original direction-agnostic contract. Provenance now names three falsifiable conditions, removing source readability as an independent scored claim. The original corpus uses any relationships, and original archive bytes remain unchanged.
 
-Decision: retain every annotated entity/relationship case in the end-to-end denominator, rather than adopting the review suggestion to exclude discarded inputs. Conditioning these scores on successful retention would hide an ingestion loss and silently redefine the recovered metric. Per-case retention flags and aggregate discarded-case counts now separate these losses from errors on retained rows; README and source comments state that these are not isolated extractor/graph accuracy. Lifecycle remains conditional because a never-stored row cannot prove successful expiry. No production behaviour or model default changes. Full final-head CI and fresh independent review remain required.
+Decision: retain every annotated entity/relationship case in the end-to-end denominator, rather than adopting the review suggestion to exclude discarded inputs. Conditioning these scores on successful retention would hide an ingestion loss and silently redefine the recovered metric. Per-case retention flags and aggregate discarded-case counts now separate these losses from errors on retained rows; README and source comments state that these are not isolated extractor/graph accuracy. Lifecycle remains conditional because a never-stored row cannot prove successful expiry. No production behaviour or model default changes.
 
 ## Closed versioned input
 
-Codex comment 3985784432 identified Serde silently discarding unknown fields. Run 34561387547 first reproduces twelve independent process failures (dataset, manifest and every nested input struct) using checksum-valid mutations, plus a runtime regression for lost temporal notes. All input structs now use deny_unknown_fields. The first attempt, run 34560986734, exposed an existing unmodeled TemporalCase.note field and failed against the original corpus; it was not a successful verification. A systematic comparison of every original input key with the typed fields found only that omission. The legitimate optional note is now modeled and included in per-case temporal output, with original bytes unchanged. The complete default and feature-free diagnostic tests, strict Clippy and formatting pass. This affects only the diagnostic input contract, not production parsing or model behaviour. Final-head CI and renewed independent review remain required before merge.
+Codex comment 3985784432 identified Serde silently discarding unknown fields. Run 34561387547 first reproduces twelve independent process failures (dataset, manifest and every nested input struct) using checksum-valid mutations, plus a runtime regression for lost temporal notes. All input structs now use deny_unknown_fields. The first attempt, run 34560986734, exposed an existing unmodeled TemporalCase.note field and failed against the original corpus; it was not a successful verification. A systematic comparison of every original input key with the typed fields found only that omission. The legitimate optional note is now modeled and included in per-case temporal output, with original bytes unchanged. The complete default and feature-free diagnostic tests, strict Clippy and formatting pass. This affects only the diagnostic input contract, not production parsing or model behaviour.
 
 ## Falsifiable custom-input boundaries
 
-Codex review of 2bda7c2 identified vacuous temporal cases, relationship thresholds outside the production range, and duplicate grouping content (comments 3985841829, 3985841836, 3985841838). Run 34561621967 first reproduces six valid-digest process failures: empty temporal expectations, both invalid weight directions, and duplicate, padded or separator-containing grouping content. All are rejected before model startup. A positive test retains both valid weight endpoints, 0 and 1. Grouping reconstruction is intentionally one-to-one and therefore requires nonempty unique trimmed content without the compact separator; this boundary is documented instead of changing production compaction. Full default and feature-free evaluator tests, strict Clippy and formatting pass. The original corpus and archived observation are unchanged. Final-head CI and fresh independent review remain required.
+Codex review of 2bda7c2 identified vacuous temporal cases, relationship thresholds outside the production range, and duplicate grouping content (comments 3985841829, 3985841836, 3985841838). Run 34561621967 first reproduces six valid-digest process failures: empty temporal expectations, both invalid weight directions, and duplicate, padded or separator-containing grouping content. All are rejected before model startup. A positive test retains both valid weight endpoints, 0 and 1. Grouping reconstruction is intentionally one-to-one and therefore requires nonempty unique trimmed content without the compact separator; this boundary is documented instead of changing production compaction. Full default and feature-free evaluator tests, strict Clippy and formatting pass. The original corpus and archived observation are unchanged.
 
 
 ## Final custom-score semantics review
@@ -138,6 +138,12 @@ Retrieval means are optional when their denominator is absent; temporal negative
 controls and question abstention have explicit fallback headlines. Validation
 rejects supplied entity results, empty or misconfigured grouping cases, and
 lifecycle labels inconsistent with the same event defaults and sweep wait used
-at execution. Unit/process regressions cover each boundary. Exact-head CI,
-Cairn, the existing intelligence evaluation, and fresh independent review remain
-the merge gate.
+at execution. Unit/process regressions cover each boundary.
+
+
+## Merge boundary
+
+Merge only from one exact PR head after all of the following refer to that same
+revision: full CI, the Cairn architecture gate, the existing memory-intelligence
+evaluation, and fresh independent review with no unresolved correctness finding.
+Earlier-head passes are supporting evidence, not substitutes for the final gate.
