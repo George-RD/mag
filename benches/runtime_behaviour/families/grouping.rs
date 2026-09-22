@@ -111,7 +111,7 @@ pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<Fam
         ),
     ];
     lines.push(format!(
-        "compact parameters: event_type={event_type} similarity_threshold={COMPACT_SIMILARITY_THRESHOLD} min_cluster_size={COMPACT_MIN_CLUSTER_SIZE}"
+        "compact parameters: event_type={GROUPING_COMPACT_EVENT_TYPE} similarity_threshold={COMPACT_SIMILARITY_THRESHOLD} min_cluster_size={COMPACT_MIN_CLUSTER_SIZE}"
     ));
     lines.push(format!(
         "applied merge took {:.1}ms; it is excluded from the latency columns, which time the dry run only",
