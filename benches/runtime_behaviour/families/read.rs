@@ -182,8 +182,8 @@ pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<Fam
     }
 
     let mean_recall = (!recalls.is_empty()).then(|| metrics::mean(&recalls));
-    let false_inclusion_rate = (absent_expectations > 0)
-        .then(|| metrics::ratio(false_inclusions, absent_expectations));
+    let false_inclusion_rate =
+        (absent_expectations > 0).then(|| metrics::ratio(false_inclusions, absent_expectations));
     let negative_control_accuracy = false_inclusion_rate.map(|rate| 1.0 - rate);
     let (metric_label, score) = match mean_recall {
         Some(value) => ("mean recall@10", value),
