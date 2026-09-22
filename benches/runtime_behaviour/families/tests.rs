@@ -159,6 +159,25 @@ async fn review_entities_disclose_discards_without_dropping_denominator() {
 }
 
 #[tokio::test]
+async fn discarded_entity_case_without_labels_is_not_perfect() {
+    let (_directory, group) = discarded_seed_group().await;
+    let outcome = entities(
+        &group,
+        &[EntityCase {
+            seed: "discarded".into(),
+            expected: Vec::new(),
+            note: None,
+        }],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.score, 0.0);
+    assert_eq!(outcome.detail["false_negatives"], 1);
+    assert_eq!(outcome.detail["cases"][0]["retention_failure_counted"], true);
+}
+
+#[tokio::test]
 async fn review_relationships_disclose_discards_without_dropping_denominator() {
     let (_directory, group) = discarded_seed_group().await;
     let outcome = relationships(
@@ -168,7 +187,7 @@ async fn review_relationships_disclose_discards_without_dropping_denominator() {
             to: "kept".into(),
             rel_type: "any".into(),
             min_weight: 0.0,
-            note: None,
+            note: Some("relationship context".into()),
         }],
     )
     .await
@@ -179,6 +198,11 @@ async fn review_relationships_disclose_discards_without_dropping_denominator() {
     assert_eq!(outcome.detail["scoring_scope"], "end_to_end");
     assert_eq!(outcome.detail["cases_with_unretained_endpoint"], 1);
     assert_eq!(outcome.detail["cases"][0]["endpoints_retained"], false);
+    assert_eq!(outcome.detail["cases"][0]["note"], "relationship context");
+    assert_eq!(
+        outcome.detail["cases"][0]["retention_note"],
+        "endpoint not retained after seeding"
+    );
 }
 
 #[tokio::test]
@@ -308,6 +332,28 @@ async fn negative_only_temporal_case_does_not_enter_recall_denominator() {
     assert_eq!(outcome.metric_label, "negative-control accuracy");
     assert!(outcome.detail["mean_recall_at_10"].is_null());
     assert_eq!(outcome.detail["positive_recall_cases"], 0);
+}
+
+#[tokio::test]
+async fn answerable_only_questions_leave_abstention_metrics_unmeasured() {
+    let (_directory, group) = discarded_seed_group().await;
+    let outcome = questions(
+        &group,
+        &[QuestionCase {
+            id: "answerable-question".into(),
+            query: "Amber telescope calibration".into(),
+            relevant_keys: vec!["kept".into()],
+            expect_abstain: false,
+            note: None,
+        }],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.detail["abstention_questions"], 0);
+    assert!(outcome.detail["abstention_precision"].is_null());
+    assert!(outcome.detail["abstention_recall"].is_null());
+    assert!(outcome.detail["abstention_f1"].is_null());
 }
 
 #[tokio::test]
