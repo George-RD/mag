@@ -36,3 +36,14 @@ through its independently observed version chain. The recovered evaluator now ha
 two runtime-backed direction regressions and checks the correct orientation.
 Original JSON bytes remain unchanged; this is a disclosed measurement correction,
 not a production change or a favorable replacement run.
+
+
+## Historical provenance annotation note
+
+The preserved `run.json` also contains stale prose in the provenance annotation
+saying `auto_compact` would retire nothing. The measured result in that same
+artifact is authoritative for what actually happened: one row was retired, one
+new `superseded_by_id` source link was observed, and link integrity scored 100%
+for that single observed link. The annotation text is retained only because the
+artifact is byte-preserved historical evidence; the recovered evaluator no
+longer presents that prose as a prediction of the measured outcome.
