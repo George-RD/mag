@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "dataset_version": "v1",
+  "dataset_file": "dataset.json",
+  "sha256": "3260e0a00bebbfb7986cb1fb54dbc6954fb0821229aea003c65a84a4a83c99ca",
+  "counts": {
+    "seed": 36,
+    "entities": 15,
+    "temporal": 4,
+    "relationships": 3,
+    "lifecycle": 3,
+    "supersession": 4,
+    "grouping": 3,
+    "provenance": 1,
+    "questions": 13,
+    "unimplemented": 6
+  }
+}

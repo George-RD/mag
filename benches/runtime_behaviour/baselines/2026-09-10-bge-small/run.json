@@ -1,0 +1,796 @@
+{
+  "metadata": {
+    "benchmark": "memory_runtime_eval",
+    "command": "<redacted_path> --json",
+    "date": "2026-09-10T10:08:31.319893347+00:00",
+    "commit": "66796b3995766ead2429e56ccdc3d4ba2568a1be",
+    "machine": "linux x86_64, 4 CPU",
+    "dataset_source": "repo-local",
+    "dataset_path": "dataset.json"
+  },
+  "dataset_version": "v1",
+  "dataset_sha256": "3260e0a00bebbfb7986cb1fb54dbc6954fb0821229aea003c65a84a4a83c99ca",
+  "schema_validity_percentage": 100.0,
+  "schema_checks": [
+    {
+      "name": "manifest_sha256_matches",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "manifest_version_matches",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "seed_keys_unique_and_non_empty",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "seed_groups_non_empty",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cross_references_resolve",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "event_types_valid",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "importance_in_range",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "entity_annotations_prefixed",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "manifest_counts_match",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "supported_observation_contract",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "embedder_name": "bge-small-en-v1.5-int8 (production profile)",
+  "embedding_dimension": 384,
+  "embedding_space_identity": "retriever-profile:v1;model=24:Xenova/bge-small-en-v1.5;revision=40:ea104dacec62c0de699686887e3f920caeb4f3e3;role=15:dense-embedding;artifact=20:onnx/model_int8.onnx;sha256=64:bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197;artifact=14:tokenizer.json;sha256=64:d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66;quantization=4:int8;dimensions=3:384;pooling=35:attention-mask-mean+l2-normalize:v1;query=11:identity:v1;document=11:identity:v1;max_input_tokens=3:512",
+  "model_profile": {
+    "model_id": "Xenova/bge-small-en-v1.5",
+    "revision": "ea104dacec62c0de699686887e3f920caeb4f3e3",
+    "role": "dense-embedding",
+    "runtime": "onnx-runtime-cpu",
+    "quantization": "int8",
+    "output_dimensions": 384,
+    "pooling": "attention-mask-mean+l2-normalize:v1",
+    "query_transform": "identity:v1",
+    "document_transform": "identity:v1",
+    "max_input_tokens": 512,
+    "licence": "apache-2.0",
+    "checksums": {
+      "onnx/model_int8.onnx": "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197",
+      "tokenizer.json": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+    },
+    "expected_model_disk_bytes": 34472227,
+    "expected_peak_ram_bytes": 180000000
+  },
+  "model_profile_reason": null,
+  "tokens": null,
+  "tokens_reason": "no generative model in the evaluated path",
+  "model_startup_and_warmup_ms": 1456.047044,
+  "total_duration_seconds": 3.831887282,
+  "peak_rss_kb": 106676,
+  "ram_measurement": "Linux VmHWM process high-water mark; null when unavailable",
+  "seeded_memories": 36,
+  "retained_memories": 34,
+  "selected_families": 8,
+  "total_families": 8,
+  "families": {
+    "entities": {
+      "status": "measured",
+      "reason": null,
+      "metric": "micro F1",
+      "score_percentage": 7.407407407407408,
+      "cases": 15,
+      "p50_latency_ms": 0.12,
+      "p95_latency_ms": null,
+      "latency_samples": 1,
+      "detail": {
+        "cases": [
+          {
+            "expected": [],
+            "f1": 1.0,
+            "note": "No person, tool or project name appears. 'Retries' and 'payments service' are common nouns.",
+            "observed": [],
+            "seed": "retry-backoff"
+          },
+          {
+            "expected": [],
+            "f1": 1.0,
+            "note": "Describes a defect with no named entity.",
+            "observed": [],
+            "seed": "socket-leak"
+          },
+          {
+            "expected": [
+              "tools:kubernetes"
+            ],
+            "f1": 0.0,
+            "note": "Kubernetes is a tool. Classifying it as a person is a precision error.",
+            "observed": [],
+            "seed": "kubernetes-probes"
+          },
+          {
+            "expected": [
+              "tools:sqlite"
+            ],
+            "f1": 0.0,
+            "note": null,
+            "observed": [],
+            "seed": "sqlite-wal"
+          },
+          {
+            "expected": [
+              "people:priya-nandakumar",
+              "tools:rusqlite"
+            ],
+            "f1": 0.0,
+            "note": "Two-token person name introduced by 'with'.",
+            "observed": [
+              "people:nandakumar",
+              "people:priya",
+              "tools:priya"
+            ],
+            "seed": "priya-review"
+          },
+          {
+            "expected": [
+              "tools:redis"
+            ],
+            "f1": 0.0,
+            "note": "SCAN and KEYS are commands, not entities.",
+            "observed": [
+              "people:redis"
+            ],
+            "seed": "redis-scan"
+          },
+          {
+            "expected": [],
+            "f1": 1.0,
+            "note": null,
+            "observed": [],
+            "seed": "fixture-gate"
+          },
+          {
+            "expected": [
+              "tools:styled-components",
+              "tools:tailwind"
+            ],
+            "f1": 0.0,
+            "note": null,
+            "observed": [
+              "people:tailwind"
+            ],
+            "seed": "tailwind-preference"
+          },
+          {
+            "expected": [
+              "tools:postgres"
+            ],
+            "f1": 0.0,
+            "note": null,
+            "observed": [
+              "people:postgres"
+            ],
+            "seed": "postgres-vacuum"
+          },
+          {
+            "expected": [
+              "tools:coreml",
+              "tools:onnx"
+            ],
+            "f1": 0.0,
+            "note": "Apple Silicon is a platform, not a tool entity in MAG's taxonomy.",
+            "observed": [
+              "people:apple",
+              "people:silicon"
+            ],
+            "seed": "onnx-coreml"
+          },
+          {
+            "expected": [
+              "people:marcus"
+            ],
+            "f1": 1.0,
+            "note": "Single-token given name.",
+            "observed": [
+              "people:marcus"
+            ],
+            "seed": "marcus-handoff"
+          },
+          {
+            "expected": [
+              "tools:rust"
+            ],
+            "f1": 0.0,
+            "note": "Arc and Mutex are language items, not entities.",
+            "observed": [
+              "people:arc",
+              "people:mutex"
+            ],
+            "seed": "rust-arc-mutex"
+          },
+          {
+            "expected": [
+              "tools:nginx"
+            ],
+            "f1": 0.0,
+            "note": null,
+            "observed": [
+              "people:nginx"
+            ],
+            "seed": "nginx-proxy-pass"
+          },
+          {
+            "expected": [],
+            "f1": 1.0,
+            "note": "Europe/London is a location, which MAG's taxonomy does not cover.",
+            "observed": [],
+            "seed": "timezone-fact"
+          },
+          {
+            "expected": [
+              "tools:docker"
+            ],
+            "f1": 0.0,
+            "note": null,
+            "observed": [
+              "people:dockerfile"
+            ],
+            "seed": "docker-layer-order"
+          }
+        ],
+        "false_negatives": 13,
+        "false_positives": 12,
+        "macro_f1": 0.3333333333333333,
+        "micro_f1": 0.07407407407407408,
+        "micro_precision": 0.07692307692307693,
+        "micro_recall": 0.07142857142857142,
+        "true_positives": 1
+      }
+    },
+    "grouping": {
+      "status": "measured",
+      "reason": null,
+      "metric": "cluster coverage",
+      "score_percentage": 0.0,
+      "cases": 2,
+      "p50_latency_ms": 0.103,
+      "p95_latency_ms": null,
+      "latency_samples": 1,
+      "detail": {
+        "applied_merge_ms": 0.07,
+        "applied_result": {
+          "clusters": [],
+          "clusters_found": 0,
+          "dry_run": false,
+          "memories_compacted": 0
+        },
+        "cluster_coverage": 0.0,
+        "cluster_purity": 1.0,
+        "coverage_denominator": 2,
+        "coverage_denominator_rule": "labelled clusters of two or more members; a one-member cluster is recovered by the memory merely existing",
+        "dry_run_result": {
+          "clusters": [],
+          "clusters_found": 0,
+          "dry_run": true,
+          "memories_compacted": 0
+        },
+        "min_cluster_size": 3,
+        "observed_clusters": [
+          [
+            "cluster-singleton"
+          ],
+          [
+            "cluster-index-2"
+          ],
+          [
+            "cluster-index-1"
+          ],
+          [
+            "cluster-backup-3"
+          ],
+          [
+            "cluster-backup-2"
+          ],
+          [
+            "cluster-backup-1"
+          ]
+        ],
+        "retained_memories": 6,
+        "seeded_memories": 6,
+        "similarity_threshold": 0.6,
+        "singleton_clusters": 1,
+        "singleton_clusters_left_alone": 1,
+        "unmapped_segments": 0
+      }
+    },
+    "lifecycle": {
+      "status": "measured",
+      "reason": null,
+      "metric": "accuracy",
+      "score_percentage": 100.0,
+      "cases": 3,
+      "p50_latency_ms": 0.525,
+      "p95_latency_ms": null,
+      "latency_samples": 1,
+      "detail": {
+        "accuracy": 1.0,
+        "annotated_cases": 3,
+        "cases": [
+          {
+            "correct": true,
+            "expect_expired_after_sweep": true,
+            "expired": true,
+            "scored": true,
+            "seed": "ttl-short"
+          },
+          {
+            "correct": true,
+            "expect_expired_after_sweep": false,
+            "expired": false,
+            "scored": true,
+            "seed": "ttl-long"
+          },
+          {
+            "correct": true,
+            "expect_expired_after_sweep": false,
+            "expired": false,
+            "scored": true,
+            "seed": "ttl-none"
+          }
+        ],
+        "exact_set_match": true,
+        "scored_cases": 3,
+        "seeds_never_stored": [],
+        "swept_rows": 1
+      }
+    },
+    "provenance": {
+      "status": "measured",
+      "reason": null,
+      "metric": "link integrity",
+      "score_percentage": 100.0,
+      "cases": 1,
+      "p50_latency_ms": 0.176,
+      "p95_latency_ms": null,
+      "latency_samples": 1,
+      "detail": {
+        "annotated_operations": [
+          {
+            "expect_source_link_field": "superseded_by_id",
+            "note": "Derived rows must remain traceable to the memories they were built from. This family seeds its own near-duplicates: the grouping seeds are deliberately distinct enough to survive content dedup, so auto_compact would retire nothing and the family would measure nothing.",
+            "operation": "auto_compact"
+          }
+        ],
+        "auto_compact_reported_retired": 1,
+        "auto_compact_result": {
+          "by_type": [
+            {
+              "candidates": 3,
+              "clusters": 1,
+              "compacted": 1,
+              "event_type": "task_completion",
+              "threshold": 0.85
+            }
+          ],
+          "count_threshold": 1,
+          "dry_run": false,
+          "total_compacted": 1,
+          "total_memories": 3,
+          "triggered": true
+        },
+        "link_integrity": 1.0,
+        "links_intact": 1,
+        "links_present_before_call": 0,
+        "links_written_by_auto_compact": 1,
+        "retired_rows": [
+          {
+            "hidden_by_default_list": true,
+            "link_intact": true,
+            "readable_with_include_superseded": true,
+            "retired_seed": "prov-dupe-1",
+            "target_exists": true,
+            "target_seed": "prov-dupe-3",
+            "target_survived": true
+          }
+        ]
+      }
+    },
+    "questions": {
+      "status": "measured",
+      "reason": null,
+      "metric": "mean recall@10",
+      "score_percentage": 90.0,
+      "cases": 13,
+      "p50_latency_ms": 4.349,
+      "p95_latency_ms": 5.417,
+      "latency_samples": 13,
+      "detail": {
+        "abstention_f1": 0.6666666666666666,
+        "abstention_precision": 0.6666666666666666,
+        "abstention_questions": 3,
+        "abstention_recall": 0.6666666666666666,
+        "answerable_questions": 10,
+        "cases": [
+          {
+            "abstained": false,
+            "id": "q-retry",
+            "note": null,
+            "query": "how should retries work",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": true,
+            "id": "q-retry-paraphrase",
+            "note": "Pure paraphrase with no shared content words. Measured as an abstention failure when MAG returns nothing.",
+            "query": "what is our policy when a request fails and we try again",
+            "recall_at_10": 0.0,
+            "recall_at_5": 0.0,
+            "reciprocal_rank": 0.0,
+            "returned": 0
+          },
+          {
+            "abstained": false,
+            "id": "q-socket",
+            "note": null,
+            "query": "why did the worker leak a socket",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": false,
+            "id": "q-probes",
+            "note": null,
+            "query": "should liveness probes check dependencies",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": false,
+            "id": "q-wal",
+            "note": null,
+            "query": "which journal mode does sqlite use here",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": false,
+            "id": "q-redis",
+            "note": null,
+            "query": "is KEYS safe to run against redis in production",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": false,
+            "id": "q-multi-platform",
+            "note": null,
+            "query": "what platform lessons have we recorded",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": false,
+            "id": "q-styling",
+            "note": null,
+            "query": "which css approach do I prefer",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": false,
+            "id": "q-timezone",
+            "note": null,
+            "query": "what timezone do I work in",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 0.5,
+            "returned": 10
+          },
+          {
+            "abstained": false,
+            "id": "q-embedding-backend",
+            "note": null,
+            "query": "why is the embedder pinned to the CPU backend",
+            "recall_at_10": 1.0,
+            "recall_at_5": 1.0,
+            "reciprocal_rank": 1.0,
+            "returned": 10
+          },
+          {
+            "abstained": true,
+            "expect_abstain": true,
+            "id": "q-absent-kafka",
+            "note": "Nothing in the corpus concerns Kafka. Returning any result is a false-answer.",
+            "query": "how is the Kafka consumer group configured",
+            "returned": 0
+          },
+          {
+            "abstained": false,
+            "expect_abstain": true,
+            "id": "q-absent-salary",
+            "note": null,
+            "query": "what is the on-call compensation policy",
+            "returned": 10
+          },
+          {
+            "abstained": true,
+            "expect_abstain": true,
+            "id": "q-absent-ios",
+            "note": null,
+            "query": "which iOS minimum deployment target did we agree",
+            "returned": 0
+          }
+        ],
+        "mean_recall_at_10": 0.9,
+        "mean_recall_at_5": 0.9,
+        "mean_reciprocal_rank": 0.85
+      }
+    },
+    "relationships": {
+      "status": "measured",
+      "reason": null,
+      "metric": "recall",
+      "score_percentage": 66.66666666666666,
+      "cases": 3,
+      "p50_latency_ms": 0.061,
+      "p95_latency_ms": null,
+      "latency_samples": 3,
+      "detail": {
+        "annotated_edges": 3,
+        "annotated_edges_found": 2,
+        "cases": [
+          {
+            "found": true,
+            "from": "retry-backoff",
+            "note": "Same session, same project, stored together.",
+            "rel_type": "PRECEDED_BY",
+            "to": "socket-leak",
+            "weight": 1.0
+          },
+          {
+            "found": true,
+            "from": "kubernetes-probes",
+            "note": "Both platform lessons.",
+            "rel_type": "PRECEDED_BY",
+            "to": "redis-scan",
+            "weight": 1.0
+          },
+          {
+            "found": false,
+            "from": "sqlite-wal",
+            "note": "Both storage decisions.",
+            "rel_type": null,
+            "to": "fixture-gate",
+            "weight": null
+          }
+        ],
+        "observed_edge_types": {
+          "PRECEDED_BY": 3,
+          "related": 15
+        },
+        "precision": null,
+        "precision_reason": "the dataset annotates required edges only, so unannotated edges are not labelled negatives",
+        "recall": 0.6666666666666666
+      }
+    },
+    "supersession": {
+      "status": "measured",
+      "reason": null,
+      "metric": "F1",
+      "score_percentage": 50.0,
+      "cases": 4,
+      "p50_latency_ms": 0.097,
+      "p95_latency_ms": null,
+      "latency_samples": 3,
+      "detail": {
+        "by_kind": {
+          "dedup_shadowed": {
+            "f1": 0.0,
+            "false_negatives": 1,
+            "false_positives": 0,
+            "precision": 1.0,
+            "recall": 0.0,
+            "true_positives": 0
+          },
+          "lexical_overlap": {
+            "f1": 1.0,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "true_positives": 1
+          },
+          "paraphrase": {
+            "f1": 0.0,
+            "false_negatives": 1,
+            "false_positives": 0,
+            "precision": 1.0,
+            "recall": 0.0,
+            "true_positives": 0
+          },
+          "unrelated": {
+            "f1": 1.0,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "true_positives": 0
+          }
+        },
+        "cases": [
+          {
+            "detected": true,
+            "detected_via_supersedes_edge": false,
+            "detected_via_version_chain": true,
+            "expect_supersession": true,
+            "kind": "lexical_overlap",
+            "new": "token-expiry-new",
+            "new_memory_discarded_by_dedup": false,
+            "note": "Same subject, high word overlap, same event_type. Within MAG's cosine and Jaccard gates.",
+            "old": "token-expiry-old"
+          },
+          {
+            "detected": false,
+            "detected_via_supersedes_edge": false,
+            "detected_via_version_chain": false,
+            "expect_supersession": true,
+            "kind": "paraphrase",
+            "new": "backup-cadence-new",
+            "new_memory_discarded_by_dedup": false,
+            "note": "A genuine update stated in different words. Trigram Jaccard is well below 0.30, so MAG is expected to miss it. The annotation records what a correct system should do, not what MAG does.",
+            "old": "backup-cadence-old"
+          },
+          {
+            "detected": false,
+            "detected_via_supersedes_edge": false,
+            "detected_via_version_chain": false,
+            "expect_supersession": true,
+            "kind": "dedup_shadowed",
+            "new": "editor-preference-new",
+            "new_memory_discarded_by_dedup": true,
+            "note": "A reversal of meaning with an identical token set after stopwording and stemming. Content dedup for user_preference fires at 0.75 and discards the new memory, so supersession never runs. The failure is upstream of the supersession gate.",
+            "old": "editor-preference-old"
+          },
+          {
+            "detected": false,
+            "detected_via_supersedes_edge": false,
+            "detected_via_version_chain": false,
+            "expect_supersession": false,
+            "kind": "unrelated",
+            "new": "unrelated-decision-b",
+            "new_memory_discarded_by_dedup": false,
+            "note": "Two unrelated decisions. Superseding here would be a precision failure.",
+            "old": "unrelated-decision-a"
+          }
+        ],
+        "f1": 0.5,
+        "pairs_lost_to_dedup": 1,
+        "precision": 1.0,
+        "recall": 0.3333333333333333
+      }
+    },
+    "temporal": {
+      "status": "measured",
+      "reason": null,
+      "metric": "mean recall@10",
+      "score_percentage": 75.0,
+      "cases": 4,
+      "p50_latency_ms": 5.009,
+      "p95_latency_ms": null,
+      "latency_samples": 4,
+      "detail": {
+        "absent_expectations": 4,
+        "cases": [
+          {
+            "false_inclusions": [],
+            "id": "tmp-retry-recent",
+            "missed": [],
+            "query": "retry backoff decision from the last 5 days",
+            "recall_at_10": 1.0,
+            "returned": 4
+          },
+          {
+            "false_inclusions": [],
+            "id": "tmp-redis-older",
+            "missed": [],
+            "query": "redis production lesson from the last 45 days",
+            "recall_at_10": 1.0,
+            "returned": 10
+          },
+          {
+            "false_inclusions": [],
+            "id": "tmp-kubernetes-window",
+            "missed": [],
+            "query": "kubernetes liveness probe notes from the last 14 days",
+            "recall_at_10": 1.0,
+            "returned": 7
+          },
+          {
+            "false_inclusions": [],
+            "id": "tmp-bare-phrase",
+            "missed": [
+              "fixture-gate",
+              "retry-backoff"
+            ],
+            "query": "what did we decide in the last 5 days",
+            "recall_at_10": 0.0,
+            "returned": 0
+          }
+        ],
+        "false_inclusion_rate": 0.0,
+        "false_inclusions": 0,
+        "mean_recall_at_10": 0.75
+      }
+    }
+  },
+  "historical_unimplemented_annotations": [
+    {
+      "family": "fact_extraction",
+      "reason": "No production implementation. Structured fact extraction exists only behind --features llm,substrate and its output is never persisted as memories.",
+      "target_shape": "{ facts: [ { subject, predicate, object, confidence, source_memory_id } ] }"
+    },
+    {
+      "family": "contradiction_detection",
+      "reason": "MAG has near-duplicate detection, not contradiction detection. The supersession gate requires trigram Jaccard >= 0.30 and cosine >= 0.70, so it fires on rewording and misses contradictions stated in different words.",
+      "target_shape": "{ contradictions: [ { memory_id, contradicts_memory_id, basis, confidence } ] }"
+    },
+    {
+      "family": "summarisation",
+      "reason": "Consolidation concatenates source content rather than compressing it. There is no summariser to score, so compression ratio is reported instead and is expected to exceed 1.0.",
+      "target_shape": "{ summary, source_memory_ids, compression_ratio }"
+    },
+    {
+      "family": "relationship_typing",
+      "reason": "Edges carry four hardcoded types with no predicate vocabulary. There is no typed relationship proposal to score.",
+      "target_shape": "{ relationships: [ { source_id, target_id, predicate, confidence } ] }"
+    },
+    {
+      "family": "entity_normalization",
+      "reason": "Entity slugs are produced by string munging. There is no cross-document entity resolution, so a linking benchmark would score exactly what exact-slug-match yields.",
+      "target_shape": "{ entities: [ { surface_form, canonical_id, category, aliases } ] }"
+    },
+    {
+      "family": "referenced_date_inference",
+      "reason": "MAG validates a caller-supplied referenced_date but never infers one from text. Write-side coverage is zero by construction.",
+      "target_shape": "{ referenced_date, basis_span, confidence }"
+    }
+  ]
+}

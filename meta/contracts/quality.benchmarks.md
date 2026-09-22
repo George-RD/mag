@@ -117,3 +117,18 @@ hash and source linkage are separate from actual generation evidence;
 not attest a historical generation prompt or binary equivalence. Header exclusion
 does not redact source/template text or supplied context. Input/output aliases
 are refused and prior request/model archives remain unchanged.
+
+## Recovered runtime-behaviour diagnostic
+
+`benches/runtime_behaviour/` owns the non-generative `memory_runtime_eval`
+binary and the byte-preserved 36-seed corpus in `data/runtime_behaviour_eval/v1/`.
+It observes the same `LocalMemoryRuntime` and shared pinned production BGE
+adapter, with isolated databases and fail-closed dataset validation. It must
+not introduce a second production profile, storage semantics, or runtime.
+Per-family outcomes, source identity and actual performance sample counts are
+reported; absent measurements are null and unlike scores are not averaged.
+Its different corpus/scorer is not a matched rule-only comparator for the
+14-case generation suite. This recovery feeds the retrieval-calibration work
+recorded in `meta/reviews/runtime-behaviour-recovery.md`; it is not a
+production-model qualification or a replacement for the 14-case generation
+harness.
