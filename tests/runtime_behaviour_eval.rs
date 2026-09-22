@@ -506,3 +506,57 @@ fn relationship_weight_boundary_values_are_supported() {
         );
     }
 }
+
+
+#[test]
+fn review_rejects_pre_authored_entity_result_tags() {
+    assert_boundary_rejected(
+        mutated_validation(|data| {
+            data["seed"][0]["tags"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!("entity:people:alice"));
+        }),
+        "pre-authors runtime entity result tag",
+    );
+}
+
+#[test]
+fn review_rejects_empty_grouping_annotations() {
+    assert_boundary_rejected(
+        mutated_validation(|data| {
+            data["grouping"][0]["members"] = json!([]);
+        }),
+        "has no members",
+    );
+}
+
+#[test]
+fn review_rejects_grouping_event_type_mismatch() {
+    assert_boundary_rejected(
+        mutated_validation(|data| {
+            let index = grouping_indices(data)[0];
+            data["seed"][index]["event_type"] = json!("decision");
+        }),
+        "must use event_type task_completion",
+    );
+}
+
+#[test]
+fn review_rejects_lifecycle_label_that_cannot_expire() {
+    assert_boundary_rejected(
+        mutated_validation(|data| {
+            let key = data["lifecycle"][0]["seed"].as_str().unwrap().to_string();
+            let seed = data["seed"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|seed| seed["key"] == key)
+                .unwrap();
+            seed["event_type"] = json!("error_pattern");
+            seed["ttl_seconds"] = Value::Null;
+            data["lifecycle"][0]["expect_expired_after_sweep"] = json!(true);
+        }),
+        "expectation contradicts effective ttl",
+    );
+}
