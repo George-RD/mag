@@ -169,7 +169,10 @@ pub async fn run(
         note_space(&path, &mut embedding_space).await?;
         seeded += group.seeded;
         retained += group.retained;
-        tokio::time::sleep(std::time::Duration::from_secs(dataset::LIFECYCLE_TTL_WAIT_SECONDS)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(
+            dataset::LIFECYCLE_TTL_WAIT_SECONDS,
+        ))
+        .await;
         outcomes.push(families::lifecycle(&group, &data.lifecycle).await?);
         rss.sample();
     }
