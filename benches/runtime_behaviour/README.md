@@ -125,3 +125,17 @@ Grouping membership is reconstructed from compacted content, so grouping seed
 content must be nonempty, unique, trimmed and free of the compact separator
 `\n---\n`. Unsupported inputs fail validation rather than receive misleading
 scores. These restrictions do not change the preserved corpus or production API.
+
+
+Negative-only temporal cases contribute only to false-inclusion / negative-control
+accuracy; they never receive synthetic perfect recall. If a temporal dataset has
+no positive expectations, its headline becomes negative-control accuracy. An
+all-abstention question set reports an abstention-F1 headline and null retrieval
+means instead of a fabricated 0% retrieval score.
+
+Custom seeds may not pre-author `entity:` result tags. Grouping annotations must
+contain at least one member and grouping seeds must use the same
+`task_completion` event type passed to compaction. Lifecycle labels are checked
+against the effective TTL after production event-type defaults and the shared
+two-second sweep delay. These checks prevent supplied outputs or harness
+configuration mismatches from being scored as runtime behaviour.
