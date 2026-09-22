@@ -149,7 +149,7 @@ pub fn cluster_coverage(predicted: &[BTreeSet<String>], gold: &[BTreeSet<String>
         .filter(|reference| {
             predicted
                 .iter()
-                .any(|cluster| reference.is_subset(cluster) && cluster.len() == reference.len())
+                .any(|cluster| reference.is_subset(cluster))
         })
         .count();
     ratio(recovered, gold.len())
@@ -288,6 +288,14 @@ mod tests {
         let predicted = vec![set(&["a", "b"]), set(&["c"]), set(&["d"])];
         let gold = vec![set(&["a", "b"]), set(&["c", "d"])];
         assert!((cluster_coverage(&predicted, &gold) - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn cluster_coverage_allows_extra_members_while_purity_penalizes_them() {
+        let predicted = vec![set(&["a", "b", "x"])];
+        let gold = vec![set(&["a", "b"])];
+        assert!((cluster_coverage(&predicted, &gold) - 1.0).abs() < 1e-12);
+        assert!((cluster_purity(&predicted, &gold) - (2.0 / 3.0)).abs() < 1e-12);
     }
 
     #[test]
