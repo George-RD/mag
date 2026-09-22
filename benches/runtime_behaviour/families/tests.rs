@@ -221,7 +221,6 @@ async fn closed_schema_preserves_historical_temporal_note() {
     );
 }
 
-
 #[tokio::test]
 async fn negative_only_temporal_case_does_not_enter_recall_denominator() {
     let (_directory, group) = discarded_seed_group().await;
