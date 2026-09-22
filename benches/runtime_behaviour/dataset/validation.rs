@@ -164,12 +164,13 @@ pub fn validate(
     let mut entity_failures = Vec::new();
     for case in &dataset.entities {
         for expected in &case.expected {
-            if !ENTITY_CATEGORIES
-                .iter()
-                .any(|prefix| expected.starts_with(prefix))
-            {
+            if !ENTITY_CATEGORIES.iter().any(|prefix| {
+                expected
+                    .strip_prefix(prefix)
+                    .is_some_and(|slug| !slug.trim().is_empty())
+            }) {
                 entity_failures.push(format!(
-                    "entities[{}] annotation {expected} is not people:, tools: or projects: prefixed",
+                    "entities[{}] annotation {expected} must use people:, tools:, or projects: with a non-empty slug",
                     case.seed
                 ));
             }
