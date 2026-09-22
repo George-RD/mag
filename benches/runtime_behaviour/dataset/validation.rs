@@ -329,8 +329,27 @@ fn validate_supported_contract(data: &Dataset, manifest: &Manifest) -> Vec<Valid
     )]
 }
 
+fn effective_ttl_seconds(seed: &Seed) -> Option<i64> {
+    let mut input = mag::memory_core::MemoryInput {
+        ttl_seconds: seed.ttl_seconds,
+        ..mag::memory_core::MemoryInput::default()
+    };
+    input.apply_event_type_defaults(Some(&seed.event_type));
+    input.ttl_seconds
+}
+
 fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
     let mut failures = Vec::new();
+
+    for seed in &data.seed {
+        if let Some(tag) = seed.tags.iter().find(|tag| tag.starts_with("entity:")) {
+            failures.push(format!(
+                "seed {} pre-authors runtime entity result tag {tag}",
+                seed.key
+            ));
+        }
+    }
+
     for c in &data.questions {
         if c.expect_abstain != c.relevant_keys.is_empty() {
             failures.push(format!(
@@ -339,6 +358,7 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
             ));
         }
     }
+
     for case in &data.temporal {
         if case.expect_keys.is_empty() && case.expect_absent_keys.is_empty() {
             failures.push(format!(
@@ -358,6 +378,7 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
             ));
         }
     }
+
     for case in &data.relationships {
         if !(0.0..=1.0).contains(&case.min_weight) {
             failures.push(format!(
@@ -366,8 +387,35 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
             ));
         }
     }
+
+    let by_key: BTreeMap<&str, &Seed> =
+        data.seed.iter().map(|seed| (seed.key.as_str(), seed)).collect();
+    let wait_seconds = i64::try_from(LIFECYCLE_TTL_WAIT_SECONDS)
+        .expect("lifecycle wait must fit in i64");
+    for case in &data.lifecycle {
+        let Some(seed) = by_key.get(case.seed.as_str()) else {
+            continue;
+        };
+        let should_expire =
+            effective_ttl_seconds(seed).is_some_and(|ttl| ttl < wait_seconds);
+        if case.expect_expired_after_sweep != should_expire {
+            failures.push(format!(
+                "lifecycle {} expectation contradicts effective ttl {:?} and {}s sweep wait",
+                case.seed,
+                effective_ttl_seconds(seed),
+                LIFECYCLE_TTL_WAIT_SECONDS
+            ));
+        }
+    }
+
     let mut grouping_content = BTreeSet::new();
     for seed in data.seed.iter().filter(|seed| seed.group == "grouping") {
+        if seed.event_type != GROUPING_COMPACT_EVENT_TYPE {
+            failures.push(format!(
+                "grouping seed {} must use event_type {GROUPING_COMPACT_EVENT_TYPE}",
+                seed.key
+            ));
+        }
         if seed.content.trim().is_empty()
             || seed.content != seed.content.trim()
             || seed.content.contains("\n---\n")
@@ -378,13 +426,18 @@ fn validate_annotation_consistency(data: &Dataset) -> ValidationCheck {
             failures.push(format!("seed {} has duplicate grouping content", seed.key));
         }
     }
+
     let mut grouping_members = BTreeSet::new();
     for case in &data.grouping {
+        if case.members.is_empty() {
+            failures.push(format!("grouping {} has no members", case.cluster_id));
+        }
         for key in &case.members {
             if !grouping_members.insert(key) {
                 failures.push(format!("seed {key} has overlapping grouping annotations"));
             }
         }
     }
+
     ValidationCheck::from_failures("annotation_expectations_consistent", failures)
 }
