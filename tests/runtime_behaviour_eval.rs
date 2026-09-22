@@ -55,14 +55,21 @@ fn preserves_original_dataset_identity_and_sanitized_path() {
     let output = document(run(&["--validate-only", "--json"]));
     assert_eq!(output["dataset_version"], "v1");
     assert_eq!(output["schema_validity_percentage"], 100.0);
-    assert!(
-        output["dataset_sha256"]
-            .as_str()
-            .unwrap()
-            .starts_with("3260e0a00beb")
+    assert_eq!(
+        output["dataset_sha256"].as_str().unwrap(),
+        "3260e0a00bebbfb7986cb1fb54dbc6954fb0821229aea003c65a84a4a83c99ca"
     );
     assert_eq!(output["metadata"]["dataset_path"], "dataset.json");
     assert_eq!(output["metadata"]["dataset_source"], "repo-local");
+}
+
+#[test]
+fn validate_only_rejects_unknown_family() {
+    let output = run(&["--validate-only", "--family", "typo-family"]);
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unknown family: typo-family")
+    );
 }
 
 #[test]
