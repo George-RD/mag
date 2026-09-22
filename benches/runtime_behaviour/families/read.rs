@@ -141,8 +141,13 @@ pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<Fam
         let ranked = group.ranked_keys(&results);
         let ranked_set: BTreeSet<String> = ranked.iter().cloned().collect();
         let expected = metrics::set_of(case.expect_keys.clone());
-        let recall = metrics::recall_at_k(&ranked, &expected, SEARCH_LIMIT);
-        recalls.push(recall);
+        let recall = if expected.is_empty() {
+            None
+        } else {
+            let value = metrics::recall_at_k(&ranked, &expected, SEARCH_LIMIT);
+            recalls.push(value);
+            Some(value)
+        };
 
         let leaked: Vec<String> = case
             .expect_absent_keys
@@ -154,10 +159,13 @@ pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<Fam
         false_inclusions += leaked.len();
 
         let missed: Vec<String> = expected.difference(&ranked_set).cloned().collect();
+        let recall_text = recall
+            .map(|value| format!("{:.1}%", value * 100.0))
+            .unwrap_or_else(|| "n/a".to_string());
         lines.push(format!(
-            "{:<18} recall@{SEARCH_LIMIT} {:5.1}%  returned {:2}  missed [{}]  leaked [{}]",
+            "{:<18} recall@{SEARCH_LIMIT} {:>6}  returned {:2}  missed [{}]  leaked [{}]",
             case.id,
-            recall * 100.0,
+            recall_text,
             results.len(),
             missed.join(", "),
             leaked.join(", ")
@@ -173,29 +181,45 @@ pub async fn temporal(group: &SeededGroup, cases: &[TemporalCase]) -> Result<Fam
         }));
     }
 
-    let mean_recall = metrics::mean(&recalls);
-    let false_inclusion_rate = metrics::ratio(false_inclusions, absent_expectations);
+    let mean_recall = (!recalls.is_empty()).then(|| metrics::mean(&recalls));
+    let false_inclusion_rate = (absent_expectations > 0)
+        .then(|| metrics::ratio(false_inclusions, absent_expectations));
+    let negative_control_accuracy = false_inclusion_rate.map(|rate| 1.0 - rate);
+    let (metric_label, score) = match mean_recall {
+        Some(value) => ("mean recall@10", value),
+        None => (
+            "negative-control accuracy",
+            negative_control_accuracy.unwrap_or(0.0),
+        ),
+    };
+
     let detail = json!({
         "mean_recall_at_10": mean_recall,
+        "positive_recall_cases": recalls.len(),
+        "negative_control_accuracy": negative_control_accuracy,
         "false_inclusion_rate": false_inclusion_rate,
         "false_inclusions": false_inclusions,
         "absent_expectations": absent_expectations,
         "cases": case_details,
     });
 
+    let recall_summary = mean_recall
+        .map(|value| format!("{:.1}%", value * 100.0))
+        .unwrap_or_else(|| "n/a".to_string());
+    let false_summary = false_inclusion_rate
+        .map(|value| format!("{:.1}%", value * 100.0))
+        .unwrap_or_else(|| "n/a".to_string());
     lines.insert(
         0,
         format!(
-            "mean recall@{SEARCH_LIMIT} {:.1}%   false inclusion {:.1}% ({false_inclusions}/{absent_expectations})",
-            mean_recall * 100.0,
-            false_inclusion_rate * 100.0
+            "mean recall@{SEARCH_LIMIT} {recall_summary}   false inclusion {false_summary} ({false_inclusions}/{absent_expectations})"
         ),
     );
 
     Ok(FamilyOutcome::measured(
         "temporal",
-        "mean recall@10",
-        mean_recall,
+        metric_label,
+        score,
         cases.len(),
         latency,
         detail,
@@ -413,10 +437,14 @@ pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<Fa
         }));
     }
 
-    let mean_r5 = metrics::mean(&recall5);
-    let mean_r10 = metrics::mean(&recall10);
-    let mrr = metrics::mean(&reciprocal);
+    let mean_r5 = (!recall5.is_empty()).then(|| metrics::mean(&recall5));
+    let mean_r10 = (!recall10.is_empty()).then(|| metrics::mean(&recall10));
+    let mrr = (!reciprocal.is_empty()).then(|| metrics::mean(&reciprocal));
     let abstain_prf = abstain_counts.prf();
+    let (metric_label, score) = match mean_r10 {
+        Some(value) => ("mean recall@10", value),
+        None => ("abstention F1", abstain_prf.f1),
+    };
 
     let detail = json!({
         "mean_recall_at_5": mean_r5,
@@ -430,22 +458,31 @@ pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<Fa
         "cases": case_details,
     });
 
+    let retrieval_summary = match (mean_r5, mean_r10, mrr) {
+        (Some(r5), Some(r10), Some(rank)) => {
+            format!(
+                "R@5 {:.1}%   R@10 {:.1}%   MRR {:.3}",
+                r5 * 100.0,
+                r10 * 100.0,
+                rank
+            )
+        }
+        _ => "retrieval n/a (no answerable questions)".to_string(),
+    };
     lines.insert(
         0,
         format!(
-            "R@5 {:.1}%   R@10 {:.1}%   MRR {:.3}   abstention P {:.1}% / R {:.1}%",
-            mean_r5 * 100.0,
-            mean_r10 * 100.0,
-            mrr,
+            "{retrieval_summary}   abstention P {:.1}% / R {:.1}% / F1 {:.1}%",
             abstain_prf.precision * 100.0,
-            abstain_prf.recall * 100.0
+            abstain_prf.recall * 100.0,
+            abstain_prf.f1 * 100.0
         ),
     );
 
     Ok(FamilyOutcome::measured(
         "questions",
-        "mean recall@10",
-        mean_r10,
+        metric_label,
+        score,
         cases.len(),
         latency,
         detail,
