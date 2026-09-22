@@ -1,5 +1,5 @@
 use super::*;
-use crate::dataset::{EntityCase, ProvenanceCase, RelationshipCase};
+use crate::dataset::{EntityCase, ProvenanceCase, QuestionCase, RelationshipCase, TemporalCase};
 use mag::memory_core::MemoryInput;
 use mag::memory_core::embedder::PlaceholderEmbedder;
 use std::sync::Arc;
@@ -218,5 +218,52 @@ async fn closed_schema_preserves_historical_temporal_note() {
     assert_eq!(
         outcome.detail["cases"][0]["note"],
         "Historical temporal limitation must remain visible"
+    );
+}
+
+
+#[tokio::test]
+async fn negative_only_temporal_case_does_not_enter_recall_denominator() {
+    let (_directory, group) = discarded_seed_group().await;
+    let outcome = temporal(
+        &group,
+        &[TemporalCase {
+            id: "negative-only".into(),
+            query: "Amber telescope".into(),
+            expect_keys: Vec::new(),
+            expect_absent_keys: vec!["kept".into()],
+            note: None,
+        }],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.metric_label, "negative-control accuracy");
+    assert!(outcome.detail["mean_recall_at_10"].is_null());
+    assert_eq!(outcome.detail["positive_recall_cases"], 0);
+}
+
+#[tokio::test]
+async fn all_abstention_questions_use_abstention_headline() {
+    let (_directory, group) = discarded_seed_group().await;
+    let outcome = questions(
+        &group,
+        &[QuestionCase {
+            id: "negative-question".into(),
+            query: "Kafka consumer configuration".into(),
+            relevant_keys: Vec::new(),
+            expect_abstain: true,
+            note: None,
+        }],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.metric_label, "abstention F1");
+    assert!(outcome.detail["mean_recall_at_10"].is_null());
+    assert_eq!(outcome.detail["answerable_questions"], 0);
+    assert_eq!(
+        outcome.score,
+        outcome.detail["abstention_f1"].as_f64().unwrap()
     );
 }
