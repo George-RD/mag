@@ -1,6 +1,6 @@
 use super::complete_listing;
 use super::{COMPACT_MIN_CLUSTER_SIZE, COMPACT_SIMILARITY_THRESHOLD, FamilyOutcome, SeededGroup};
-use crate::dataset::GroupingCase;
+use crate::dataset::{GROUPING_COMPACT_EVENT_TYPE, GroupingCase};
 use crate::metrics;
 use anyhow::Result;
 use mag::memory_core::SearchOptions;
@@ -24,12 +24,11 @@ use std::time::Instant;
 /// nothing. Singletons are reported separately as left alone, which a wrongly
 /// merged singleton would fail.
 pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<FamilyOutcome> {
-    let event_type = "task_completion";
     let started = Instant::now();
     let dry = group
         .runtime
         .compact(
-            event_type,
+            GROUPING_COMPACT_EVENT_TYPE,
             COMPACT_SIMILARITY_THRESHOLD,
             COMPACT_MIN_CLUSTER_SIZE,
             true,
@@ -44,7 +43,7 @@ pub async fn grouping(group: &SeededGroup, cases: &[GroupingCase]) -> Result<Fam
     let applied = group
         .runtime
         .compact(
-            event_type,
+            GROUPING_COMPACT_EVENT_TYPE,
             COMPACT_SIMILARITY_THRESHOLD,
             COMPACT_MIN_CLUSTER_SIZE,
             false,
