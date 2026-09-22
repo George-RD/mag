@@ -56,7 +56,11 @@ pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<Famil
             .get(case.seed.as_str())
             .cloned()
             .unwrap_or_default();
-        let counts = metrics::compare_sets(&predicted, &expected);
+        let mut counts = metrics::compare_sets(&predicted, &expected);
+        let retention_failure_counted = !seed_retained && counts.false_negatives == 0;
+        if retention_failure_counted {
+            counts.false_negatives = 1;
+        }
         micro.add(counts);
         let prf = counts.prf();
         per_case_f1.push(prf.f1);
@@ -74,6 +78,7 @@ pub async fn entities(group: &SeededGroup, cases: &[EntityCase]) -> Result<Famil
         case_details.push(json!({
             "seed": case.seed,
             "seed_retained": seed_retained,
+            "retention_failure_counted": retention_failure_counted,
             "expected": expected.iter().collect::<Vec<_>>(),
             "observed": predicted.iter().collect::<Vec<_>>(),
             "f1": prf.f1,
@@ -262,7 +267,8 @@ pub async fn relationships(
                 "from": case.from,
                 "to": case.to,
                 "found": false,
-                "note": "endpoint not retained after seeding",
+                "note": case.note,
+                "retention_note": "endpoint not retained after seeding",
             }));
             continue;
         };
@@ -440,21 +446,27 @@ pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<Fa
     let mean_r5 = (!recall5.is_empty()).then(|| metrics::mean(&recall5));
     let mean_r10 = (!recall10.is_empty()).then(|| metrics::mean(&recall10));
     let mrr = (!reciprocal.is_empty()).then(|| metrics::mean(&reciprocal));
-    let abstain_prf = abstain_counts.prf();
+    let abstention_questions = cases.iter().filter(|case| case.expect_abstain).count();
+    let abstain_prf = (abstention_questions > 0).then(|| abstain_counts.prf());
     let (metric_label, score) = match mean_r10 {
         Some(value) => ("mean recall@10", value),
-        None => ("abstention F1", abstain_prf.f1),
+        None => (
+            "abstention F1",
+            abstain_prf
+                .expect("all-abstention corpus must have an abstention denominator")
+                .f1,
+        ),
     };
 
     let detail = json!({
         "mean_recall_at_5": mean_r5,
         "mean_recall_at_10": mean_r10,
         "mean_reciprocal_rank": mrr,
-        "abstention_precision": abstain_prf.precision,
-        "abstention_recall": abstain_prf.recall,
-        "abstention_f1": abstain_prf.f1,
+        "abstention_precision": abstain_prf.map(|value| value.precision),
+        "abstention_recall": abstain_prf.map(|value| value.recall),
+        "abstention_f1": abstain_prf.map(|value| value.f1),
         "answerable_questions": recall10.len(),
-        "abstention_questions": cases.len() - recall10.len(),
+        "abstention_questions": abstention_questions,
         "cases": case_details,
     });
 
@@ -469,15 +481,18 @@ pub async fn questions(group: &SeededGroup, cases: &[QuestionCase]) -> Result<Fa
         }
         _ => "retrieval n/a (no answerable questions)".to_string(),
     };
-    lines.insert(
-        0,
-        format!(
-            "{retrieval_summary}   abstention P {:.1}% / R {:.1}% / F1 {:.1}%",
-            abstain_prf.precision * 100.0,
-            abstain_prf.recall * 100.0,
-            abstain_prf.f1 * 100.0
-        ),
+    let abstention_summary = abstain_prf.map_or_else(
+        || "abstention n/a (no abstention controls)".to_string(),
+        |value| {
+            format!(
+                "abstention P {:.1}% / R {:.1}% / F1 {:.1}%",
+                value.precision * 100.0,
+                value.recall * 100.0,
+                value.f1 * 100.0
+            )
+        },
     );
+    lines.insert(0, format!("{retrieval_summary}   {abstention_summary}"));
 
     Ok(FamilyOutcome::measured(
         "questions",
