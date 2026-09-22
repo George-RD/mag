@@ -55,7 +55,9 @@ pub fn method() -> &'static str {
     }
 }
 
-/// A newly created private directory, never a reused PID-derived database.
+/// A newly created UUID-named directory, never a reused PID-derived database.
+/// Unix creates it with mode 0700; other platforms inherit the system
+/// temporary-directory access controls rather than claiming owner-only ACLs.
 pub struct Workspace(pub PathBuf);
 impl Workspace {
     pub fn new() -> Result<Self> {
